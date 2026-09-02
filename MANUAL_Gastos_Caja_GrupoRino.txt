@@ -1,0 +1,297 @@
+# Manual — Sistema de Gastos y Caja (para Grupo Rino)
+
+> Guía de referencia para construir **su propio** sistema de gastos, **externo e independiente** (no se conecta ni comparte datos con EntregaX). Está basado en cómo funciona el nuestro, pero **simplificado a UNA sola sucursal**: no hay multisucursal, ni scope por sucursal, ni cruces con otros módulos (DHL, contenedores, etc.).
+>
+> Su caso: **1 sola “caja” central**, con **N usuarios**. El **admin** fondea la caja, entrega **anticipos (fondeo) a los usuarios**, y **autoriza (aprueba/rechaza) los gastos** que los usuarios comprueban con foto del ticket. Stack sugerido: Node + Express + PostgreSQL (o el que usen); lo importante es el modelo y las reglas.
+
+---
+
+## 1. Conceptos base
+
+Tres piezas:
+
+1. **Caja central (una sola).** Es el bolsón de dinero de la empresa/sucursal. El admin la **fondea** (mete dinero). De aquí sale el dinero que se entrega a los usuarios.
+2. **Monedero por usuario (wallet).** Cada usuario tiene su propio saldo. Recibe dinero vía **anticipos** que le entrega la caja central, y lo va gastando (comprobando con tickets).
+3. **Movimientos.** Todo suma o resta a un saldo: **fondeo, anticipo, gasto, devolución, ajuste**. Cada movimiento es un asiento con su tipo, monto (siempre positivo) y estado.
+
+Regla de oro: **el saldo se lleva de forma incremental** (se suma/resta en cada operación), no se recalcula cada vez. Pero conviene tener una consulta de verificación (§3) para cuadrar.
+
+Flujo típico:
+
+```
+Admin fondea la Caja ──▶ Admin da Anticipo a Usuario ──▶ Usuario firma/acepta
+        (fund +)              (advance − caja, + usuario tras aceptar)
+                                              │
+                                              ▼
+                       Usuario registra Gasto con foto (pendiente)
+                                              │
+                                   Admin Aprueba / Rechaza
+                              (aprobado: − saldo usuario; rechazado: nada)
+                                              │
+                                              ▼
+                          Cierre/Arqueo del usuario (liquidación)
+```
+
+---
+
+## 2. Modelo de datos (esquema mínimo, 1 sucursal)
+
+Cuatro tablas. Omitimos todo lo de multisucursal (branch_id, scope, currency USD, FX, contenedores, route-blocks, cruces DHL). Si algún día quieren multimoneda, agreguen `currency` + `fx_rate`; para 1 sola moneda no hace falta.
+
+### 2.1 `wallets` — monederos (la caja central + uno por usuario)
+```sql
+CREATE TABLE wallets (
+  id              SERIAL PRIMARY KEY,
+  owner_type      VARCHAR(20) NOT NULL CHECK (owner_type IN ('caja','user')),  -- 'caja' = caja central; 'user' = monedero de usuario
+  owner_id        INTEGER,                    -- si owner_type='user' → users.id; para 'caja' puede ir NULL o un id fijo
+  balance         NUMERIC(14,2) NOT NULL DEFAULT 0,   -- saldo actual
+  pending_to_verify NUMERIC(14,2) NOT NULL DEFAULT 0, -- anticipos recibidos aún no comprobados con gastos (solo wallets de usuario)
+  status          VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','closed')),
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (owner_type, owner_id)
+);
+```
+- Habrá **una sola** fila con `owner_type='caja'` (la caja central).
+- Cada usuario tiene **una** fila `owner_type='user'`. Créenla **on-demand** (la primera vez que el usuario entra a “Mi monedero” o recibe un anticipo), no de golpe para todos.
+
+### 2.2 `movements` — movimientos (fondeos, anticipos, gastos, devoluciones, ajustes)
+```sql
+CREATE TABLE movements (
+  id              SERIAL PRIMARY KEY,
+  wallet_id       INTEGER NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+  movement_type   VARCHAR(20) NOT NULL CHECK (movement_type IN ('fund','advance','expense','return','adjustment')),
+  category        VARCHAR(40),                -- solo para 'expense' (ver §7)
+  amount          NUMERIC(14,2) NOT NULL CHECK (amount > 0),   -- SIEMPRE positivo; el signo lo da movement_type
+  status          VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','settled')),
+  concept         TEXT,
+  evidence_url    TEXT,                       -- foto del ticket/recibo (obligatoria en gastos)
+  advance_id      INTEGER REFERENCES advances(id),  -- si el gasto comprueba un anticipo
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_by     INTEGER REFERENCES users(id),     -- quién aprobó/rechazó
+  reviewed_at     TIMESTAMPTZ,
+  rejection_reason TEXT,
+  settlement_id   INTEGER REFERENCES settlements(id)
+);
+```
+
+### 2.3 `advances` — anticipos (vale digital: caja → usuario, firmado)
+```sql
+CREATE TABLE advances (
+  id                SERIAL PRIMARY KEY,
+  source_wallet_id  INTEGER NOT NULL REFERENCES wallets(id),  -- la caja central
+  user_wallet_id    INTEGER NOT NULL REFERENCES wallets(id),  -- el monedero del usuario
+  user_id           INTEGER NOT NULL REFERENCES users(id),
+  amount            NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+  status            VARCHAR(25) NOT NULL DEFAULT 'pending_acceptance'
+                    CHECK (status IN ('pending_acceptance','accepted','rejected','cancelled','settled')),
+  issued_by         INTEGER NOT NULL REFERENCES users(id),     -- admin que lo emitió
+  issued_at         TIMESTAMPTZ DEFAULT NOW(),
+  accepted_at       TIMESTAMPTZ,
+  accepted_lat      NUMERIC(10,7),            -- GPS al firmar (evidencia)
+  accepted_lng      NUMERIC(10,7),
+  device_info       TEXT,                     -- dispositivo/navegador del usuario
+  signature_hash    VARCHAR(128),             -- huella de la firma (HMAC, ver §6)
+  purpose           TEXT,                     -- motivo del anticipo
+  outflow_movement_id INTEGER REFERENCES movements(id),  -- movement 'advance' que restó de la caja
+  inflow_movement_id  INTEGER REFERENCES movements(id),  -- movement 'advance' que sumó al usuario (al aceptar)
+  settlement_id     INTEGER REFERENCES settlements(id)
+);
+```
+
+### 2.4 `settlements` — arqueo / cierre por usuario
+```sql
+CREATE TABLE settlements (
+  id                SERIAL PRIMARY KEY,
+  user_wallet_id    INTEGER NOT NULL REFERENCES wallets(id),
+  user_id           INTEGER NOT NULL REFERENCES users(id),
+  total_funded      NUMERIC(14,2) DEFAULT 0,  -- suma de anticipos aceptados en el periodo
+  total_approved    NUMERIC(14,2) DEFAULT 0,  -- gastos aprobados
+  total_pending     NUMERIC(14,2) DEFAULT 0,
+  total_rejected    NUMERIC(14,2) DEFAULT 0,
+  cash_returned     NUMERIC(14,2) DEFAULT 0,  -- efectivo que devolvió el usuario
+  balance           NUMERIC(14,2) DEFAULT 0,  -- (total_funded − aprobados) − cash_returned  (ver §5)
+  status            VARCHAR(20) DEFAULT 'closed' CHECK (status IN ('open','closed','disputed')),
+  opened_by         INTEGER REFERENCES users(id),
+  closed_by         INTEGER REFERENCES users(id),
+  closed_at         TIMESTAMPTZ DEFAULT NOW(),
+  notes             TEXT
+);
+```
+
+> Nota: en `movements` y `advances` hay FKs que se referencian entre sí (`advance_id`, `settlement_id`, `outflow/inflow_movement_id`). Créenlas después de las tablas (o con `ALTER TABLE ADD CONSTRAINT`) para evitar el problema del huevo y la gallina.
+
+---
+
+## 3. Saldos: cómo suma y resta cada movimiento
+
+El **signo** de un movimiento sobre el saldo de su wallet depende **solo del `movement_type`**:
+
+| movement_type | Efecto en el saldo | Cuándo |
+|---|---|---|
+| `fund` | **+** | Admin fondea la caja central |
+| `return` | **+** | Usuario devuelve efectivo (en el arqueo) |
+| `adjustment` | **+** | Ajuste manual del admin (puede ser + o −; si necesitan restar, usen un `adjustment` que reste — o defínanlo con monto y una bandera; lo simple es que `adjustment` sume y para restar usen otro tipo/ajuste negativo controlado) |
+| `advance` | **−** | Sale un anticipo de la **caja** hacia el usuario |
+| `expense` | **−** | Gasto **aprobado** del usuario |
+
+Reglas finas por estado (MUY importante para no descuadrar):
+
+- Un **`expense` en `pending` NO toca el saldo.** Solo descuenta cuando pasa a **`approved`**. Si se **rechaza**, nunca descontó → no se revierte nada.
+- Un **`advance` tiene DOS movements**:
+  - En la **caja**: movement `advance` que nace **`approved`** y **resta de inmediato** (el dinero ya salió, comprometido).
+  - En el **usuario**: movement `advance` que nace **`pending`** y **solo suma cuando el usuario firma/acepta**. Al aceptar: `+balance` del usuario y `+pending_to_verify`.
+
+`pending_to_verify` (solo wallets de usuario): sube al aceptar un anticipo (+monto), baja al aprobarse un gasto de ese usuario (`GREATEST(pending_to_verify − monto, 0)`), y se pone en 0 al cerrar arqueo. Sirve para saber cuánto dinero entregado **aún no está comprobado**.
+
+**Consulta de verificación** (para cuadrar un wallet en cualquier momento):
+```sql
+SELECT
+  COALESCE(SUM(CASE WHEN movement_type IN ('fund','return','adjustment') THEN amount ELSE 0 END),0)
+- COALESCE(SUM(CASE WHEN movement_type IN ('advance','expense') THEN amount ELSE 0 END),0) AS neto
+FROM movements
+WHERE wallet_id = $1 AND status IN ('approved','settled');
+-- neto debe ser igual a wallets.balance
+```
+
+---
+
+## 4. Flujos (endpoint → efecto en BD)
+
+Convención sugerida: rutas de **admin** bajo `/api/admin/petty-cash/*`; rutas del **usuario** (móvil) bajo `/api/petty-cash/*`. Todo con auth (JWT). **Cada flujo que toca 2 saldos debe ir en una TRANSACCIÓN.**
+
+### 4.1 Fondear la caja  — `POST /api/admin/petty-cash/fund`  (solo admin)
+Body: `{ amount, concept?, origin? }`
+1. Asegurar que existe la wallet `owner_type='caja'` (crearla si no).
+2. Insertar `movements` `{ wallet_id: caja, movement_type:'fund', amount, status:'approved', concept, created_by: admin }`.
+3. `UPDATE wallets SET balance = balance + amount WHERE id = caja`.
+
+### 4.2 Dar anticipo a un usuario — `POST /api/admin/petty-cash/advance`  (solo admin)
+Body: `{ user_id, amount, purpose? }`
+1. Asegurar wallets: la de la caja y la del usuario (`ensureUserWallet`).
+2. **Validar saldo suficiente en la caja** con bloqueo: `SELECT balance FROM wallets WHERE id=caja FOR UPDATE`; si `balance < amount` → **400 “Saldo insuficiente”**.
+3. Insertar `advances` `{ source_wallet_id: caja, user_wallet_id: usuario, user_id, amount, status:'pending_acceptance', issued_by: admin }`.
+4. Insertar movement de **salida** en la caja: `{ wallet_id: caja, type:'advance', amount, status:'approved', advance_id }` y `UPDATE caja balance -= amount`.
+5. Insertar movement de **entrada** en el usuario: `{ wallet_id: usuario, type:'advance', amount, status:'pending', advance_id }` (NO suma todavía).
+6. Guardar en el advance `outflow_movement_id` e `inflow_movement_id`.
+
+### 4.3 El usuario acepta/firma el anticipo — `POST /api/petty-cash/advances/:id/accept`  (solo el destinatario)
+Body: `{ lat?, lng?, device_info? }`
+1. Validar `status='pending_acceptance'` y que el usuario autenticado es el `user_id` del anticipo (si no, 403).
+2. Calcular `signature_hash` (HMAC, §6). `UPDATE advances SET status='accepted', accepted_at=NOW(), accepted_lat, accepted_lng, device_info, signature_hash`.
+3. Aprobar el movement de entrada: `UPDATE movements SET status='approved' WHERE id = inflow_movement_id`.
+4. `UPDATE wallets SET balance = balance + amount, pending_to_verify = pending_to_verify + amount WHERE id = user_wallet_id`.
+
+> Este paso es la **prueba de entrega**: el usuario firma (con su sesión, GPS y dispositivo) que recibió el dinero. Es lo que evita disputas.
+
+### 4.4 El usuario registra un gasto — `POST /api/petty-cash/expenses`  (multipart)  (usuario)
+Form-data: `category` (obligatoria, de la lista §7), `amount` (>0), `concept?`, `advance_id?`, `gps_lat?/gps_lng?` opcional, archivo **`evidence`** (foto del ticket, **obligatoria** → 400 si falta).
+1. Subir la foto a almacenamiento privado (S3 o equivalente) → `evidence_url` (§6).
+2. Asegurar la wallet del usuario.
+3. Insertar `movements` `{ wallet_id: usuario, type:'expense', category, amount, status:'pending', concept, evidence_url, advance_id, created_by: usuario, gps... }`.
+4. **No toca el saldo** todavía (queda pendiente de aprobación).
+
+### 4.5 Admin aprueba un gasto — `POST /api/admin/petty-cash/movements/:id/approve`  (admin)
+1. Validar `status='pending'` y `movement_type='expense'`.
+2. `UPDATE movements SET status='approved', reviewed_by=admin, reviewed_at=NOW()`.
+3. `UPDATE wallets SET balance = balance − amount, pending_to_verify = GREATEST(pending_to_verify − amount, 0) WHERE id = wallet_id`.
+
+### 4.6 Admin rechaza un gasto — `POST /api/admin/petty-cash/movements/:id/reject`  (admin)
+Body: `{ reason }` (obligatorio, ≥3 caracteres).
+1. Validar `status='pending' AND movement_type='expense'`.
+2. `UPDATE movements SET status='rejected', rejection_reason=reason, reviewed_by=admin, reviewed_at=NOW()`.
+3. **No toca saldos** (un gasto rechazado nunca descontó).
+
+### 4.7 Gasto directo de la caja (opcional) — `POST /api/admin/petty-cash/caja-expense`  (admin)
+Igual que 4.4 pero contra la wallet `caja`. Como lo captura un admin, puede nacer **`approved`** directamente (auto-aprobado) y descontar de una vez. Útil para gastos de oficina que no pasan por un usuario.
+
+### 4.8 Cierre / arqueo de un usuario — `POST /api/admin/petty-cash/settle`  (admin)
+Body: `{ user_id, cash_returned, notes? }`
+1. `total_funded` = suma de `advances.amount` con `status='accepted'` del usuario en el periodo.
+2. Sobre los `expense` del usuario aún sin liquidar (`settlement_id IS NULL`) calcular `total_approved`, `total_pending`, `total_rejected`.
+3. `expected_return = total_funded − total_approved`; `balance = expected_return − cash_returned`.
+   - `balance > 0` → el usuario **aún debe** ese efectivo. `balance < 0` → la caja le debe al usuario.
+4. Insertar `settlements` (`status='closed'`, `closed_by=admin`).
+5. Marcar los `advances` `accepted` → `settled` (con `settlement_id`); los `movements` `approved/rejected` de ese usuario → `settled` (con `settlement_id`).
+6. Si `cash_returned > 0`: insertar movement `return` `approved` en la **caja** y sumarlo (`+balance` caja).
+7. Reset del usuario: `balance = GREATEST(balance − (total_funded − total_approved), 0)`, `pending_to_verify = 0`.
+
+### 4.9 Consultas del usuario (móvil)
+- `GET /api/petty-cash/my-wallet` → su saldo, pendiente por comprobar y movimientos.
+- `GET /api/petty-cash/my-advances` → sus anticipos y su estado.
+- `GET /api/petty-cash/categories` → catálogo de categorías (§7).
+
+### 4.10 Editar/borrar (permisos)
+- **Usuario:** puede **editar o borrar su propio gasto SOLO mientras está `pending`** (aún no aprobado). Una vez aprobado/rechazado, ya no.
+- **Admin:** puede editar/borrar cualquier movimiento; si estaba `approved/settled`, **debe revertir el saldo** por el tipo (aplicar el signo inverso). Recomendación: limitar el borrado a movimientos recientes o dejar rastro (no borrado físico si ya se liquidó).
+
+---
+
+## 5. Estados y transiciones
+
+- **`movements.status`**: `pending → approved → settled`, o `pending → rejected → settled`. Fondeos/devoluciones nacen `approved`.
+- **`advances.status`**: `pending_acceptance → accepted → settled`. (`rejected/cancelled` si se cancela antes de aceptar.)
+- **`settlements.status`**: normalmente se crea directo como `closed`.
+
+Semántica del `balance` del arqueo: **`balance = (total_funded − aprobados) − cash_returned`**; **positivo = el usuario todavía debe; negativo = la caja le debe.** (Definan y documenten este signo desde el día 1 para no confundir a operaciones.)
+
+---
+
+## 6. Evidencia y firma
+
+- **Foto del ticket obligatoria** en todo gasto. Súbanla a un bucket **privado**; guarden la key/URL en `evidence_url` y **firmen la URL al leer** (URL prefirmada temporal) porque el bucket no debe ser público. Sugerencia de key: `petty-cash/expenses/<userId>/<timestamp>-evidence-<archivo>`.
+- Opcional pero recomendado: **GPS** del gasto (`gps_lat/gps_lng`) y, para combustible, foto de odómetro + km.
+- **Firma del anticipo (`signature_hash`)**: al aceptar, generen un HMAC-SHA256 de `advanceId|userId|amount|timestamp` con un secreto del servidor. Guarden también `accepted_lat/lng` y `device_info`. Esto es su prueba de que el usuario recibió el dinero.
+
+---
+
+## 7. Categorías de gasto
+
+**Hardcodeadas en el código** (no en BD), como lista fija con `key`, `label` e `icono`. Nuestra lista (adáptenla a lo suyo):
+
+`caseta, combustible, mecanica, alimentos, hospedaje, estacionamiento, papeleria, mensajeria, lavado, refacciones, hidratacion, propina, otros`.
+
+(Quiten las que no apliquen —p. ej. `impuestos_dhl`, `peaje_internacional`— y agreguen las suyas.)
+
+---
+
+## 8. Roles
+
+Ustedes son **1 sucursal**, así que **NO necesitan** scope por sucursal ni los ~6 roles nuestros. Con **dos roles** basta:
+
+- **admin** (dueño/administrador): fondea la caja, da anticipos, aprueba/rechaza gastos, hace arqueos, edita/borra. (Pueden tener varios admins.)
+- **user** (usuario operativo): ve su monedero, acepta anticipos, registra gastos con foto, edita/borra su gasto mientras esté pendiente.
+
+Rutas `/api/admin/petty-cash/*` → solo `admin`. Rutas `/api/petty-cash/*` → cualquier usuario autenticado, **operando solo su propio monedero** (un usuario nunca ve el de otro).
+
+---
+
+## 9. Diferencias vs. nuestro sistema (lo que quitamos para ustedes)
+
+Para que quede claro qué **NO** necesitan (nosotros lo tenemos por ser multisucursal/logística):
+
+- **Multisucursal / scope por sucursal** → ustedes son 1 caja. Quiten `branch_id` y toda la lógica de “ver solo mi sucursal”.
+- **Multimoneda / FX (USD, tipo de cambio)** → 1 sola moneda; quiten `currency`, `fx_rate`, `source_amount`.
+- **Caja Chica central de tesorería** (libro de ingresos/egresos ligado a cobros de clientes y cortes) → ustedes solo necesitan la **caja + monederos**. El “fondeo” de la caja lo registran a mano (de dónde entró el dinero, en `concept`/`origin`); no hace falta un segundo libro contable a menos que lo quieran.
+- **Route-blocks / prorrateo a contenedores / cruce de impuestos DHL** → específico de nuestra logística; ignórenlo.
+- **Wallet de “chofer”** → en su caso es genérico “usuario”; misma mecánica.
+
+---
+
+## 10. Checklist de construcción (orden sugerido)
+
+1. Tablas `wallets`, `movements`, `advances`, `settlements` (§2) + FKs cruzadas al final.
+2. `ensureCajaWallet()` y `ensureUserWallet(userId)` (crean el monedero on-demand).
+3. Endpoints admin: **fund** (§4.1), **advance** (§4.2), **approve/reject** (§4.5–4.6), **settle** (§4.8), **caja-expense** (§4.7).
+4. Endpoints usuario: **accept advance** (§4.3), **register expense** (§4.4, con upload de foto), **my-wallet/my-advances/categories** (§4.9).
+5. Poner cada operación de saldo en **transacción** y usar `SELECT … FOR UPDATE` al validar saldo de la caja.
+6. Consulta de verificación (§3) para cuadrar y una vista de “pendientes de aprobar”.
+7. Almacenamiento privado de evidencias + URL prefirmada al leer.
+8. Pantallas: (admin) Caja con saldo + botón Fondear + botón Anticipo por usuario + bandeja de **Aprobaciones** + Arqueos; (usuario) Mi monedero + Aceptar anticipo + Registrar gasto con foto.
+
+---
+
+### Resumen en una frase
+Una **caja** que el admin **fondea**; de ahí salen **anticipos firmados** a los **usuarios**; los usuarios **comprueban gastos con foto** (quedan **pendientes**); el admin **aprueba o rechaza** (aprobar descuenta, rechazar no); y al final un **arqueo** cuadra lo entregado contra lo comprobado y el efectivo devuelto. Todo con saldos incrementales y una consulta para cuadrar.

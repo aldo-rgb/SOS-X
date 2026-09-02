@@ -193,9 +193,9 @@
         <div class="param"><label>Multiplicador excedente</label><input type="number" id="pMult" value="1.5" step="0.1" min="1"></div>
 
         <div class="grouplab">Escalones de volumen (PO Box + DHL)</div>
-        <div class="param"><label><input type="number" class="sm" id="vg1" value="80" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb1" value="500" step="50" min="0"></span></div>
-        <div class="param"><label><input type="number" class="sm" id="vg2" value="150" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb2" value="1200" step="50" min="0"></span></div>
-        <div class="param"><label><input type="number" class="sm" id="vg3" value="250" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb3" value="2500" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg1" value="50" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb1" value="500" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg2" value="75" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb2" value="1200" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg3" value="100" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb3" value="2500" step="50" min="0"></span></div>
 
         <div class="grouplab">Attach GEX (mensual)</div>
         <div class="param"><label>≥ <input type="number" class="sm" id="gexT1" value="30" min="0" max="100">% →</label><span class="two"><span class="cur">$</span><input type="number" id="gexB1" value="500" step="50" min="0"></span></div>
@@ -235,7 +235,7 @@
         <div class="grouplab">Datos de este asesor (recompensas y consecuencias)</div>
         <div class="manual">
           <div class="field"><label>Combos cerrados (envío+seg+xpay) <span class="pill reward">bono</span></label><input type="number" id="mCombos" value="0" min="0"></div>
-          <div class="field"><label>Clientes sin quejas (venta limpia) <span class="pill reward">bono</span></label><input type="number" id="mClean" value="0" min="0"></div>
+          <div class="field"><label>Clientes sin tickets (venta limpia) <span class="pill reward">bono</span></label><input type="number" id="mClean" value="0" min="0"></div>
           <div class="field"><label>N2 · Comisión a retirar (overpromise) <span class="pill pen">castigo</span></label><input type="number" id="mPenN2" value="0" min="0"></div>
         </div>
         <div class="flag"><span>⚠️</span><span>El <strong>gate de venta cruzada</strong> y las consecuencias (N2) los <strong>calcula</strong> el sistema pero los <strong>confirma gerencia</strong>. Los combos se capturan por venta (no están en el histórico agregado).</span></div>
@@ -248,7 +248,7 @@
     <div class="hdr"><h3>Comparativa de todo el equipo</h3><span class="section-note">acelerador + volumen + attach + gate · sin combos/limpia (manuales)</span></div>
     <div class="bd tblwrap">
       <table>
-        <thead><tr><th>Asesor</th><th class="num">Ventas</th><th class="num">Actual</th><th class="num">Propuesto</th><th class="num">Δ</th><th class="num">Gate</th></tr></thead>
+        <thead><tr><th>Asesor</th><th class="num">Ventas</th><th class="num">Actual</th><th class="num">Propuesto</th><th class="num">Δ</th><th class="num">Gate</th><th class="num">Quejas</th></tr></thead>
         <tbody id="teamBody"></tbody>
         <tbody id="teamTot"></tbody>
       </table>
@@ -257,12 +257,13 @@
 
   <!-- ============ METAS ============ -->
   <section class="card hide" id="tab-metas">
-    <div class="hdr"><h3>Metas para el acelerador</h3><span class="section-note">solo servicios acelerados (Aéreo/TDI/Marítimo) · meta = <b id="metaPctLbl">75</b>% de sus ventas aceleradas · para el 1.5× hay que superar el <b id="thrLbl">120</b>% de la meta</span></div>
-    <div class="bd tblwrap">
-      <table>
-        <thead><tr><th>Asesor <span style="font-weight:400;color:#8a7f72">· meta por servicio (histórico)</span></th><th class="num">Ventas aceleradas</th><th class="num">Meta</th><th class="num">Vender este mes p/ acelerador</th><th class="num">Falta</th></tr></thead>
-        <tbody id="metasBody"></tbody>
-      </table>
+    <div class="hdr"><h3>🎯 Plan del asesor · qué hacer para cada bono y acelerador</h3><span class="section-note">Elige un asesor: verás, paso a paso y en claro, todo lo que le falta este mes.</span></div>
+    <div class="bd">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <label style="font-weight:800;font-size:13px;color:#6b5f52">Asesor:</label>
+        <select id="metaSel" style="padding:9px 12px;border:1px solid #e4d9c9;border-radius:8px;font-size:14px;font-weight:700;background:#fff;min-width:240px;cursor:pointer"></select>
+      </div>
+      <div id="metaPlan"></div>
     </div>
   </section>
 
@@ -277,9 +278,9 @@
           <p><b>0–120% de la meta</b> → comisión normal (su % base). <b>El excedente por encima del 120%</b> → esa porción se paga a <b>1.5×</b> (un 50% extra). Así el vendedor no se "relaja" al llegar al 100%: pasar del 120% vale más.</p>
           <p><b>Ejemplo:</b> meta $100,000. Vende $150,000 → los primeros $120,000 pagan comisión normal; los $30,000 que pasan del 120% pagan al 1.5×.</p>
           <p><b>En este simulador</b> (aún sin la tabla real de metas) la meta se estima como un <b>% de las propias ventas aéreas</b> del asesor — el control <i>"Meta = % de sus ventas"</i>. Ej: al 75%, la meta = 75% de lo que vendió, así siempre queda por arriba y se ve el acelerador. <b>En producción</b> la meta sería un <b>objetivo fijo en MXN por asesor/mes</b> (tabla <code>advisor_sales_targets</code>), no un % de sus propias ventas.</p></div>
-        <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 80→$500 · 150→$1,200 · 250→$2,500.</p></div>
+        <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 50→$500 · 75→$1,200 · 100→$2,500.</p></div>
         <div class="item"><h4>Venta cruzada — la zanahoria <span class="tag have">X-Pay/GEX: dato existe</span></h4><p><b>Bono combo:</b> envío + Seguro + X-Pay en la misma venta → <b>+$500</b> inmediato. <b>Attach GEX mensual:</b> ≥30% guías con seguro → $500 · ≥50% → $1,000.</p></div>
-        <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes sin quejas) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
+        <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes <b>sin tickets de soporte</b>) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
       </div>
     </div>
     <div class="phase">
@@ -307,9 +308,12 @@
 
 <script>
   // ── Historial real embebido ──
+  // ── Historial real embebido (fallback si no llega postMessage con datos vivos) ──
+  // Nota: se excluyen aquí los asesores dados de baja (is_active=false) o marcados
+  // como ocultos del tablero (hide_from_commission_board=true). El backend hace el
+  // mismo filtro en vivo — este fallback debe reflejarlo para no mostrar asesores
+  // inactivos si el postMessage tarda o falla.
   let DATA = [
-    {"id":20,"name":"ALDO JOSE CAMPOS LOMAS","override_actual":103.08,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":273892.48,"comision":27389.23,"guias":37},"maritimo_china_mx":{"ventas":166596.32,"comision":6247.36,"guias":1},"liberacion_aa_dhl":{"ventas":30477.10,"comision":3047.71,"guias":10},"gex_warranty":{"ventas":11250.00,"comision":5850.00,"guias":18}}},
-    {"id":21,"name":"Antonio Hernandez","override_actual":0,"sub_count":0,"servicios":{"aereo_china_mx":{"ventas":1394346.08,"comision":34858.61,"guias":109}}},
     {"id":18,"name":"Andres Campos","override_actual":315.16,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":336253.54,"comision":33625.47,"guias":122}}},
     {"id":46,"name":"Marcelo González Márquez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":210993.31,"comision":21099.34,"guias":97}}},
     {"id":28,"name":"Christian Gonzalez","override_actual":12561.98,"sub_count":2,"servicios":{"xpay":{"ventas":55752.13,"comision":1409.51,"guias":2},"pobox_usa_mx":{"ventas":175134.21,"comision":17513.54,"guias":91},"aereo_china_mx":{"ventas":76281.08,"comision":1907.05,"guias":9}}},
@@ -317,7 +321,6 @@
     {"id":66,"name":"Jaqueline Minero","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":137835.88,"comision":13783.70,"guias":63}}},
     {"id":25,"name":"Jesus Campos","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":130981.97,"comision":13098.23,"guias":101},"aereo_china_mx":{"ventas":25525.10,"comision":638.13,"guias":3}}},
     {"id":37,"name":"Pedro Hernadez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":212254.78,"comision":10612.83,"guias":106}}},
-    {"id":15,"name":"Juan Carlos Segura","override_actual":2829.43,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":74334.58,"comision":7433.45,"guias":24}}},
     {"id":32,"name":"Víctor García","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":46758.21,"comision":4675.82,"guias":26}}},
     {"id":17,"name":"Mendez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":30506.00,"comision":3050.63,"guias":23}}},
     {"id":51,"name":"Andres Villasana","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":56589.12,"comision":2829.43,"guias":42}}},
@@ -366,7 +369,7 @@
   function compute(a, p, manual) {
     const m = manual || {combos:0, clean:0, penN2:0};
     let base = 0, baseReal = 0, totalVentas = 0, totalGuias = 0;
-    let accelBase = 0, ventasAccel = 0, poboxDhlGuias = 0, gexGuias = 0, xpayOps = 0;
+    let accelBase = 0, ventasAccel = 0, poboxDhlGuias = 0, poboxGuias = 0, dhlGuias = 0, gexGuias = 0, xpayOps = 0;
     const rows = [];
     for (const k of SVC_ORDER) {
       const v = a.servicios[k]; if (!v) continue;
@@ -384,6 +387,8 @@
         svcBase = hist > 0 ? v.comision * (rate / hist) : v.ventas * rate/100;
         if (s.accel) { accelBase += svcBase; ventasAccel += v.ventas; }
         if (s.vol) poboxDhlGuias += v.guias;
+        if (k === 'pobox_usa_mx') poboxGuias += v.guias;
+        if (k === 'liberacion_aa_dhl') dhlGuias += v.guias;
       }
       base += svcBase;
       rows.push({ k, ventas:v.ventas, guias:v.guias, com:v.comision, svcBase });
@@ -397,9 +402,11 @@
       attain = ventasAccel/meta;
       if (ventasAccel > p.thr*meta) accel = accelBase * ((ventasAccel - p.thr*meta)/ventasAccel) * (p.mult-1);
     }
-    // Bono volumen PO Box + DHL
-    let volBonus = 0;
-    for (const st of p.vol) { if (poboxDhlGuias >= st.g) { volBonus = st.b; break; } }
+    // Bono volumen: PO Box y DHL POR SEPARADO (cada uno genera su bono).
+    const tierBonus = (g) => { for (const st of p.vol) { if (g >= st.g) return st.b; } return 0; };
+    const volBonusPobox = tierBonus(poboxGuias);
+    const volBonusDhl = tierBonus(dhlGuias);
+    const volBonus = volBonusPobox + volBonusDhl;
     // Attach GEX
     const attach = totalGuias > 0 ? gexGuias/totalGuias : 0;
     const gexBonus = attach >= p.gexT2 ? p.gexB2 : attach >= p.gexT1 ? p.gexB1 : 0;
@@ -419,7 +426,8 @@
     const penN2 = m.penN2 || 0;
     const propuesto = afterCap - penN2;
 
-    return { rows, totalVentas, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
+    return { rows, totalVentas, totalGuias, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
+             poboxGuias, dhlGuias, volBonusPobox, volBonusDhl,
              gexBonus, attach, gexGuias, xpayOps, comboBonus, cleanBonus, subtotal, okXpay, okSeg, capPct, capCut, penN2, propuesto };
   }
 
@@ -438,8 +446,18 @@
     // Gate badge
     const cls = r.capPct===100?"g100":r.capPct===90?"g90":"g80";
     const icon = r.capPct===100?"✅":r.capPct===90?"⚠️":"⛔";
+    // Las quejas se muestran junto al gate porque pertenecen a la misma
+    // pregunta: no cuánto vendió, sino cómo lo vendió. Todavía NO restan del
+    // cálculo —eso es una decisión de esquema, no de pantalla—; primero hay que
+    // ver el dato limpio durante un tiempo antes de ponerle precio.
+    const q = a.quejas || {};
+    const quejasHtml = (q.periodo > 0)
+      ? `<div class="gate g80" style="margin-top:6px">🚩 ${q.periodo} queja${q.periodo===1?'':'s'} de cliente en el periodo
+           <small>· ${q.de_cliente} levantada${q.de_cliente===1?'':'s'} por el cliente · ${q.marcadas} marcada${q.marcadas===1?'':'s'} por supervisión${q.por_100_guias!=null?` · ${q.por_100_guias} por cada 100 guías`:''}${q.total_historico>q.periodo?` · ${q.total_historico} en total histórico`:''}</small></div>`
+      : `<div class="gate g100" style="margin-top:6px">🚩 Sin quejas en el periodo
+           <small>${q.total_historico>0?`· ${q.total_historico} en total histórico`:'· informativo, todavía no afecta la comisión'}</small></div>`;
     el("gateBox").innerHTML = `<div class="gate ${cls}">${icon} Gate de venta cruzada: cobra ${r.capPct}%
-      <small>· X-Pay ${r.xpayOps}/${p.qXpay} ${r.okXpay?'✓':'✗'} · Seguros ${r.gexGuias}/${p.qSeg} ${r.okSeg?'✓':'✗'}</small></div>`;
+      <small>· X-Pay ${r.xpayOps}/${p.qXpay} ${r.okXpay?'✓':'✗'} · Seguros ${r.gexGuias}/${p.qSeg} ${r.okSeg?'✓':'✗'}</small></div>` + quejasHtml;
 
     // Tabla servicios
     const tb = el("svcBody"); tb.innerHTML="";
@@ -460,7 +478,8 @@
     const L = [];
     L.push(["Base por servicio", fmt(r.base), ""]);
     L.push([`Acelerador (${r.ventasAccel>0?(r.attain*100).toFixed(0)+"% meta aérea":"n/a"})`, (r.accel>0?"+ ":"")+fmt(r.accel), r.accel>0?"pos":""]);
-    L.push([`Bono volumen (${r.poboxDhlGuias} guías PO Box+DHL)`, (r.volBonus>0?"+ ":"")+fmt(r.volBonus), r.volBonus>0?"pos":""]);
+    L.push([`Bono volumen PO Box (${r.poboxGuias} guías)`, (r.volBonusPobox>0?"+ ":"")+fmt(r.volBonusPobox), r.volBonusPobox>0?"pos":""]);
+    L.push([`Bono volumen DHL (${r.dhlGuias} guías)`, (r.volBonusDhl>0?"+ ":"")+fmt(r.volBonusDhl), r.volBonusDhl>0?"pos":""]);
     L.push([`Attach GEX (${(r.attach*100).toFixed(0)}%)`, (r.gexBonus>0?"+ ":"")+fmt(r.gexBonus), r.gexBonus>0?"pos":""]);
     if (r.comboBonus>0) L.push(["Bono combo", "+ "+fmt(r.comboBonus), "pos"]);
     if (r.cleanBonus>0) L.push(["Bono venta limpia", "+ "+fmt(r.cleanBonus), "pos"]);
@@ -479,18 +498,27 @@
     const rows = DATA.map(a => {
       const r = compute(a, p, null);
       tA+=r.baseReal; tP+=r.propuesto; tV+=r.totalVentas;
-      return {name:a.name, ventas:r.totalVentas, actual:r.baseReal, prop:r.propuesto, capPct:r.capPct};
+      return {name:a.name, ventas:r.totalVentas, actual:r.baseReal, prop:r.propuesto, capPct:r.capPct,
+              quejas:(a.quejas&&a.quejas.periodo)||0, quejas100:(a.quejas&&a.quejas.por_100_guias)};
     }).sort((x,y)=> y.prop - x.prop);
     const tb = el("teamBody"); tb.innerHTML="";
+    let tQ=0;
     rows.forEach(x => {
       const d = x.prop - x.actual;
       const gcls = x.capPct===100?"pos":x.capPct===80?"neg":"";
+      tQ += x.quejas;
+      // Cero quejas se pinta apagado: lo que debe saltar a la vista es quien
+      // las tiene, no quien no. El "por 100 guias" va al lado porque el numero
+      // crudo castiga al que mas vende.
+      const qTxt = x.quejas===0
+        ? '<span style="color:var(--muted)">0</span>'
+        : `<b class="neg">${x.quejas}</b>${x.quejas100!=null?` <small style="color:var(--muted)">(${x.quejas100}/100g)</small>`:''}`;
       tb.insertAdjacentHTML("beforeend", `<tr><td>${x.name}</td><td class="num">${fmt0(x.ventas)}</td><td class="num">${fmt(x.actual)}</td>
         <td class="num">${fmt(x.prop)}</td><td class="num ${d>=0?'pos':'neg'}">${(d>=0?'+':'−')+fmt(Math.abs(d))}</td>
-        <td class="num ${gcls}">${x.capPct}%</td></tr>`);
+        <td class="num ${gcls}">${x.capPct}%</td><td class="num">${qTxt}</td></tr>`);
     });
     const dt = tP-tA;
-    el("teamTot").innerHTML = `<tr class="tot"><td>Total equipo</td><td class="num">${fmt0(tV)}</td><td class="num">${fmt(tA)}</td><td class="num">${fmt(tP)}</td><td class="num ${dt>=0?'pos':'neg'}">${(dt>=0?'+':'−')+fmt(Math.abs(dt))}</td><td class="num">—</td></tr>`;
+    el("teamTot").innerHTML = `<tr class="tot"><td>Total equipo</td><td class="num">${fmt0(tV)}</td><td class="num">${fmt(tA)}</td><td class="num">${fmt(tP)}</td><td class="num ${dt>=0?'pos':'neg'}">${(dt>=0?'+':'−')+fmt(Math.abs(dt))}</td><td class="num">—</td><td class="num">${tQ}</td></tr>`;
   }
 
   function renderKpis() {
@@ -506,45 +534,144 @@
     el("advCount").textContent = DATA.length;
   }
 
-  // ── Metas para el acelerador ──
+  // ── Plan del asesor (metas como tareas, "for dummies") ──
+  const metaSel = el("metaSel");
+  function buildMetaOptions(){ metaSel.innerHTML=""; DATA.forEach((a,i)=>{const o=document.createElement("option");o.value=i;o.textContent=a.name;metaSel.appendChild(o);}); }
+  buildMetaOptions();
+
+  // Tarjeta de "tarea" del plan.
+  function planTask({icon, title, done, lines, bonus, tip, na}) {
+    const color = na ? '#8a8a8a' : (done ? '#2E7D46' : '#D6521C');
+    const bg = na ? '#F7F5F1' : (done ? '#F3F9F4' : '#FDFBF8');
+    const badge = na ? '<span style="font-size:11px;font-weight:700;color:#8a8a8a">—</span>'
+      : (done ? '<span style="font-size:11px;font-weight:800;color:#2E7D46;background:#E4F1E8;padding:2px 8px;border-radius:10px">✓ LOGRADO</span>'
+              : '<span style="font-size:11px;font-weight:800;color:#C1502E;background:#FDECE4;padding:2px 8px;border-radius:10px">⬜ FALTA</span>');
+    return `<div style="border:1px solid #ecdfce;border-left:4px solid ${color};border-radius:10px;padding:12px 14px;margin-bottom:10px;background:${bg}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:800;font-size:14px;color:#3a332c">${icon} ${title}</div>
+        <div style="display:flex;gap:8px;align-items:center">${bonus?`<span style="font-size:12px;font-weight:800;color:#2E7D46">${bonus}</span>`:''}${badge}</div>
+      </div>
+      <div style="font-size:12.5px;color:#5b5147;margin-top:6px;line-height:1.6">${lines.join('<br>')}</div>
+      ${tip?`<div style="font-size:11.5px;color:#8a7f72;margin-top:5px">💡 ${tip}</div>`:''}
+    </div>`;
+  }
+
   function renderMetas() {
     const p = getParams();
-    el("metaPctLbl").textContent = p.metaPct;
-    el("thrLbl").textContent = (p.thr*100).toFixed(0);
-    const tb = el("metasBody"); tb.innerHTML="";
-    const list = DATA.map(a => ({ a, r: compute(a, p, null) }))
-      .filter(x => x.r.ventasAccel > 0)
-      .sort((x,y) => y.r.ventasAccel - x.r.ventasAccel);
-    if (list.length === 0) {
-      tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Ningún asesor tiene ventas en servicios acelerados (Aéreo / TDI / Marítimo).</td></tr>`;
-      return;
-    }
-    list.forEach(({a, r}) => {
-      const umbral = p.thr * r.meta;          // ventas aceleradas necesarias para el 1.5×
-      const falta = umbral - r.ventasAccel;   // cuánto más vender este mes
-      const parts = [];
-      for (const k of SVC_ORDER) {
-        const s = SERVICES[k]; const v = a.servicios[k];
-        if (!v || !s.accel) continue;
-        const tgt = r.ventasAccel > 0 ? umbral * (v.ventas / r.ventasAccel) : 0;
-        parts.push(`${s.icon} ${s.label}: ${fmt0(tgt)}`);
+    if (metaSel.options.length !== DATA.length) buildMetaOptions();
+    const idx = Math.min(parseInt(metaSel.value||"0",10)||0, DATA.length-1);
+    const a = DATA[idx];
+    const box = el("metaPlan");
+    if (!a) { box.innerHTML = `<div style="color:#999;padding:16px;text-align:center">Sin datos de asesores.</div>`; return; }
+    const r = compute(a, p, null);
+    const cards = [];
+
+    // 1) ACELERADOR 1.5× — META SEPARADA POR SERVICIO (cada uno su promedio histórico)
+    //    Los servicios Aéreo/TDI se miden en KILOS y Marítimo en CBM (m³).
+    //    Si el backend manda aéreo_kg/tdi_kg/mar_cbm los usamos; si no,
+    //    se cae a aéreo/tdi/mar (montos $) como fallback compatible.
+    {
+      const h = a.hist_accel;
+      const fmtUnit = (v, unit) => `${(Math.round((v || 0) * 100) / 100).toLocaleString('es-MX')} ${unit}`;
+      const svcs = [
+        { key:'aereo', volKey:'aereo_kg', unit:'kg', icon:'✈️', name:'Aéreo' },
+        { key:'tdi',   volKey:'tdi_kg',   unit:'kg', icon:'🚀', name:'TDI Express' },
+        { key:'mar',   volKey:'mar_cbm',  unit:'m³', icon:'🚢', name:'Marítimo' },
+      ];
+      if (h) {
+        for (const s of svcs) {
+          const useVol = h[s.volKey] > 0;
+          const avg = useVol ? h[s.volKey] : (h[s.key] || 0);
+          const format = (v) => useVol ? fmtUnit(v, s.unit) : fmt0(v);
+          const lines = [];
+          if (avg > 0) {
+            const target = useVol
+              ? Math.round(p.thr * avg * 100) / 100
+              : Math.round(p.thr * avg);
+            const monthsN = useVol ? (h[`${s.key}_months`] || h.months) : h.months;
+            lines.push(`Tu <b>promedio mensual histórico</b> en ${s.name}: <b>${format(avg)}</b> <span style="color:#8a7f72">· ${monthsN} meses</span>`);
+            lines.push(`👉 <b>Este mes</b>, para el <b>acelerador 1.5× en ${s.name}</b>, coloca <b>más de ${format(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
+            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, done:false, lines, bonus:"1.5× excedente", tip:`Meta propia de ${s.name} (su comisión es distinta). Sale de tu promedio histórico en ${s.unit}.`}));
+          } else {
+            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, na:true, done:false, lines:[`Sin historial de ${s.name} para calcular su meta.`]}));
+          }
+        }
+      } else {
+        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta por definir)", na:true, done:false,
+          lines:[`No hay histórico de ventas para calcular sus metas.`, `👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo).`]}));
       }
-      const estado = falta <= 0 ? `<span class="v pos">✓ logrado</span>` : `<span class="v neg">${fmt0(falta)}</span>`;
-      tb.insertAdjacentHTML("beforeend",
-        `<tr>
-          <td><div style="font-weight:600">${a.name}</div><div style="font-size:11px;color:#8a7f72">${parts.join(" · ") || "—"}</div></td>
-          <td class="num">${fmt0(r.ventasAccel)}</td>
-          <td class="num">${fmt0(r.meta)}</td>
-          <td class="num" style="font-weight:700">${fmt0(umbral)}</td>
-          <td class="num">${estado}</td>
-        </tr>`);
-    });
+    }
+
+    // 2) BONO DE VOLUMEN — PO Box y DHL POR SEPARADO (cada uno su bono)
+    {
+      const asc=[...p.vol].sort((x,y)=>x.g-y.g);
+      const tiers = asc.map(st=>`${st.g}g→${fmt0(st.b)}`).join(" · ");
+      const volCard = (icon, name, g, curB) => {
+        let nx=null; for (const st of asc){ if (g<st.g){nx=st;break;} }
+        const done = curB>0;
+        const lines=[`Lleva <b>${g} guías</b> de ${name}. Bono actual: <b>${fmt0(curB)}</b>.`];
+        if (nx) lines.push(`👉 Para el bono de <b>${fmt0(nx.b)}</b> necesita <b>${nx.g} guías</b> → le faltan <b>${nx.g-g} guías</b>.`);
+        else lines.push(`🏆 Ya está en el <b>escalón máximo</b> de ${name}.`);
+        return planTask({icon, title:`Bono de volumen · ${name}`, done, lines, bonus: curB>0?fmt0(curB):"", tip:`Escalones: ${tiers}`});
+      };
+      cards.push(volCard("📦", "PO Box", r.poboxGuias, r.volBonusPobox));
+      cards.push(volCard("🚚", "DHL Nacional", r.dhlGuias, r.volBonusDhl));
+    }
+
+    // 4) CUOTA X-PAY (gate)
+    {
+      const need=Math.max(0,p.qXpay-r.xpayOps); const done=need===0;
+      const lines=[`Lleva <b>${r.xpayOps}</b> operación(es) X-Pay. Cuota del mes: <b>${p.qXpay}</b>.`,
+        done?`✅ Cuota X-Pay cumplida.`:`👉 Le faltan <b>${need}</b> operación(es) X-Pay.`];
+      cards.push(planTask({icon:"💱", title:"Cuota X-Pay (venta cruzada)", done, lines, tip:"Cumplir X-Pay + Seguros desbloquea cobrar el 100% (gate)."}));
+    }
+
+    // 5) CUOTA SEGUROS / GEX (gate)
+    {
+      const need=Math.max(0,p.qSeg-r.gexGuias); const done=need===0;
+      const lines=[`Lleva <b>${r.gexGuias}</b> póliza(s) GEX/Seguros. Cuota del mes: <b>${p.qSeg}</b>.`,
+        done?`✅ Cuota de Seguros cumplida.`:`👉 Le faltan <b>${need}</b> póliza(s) de Seguros.`];
+      cards.push(planTask({icon:"🧾", title:"Cuota de Seguros (venta cruzada)", done, lines, tip:"Cumplir X-Pay + Seguros desbloquea cobrar el 100% (gate)."}));
+    }
+
+    // 6) GATE (resumen de venta cruzada)
+    {
+      const done=r.capPct===100;
+      const lines=[`Con lo actual cobra el <b>${r.capPct}%</b> de sus comisiones + bonos.`,
+        `X-Pay ${r.okXpay?'✅':'⬜'} &nbsp;·&nbsp; Seguros ${r.okSeg?'✅':'⬜'}`,
+        done?`✅ ¡Gate al 100%! No pierde nada.`:`👉 Cumple <b>ambas cuotas</b> (X-Pay y Seguros) para cobrar el <b>100%</b> (hoy pierde ${100-r.capPct}%).`];
+      cards.push(planTask({icon:"🔓", title:"Gate de venta cruzada (cuánto cobra)", done, lines}));
+    }
+
+    // 7) BONOS MANUALES (combo / venta limpia) — informativos
+    {
+      const lines=[`<b>Combo</b> (envío + seguro + X-Pay al mismo cliente): <b>${fmt0(p.comboAmt)}</b> por cliente.`,
+        `<b>Venta limpia</b> (cliente <b>sin tickets de soporte</b> en el trimestre): <b>${fmt0(p.cleanAmt)}</b> por cliente. <span style="color:#8a7f72">Cuenta los tickets levantados por el cliente.</span>`,
+        `👉 Arma paquetes completos y da buen servicio (cero tickets) para sumar estos bonos.`];
+      cards.push(planTask({icon:"🎁", title:"Bonos extra (combo y venta limpia)", na:true, done:false, lines}));
+    }
+
+    // Resumen: qué gana si lo logra todo
+    let potVol=0; for (const st of p.vol) potVol=Math.max(potVol, st.b);
+    const resumen = `<div style="border:2px solid #F0B79A;border-radius:12px;padding:14px 16px;margin-bottom:14px;background:linear-gradient(180deg,#FFF6EF,#FFFCFA)">
+      <div style="font-weight:900;font-size:15px;color:#C1502E">🏆 Si ${a.name} logra TODO este mes:</div>
+      <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;color:#4a423a;line-height:1.7">
+        <li>Desbloquea el <b>gate al 100%</b> (X-Pay + Seguros).</li>
+        <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b> en <b>PO Box</b> + hasta <b>${fmt0(potVol)}</b> en <b>DHL</b> (por separado).</li>
+        <li>${a.hist_accel && a.hist_accel.avg>0 ? `Acelerador <b>1.5×</b> si supera <b>${fmt0(Math.round(p.thr*a.hist_accel.avg))}</b> este mes (120% de su promedio de ${fmt0(a.hist_accel.avg)}).` : `Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.`}</li>
+        <li>+ Bonos combo (${fmt0(p.comboAmt)}/cliente) y venta limpia (${fmt0(p.cleanAmt)}/cliente).</li>
+      </ul>
+      <div style="margin-top:8px;font-size:12px;color:#8a7f72">Comisión propuesta con lo actual: <b>${fmt(r.propuesto)}</b>.</div>
+    </div>`;
+
+    box.innerHTML = resumen + cards.join("");
   }
 
   function renderAll(){ renderKpis(); renderAsesor(); renderEquipo(); renderMetas(); }
 
   el("params").addEventListener("input", renderAll);
   ["advSel","mCombos","mClean","mPenN2"].forEach(id => el(id).addEventListener("input", () => { renderKpis(); renderAsesor(); }));
+  metaSel.addEventListener("change", renderMetas);
 
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
@@ -564,7 +691,7 @@
     if (Array.isArray(d.advisors) && d.advisors.length) {
       DATA = d.advisors;
       if (advSel.value >= DATA.length) advSel.value = 0;
-      buildAdvOptions();
+      buildAdvOptions(); buildMetaOptions();
       const mode = document.getElementById("dataMode");
       if (mode) mode.textContent = d.asOfLabel || "Datos en vivo";
       renderAll();

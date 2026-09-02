@@ -248,7 +248,7 @@
     <div class="hdr"><h3>Comparativa de todo el equipo</h3><span class="section-note">acelerador + volumen + attach + gate · sin combos/limpia (manuales)</span></div>
     <div class="bd tblwrap">
       <table>
-        <thead><tr><th>Asesor</th><th class="num">Ventas</th><th class="num">Actual</th><th class="num">Propuesto</th><th class="num">Δ</th><th class="num">Gate</th></tr></thead>
+        <thead><tr><th>Asesor</th><th class="num">Ventas</th><th class="num">Actual</th><th class="num">Propuesto</th><th class="num">Δ</th><th class="num">Gate</th><th class="num">Quejas</th></tr></thead>
         <tbody id="teamBody"></tbody>
         <tbody id="teamTot"></tbody>
       </table>
@@ -446,8 +446,18 @@
     // Gate badge
     const cls = r.capPct===100?"g100":r.capPct===90?"g90":"g80";
     const icon = r.capPct===100?"✅":r.capPct===90?"⚠️":"⛔";
+    // Las quejas se muestran junto al gate porque pertenecen a la misma
+    // pregunta: no cuánto vendió, sino cómo lo vendió. Todavía NO restan del
+    // cálculo —eso es una decisión de esquema, no de pantalla—; primero hay que
+    // ver el dato limpio durante un tiempo antes de ponerle precio.
+    const q = a.quejas || {};
+    const quejasHtml = (q.periodo > 0)
+      ? `<div class="gate g80" style="margin-top:6px">🚩 ${q.periodo} queja${q.periodo===1?'':'s'} de cliente en el periodo
+           <small>· ${q.de_cliente} levantada${q.de_cliente===1?'':'s'} por el cliente · ${q.marcadas} marcada${q.marcadas===1?'':'s'} por supervisión${q.por_100_guias!=null?` · ${q.por_100_guias} por cada 100 guías`:''}${q.total_historico>q.periodo?` · ${q.total_historico} en total histórico`:''}</small></div>`
+      : `<div class="gate g100" style="margin-top:6px">🚩 Sin quejas en el periodo
+           <small>${q.total_historico>0?`· ${q.total_historico} en total histórico`:'· informativo, todavía no afecta la comisión'}</small></div>`;
     el("gateBox").innerHTML = `<div class="gate ${cls}">${icon} Gate de venta cruzada: cobra ${r.capPct}%
-      <small>· X-Pay ${r.xpayOps}/${p.qXpay} ${r.okXpay?'✓':'✗'} · Seguros ${r.gexGuias}/${p.qSeg} ${r.okSeg?'✓':'✗'}</small></div>`;
+      <small>· X-Pay ${r.xpayOps}/${p.qXpay} ${r.okXpay?'✓':'✗'} · Seguros ${r.gexGuias}/${p.qSeg} ${r.okSeg?'✓':'✗'}</small></div>` + quejasHtml;
 
     // Tabla servicios
     const tb = el("svcBody"); tb.innerHTML="";
@@ -488,18 +498,27 @@
     const rows = DATA.map(a => {
       const r = compute(a, p, null);
       tA+=r.baseReal; tP+=r.propuesto; tV+=r.totalVentas;
-      return {name:a.name, ventas:r.totalVentas, actual:r.baseReal, prop:r.propuesto, capPct:r.capPct};
+      return {name:a.name, ventas:r.totalVentas, actual:r.baseReal, prop:r.propuesto, capPct:r.capPct,
+              quejas:(a.quejas&&a.quejas.periodo)||0, quejas100:(a.quejas&&a.quejas.por_100_guias)};
     }).sort((x,y)=> y.prop - x.prop);
     const tb = el("teamBody"); tb.innerHTML="";
+    let tQ=0;
     rows.forEach(x => {
       const d = x.prop - x.actual;
       const gcls = x.capPct===100?"pos":x.capPct===80?"neg":"";
+      tQ += x.quejas;
+      // Cero quejas se pinta apagado: lo que debe saltar a la vista es quien
+      // las tiene, no quien no. El "por 100 guias" va al lado porque el numero
+      // crudo castiga al que mas vende.
+      const qTxt = x.quejas===0
+        ? '<span style="color:var(--muted)">0</span>'
+        : `<b class="neg">${x.quejas}</b>${x.quejas100!=null?` <small style="color:var(--muted)">(${x.quejas100}/100g)</small>`:''}`;
       tb.insertAdjacentHTML("beforeend", `<tr><td>${x.name}</td><td class="num">${fmt0(x.ventas)}</td><td class="num">${fmt(x.actual)}</td>
         <td class="num">${fmt(x.prop)}</td><td class="num ${d>=0?'pos':'neg'}">${(d>=0?'+':'−')+fmt(Math.abs(d))}</td>
-        <td class="num ${gcls}">${x.capPct}%</td></tr>`);
+        <td class="num ${gcls}">${x.capPct}%</td><td class="num">${qTxt}</td></tr>`);
     });
     const dt = tP-tA;
-    el("teamTot").innerHTML = `<tr class="tot"><td>Total equipo</td><td class="num">${fmt0(tV)}</td><td class="num">${fmt(tA)}</td><td class="num">${fmt(tP)}</td><td class="num ${dt>=0?'pos':'neg'}">${(dt>=0?'+':'−')+fmt(Math.abs(dt))}</td><td class="num">—</td></tr>`;
+    el("teamTot").innerHTML = `<tr class="tot"><td>Total equipo</td><td class="num">${fmt0(tV)}</td><td class="num">${fmt(tA)}</td><td class="num">${fmt(tP)}</td><td class="num ${dt>=0?'pos':'neg'}">${(dt>=0?'+':'−')+fmt(Math.abs(dt))}</td><td class="num">—</td><td class="num">${tQ}</td></tr>`;
   }
 
   function renderKpis() {
