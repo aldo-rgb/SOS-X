@@ -2437,14 +2437,25 @@ export const resolveSaldoFavorRequest = async (req: Request, res: Response) => {
       // original y el tipo de cambio: sin eso, dentro de un mes nadie puede
       // reconstruir por qué se abonaron $1,031.40 por una nota de 60 USD.
       const detalleTc = conv.tc === 1 ? '' : ` (${sf.monto} ${sf.moneda} × TC ${conv.tc})`;
+      // 'credit' NO existe en el enum tx_type (deposit_*, payment_*,
+      // credit_settlement, refund, adjustment): este INSERT tronaba SIEMPRE, y
+      // como va en try/catch con un warning, fallaba en silencio. Resultado:
+      // ningun saldo a favor aprobado tenia rastro. El tipo correcto es
+      // 'adjustment' —es un ajuste a favor del cliente, no la devolucion de un
+      // cobro—. Se registra el saldo resultante para poder auditar la fila
+      // sola, sin recalcular toda la historia.
       try {
+        const saldoRes = await pool.query(`SELECT wallet_balance FROM users WHERE id = $1`, [sf.cliente_id]);
         await pool.query(
-          `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
-           VALUES ($1, 'credit', $2, $3, $4, 'saldo_a_favor', NOW())`,
-          [sf.cliente_id, conv.mxn, `Saldo a favor aprobado por ${autorizador.full_name}${detalleTc}: ${sf.motivo}`, sf.id]
+          `INSERT INTO financial_transactions (user_id, type, amount, balance_after, description, reference_id, reference_type, created_at)
+           VALUES ($1, 'adjustment', $2, $3, $4, $5, 'saldo_a_favor', NOW())`,
+          [
+            sf.cliente_id, conv.mxn, saldoRes.rows[0]?.wallet_balance ?? null,
+            `Saldo a favor aprobado por ${autorizador.full_name}${detalleTc}: ${sf.motivo}`, sf.id,
+          ]
         );
       } catch (e) {
-        console.warn('No se pudo registrar financial_transactions del saldo a favor:', e);
+        console.error('[SALDO-FAVOR] No se pudo registrar financial_transactions:', e);
       }
 
       // El mensaje dice lo que REALMENTE quedó en la billetera. Antes decía
