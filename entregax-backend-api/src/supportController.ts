@@ -731,6 +731,20 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       return res.status(400).json({ error: 'userId y message son requeridos' });
     }
 
+    // Una categoría que no exista en el enum tumbaba el INSERT con un 500, y
+    // el cliente solo veía "Error al crear ticket". Ahora se dice cuál es el
+    // problema en vez de dejarlo adivinando.
+    if (category) {
+      const validas = await categoriasValidas();
+      if (!validas.has(String(category))) {
+        console.error(`[SUPPORT] Categoría inválida '${category}' (userId=${userId})`);
+        return res.status(400).json({
+          error: `La categoría "${category}" no está dada de alta en el sistema. Elige otra o repórtalo a Soporte Técnico.`,
+          categoria_invalida: category,
+        });
+      }
+    }
+
     let currentTicketId = ticketId;
     let ticketFolio = '';
     
@@ -1948,12 +1962,47 @@ export const ensureColumnasTicket = async (): Promise<void> => {
   return _colsTicketEnCurso;
 };
 
+/**
+ * Categorias que el formulario del cliente ofrece pero que no existian en el
+ * enum `ticket_category`.
+ *
+ * El desplegable listaba 'complaint' (Queja) y 'instructionChange' (Cambio de
+ * direccion) desde siempre, y el INSERT reventaba con "invalid input value for
+ * enum": el cliente veia "Error al crear ticket. Intenta de nuevo" y nunca
+ * lograba levantarlo, eligiera lo que eligiera despues. Ni un solo ticket de
+ * esas dos categorias existe en la base — no porque nadie las use, sino porque
+ * era imposible. El backend hasta tenia el codigo de 'complaint' listo para
+ * contarle la queja al asesor, y nunca corrio ni una vez.
+ *
+ * ALTER TYPE ... ADD VALUE es aditivo y no reescribe la tabla.
+ */
+const CATEGORIAS_FALTANTES = ['complaint', 'instructionChange'];
+
+async function asegurarCategoriasDeTicket(): Promise<void> {
+  for (const cat of CATEGORIAS_FALTANTES) {
+    try {
+      await pool.query(`ALTER TYPE ticket_category ADD VALUE IF NOT EXISTS '${cat}'`);
+    } catch (e: any) {
+      console.error(`[SUPPORT] No se pudo agregar la categoria '${cat}' al enum:`, e.message);
+    }
+  }
+}
+
+/** Categorías válidas hoy en la base, para validar antes de insertar. */
+export async function categoriasValidas(): Promise<Set<string>> {
+  const r = await pool.query(
+    `SELECT enumlabel FROM pg_enum WHERE enumtypid = 'ticket_category'::regtype`
+  );
+  return new Set(r.rows.map((x: any) => x.enumlabel));
+}
+
 export const ensureDepartmentsSchema = async () => {
   if (_deptTableEnsured) return;
   // Evitar race condition: si ya está corriendo la migración, esperar a que termine
   if (_deptTableEnsuring) return _deptTableEnsuring;
   _deptTableEnsuring = (async () => {
     try {
+    await asegurarCategoriasDeTicket();
     await pool.query(`
       CREATE TABLE IF NOT EXISTS support_departments (
         id SERIAL PRIMARY KEY,
