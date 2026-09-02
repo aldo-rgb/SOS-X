@@ -234,7 +234,8 @@
     "branches": "分店",
     "reports": "报表",
     "pricing": "定价",
-    "settings": "设置"
+    "settings": "设置",
+    "comprobantes": "批准付款"
   },
   "customerService": {
     "title": "客户服务",

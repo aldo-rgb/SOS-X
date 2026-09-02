@@ -259,7 +259,8 @@
     "branches": "Branches",
     "reports": "Reports",
     "pricing": "Pricing",
-    "settings": "Settings"
+    "settings": "Settings",
+    "comprobantes": "Approve Payments"
   },
   "customerService": {
     "title": "Customer Service",
