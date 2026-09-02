@@ -501,6 +501,67 @@ export const listCargosExtra = async (_req: Request, res: Response): Promise<any
   }
 };
 
+/**
+ * GET /api/cs/descuentos
+ * Todos los descuentos aplicados, en una sola vista.
+ *
+ * Se aplicaban guía por guía desde Cartera Vencida y no había forma de verlos
+ * juntos: 106 descuentos por $4,515.26 sin que nadie tuviera el total a la
+ * vista. Es dinero que se deja de cobrar por decisión de una persona, así que
+ * la consulta queda restringida a dirección para arriba.
+ */
+export const listDescuentos = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const desde = String((req.query as any)?.desde || '').trim();
+    const hasta = String((req.query as any)?.hasta || '').trim();
+    const cliente = String((req.query as any)?.cliente || '').trim();
+
+    const cond: string[] = [`a.tipo = 'descuento'`, `a.activo = TRUE`];
+    const params: any[] = [];
+    if (desde) { params.push(desde); cond.push(`a.fecha_registro >= $${params.length}::date`); }
+    if (hasta) { params.push(hasta); cond.push(`a.fecha_registro < ($${params.length}::date + INTERVAL '1 day')`); }
+    if (cliente) {
+      params.push(`%${cliente}%`);
+      cond.push(`(u.full_name ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR a.guia_tracking ILIKE $${params.length})`);
+    }
+
+    const r = await pool.query(`
+      SELECT a.id, a.guia_tracking, a.servicio, a.monto, a.moneda, a.concepto, a.fecha_registro,
+             a.cliente_id, u.full_name AS cliente_nombre, u.box_id,
+             au.full_name AS autorizado_nombre
+        FROM guias_ajustes_financieros a
+        LEFT JOIN users u ON u.id = a.cliente_id
+        LEFT JOIN users au ON au.id = a.autorizado_por
+       WHERE ${cond.join(' AND ')}
+       ORDER BY a.fecha_registro DESC
+       LIMIT 500
+    `, params);
+
+    // El total y el desglose por quién autorizó son el punto de la pantalla:
+    // sin eso es una lista más, y lo que hace falta saber es cuánto se está
+    // dejando de cobrar y quién lo autoriza.
+    const resumen = await pool.query(`
+      SELECT COALESCE(au.full_name, 'Sin registrar') AS autorizado_nombre,
+             COUNT(*)::int AS n, SUM(a.monto)::numeric(12,2) AS monto
+        FROM guias_ajustes_financieros a
+        LEFT JOIN users au ON au.id = a.autorizado_por
+       WHERE a.tipo = 'descuento' AND a.activo = TRUE
+       GROUP BY 1 ORDER BY monto DESC
+    `);
+
+    const total = r.rows.reduce((acc: number, x: any) => acc + (Number(x.monto) || 0), 0);
+    res.json({
+      descuentos: r.rows,
+      total: +total.toFixed(2),
+      count: r.rows.length,
+      por_autorizador: resumen.rows,
+    });
+  } catch (e: any) {
+    console.error('[cs] listDescuentos:', e);
+    res.status(500).json({ error: 'Error al cargar los descuentos' });
+  }
+};
+
 // ========== CARTERA VENCIDA ==========
 
 // Obtener resumen de cartera por cliente

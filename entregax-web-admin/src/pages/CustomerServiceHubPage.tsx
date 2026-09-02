@@ -38,6 +38,8 @@ import PaymentOrdersHistoryPage from './PaymentOrdersHistoryPage';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import PercentIcon from '@mui/icons-material/Percent';
+import DescuentosPanel from './DescuentosPanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -73,7 +75,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history' | 'descuentos';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -94,6 +96,9 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   const savedUser = localStorage.getItem('user');
   const currentUser = savedUser ? JSON.parse(savedUser) : null;
   const isSuperAdmin = currentUser?.role === 'super_admin';
+  // Los descuentos son dinero que se deja de cobrar: la vista de conjunto se
+  // limita a dirección para arriba, sin pasar por la matriz de permisos.
+  const esDireccion = ['super_admin', 'admin', 'director'].includes(String(currentUser?.role || ''));
 
   // Navegar directamente a una vista cuando el prop pendingView cambia (sin depender de timing)
   useEffect(() => {
@@ -264,6 +269,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       bgColor: 'rgba(239, 68, 68, 0.1)',
     },
     {
+      key: 'descuentos',
+      title: 'Descuentos Aplicados',
+      description: 'Cuánto se deja de cobrar, en qué guías y quién lo autoriza',
+      icon: <PercentIcon sx={{ fontSize: 40 }} />,
+      color: '#EF4444',
+      bgColor: 'rgba(239, 68, 68, 0.1)',
+    },
+    {
       key: 'delayed',
       title: t('customerService.delayed.title', 'Guías con Retraso'),
       description: t('customerService.delayed.description', 'Paquetes cuya consolidación llegó a MTY sin ellos'),
@@ -388,6 +401,23 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Typography>
         </Box>
         <SupportBoardPage />
+      </Box>
+    );
+  }
+
+  // Solo dirección para arriba. La comprobación se repite aquí y no solo en la
+  // tarjeta: sin esto, alguien con la URL entraría igual.
+  if (activeView === 'descuentos') {
+    if (!esDireccion) return null;
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Descuentos Aplicados</Typography>
+        </Box>
+        <DescuentosPanel />
       </Box>
     );
   }
@@ -525,7 +555,8 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
 
   // Hub principal
   // Filtrar herramientas según permisos
-  const filteredTools = serviceTools.filter(tool => hasPermission(tool.key));
+  const filteredTools = serviceTools.filter(tool =>
+    tool.key === 'descuentos' ? esDireccion : hasPermission(tool.key));
 
   // Si no tiene permisos para ninguna herramienta
   if (filteredTools.length === 0) {

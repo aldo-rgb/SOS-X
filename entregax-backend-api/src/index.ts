@@ -1355,6 +1355,7 @@ import {
   createAjuste,
   createCargoExtra,
   listCargosExtra,
+  listDescuentos,
   deleteAjuste,
   // Cartera Vencida
   getCarteraCliente,
@@ -14765,6 +14766,9 @@ app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
 // Cargo extra cobrable (CEX): si la guía ya está pagada, genera orden de cobro.
 app.post('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createCargoExtra);
 app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listCargosExtra);
+// 💸 Descuentos aplicados, vista de conjunto. Solo dirección para arriba
+// (director, admin, super_admin): es dinero que se deja de cobrar.
+app.get('/api/cs/descuentos', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listDescuentos);
 
 // Cartera Vencida Dashboard
 app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);
