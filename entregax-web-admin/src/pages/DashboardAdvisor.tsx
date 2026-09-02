@@ -3720,6 +3720,18 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
   // TAB 3: ORDEN DE PAGO
   // ════════════════════════════════════
+  // "En proceso" no le decía al asesor de qué lado estaba la pelota: se veía
+  // igual una orden que el cliente todavía no paga que una donde ya pagó y
+  // estamos nosotros parados sin autorizar su comprobante. Con
+  // comprobantes_en_revision se distingue (tarea 472).
+  const etiquetaOP = (o: any): { label: string; color: 'default'|'warning'|'success'|'error'|'info' } => {
+    const base = STATUS_OP[String(o?.status || '')] || { label: String(o?.status || '—'), color: 'default' as const };
+    if (Number(o?.comprobantes_en_revision) > 0) {
+      return { label: 'Comprobante en revisión', color: 'warning' };
+    }
+    return base;
+  };
+
   const STATUS_OP: Record<string, { label: string; color: 'default'|'warning'|'success'|'error'|'info' }> = {
     pendiente:          { label: 'Pendiente',    color: 'warning' },
     en_proceso:         { label: 'En proceso',   color: 'info'    },
@@ -3905,7 +3917,7 @@ export default function DashboardAdvisor() {
                 const guideList = trackings.length > 0 ? trackings : uids;
                 const rowKey = `${op.created_by}-${op.id}`;
                 const isExpanded = expandedOrderIds.has(rowKey);
-                let st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
+                let st = etiquetaOP(op);
                 // Pago parcial: el asesor necesita el MONTO que falta para poder
                 // cobrarlo. Antes solo decía "Parcial" y había que abrir la orden.
                 if (op.status === 'vouchers_partial') {

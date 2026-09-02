@@ -3182,11 +3182,30 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
 
                 {!foundPayment.ya_pagado && !foundPayment.puede_confirmar && isFromSearch
                   && !foundPayment.orden_cancelada
-                  && !['cancelled', 'expired'].includes(String(paymentData.status || '').toLowerCase()) && (
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Este pago ya fue procesado anteriormente. Estado: <strong>{paymentData.status}</strong>
-                  </Alert>
-                )}
+                  && !['cancelled', 'expired'].includes(String(paymentData.status || '').toLowerCase()) && (() => {
+                  // Decía "Este pago ya fue procesado anteriormente. Estado:
+                  // procesado" con el botón inhabilitado. Es engañoso y de ahí
+                  // salió la tarea 472: la orden NO está pagada, está esperando
+                  // que alguien autorice el comprobante que el cliente ya subió.
+                  // Quien leía eso se iba convencido de que ya estaba resuelto.
+                  const enRevision = ['vouchers_submitted', 'vouchers_partial', 'en_proceso']
+                    .includes(String(paymentData.status || '').toLowerCase());
+                  if (enRevision) {
+                    return (
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        <strong>Falta autorizar el comprobante.</strong> El cliente ya subió su pago,
+                        pero nadie lo ha autorizado todavía. Por eso no se puede cobrar aquí y la
+                        orden sigue abierta —y si es cliente a crédito, su línea sigue ocupada—.
+                        Se resuelve en <strong>Caja → Autorizar Pagos</strong>.
+                      </Alert>
+                    );
+                  }
+                  return (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Este pago no se puede cobrar en sucursal. Estado actual: <strong>{paymentData.status}</strong>
+                    </Alert>
+                  );
+                })()}
 
                 <Box sx={{ display: 'grid', gap: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid #eee' }}>
