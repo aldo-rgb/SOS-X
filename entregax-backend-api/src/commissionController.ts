@@ -1099,6 +1099,71 @@ export const getCommissionSimulatorData = async (req: Request, res: Response): P
                 return sum(b) - sum(a);
             });
 
+        // 🚩 QUEJAS por asesor. Hasta ahora el simulador solo miraba lo que cada
+        //    quien vende; una comisión que solo premia volumen paga igual a quien
+        //    deja clientes molestos. La queja se levanta sola cuando el cliente
+        //    abre un ticket de categoría 'complaint' —que estuvo roto desde
+        //    siempre por el enum, ver tarea 479— o cuando alguien la marca a mano.
+        //
+        //    Se separan las dos vías: una queja que puso el cliente pesa distinto
+        //    que una que anotó un supervisor, y mezclarlas escondería cuál es cuál.
+        try {
+            const qCond: string[] = [];
+            const qParams: any[] = [];
+            let qIdx = 1;
+            if (from_date) { qCond.push(`created_at >= $${qIdx++}`); qParams.push(from_date); }
+            if (to_date) { qCond.push(`created_at <= $${qIdx++}::date + interval '1 day'`); qParams.push(to_date); }
+            const qWhere = qCond.length ? `WHERE ${qCond.join(' AND ')}` : '';
+
+            const qRes = await pool.query(`
+                SELECT advisor_id,
+                       COUNT(*)::int AS periodo,
+                       COUNT(*) FILTER (WHERE marked_by IS NULL)::int AS de_cliente,
+                       COUNT(*) FILTER (WHERE marked_by IS NOT NULL)::int AS marcadas,
+                       MAX(created_at) AS ultima
+                  FROM advisor_complaints
+                  ${qWhere}
+                 GROUP BY advisor_id`, qParams);
+
+            // El total histórico va aparte del conteo del periodo: para el
+            // simulador importa lo que pasó en el rango, pero quien lo lee
+            // necesita saber si el asesor arrastra quejas de antes.
+            const totRes = await pool.query(
+                `SELECT advisor_id, COUNT(*)::int AS total FROM advisor_complaints GROUP BY advisor_id`
+            );
+            const totales: Record<number, number> = {};
+            for (const r of totRes.rows) totales[Number(r.advisor_id)] = Number(r.total) || 0;
+
+            const quejasPorAsesor: Record<number, any> = {};
+            for (const r of qRes.rows) {
+                quejasPorAsesor[Number(r.advisor_id)] = {
+                    periodo: Number(r.periodo) || 0,
+                    de_cliente: Number(r.de_cliente) || 0,
+                    marcadas: Number(r.marcadas) || 0,
+                    ultima: r.ultima || null,
+                };
+            }
+
+            for (const a of advisors as any[]) {
+                const q = quejasPorAsesor[Number(a.id)];
+                a.quejas = {
+                    periodo: q?.periodo || 0,
+                    de_cliente: q?.de_cliente || 0,
+                    marcadas: q?.marcadas || 0,
+                    ultima: q?.ultima || null,
+                    total_historico: totales[Number(a.id)] || 0,
+                };
+                // Quejas por cada 100 guías comisionadas: el número crudo castiga
+                // al que más vende. Sin guías no se calcula —dividir entre cero
+                // daría un indicador inventado.
+                const guias = Object.values(a.servicios as Record<string, any>)
+                    .reduce((t: number, sv: any) => t + (sv.guias || 0), 0);
+                a.quejas.por_100_guias = guias > 0
+                    ? Math.round((a.quejas.periodo / guias) * 100 * 100) / 100
+                    : null;
+            }
+        } catch (e) { console.warn('[simulator] quejas:', (e as Error).message); }
+
         // 📚 Promedio mensual histórico de servicios ACELERADOS por asesor, tomado
         //    del Excel de "Histórico" (svc_historico_reports). Sirve como META real
         //    del acelerador en el simulador. Se empata por nombre normalizado.

@@ -796,6 +796,13 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
           await ensureSchema();
           const advRes = await pool.query(`SELECT COALESCE(advisor_id, referred_by_id) AS adv FROM users WHERE id = $1`, [userId]);
           const advId = advRes.rows[0]?.adv;
+          if (!advId) {
+            // 157 clientes no tienen asesor ni quien los refiriera. Su queja no
+            // se le puede cobrar a nadie, pero perderla en silencio significa
+            // que el indicador de quejas miente por lo bajo. Queda en el log
+            // para que se pueda auditar cuántas se estan cayendo.
+            console.warn(`🚩 [QUEJA SIN ASESOR] Ticket ${ticketFolio} del cliente ${userId}: no tiene asesor asignado, la queja no se contabiliza.`);
+          }
           if (advId) {
             await pool.query(
               `INSERT INTO advisor_complaints (advisor_id, ticket_folio, note, marked_by) VALUES ($1, $2, $3, NULL)`,
