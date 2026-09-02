@@ -2206,14 +2206,34 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         // Cada tabla guarda dimensiones/cajas distinto: DHL = una fila por caja
         // agrupadas por secondary_tracking; PKG = master con total_boxes.
         const dimsSql = kind === 'DHL'
-          ? `SELECT COUNT(*)::int AS boxes, COALESCE(SUM(g.weight_kg), 1) AS weight,
-                    COALESCE(MAX(g.length_cm), 30) AS l, COALESCE(MAX(g.width_cm), 30) AS w,
-                    COALESCE(MAX(g.height_cm), 30) AS h,
+          // Solo las cajas que TODAVÍA se van a enviar. Antes se contaban todas
+          // las del embarque: a una caja complemento que llegó después se le
+          // cotizaba la paquetería de sus hermanas ya despachadas —$462 × 3 =
+          // $1,386 cuando lo correcto era una sola caja (TKT-2026-2519)—.
+          // El peso también se sumaba completo, así que la tarifa salía de un
+          // bulto que no existe.
+          //
+          // Si TODAS están despachadas se cotiza la solicitada, para no
+          // devolver cero cajas al recotizar un embarque ya enviado.
+          ? `WITH grupo AS (
+                SELECT g.*,
+                       (g.dispatched_at IS NULL
+                        AND g.status NOT IN ('shipped', 'out_for_delivery', 'delivered')) AS pendiente
+                  FROM dhl_shipments g
+                 WHERE g.id = $1
+                    OR (COALESCE(g.secondary_tracking, '') <> ''
+                        AND g.secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1))
+             ), base AS (
+                SELECT * FROM grupo WHERE pendiente
+                UNION ALL
+                SELECT * FROM grupo
+                 WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM grupo WHERE pendiente)
+             )
+             SELECT COUNT(*)::int AS boxes, COALESCE(SUM(weight_kg), 1) AS weight,
+                    COALESCE(MAX(length_cm), 30) AS l, COALESCE(MAX(width_cm), 30) AS w,
+                    COALESCE(MAX(height_cm), 30) AS h,
                     (SELECT zip_code FROM addresses WHERE id = $2) AS zip
-               FROM dhl_shipments g
-              WHERE g.id = $1
-                 OR (COALESCE(g.secondary_tracking, '') <> ''
-                     AND g.secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1))`
+               FROM base`
           : kind === 'MAR'
           ? `SELECT GREATEST(COALESCE(NULLIF(received_boxes, 0), NULLIF(summary_boxes, 0), 1), 1) AS boxes,
                     COALESCE(NULLIF(weight, 0), NULLIF(summary_weight, 0), 1) AS weight,
