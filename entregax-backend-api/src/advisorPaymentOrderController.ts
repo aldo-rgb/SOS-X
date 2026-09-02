@@ -115,6 +115,12 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
+        -- Cuántos comprobantes del cliente están esperando autorización. Sin
+        -- esto el asesor solo ve "En proceso" y no puede distinguir "el cliente
+        -- todavía no paga" de "el cliente ya pagó y estamos nosotros parados".
+        -- Es la queja de la tarea 472: la orden lleva semanas igual y nadie
+        -- sabe de qué lado está la pelota.
+        COALESCE(pp.comprobantes_en_revision, 0) AS comprobantes_en_revision,
         -- Cuánto falta por cobrar. El asesor veía "Parcial" sin monto y tenía
         -- que abrir la orden y sacar la resta a mano.
         COALESCE(pp.saldo_pendiente, 0) AS saldo_pendiente,
@@ -128,7 +134,10 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
                    - COALESCE(p2.voucher_total, 0)
                    - COALESCE(p2.wallet_applied, 0)
                    - COALESCE(p2.credit_applied, 0)) AS saldo_pendiente,
-               fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
+               fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario,
+               (SELECT COUNT(*) FROM payment_vouchers pv
+                 WHERE pv.payment_order_id = p2.id AND pv.status = 'pending_review')
+                 AS comprobantes_en_revision
         FROM pobox_payments p2
         -- Servicio autoritativo de la orden: service_type_cfg y, para órdenes
         -- heredadas sin ese campo, openpay_webhook_logs (NO asumir PO Box: eso
