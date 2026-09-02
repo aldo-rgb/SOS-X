@@ -856,8 +856,20 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
         WHERE v.status = 'pending_review' AND ${ORDEN_CERRADA}`
     ).catch(() => ({ rows: [{ n: 0, monto: 0 }] }));
 
+    // La imagen vive en un bucket privado: sin firmar, la pantalla de
+    // autorizacion muestra recuadros rotos y nadie puede verificar nada.
+    // getOrderVouchers y getAdminOrderVouchers ya firmaban; esta lista no.
+    const vouchersFirmados = await Promise.all(
+      result.rows.map(async (v: any) => {
+        if (v.file_key) {
+          try { v.file_url = await getSignedUrlForKey(v.file_key); } catch { /* se deja la original */ }
+        }
+        return v;
+      })
+    );
+
     return res.json({
-      vouchers: result.rows,
+      vouchers: vouchersFirmados,
       total: parseInt(countRes.rows[0].count),
       page: Number(page),
       limit: Number(limit),
@@ -1521,5 +1533,111 @@ export const getServiceWalletBalances = async (req: AuthRequest, res: Response) 
   } catch (error: any) {
     console.error('[WALLET] Service balances error:', error);
     return res.status(500).json({ error: 'Error al obtener saldos' });
+  }
+};
+
+/**
+ * GET /api/admin/vouchers/:id/bank-candidates
+ *
+ * El cuello de botella para autorizar un comprobante no es decidir si la
+ * imagen es buena: es encontrar cuál de los 4,000 movimientos del estado de
+ * cuenta lo respalda. Sin esto, la persona tiene que abrir el estado de cuenta
+ * en otra pestaña y buscar a ojo — que es exactamente por lo que la cola nunca
+ * se trabajó.
+ *
+ * Devuelve solo movimientos con saldo disponible, ordenados por qué tan
+ * probable es que sean el correcto: primero el importe exacto, luego los
+ * cercanos en fecha, y al final lo que empate con la búsqueda libre.
+ */
+export const getVoucherBankCandidates = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const q = String(req.query.q || '').trim();
+
+    const vRes = await pool.query(
+      `SELECT v.declared_amount, v.created_at, u.box_id, u.full_name
+         FROM payment_vouchers v
+         JOIN users u ON u.id = v.user_id
+        WHERE v.id = $1`,
+      [id]
+    );
+    if (vRes.rows.length === 0) return res.status(404).json({ error: 'Comprobante no encontrado' });
+    const v = vRes.rows[0];
+    const monto = Number(v.declared_amount) || 0;
+
+    // La ventana arranca 60 días antes de que subieran el comprobante: los
+    // clientes depositan y suben el papel semanas después. Hacia adelante casi
+    // no pasa, así que basta con unos días.
+    const params: any[] = [monto, v.created_at, v.box_id];
+    let filtroTexto = '';
+    if (q) {
+      params.push(`%${q}%`);
+      filtroTexto = ` OR be.concepto ILIKE $${params.length}
+                      OR COALESCE(be.referencia,'') ILIKE $${params.length}`;
+    }
+
+    const result = await pool.query(
+      `SELECT be.id, be.fecha, be.concepto, be.referencia, be.abono, be.banco
+         FROM bank_statement_entries be
+        WHERE be.abono > 0
+          AND be.fecha BETWEEN ($2::timestamp - INTERVAL '60 days')::date
+                           AND ($2::timestamp + INTERVAL '7 days')::date
+          AND (
+                ABS(be.abono - $1::numeric) < 0.01
+             OR be.concepto ~ ('(^|[^0-9A-Za-z])' || $3 || '([^0-9]|$)')
+             ${filtroTexto}
+          )
+        ORDER BY (ABS(be.abono - $1::numeric) < 0.01) DESC, be.fecha DESC
+        LIMIT 60`,
+      params
+    );
+
+    // Un movimiento ya ocupado no puede respaldar otro comprobante: se filtra
+    // aquí en vez de dejar que el ledger lo rechace hasta el momento de
+    // aprobar, cuando la persona ya perdió el tiempo eligiéndolo.
+    const { estadoDeEntries } = await import('./bankEntryLedger');
+    const estados = await estadoDeEntries(result.rows.map((r: any) => Number(r.id)));
+
+    const candidatos = result.rows
+      .map((r: any) => {
+        const st = estados[Number(r.id)];
+        const disponible = st ? st.disponible : Number(r.abono) || 0;
+        const exacto = Math.abs(Number(r.abono) - monto) < 0.01;
+        const citaCliente = new RegExp(`(^|[^0-9A-Za-z])${v.box_id}([^0-9]|$)`).test(r.concepto || '');
+        return {
+          ...r,
+          disponible,
+          alcanza: disponible + 0.01 >= monto,
+          importe_exacto: exacto,
+          cita_al_cliente: citaCliente,
+          // Para que la pantalla explique por qué lo propone en vez de solo
+          // listarlo: sin esto la persona no sabe en qué fijarse.
+          razon: citaCliente && exacto
+            ? 'El importe coincide exacto y el concepto menciona su número de cliente'
+            : citaCliente ? 'El concepto menciona su número de cliente'
+            : exacto ? 'El importe coincide exacto'
+            : 'Coincide con tu búsqueda',
+        };
+      })
+      .filter((c: any) => c.disponible > 0.009)
+      .sort((a: any, b: any) =>
+        (Number(b.cita_al_cliente) * 2 + Number(b.importe_exacto)) -
+        (Number(a.cita_al_cliente) * 2 + Number(a.importe_exacto))
+      );
+
+    return res.json({
+      voucher_id: Number(id),
+      declared_amount: monto,
+      cliente: { box_id: v.box_id, nombre: v.full_name },
+      candidatos,
+      // Decirlo explícitamente evita la lectura peligrosa: "no hay candidatos"
+      // NO significa "el cliente no pagó".
+      nota: candidatos.length === 0
+        ? 'No hay movimientos con saldo libre que empaten. Puede que el depósito llegue con otro importe (pagos juntos), sin mencionar el número de cliente, o que el estado de cuenta de esos días no esté cargado. Busca por nombre o importe antes de concluir que no pagó.'
+        : null,
+    });
+  } catch (error: any) {
+    console.error('[VOUCHER-ADMIN] bank candidates error:', error);
+    return res.status(500).json({ error: 'Error buscando movimientos bancarios', detalle: error.message });
   }
 };
