@@ -1542,13 +1542,34 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       onChanged(); reload(true);
     } catch { /* */ } finally { setBusy(false); }
   };
-  const addComment = async () => {
-    if (!comment.trim() || sendingComment) return;
+  const addComment = async (): Promise<boolean> => {
+    if (!comment.trim() || sendingComment) return false;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
     setSendingComment(true);
-    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); setDirty(true); reload(true); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
-    catch { /* */ }
+    try {
+      const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo guardar el comentario', e.error || ''); return false; }
+      setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); setDirty(true);
+      reload(true); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */
+      return true;
+    }
+    catch { return false; }
     finally { setSendingComment(false); }
+  };
+
+  // Guardar el comentario y cerrar la tarea en un solo paso.
+  //
+  // Antes, con texto escrito el botón de abajo se INHABILITABA y decía "Envía o
+  // borra el comentario para completar": había que mandar el comentario con la
+  // flechita y luego buscar el botón otra vez. Dos pasos para lo que casi
+  // siempre es uno solo —se contesta y se da por terminada—.
+  //
+  // Si el comentario no se guarda NO se completa: cerrar la tarea perdiendo lo
+  // que la persona acababa de escribir es el peor final posible.
+  const guardarYCompletar = async () => {
+    const ok = await addComment();
+    if (!ok) return;
+    await complete(false);
   };
   const saveEditComment = async () => {
     if (!editingText.trim() || editingCommentId == null) return;
@@ -2202,12 +2223,44 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 </View>
               );
             }
+            // Con texto escrito: DOS salidas. Antes el botón se inhabilitaba y
+            // pedía "envía o borra el comentario", así que contestar y dar por
+            // terminada eran dos pasos separados aunque casi siempre van juntos.
+            // El checklist pendiente sigue mandando: ahí no hay atajo.
+            if (typing && pending === 0) {
+              const guardando = busy || sendingComment;
+              return (
+                <View style={[styles.modalFoot, { flexDirection: 'row', gap: 8 }]}>
+                  <TouchableOpacity
+                    style={[styles.completeBtn, { flex: 1, backgroundColor: '#1F6FEB' }, guardando && { opacity: 0.6 }]}
+                    onPress={() => { addComment(); }}
+                    disabled={guardando}
+                  >
+                    {guardando ? <ActivityIndicator color="#fff" /> : (
+                      <><Ionicons name="save" size={18} color="#fff" />
+                        <Text style={styles.completeTxt}>Guardar</Text></>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.completeBtn, { flex: 1 }, guardando && { opacity: 0.6 }]}
+                    onPress={guardarYCompletar}
+                    disabled={guardando}
+                  >
+                    {guardando ? <ActivityIndicator color="#fff" /> : (
+                      <><Ionicons name="checkmark-circle" size={18} color="#fff" />
+                        <Text style={styles.completeTxt}>
+                          {differentCreator && !iAmCreator ? 'Guardar y terminar' : 'Guardar y completar'}
+                        </Text></>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
             const label = pending > 0
               ? `Completa el checklist (${pending})`
-              : typing
-                ? 'Envía o borra el comentario para completar'
-                : (differentCreator && !iAmCreator ? 'Marcar terminada' : 'Completar');
-            const icon = pending > 0 ? 'lock-closed' : typing ? 'chatbubble-ellipses' : 'checkmark-circle';
+              : (differentCreator && !iAmCreator ? 'Marcar terminada' : 'Completar');
+            const icon = pending > 0 ? 'lock-closed' : 'checkmark-circle';
             return (
               <View style={styles.modalFoot}>
                 <TouchableOpacity

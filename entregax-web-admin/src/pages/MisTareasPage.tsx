@@ -1601,15 +1601,29 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo reabrir', 'error'); }
     finally { setBusy(false); }
   };
-  const addComment = async () => {
-    if (!comment.trim() || sendingComment) return;
+  const addComment = async (): Promise<boolean> => {
+    if (!comment.trim() || sendingComment) return false;
     setSendingComment(true);
     // Solo van las menciones que siguen escritas: si borras el "@Nombre" del
     // texto, no se le avisa a esa persona.
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
-    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() }, H()); setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
-    catch { notify('Error al comentar', 'error'); }
+    try {
+      await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() }, H());
+      setComment(''); setMentions([]); setMentionQuery(null); setCitando(null);
+      reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */
+      return true;
+    }
+    catch { notify('Error al comentar', 'error'); return false; }
     finally { setSendingComment(false); }
+  };
+
+  // Contestar y dar por terminada casi siempre van juntas; separarlas obliga a
+  // mandar el comentario y volver a buscar el botón. Si el comentario NO se
+  // guarda tampoco se completa: cerrar la tarea perdiendo lo que la persona
+  // acababa de escribir es el peor final posible.
+  const guardarYCompletar = async () => {
+    const ok = await addComment();
+    if (ok) await complete(false);
   };
 
   /**
@@ -2245,6 +2259,24 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               const label = differentCreator && !iAmCreator
                 ? (pending > 0 ? `Completa el checklist (${pending})` : 'Marcar terminada')
                 : (pending > 0 ? `Completa el checklist (${pending})` : 'Completar');
+
+              // Con un comentario escrito aparecen las DOS salidas: guardar solo
+              // el comentario, o guardarlo y cerrar la tarea de una vez.
+              if (comment.trim() && pending === 0) {
+                return (
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Button variant="outlined" startIcon={<SendIcon />} disabled={busy || sendingComment}
+                      onClick={() => { addComment(); }}>
+                      Guardar
+                    </Button>
+                    <Button variant="contained" color="success" startIcon={<CheckCircleIcon />}
+                      disabled={busy || sendingComment} onClick={guardarYCompletar}>
+                      {differentCreator && !iAmCreator ? 'Guardar y terminar' : 'Guardar y completar'}
+                    </Button>
+                  </Box>
+                );
+              }
+
               return (
                 <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={() => complete(false)} disabled={busy || pending > 0}>
                   {label}
