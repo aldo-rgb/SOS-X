@@ -6726,17 +6726,18 @@ app.post('/api/admin/relabeling/maritime/:orderId/generate-pqtx', authenticateTo
 
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
-// Dar de alta paqueterias es trabajo de Soporte Tecnico: leer pedia nivel 40
-// (por eso Angel SI veia el modulo) pero escribir pedia ADMIN (95), y su rol
-// vale 63. Resultado: el menu se le abrio y cada boton devolvia "Nivel de
-// acceso insuficiente" (tarea 421). Se agrega el rol explicito en vez de bajar
-// el nivel minimo: bajarlo a 63 le daria de paso el alta a Operaciones y a
-// Servicio a Cliente, que no es lo que se decidio.
-app.post('/api/admin/carrier-options/upload-icon', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), carrierIconUpload.single('icon'), uploadCarrierIcon);
-app.post('/api/admin/carrier-options', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), createCarrierOption);
-app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), updateCarrierOption);
-app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), deleteCarrierOption);
-app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), toggleCarrierOption);
+// Dar de alta paqueterias: leer pedia nivel 40 (por eso Angel SI veia el
+// modulo) pero escribir pedia ADMIN (95). Soporte Tecnico vale 63 y Servicio a
+// Cliente 70: los dos veian el menu y cada boton les devolvia "Nivel de acceso
+// insuficiente" (tarea 421).
+//
+// Se listan los roles explicitos en vez de bajar el nivel minimo. Bajarlo a 63
+// arrastraria tambien a Operaciones (65), que no lo pidio nadie.
+app.post('/api/admin/carrier-options/upload-icon', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO, ROLES.CUSTOMER_SERVICE), carrierIconUpload.single('icon'), uploadCarrierIcon);
+app.post('/api/admin/carrier-options', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO, ROLES.CUSTOMER_SERVICE), createCarrierOption);
+app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO, ROLES.CUSTOMER_SERVICE), updateCarrierOption);
+app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO, ROLES.CUSTOMER_SERVICE), deleteCarrierOption);
+app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO, ROLES.CUSTOMER_SERVICE), toggleCarrierOption);
 // Endpoint público (para clientes) - opciones por tipo de servicio
 app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCarrierOptionsByService);
 
