@@ -1333,7 +1333,13 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       // 💳 Orden a CRÉDITO: al aprobar todos los comprobantes, liquidar el crédito
       // (pasa a Historial) y RESTAURAR el crédito del cliente. El crédito vive en
       // user_service_credits (por servicio); si no hay fila, cae al global.
-      if (String(o.payment_method || '').toLowerCase() === 'credit') {
+      // 🔒 Solo si NO estaba ya liquidada. restoreServiceCredit no es idempotente:
+      // solo resta. Aprobar un segundo comprobante sobre una orden a credito ya
+      // liquidada devolvia el credito OTRA VEZ, inflando la linea del cliente con
+      // dinero que nunca pago. Nadie lo habia notado porque casi siempre todos
+      // los comprobantes de una orden se aprueban de un tiron.
+      if (String(o.payment_method || '').toLowerCase() === 'credit'
+          && o.credit_settled !== true) {
         await pool.query(
           `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = NOW() WHERE id = $1`,
           [voucher.payment_order_id]
