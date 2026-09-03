@@ -1683,19 +1683,43 @@ ${labelsHtml}
         }
     };
 
+    /**
+     * La guía que manda el cliente, venga por donde venga.
+     *
+     * Se puede cargar por DOS caminos y los dos se usan: al capturar las
+     * instrucciones se sube junto con la factura y queda en los documentos del
+     * envío; desde el panel del asesor hay un botón que solo sube la guía y la
+     * deja como etiqueta nacional. Este módulo miraba únicamente el primero, así
+     * que las 17 guías cargadas por el segundo eran INVISIBLES para CEDIS y
+     * acababan pidiéndolas por WhatsApp (tarea 473, TKT-2026-2444).
+     *
+     * La solución no es duplicar el registro en los dos lados —eso los vuelve a
+     * desincronizar en cuanto uno cambie— sino consultar ambos aquí. Documento
+     * primero porque es el que el asesor sube a propósito como guía del cliente;
+     * la etiqueta nacional entra solo si su procedencia es 'uploaded', para no
+     * confundir una guía generada por la paquetería con una que mandó el cliente.
+     */
     const getUploadedExternalGuideUrl = (): string | null => {
         if (!shipment) return null;
-        const raw = String(shipment.master.deliveryDocuments?.guiaExterna?.url || '').trim();
-        if (!raw) return null;
 
-        if (/^https?:\/\//i.test(raw)) return raw;
+        const absolutizar = (valor: string): string | null => {
+            const raw = String(valor || '').trim();
+            // Marcador de "etiqueta local ya confirmada", no un archivo.
+            if (!raw || raw === 'manual-printed') return null;
+            if (/^https?:\/\//i.test(raw)) return raw;
+            const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+            const baseEndsWithApi = /\/api$/.test(baseUrl);
+            const path = baseEndsWithApi && raw.startsWith('/api/') ? raw.slice(4) : raw;
+            return path.startsWith('/') ? `${baseUrl}${path}` : `${baseUrl}/${path}`;
+        };
 
-        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
-        const baseEndsWithApi = /\/api$/.test(baseUrl);
-        const path = baseEndsWithApi && raw.startsWith('/api/') ? raw.slice(4) : raw;
+        const doc = absolutizar(shipment.master.deliveryDocuments?.guiaExterna?.url || '');
+        if (doc) return doc;
 
-        if (path.startsWith('/')) return `${baseUrl}${path}`;
-        return `${baseUrl}/${path}`;
+        const esSubida = String(shipment.master.nationalLabelInfo?.source || '').toLowerCase() === 'uploaded';
+        if (esSubida) return absolutizar(shipment.master.nationalLabelUrl || '');
+
+        return null;
     };
 
     // Construye URL de PDF para cualquier tracking PQTX (de hija o master)
