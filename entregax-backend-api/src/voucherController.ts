@@ -1096,10 +1096,19 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
     // sí son dos pagos distintos; tiene que decirlo explícitamente.
     const confirmarDuplicado = req.body?.confirm_duplicate === true || req.body?.confirm_duplicate === 'true';
 
+    // 🔗 Órdenes que el MISMO depósito también cubre. Se leen aquí arriba porque
+    // cambian cuánto de ese abono puede consumir la orden del comprobante: si se
+    // lleva el importe completo no queda nada para las demás.
+    const ordenesExtra: number[] = Array.isArray(req.body?.ordenes_extra)
+      ? req.body.ordenes_extra.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+    const extraResultado: any[] = [];
+
     // 🔁 Freno al duplicado: aprobarlo suma el mismo pago dos veces al total de
     // la orden y acredita saldo a favor que nunca entró al banco.
     const dupCheck = await pool.query(
-      `SELECT v.duplicate_of_voucher_id, v.declared_amount, o.payment_reference
+      `SELECT v.duplicate_of_voucher_id, v.declared_amount, o.payment_reference,
+              o.amount AS order_amount
          FROM payment_vouchers v
          JOIN pobox_payments o ON o.id = v.payment_order_id
         WHERE v.id = $1`,
@@ -1169,9 +1178,18 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         const v = result.rows[0];
         const adminNombre = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
         try {
+          // 🐛 El comprobante consumia el importe COMPLETO del abono aunque su
+          // orden fuera mucho menor. Con ALEX HUANG —deposito de \$10,813.55 y
+          // orden de \$2,633.80— la primera orden se llevo los \$10,813.55 y al
+          // intentar liquidar las otras dos el abono ya estaba agotado. Cuando
+          // hay ordenes extra, cada una toma lo suyo.
+          const montoOrdenPrincipal = Number(dup?.order_amount) || 0;
+          const montoAbonoPrincipal = ordenesExtra.length > 0 && montoOrdenPrincipal > 0
+            ? Math.min(Number(v.declared_amount) || 0, montoOrdenPrincipal)
+            : Number(v.declared_amount) || 0;
           await aplicarAbono(client, {
             bankEntryId,
-            montoAplicado: Number(v.declared_amount) || 0,
+            montoAplicado: montoAbonoPrincipal,
             origen: 'comprobante_manual',
             paymentOrderId: v.payment_order_id,
             paymentReference: dup?.payment_reference || null,
@@ -1325,10 +1343,37 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         `SELECT * FROM pobox_payments WHERE id = $1`, [voucher.payment_order_id]
       );
       const o = order.rows[0];
-      // El sobrante se acredita con el helper idempotente: recalcula desde los
-      // comprobantes vivos y no vuelve a abonar si ya se acreditó al confirmar
-      // el monto o al completar el pago.
-      await acreditarSobranteOrden(pool, voucher.payment_order_id, adminId);
+
+      // 🔗 Las otras órdenes que este MISMO depósito cubre. Van ANTES del
+      // sobrante: cada una consume su parte del abono, y lo que quede después
+      // es el sobrante de verdad. Al revés se acreditaba el excedente completo
+      // a la deuda del cliente y además se intentaba liquidar las otras órdenes:
+      // el mismo dinero contado dos veces.
+      if (ordenesExtra.length > 0 && bankEntryId) {
+        const nombreAdmin = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
+        for (const oid of ordenesExtra) {
+          const r = await liquidarOrdenAdicional(oid, bankEntryId, adminId ?? null, nombreAdmin);
+          extraResultado.push({ orden_id: oid, ...r });
+        }
+      } else if (ordenesExtra.length > 0 && !bankEntryId) {
+        extraResultado.push({ ok: false, motivo: 'Para cubrir otras órdenes hay que ligar el movimiento bancario.' });
+      }
+
+      // Sobrante REAL: lo depositado menos esta orden menos lo que se llevaron
+      // las otras. Sin restar los extras, ese dinero se abonaría a su deuda
+      // además de haber liquidado las órdenes.
+      const liquidadoExtras = extraResultado
+        .filter((x: any) => x.ok)
+        .reduce((t: number, x: any) => t + (Number(x.monto) || 0), 0);
+      const sobranteReal = +(
+        Number(voucher.declared_amount || 0) - Number(o.amount || 0) - liquidadoExtras
+      ).toFixed(2);
+      // El helper es idempotente y recalcula solo; el explícito se pasa nada más
+      // cuando hubo reparto, para que no vuelva a contar lo ya aplicado.
+      await acreditarSobranteOrden(
+        pool, voucher.payment_order_id, adminId,
+        liquidadoExtras > 0 ? Math.max(0, sobranteReal) : undefined
+      );
 
       // 💳 Orden a CRÉDITO: al aprobar todos los comprobantes, liquidar el crédito
       // (pasa a Historial) y RESTAURAR el crédito del cliente. El crédito vive en
@@ -1383,25 +1428,6 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       generateInvoiceForPoboxPaymentByRef(String(o.payment_reference || '')).catch((e: any) =>
         console.error('[approveVoucher] factura:', e?.message || e)
       );
-    }
-
-    // 🔗 Órdenes que el MISMO depósito también cubre. Solo se intentan si la
-    // orden del comprobante quedó cerrada: repartir un depósito que ni siquiera
-    // alcanzó para la suya sería empezar por el final.
-    const ordenesExtra: number[] = Array.isArray(req.body?.ordenes_extra)
-      ? req.body.ordenes_extra.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
-      : [];
-    const extraResultado: any[] = [];
-    if (allApproved && ordenesExtra.length > 0 && bankEntryId) {
-      const nombreAdmin = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
-      for (const oid of ordenesExtra) {
-        const r = await liquidarOrdenAdicional(oid, bankEntryId, adminId ?? null, nombreAdmin);
-        extraResultado.push({ orden_id: oid, ...r });
-      }
-    } else if (ordenesExtra.length > 0 && !bankEntryId) {
-      // Sin movimiento ligado no hay de dónde repartir: el libro de abonos es
-      // justamente lo que impide gastar el mismo peso dos veces.
-      extraResultado.push({ ok: false, motivo: 'Para cubrir otras órdenes hay que ligar el movimiento bancario.' });
     }
 
     // Pago cubierto: WhatsApp + push al cliente, push al asesor.
