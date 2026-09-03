@@ -156,6 +156,31 @@ const isAdminRole = (req: Request): boolean => {
   return ['super_admin', 'admin', 'director'].includes(role);
 };
 
+/**
+ * Quien puede tocar el PORCENTAJE POR CLIENTE de XPAY.
+ *
+ * Además de dirección, pasa quien tenga el panel `cs_cartera` —donde vive la
+ * pantalla de Porcentaje XPAY—: hoy Ricardo Méndez y Yliana. Se amarra al
+ * permiso y no al rol para no dárselo de paso a la cuenta compartida de
+ * Servicio a Cliente. Angel escala estas peticiones a Ricardo (tarea 356).
+ *
+ * La ruta ya lo valida; esto es la segunda cerradura, que estaba fija a rol y
+ * habría rebotado a Ricardo aunque el middleware lo dejara pasar.
+ */
+const puedeEditarPrecioXpay = async (req: Request): Promise<boolean> => {
+  if (isAdminRole(req)) return true;
+  const uid = getAuthUserId(req);
+  if (!uid) return false;
+  try {
+    const r = await pool.query(
+      `SELECT 1 FROM user_panel_permissions
+        WHERE user_id = $1 AND panel_key = 'cs_cartera' AND can_view = TRUE LIMIT 1`,
+      [uid]
+    );
+    return r.rows.length > 0;
+  } catch { return false; }
+};
+
 // ---------------------------------------------------------------------------
 // Horas de congelamiento (ventana de TC de NUESTRO lado). Si vence antes que la
 // de ENTANGLED, cancelamos la orden localmente. Configurable por super_admin.
@@ -2069,7 +2094,7 @@ export const getMyServiceConfig = async (req: Request, res: Response): Promise<a
 // ===========================================================================
 
 export const listUserServicePricing = async (req: Request, res: Response): Promise<any> => {
-  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  if (!(await puedeEditarPrecioXpay(req))) return res.status(403).json({ error: 'Sin permisos' });
   try {
     const r = await pool.query(
       `SELECT usp.user_id, usp.servicio, usp.comision_porcentaje, usp.notes,
@@ -2087,7 +2112,7 @@ export const listUserServicePricing = async (req: Request, res: Response): Promi
 };
 
 export const upsertUserServicePricing = async (req: Request, res: Response): Promise<any> => {
-  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  if (!(await puedeEditarPrecioXpay(req))) return res.status(403).json({ error: 'Sin permisos' });
   const adminId = getAuthUserId(req);
   const userId = Number(req.params.userId);
   const servicio = String(req.params.servicio) as EntangledServicio;
@@ -2122,7 +2147,7 @@ export const upsertUserServicePricing = async (req: Request, res: Response): Pro
 };
 
 export const deleteUserServicePricing = async (req: Request, res: Response): Promise<any> => {
-  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  if (!(await puedeEditarPrecioXpay(req))) return res.status(403).json({ error: 'Sin permisos' });
   const userId = Number(req.params.userId);
   const servicio = String(req.params.servicio) as EntangledServicio;
   if (!Number.isFinite(userId) || !SERVICIOS_VALIDOS.includes(servicio)) {

@@ -6197,9 +6197,14 @@ app.get('/api/entangled/service-config', authenticateToken, getMyEntangledServic
 app.get('/api/admin/entangled/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEntangledServiceConfigAdmin);
 app.put('/api/admin/entangled/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledServiceConfig);
 // Override por usuario y servicio (admin)
-app.get('/api/admin/entangled/user-service-pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listEntangledUserServicePricing);
-app.put('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, requireMinLevel(ROLES.DIRECTOR), upsertEntangledUserServicePricing);
-app.delete('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledUserServicePricing);
+// Porcentaje de XPAY por cliente. Ademas de direccion, pasa quien tenga el
+// panel cs_cartera —donde vive la pantalla—: hoy Ricardo Mendez y Yliana. Se
+// amarra al permiso y no al rol para no darselo de paso a la cuenta compartida
+// de Servicio a Cliente (tarea 356).
+const puedeXpayPricing = requirePanelPermissionOrRoles('cs_cartera', ['super_admin', 'admin', 'director']);
+app.get('/api/admin/entangled/user-service-pricing', authenticateToken, puedeXpayPricing, listEntangledUserServicePricing);
+app.put('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, puedeXpayPricing, upsertEntangledUserServicePricing);
+app.delete('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, puedeXpayPricing, deleteEntangledUserServicePricing);
 // Proxies a la API de ENTANGLED
 app.get('/api/entangled/exchange-rate', authenticateToken, getEntangledExchangeRate);
 app.get('/api/entangled/conceptos/search', authenticateToken, searchEntangledConceptos);
@@ -8704,7 +8709,7 @@ import {
   updateUserModulePermissions,
   getMyModulePermissions
 } from './permissionController';
-import { requireSuperAdmin, requireSuperAdminOrAdmin, requirePanelPermission } from './authMiddleware';
+import { requireSuperAdmin, requireSuperAdminOrAdmin, requirePanelPermission, requirePanelPermissionOrRoles } from './authMiddleware';
 
 // Email Inbound Controller (Webhooks de correo)
 import {

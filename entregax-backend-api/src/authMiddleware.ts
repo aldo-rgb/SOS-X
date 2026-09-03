@@ -257,6 +257,36 @@ export function requirePanelPermission(panelKey: string, needEdit = false) {
   };
 }
 
+/**
+ * Igual que requirePanelPermission, pero además deja pasar a los roles que ya
+ * tenían el acceso por jerarquía. Sirve para ABRIR un endpoint a una persona
+ * concreta vía su permiso de panel SIN quitárselo a quien ya lo usaba.
+ *
+ * El caso: el porcentaje de XPAY por cliente estaba fijo a director+ y Ricardo
+ * Méndez (Servicio a Cliente) necesita capturarlo, porque es a quien Angel le
+ * escala esas peticiones. Amarrarlo al panel `cs_cartera` lo abre a las tres
+ * personas que ya lo tienen y a nadie más, en vez de al rol completo —que
+ * incluiría la cuenta compartida servicio@entregax.com— (tarea 356).
+ */
+export function requirePanelPermissionOrRoles(panelKey: string, roles: string[], needEdit = false) {
+  const permitidos = roles.map((r) => String(r).toLowerCase());
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ error: 'No autorizado' }); return; }
+    if (permitidos.includes(String(user.role || '').toLowerCase())) { next(); return; }
+    if (normalizeRole(user.role) === 'Super Admin') { next(); return; }
+    const uid = user.userId || user.id;
+    try {
+      const col = needEdit ? 'can_edit' : 'can_view';
+      const r = await pool.query(
+        `SELECT 1 FROM user_panel_permissions WHERE user_id = $1 AND panel_key = $2 AND ${col} = TRUE LIMIT 1`,
+        [uid, panelKey]);
+      if (r.rows.length > 0) { next(); return; }
+    } catch (e) { console.error('[requirePanelPermissionOrRoles]', e); }
+    res.status(403).json({ error: 'No tienes permiso para este panel.' });
+  };
+}
+
 // Permite Super Admin y Admin. Se usa en "Paneles por Usuario" (admin puede
 // asignar paneles); la "Matriz por Rol" sigue reservada a Super Admin.
 export function requireSuperAdminOrAdmin() {

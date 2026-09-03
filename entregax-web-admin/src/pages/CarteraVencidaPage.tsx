@@ -175,10 +175,17 @@ export default function CarteraVencidaPage() {
   // Los porcentajes de XPay son de dirección para arriba (los endpoints exigen
   // ese nivel). Se oculta la pestaña a quien no puede usarla, en vez de dejar
   // que la abra y se tope con un 403.
+  // Quién ve la pestaña de Porcentaje XPAY.
+  //
+  // Además de dirección, Servicio a Cliente: Angel escala esas peticiones a
+  // Ricardo Méndez y él es quien las captura (tarea 356). No hace falta filtrar
+  // más aquí porque para ABRIR esta pantalla ya se necesita el panel
+  // `cs_cartera`, que hoy tienen tres personas; el backend valida ese mismo
+  // permiso, así que la pestaña y el endpoint dicen lo mismo.
   const puedeVerPorcentajesXpay = (() => {
     try {
       const rol = String(JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase();
-      return ['director', 'admin', 'super_admin'].includes(rol);
+      return ['director', 'admin', 'super_admin', 'customer_service'].includes(rol);
     } catch { return false; }
   })();
   const [loading, setLoading] = useState(false);
