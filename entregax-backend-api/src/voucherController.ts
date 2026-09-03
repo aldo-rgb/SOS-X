@@ -443,6 +443,92 @@ export async function abonarBilleteraServicio(
   return monto;
 }
 
+/**
+ * Marca como liquidadas las ordenes que acaba de pagar un abono a la deuda.
+ *
+ * Cuando un cliente a credito paga de mas, el excedente abona a su deuda (regla
+ * de Aldo). Eso baja `used_credit` correctamente —el dinero queda bien— pero
+ * NADIE marcaba las ordenes de donde venia esa deuda: seguian diciendo
+ * "CREDITO" para siempre, sus guias sin pagar y las comisiones del asesor
+ * retenidas aunque el cliente ya hubiera pagado.
+ *
+ * Al 3-sep-2026 habia 56 ordenes asi por ~$154,000 entre tres clientes, y cada
+ * vez que un asesor lo notaba entraba un ticket nuevo (tarea 455,
+ * TKT-2026-2458 y TKT-2026-2550).
+ *
+ * Se asignan de la MAS VIEJA a la mas nueva, que es como se salda una cuenta
+ * corriente, y solo las que el abono cubre POR COMPLETO: una orden a medias no
+ * esta pagada. Lo que sobra queda en la deuda, esperando el siguiente pago.
+ *
+ * No toca el credito: ya lo redujo quien llamo a esta funcion. Aqui solo se
+ * pone el estatus y se sueltan las comisiones.
+ */
+async function marcarOrdenesLiquidadasPorAbono(
+  db: any,
+  opts: { userId: number; servicioCredito: string; monto: number; excluirOrdenId?: number; referencia?: string | null }
+): Promise<number> {
+  const { userId, servicioCredito, excluirOrdenId } = opts;
+  let restante = +Number(opts.monto || 0).toFixed(2);
+  if (!(restante > 0) || !userId || !servicioCredito) return 0;
+
+  // El servicio de cada orden sale del log de cobro, que es el autoritativo:
+  // deducirlo del prefijo de la referencia falla en las ordenes heredadas.
+  const candidatas = await db.query(
+    `SELECT p.id, p.amount, p.payment_reference, p.package_ids
+       FROM pobox_payments p
+      WHERE p.user_id = $1
+        AND LOWER(COALESCE(p.payment_method,'')) = 'credit'
+        AND COALESCE(p.credit_settled, false) = false
+        AND p.status NOT IN ('cancelled','expired')
+        AND ($3::int IS NULL OR p.id <> $3::int)
+        AND CASE UPPER(COALESCE((SELECT o.service_type FROM openpay_webhook_logs o
+                                  WHERE o.transaction_id = p.payment_reference
+                                    AND o.service_type IS NOT NULL
+                                  ORDER BY o.id DESC LIMIT 1), 'POBOX_USA'))
+              WHEN 'AA_DHL'      THEN 'dhl_liberacion'
+              WHEN 'AIR_CHN_MX'  THEN 'aereo'
+              WHEN 'TDI_EXPRESS' THEN 'aereo'
+              WHEN 'SEA_CHN_MX'  THEN 'maritimo'
+              ELSE 'po_box' END = $2
+      ORDER BY p.created_at ASC`,
+    [userId, servicioCredito, excluirOrdenId ?? null]
+  );
+
+  let marcadas = 0;
+  for (const o of candidatas.rows) {
+    const monto = Number(o.amount) || 0;
+    if (monto > restante + 0.01) break; // no alcanza: de aqui en adelante tampoco
+    await db.query(
+      `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = NOW() WHERE id = $1`,
+      [o.id]
+    );
+    restante = +(restante - monto).toFixed(2);
+    marcadas++;
+
+    try {
+      const raw = typeof o.package_ids === 'string' ? JSON.parse(o.package_ids) : o.package_ids;
+      const ids = (Array.isArray(raw) ? raw : []).map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, ''))).filter(Boolean);
+      if (ids.length > 0) {
+        await db.query(
+          `UPDATE advisor_commissions
+              SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+            WHERE shipment_id = ANY($1::int[])
+              AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+          [ids]
+        );
+      }
+    } catch { /* el estatus ya quedo; las comisiones se pueden reintentar */ }
+  }
+
+  if (marcadas > 0) {
+    console.log(
+      `[VOUCHER] El abono de ${opts.referencia || ''} liquido ${marcadas} orden(es) previas ` +
+      `del cliente ${userId} en ${servicioCredito}. Quedan $${restante.toFixed(2)} en su deuda.`
+    );
+  }
+  return marcadas;
+}
+
 export async function acreditarSobranteOrden(
   db: any,
   orderId: number,
@@ -529,6 +615,15 @@ export async function acreditarSobranteOrden(
       `[VOUCHER] Sobrante abonado a deuda: $${abonadoADeuda.toFixed(2)} al crédito ${servicioDeuda} ` +
       `de user ${order.user_id} (orden ${order.payment_reference})`
     );
+    // Y marcar QUÉ órdenes acaba de pagar ese abono. Sin esto la deuda bajaba
+    // pero las órdenes seguían diciendo "CRÉDITO" para siempre.
+    await marcarOrdenesLiquidadasPorAbono(db, {
+      userId: order.user_id,
+      servicioCredito: servicioDeuda,
+      monto: abonadoADeuda,
+      excluirOrdenId: orderId,
+      referencia: order.payment_reference,
+    }).catch((e: any) => console.error('[VOUCHER] no pude marcar las órdenes que cubrió el abono:', e?.message));
   }
 
   const paraMonedero = +(surplus - abonadoADeuda).toFixed(2);
