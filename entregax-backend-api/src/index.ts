@@ -1469,7 +1469,7 @@ import {
   uploadVoucher, confirmVoucherAmount, completeVoucherPayment,
   getOrderVouchers, deleteVoucher, avisarPagoConfirmado,
   getAdminPendingVouchers, getAdminOrderVouchers, approveVoucher, rejectVoucher,
-  getVoucherBankCandidates,
+  getVoucherBankCandidates, getOtrasOrdenesDelCliente,
   getVoucherStats, getServiceWalletBalances
 } from './voucherController';
 import {
@@ -5738,6 +5738,8 @@ app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevelOrRo
 // alguien puede autorizar el pago, tiene que poder ver contra que abono lo liga.
 // Dejarlo en super admin le pintaba el Paso 2 vacio al contador.
 app.get('/api/admin/vouchers/:id/bank-candidates', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVoucherBankCandidates);
+// Otras ordenes abiertas del cliente, para cuando un solo deposito cubre varias.
+app.get('/api/admin/vouchers/:id/otras-ordenes', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getOtrasOrdenesDelCliente);
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, verifyLimiter, uploadVerificationDocuments);

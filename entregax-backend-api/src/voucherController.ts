@@ -1372,6 +1372,25 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // 🔗 Órdenes que el MISMO depósito también cubre. Solo se intentan si la
+    // orden del comprobante quedó cerrada: repartir un depósito que ni siquiera
+    // alcanzó para la suya sería empezar por el final.
+    const ordenesExtra: number[] = Array.isArray(req.body?.ordenes_extra)
+      ? req.body.ordenes_extra.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+    const extraResultado: any[] = [];
+    if (allApproved && ordenesExtra.length > 0 && bankEntryId) {
+      const nombreAdmin = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
+      for (const oid of ordenesExtra) {
+        const r = await liquidarOrdenAdicional(oid, bankEntryId, adminId ?? null, nombreAdmin);
+        extraResultado.push({ orden_id: oid, ...r });
+      }
+    } else if (ordenesExtra.length > 0 && !bankEntryId) {
+      // Sin movimiento ligado no hay de dónde repartir: el libro de abonos es
+      // justamente lo que impide gastar el mismo peso dos veces.
+      extraResultado.push({ ok: false, motivo: 'Para cubrir otras órdenes hay que ligar el movimiento bancario.' });
+    }
+
     // Pago cubierto: WhatsApp + push al cliente, push al asesor.
     if (allApproved) {
       await avisarPagoConfirmado(voucher.payment_order_id, {
@@ -1384,6 +1403,7 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       voucher: result.rows[0],
       all_approved: allApproved,
       order_completed: allApproved,
+      ordenes_extra: extraResultado,
     });
   } catch (error: any) {
     console.error('[VOUCHER-ADMIN] Approve error:', error);
@@ -1670,5 +1690,221 @@ export const getVoucherBankCandidates = async (req: AuthRequest, res: Response) 
   } catch (error: any) {
     console.error('[VOUCHER-ADMIN] bank candidates error:', error);
     return res.status(500).json({ error: 'Error buscando movimientos bancarios', detalle: error.message });
+  }
+};
+
+/**
+ * Liquida una orden ADICIONAL con el mismo depósito de un comprobante.
+ *
+ * El caso: ALEX HUANG deposita $10,813.55 en una sola transferencia y sube el
+ * comprobante en UNA de sus órdenes. Ese importe es la suma EXACTA de sus tres
+ * órdenes abiertas. Aprobando solo la del comprobante se cerraba una, el
+ * excedente se iba a saldo a favor o a deuda, y sus otras dos seguían a crédito
+ * bloqueadas. El cliente hace lo correcto y el sistema lo deja a medias.
+ *
+ * El libro de abonos ya soporta que un movimiento respalde varias órdenes: lleva
+ * el saldo disponible por movimiento, así que no hay riesgo de gastarlo dos
+ * veces. Lo que faltaba era usarlo.
+ *
+ * Duplica a propósito los pasos de cierre de approveVoucher en vez de refactorizar
+ * ese camino: acaba de validarse en producción con cuatro comprobantes reales y
+ * no vale la pena moverlo para ahorrar treinta líneas.
+ */
+export async function liquidarOrdenAdicional(
+  orderId: number,
+  bankEntryId: number,
+  adminId: number | null,
+  adminNombre: string
+): Promise<{ ok: boolean; motivo?: string; monto?: number; referencia?: string }> {
+  const oRes = await pool.query(
+    `SELECT id, user_id, amount, payment_reference, package_ids, payment_method,
+            COALESCE(credit_settled, false) AS credit_settled, status
+       FROM pobox_payments WHERE id = $1`,
+    [orderId]
+  );
+  const o = oRes.rows[0];
+  if (!o) return { ok: false, motivo: 'La orden no existe.' };
+
+  // Una orden ya liquidada no se vuelve a cobrar. Sin esta guarda, dos clics
+  // seguidos aplicarían el abono dos veces contra la misma orden.
+  const yaLiquidada = String(o.payment_method || '').toLowerCase() === 'credit'
+    ? o.credit_settled === true
+    : ['paid', 'completed'].includes(String(o.status));
+  if (yaLiquidada) {
+    return { ok: false, motivo: `La orden ${o.payment_reference} ya estaba liquidada.`, referencia: o.payment_reference };
+  }
+
+  const monto = Number(o.amount) || 0;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Reserva el dinero del mismo movimiento. Si ya no alcanza, truena aquí y
+    // no se cierra nada: es la proteccion contra aplicar el mismo peso dos veces.
+    const { ensureLedgerSchema, aplicarAbono } = await import('./bankEntryLedger');
+    await ensureLedgerSchema();
+    await aplicarAbono(client, {
+      bankEntryId,
+      montoAplicado: monto,
+      origen: 'comprobante_manual',
+      paymentOrderId: o.id,
+      paymentReference: o.payment_reference,
+      voucherId: null,
+      aplicadoPor: adminId,
+      aplicadoPorNombre: adminNombre,
+      nota: 'Pago conjunto: el cliente cubrió varias órdenes con un solo depósito.',
+    });
+
+    await client.query(
+      `UPDATE pobox_payments SET status = 'completed', paid_at = NOW() WHERE id = $1`,
+      [o.id]
+    );
+
+    await client.query('COMMIT');
+  } catch (e: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    return { ok: false, motivo: e?.message || 'No se pudo aplicar el abono.', referencia: o.payment_reference };
+  }
+  client.release();
+
+  // Fuera de la transacción, igual que en approveVoucher: marcar guías, liberar
+  // crédito y comisiones. Si algo de esto falla, el pago YA quedó registrado y
+  // se puede reintentar; al revés se perdería el abono.
+  const rawPkgIds = o.package_ids;
+  const packageIds: number[] = (typeof rawPkgIds === 'string' ? JSON.parse(rawPkgIds) : (rawPkgIds || []))
+    .map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, '')))
+    .filter((n: number) => Number.isFinite(n));
+
+  // Colisión de id: en órdenes DHL package_ids apunta a dhl_shipments, no a
+  // packages. Marcar la tabla equivocada deja la guía sin pagar.
+  let esDhl = false;
+  try {
+    const svc = await pool.query(
+      `SELECT service_type FROM openpay_webhook_logs
+        WHERE transaction_id = $1 AND service_type IS NOT NULL ORDER BY id DESC LIMIT 1`,
+      [o.payment_reference]
+    );
+    esDhl = String(svc.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
+  } catch { /* se asume no-DHL */ }
+
+  try {
+    if (packageIds.length > 0 && esDhl) {
+      await markDhlGroupPaid(pool, packageIds, { onlyUnpaid: true });
+    } else if (packageIds.length > 0) {
+      await pool.query(
+        `UPDATE packages SET client_paid = TRUE, client_paid_at = CURRENT_TIMESTAMP,
+                saldo_pendiente = 0, payment_status = 'paid'
+          WHERE id = ANY($1::int[]) OR master_id = ANY($1::int[])`,
+        [packageIds]
+      );
+    }
+  } catch (e: any) {
+    console.error(`[VOUCHER] Orden ${o.payment_reference}: no se pudieron marcar las guías:`, e?.message || e);
+  }
+
+  if (String(o.payment_method || '').toLowerCase() === 'credit') {
+    await pool.query(
+      `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = NOW() WHERE id = $1`,
+      [o.id]
+    );
+    const svcKey = esDhl
+      ? 'dhl_liberacion'
+      : await resolveCreditService(pool, {
+          poboxPaymentId: o.id,
+          paymentReference: o.payment_reference,
+          packageIds,
+        });
+    await restoreServiceCredit(pool, {
+      userId: o.user_id,
+      amount: monto,
+      service: svcKey,
+      orderRef: o.payment_reference || o.id,
+    });
+    if (packageIds.length > 0) {
+      await pool.query(
+        `UPDATE advisor_commissions
+            SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+          WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
+            AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+        [packageIds]
+      );
+    }
+  }
+
+  generateInvoiceForPoboxPaymentByRef(String(o.payment_reference || '')).catch((e: any) =>
+    console.error('[liquidarOrdenAdicional] factura:', e?.message || e)
+  );
+
+  console.log(`💰 [VOUCHER] Orden adicional ${o.payment_reference} liquidada con el abono #${bankEntryId} por $${monto.toFixed(2)}`);
+  return { ok: true, monto, referencia: o.payment_reference };
+}
+
+/**
+ * GET /api/admin/vouchers/:id/otras-ordenes
+ *
+ * Las demás órdenes abiertas del cliente, para el caso en que un solo depósito
+ * cubre varias. Marca `cobertura_exacta` cuando el importe del comprobante
+ * coincide al centavo con la suma de TODAS las abiertas: es la señal que hace
+ * obvio lo que si no hay que descubrir a mano.
+ */
+export const getOtrasOrdenesDelCliente = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const vRes = await pool.query(
+      `SELECT v.declared_amount, v.payment_order_id, v.user_id, u.box_id, u.full_name
+         FROM payment_vouchers v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [id]
+    );
+    if (vRes.rows.length === 0) return res.status(404).json({ error: 'Comprobante no encontrado' });
+    const v = vRes.rows[0];
+    const deposito = Number(v.declared_amount) || 0;
+
+    const ordenRes = await pool.query(`SELECT amount FROM pobox_payments WHERE id = $1`, [v.payment_order_id]);
+    const montoOrden = Number(ordenRes.rows[0]?.amount) || 0;
+
+    // Solo tiene sentido preguntar cuando sobra dinero.
+    if (deposito <= montoOrden + 0.01) {
+      return res.json({ aplica: false, otras: [], sobrante: 0 });
+    }
+
+    const otras = await pool.query(
+      `SELECT p.id, p.payment_reference, p.amount, p.status, p.payment_method, p.created_at
+         FROM pobox_payments p
+        WHERE p.user_id = $1
+          AND p.id <> $2
+          AND p.status NOT IN ('cancelled', 'expired', 'paid')
+          AND (LOWER(COALESCE(p.payment_method,'')) <> 'credit'
+               OR COALESCE(p.credit_settled, false) = false)
+        ORDER BY p.created_at ASC`,
+      [v.user_id, v.payment_order_id]
+    );
+
+    const sobrante = +(deposito - montoOrden).toFixed(2);
+    const sumaOtras = otras.rows.reduce((t: number, r: any) => t + (Number(r.amount) || 0), 0);
+    const coberturaExacta = Math.abs(deposito - (montoOrden + sumaOtras)) < 0.01 && otras.rows.length > 0;
+
+    return res.json({
+      aplica: true,
+      cliente: { box_id: v.box_id, nombre: v.full_name },
+      deposito,
+      monto_orden: montoOrden,
+      sobrante,
+      cobertura_exacta: coberturaExacta,
+      otras: otras.rows.map((r: any) => ({
+        id: Number(r.id),
+        payment_reference: r.payment_reference,
+        amount: Number(r.amount),
+        status: r.status,
+        es_credito: String(r.payment_method || '').toLowerCase() === 'credit',
+        alcanza: Number(r.amount) <= sobrante + 0.01,
+      })),
+      mensaje: coberturaExacta
+        ? `Este depósito de $${deposito.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cubre EXACTAMENTE las ${otras.rows.length + 1} órdenes abiertas de este cliente.`
+        : null,
+    });
+  } catch (error: any) {
+    console.error('[VOUCHER-ADMIN] otras-ordenes:', error);
+    return res.status(500).json({ error: 'Error buscando otras órdenes', detalle: error.message });
   }
 };
