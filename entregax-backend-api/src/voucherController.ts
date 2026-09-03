@@ -847,17 +847,24 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
     }
 
     const result = await pool.query(
-      `SELECT v.*, 
-              -- Las columnas se llaman full_name y box_id: con u.name / u.pobox_code
-              -- esta consulta tronaba y el endpoint devolvia 500, asi que la cola
-              -- de comprobantes por revisar era INVISIBLE. Ver getAdminOrderVouchers,
-              -- que si usaba los nombres correctos.
-              u.full_name as user_name, u.email as user_email, u.box_id as pobox_code,
+      `SELECT v.*,
+              -- EL CLIENTE ES EL DUEÑO DE LA ORDEN, no quien subio el archivo.
+              -- payment_vouchers.user_id guarda a quien lo subio, y muy seguido es
+              -- el ASESOR: el cliente le manda su comprobante por WhatsApp y el
+              -- asesor lo carga. Agrupando por ese campo la cola pintaba a
+              -- Jaqueline Minero (asesora) como si fuera la clienta con \$13,700
+              -- que en realidad son de GIL BROKER, y ese comprobante no aparecia
+              -- junto a los demas de Gil. El dinero siempre estuvo bien; lo que
+              -- mentia era la etiqueta.
+              cli.full_name as user_name, cli.email as user_email, cli.box_id as pobox_code,
+              up.full_name as subido_por_nombre, up.role as subido_por_rol,
+              (up.id IS NOT NULL AND up.id <> cli.id) as subido_por_otro,
               p.payment_reference, p.amount as order_amount, p.currency as order_currency,
               p.voucher_total, p.voucher_count, p.status as order_status
        FROM payment_vouchers v
-       JOIN users u ON u.id = v.user_id
        JOIN pobox_payments p ON p.id = v.payment_order_id
+       JOIN users cli ON cli.id = p.user_id
+       LEFT JOIN users up ON up.id = v.user_id
        WHERE ${whereClause}
        ORDER BY v.created_at ASC
        LIMIT $1 OFFSET $2`,
@@ -1605,10 +1612,14 @@ export const getVoucherBankCandidates = async (req: AuthRequest, res: Response) 
     const { id } = req.params;
     const q = String(req.query.q || '').trim();
 
+    // El box que se busca en el concepto bancario es el del DUEÑO DE LA ORDEN.
+    // Tomarlo del comprobante hacia que, cuando lo sube el asesor, buscaramos su
+    // numero en vez del de su cliente y ningun deposito empatara.
     const vRes = await pool.query(
       `SELECT v.declared_amount, v.created_at, u.box_id, u.full_name
          FROM payment_vouchers v
-         JOIN users u ON u.id = v.user_id
+         JOIN pobox_payments p ON p.id = v.payment_order_id
+         JOIN users u ON u.id = p.user_id
         WHERE v.id = $1`,
       [id]
     );
@@ -1851,9 +1862,14 @@ export async function liquidarOrdenAdicional(
 export const getOtrasOrdenesDelCliente = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    // Las otras ordenes son las del DUEÑO de la orden. Si lo subio el asesor,
+    // buscar por su user_id devolveria las ordenes del asesor, no las del cliente.
     const vRes = await pool.query(
-      `SELECT v.declared_amount, v.payment_order_id, v.user_id, u.box_id, u.full_name
-         FROM payment_vouchers v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      `SELECT v.declared_amount, v.payment_order_id, p.user_id, u.box_id, u.full_name
+         FROM payment_vouchers v
+         JOIN pobox_payments p ON p.id = v.payment_order_id
+         JOIN users u ON u.id = p.user_id
+        WHERE v.id = $1`,
       [id]
     );
     if (vRes.rows.length === 0) return res.status(404).json({ error: 'Comprobante no encontrado' });
