@@ -208,8 +208,13 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
         -- Debe existir también aquí: las dos ramas del UNION tienen que tener
-        -- las mismas columnas. Al agregarla solo en la primera, el endpoint
-        -- entero respondía 500 y el asesor veía la lista VACÍA.
+        -- las mismas columnas Y EN EL MISMO ORDEN. Al agregarla solo en la
+        -- primera, el endpoint entero responde 500 y el asesor ve la lista
+        -- VACÍA. Ya pasó con saldo_pendiente y volvió a pasar con
+        -- comprobantes_en_revision (tarea 490, TKT-2026-2553 y 2568).
+        (SELECT COUNT(*) FROM payment_vouchers pv
+          WHERE pv.payment_order_id = pp.id AND pv.status = 'pending_review')
+          AS comprobantes_en_revision,
         GREATEST(0, pp.amount
             - COALESCE(pp.voucher_total, 0)
             - COALESCE(pp.wallet_applied, 0)
