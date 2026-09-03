@@ -685,6 +685,19 @@ function App() {
       }
     }
 
+    // 💰 Aviso diario de pagos por autorizar → abrir Caja › Autorizar Pagos.
+    // Sin esto la notificación llega y no lleva a ningún lado, que es la forma
+    // más rápida de que dejen de leerla.
+    if (notif.action_url === '/comprobantes' || notif.data?.screen === 'ComprobantesPendientes') {
+      const idx = menuItems.findIndex(i => i.key === 'cajaChicaGroup');
+      const sub = menuItems[idx]?.subItems?.findIndex(si => si.key === 'comprobantes') ?? -1;
+      if (idx >= 0 && sub >= 0) {
+        setSelectedIndex(idx);
+        setSelectedSubIndex(sub);
+        return;
+      }
+    }
+
     // 🎫 Notificaciones de TICKET → abrir el ticket en el tablero de soporte.
     // El aviso traía el folio y el id pero nadie los usaba: al darle click no
     // pasaba nada y había que ir a buscarlo a mano.
@@ -768,8 +781,12 @@ function App() {
     // 'admin_finance_dashboard'. O sea que el acceso era solo por rol y
     // otorgar el permiso en Permisos no servía de nada — por eso Leonardo
     // reiniciaba sesión y seguía sin ver el cambio (tarea 374).
-    // Autorizar comprobantes mueve dinero y libera credito: solo super admin.
-    if (category === 'comprobantes') return currentUser?.role === 'super_admin';
+    // Autorizar comprobantes mueve dinero y libera crédito. Empezó siendo solo
+    // super admin; se abre a contabilidad porque es quien recibe el aviso diario
+    // y quien concilia. El backend ya les permitía aprobar desde antes.
+    if (category === 'comprobantes') {
+      return ['super_admin', 'accountant', 'finanzas'].includes(currentUser?.role || '');
+    }
 
     if (['cajaChica', 'pettyCash', 'cobranza'].includes(category)) {
       const role = currentUser?.role || '';
@@ -1978,7 +1995,8 @@ function App() {
         case 'cajaChica': return <CajaChicaPage />;
         case 'pettyCash': return <PettyCashHubPage />;
         case 'cobranza': return <FinanceDashboardPage />;
-        case 'comprobantes': return currentUser?.role === 'super_admin' ? <ComprobantesPendientes /> : null;
+        case 'comprobantes': return ['super_admin', 'accountant', 'finanzas'].includes(currentUser?.role || '')
+          ? <ComprobantesPendientes /> : null;
         default: return null;
       }
     }
