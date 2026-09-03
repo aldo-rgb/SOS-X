@@ -672,6 +672,7 @@ export default function MisTareasPage() {
   // Tarjeta compacta para la Matriz Eisenhower (los 4 cuadrantes caben en una pantalla).
   const renderMatrixCard = (t: Task) => {
     const done = t.status === 'completed';
+    const mia = Number(t.assignee_id) === MY_ID && !done;
     const boardLabel = t.board_key === 'personales'
       ? ((t.participants_count || 0) > 1 ? 'Asignadas' : 'Personal')
       : t.board_name;
@@ -686,8 +687,16 @@ export default function MisTareasPage() {
       <Box key={t.id} onClick={() => setDetailId(t.id)}
         draggable
         onDragStart={e => { e.dataTransfer.setData('text/plain', String(t.id)); e.dataTransfer.effectAllowed = 'move'; }}
-        sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
-          borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
+        sx={{ bgcolor: mia ? '#F5F8FF' : '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
+          borderLeft: t.overdue ? '3px solid #C0392B' : (mia ? '3px solid #1D4ED8' : '1px solid #E8DFD3'),
+          '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
+        {/* Franja azul + etiqueta: de un vistazo se separa lo que respondes tú
+            de lo que solo estás siguiendo. */}
+        {mia && (
+          <Typography sx={{ fontSize: 8.5, fontWeight: 900, color: '#1D4ED8', letterSpacing: '.3px', mb: 0.15 }}>
+            👤 TU RESPONSABILIDAD
+          </Typography>
+        )}
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
           {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
           <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.4, textDecoration: 'none' }}>#{t.id}</Box>
@@ -1112,9 +1121,17 @@ export default function MisTareasPage() {
             // Las que están en espera de que confirme ALGUIEN MÁS siguen hasta
             // abajo (rank 3): ya las trabajaste, no compiten por tu atención.
             const vence = (t: Task) => (t.due_at ? new Date(t.due_at).getTime() : Number.POSITIVE_INFINITY);
+            // De lo que RESPONDES TÚ va siempre arriba: en el cuadrante se
+            // mezclaban tus tareas con aquellas donde solo estás involucrado y
+            // la fecha decidía, así que una tuya podía quedar debajo de varias
+            // que solo sigues. Solo lo sin leer pesa más, porque eso es alguien
+            // esperando tu respuesta.
+            const esMia = (t: Task) => Number(t.assignee_id) === MY_ID;
             const qt = visibleTasks.filter(t => t.eisenhower === q.key)
               .sort((a, b) => {
                 if (rank(a) !== rank(b)) return rank(a) - rank(b);
+                const mia = Number(esMia(b)) - Number(esMia(a));
+                if (mia !== 0) return mia;
                 return vence(a) - vence(b);
               });
             const over = dragOverKey === q.key;

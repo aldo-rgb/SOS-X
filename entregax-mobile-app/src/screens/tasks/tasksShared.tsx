@@ -2342,6 +2342,12 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
     if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
     return 2;
   };
+  // De lo que RESPONDES TÚ va siempre arriba. En el cuadrante se mezclaban las
+  // tuyas con aquellas donde solo estás involucrado, y como el orden lo mandaba
+  // la fecha, una tarea tuya podía quedar debajo de tres que solo sigues. Pesa
+  // más que la fecha y que el estado; solo lo sin leer va por encima, porque
+  // eso es alguien esperando tu respuesta.
+  const esMia = (t: TaskT) => myId != null && Number(t.assignee_id) === Number(myId);
   // Orden del cuadrante:
   //   1. Lo que ESPERA ALGO DE TI arriba (rank): comentarios sin leer y las que
   //      te toca confirmar. Antes esto era el ultimo criterio y la fecha lo
@@ -2352,6 +2358,8 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
     q,
     qt: base.filter(t => t.eisenhower === q.key).sort((a, b) => {
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      const mia = Number(esMia(b)) - Number(esMia(a));
+      if (mia !== 0) return mia;
       return vence(a) - vence(b);
     }),
   }));
@@ -2485,7 +2493,13 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
           return (
             <View key={t.id} {...panDe(t.id).panHandlers}
               style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 },
+                      esMia(t) && !done && styles.mxCardMia,
                       arrastrando?.id === t.id && styles.mxCardArrastrada]}>
+              {/* Franja azul + etiqueta: de un vistazo se separa lo que
+                  respondes tú de lo que solo estás siguiendo. */}
+              {esMia(t) && !done && (
+                <Text style={styles.mxCardMiaTag}>👤 TU RESPONSABILIDAD</Text>
+              )}
               <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>
                 <Text style={styles.mxCardFolio}>#{t.id} </Text>{t.title}
               </Text>
@@ -2714,6 +2728,10 @@ export const styles = StyleSheet.create({
   mxCountTxt: { fontSize: 10, fontWeight: '700', color: '#333' },
   mxEmpty: { fontSize: 11, color: '#AAA', textAlign: 'center', paddingVertical: 6 },
   mxCard: { backgroundColor: '#fff', borderRadius: 7, paddingHorizontal: 6, paddingVertical: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: '#E2E2E2' },
+  // Lo que respondes tú: franja azul a la izquierda y fondo apenas teñido. El
+  // color va aparte del rojo de vencida para que las dos señales convivan.
+  mxCardMia: { borderLeftWidth: 3, borderLeftColor: '#1D4ED8', backgroundColor: '#F5F8FF' },
+  mxCardMiaTag: { fontSize: 8.5, fontWeight: '900', color: '#1D4ED8', letterSpacing: 0.3, marginBottom: 2 },
   mxCardTitle: { fontSize: 11.5, fontWeight: '600', color: '#222', lineHeight: 14 },
   mxCardFolio: { color: '#8A8A8A', fontWeight: '800' },
   mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
