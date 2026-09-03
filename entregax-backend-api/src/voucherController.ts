@@ -821,6 +821,50 @@ export const ORDEN_YA_COBRADA = (alias = 'p') => `(
            AND COALESCE(${alias}.credit_settled, false) = false)
 )`;
 
+/**
+ * Es el dinero de este comprobante YA registrado por otra via?
+ *
+ * Caso real (JOAQUIN GONZALEZ, RO-54187630): el cliente pago 58,139.81 con un
+ * BBVA Net Cash que traia la referencia en el concepto, el conciliador
+ * automatico lo caso solo al dia siguiente, y dias despues alguien subio el
+ * comprobante de ESE MISMO pago. El abono ya esta aplicado a la orden.
+ *
+ * Aprobarlo no roba dinero —el libro de abonos impide gastar el mismo peso dos
+ * veces— pero ensucia la cuenta: deja el comprobante como si fuera un pago
+ * aparte y esconde que a esa orden todavia le faltan 71,800.45 por cobrar.
+ *
+ * Se detecta por importe: una aplicacion viva sobre la MISMA orden, por el
+ * MISMO monto, que no venga de este comprobante. Por importe y no por fecha
+ * porque el cliente sube el papel semanas despues.
+ */
+export async function pagoYaRegistrado(voucherId: number): Promise<{
+  ya: boolean; entryId?: number; monto?: number; origen?: string;
+  fecha?: string | undefined; concepto?: string | undefined;
+}> {
+  const r = await pool.query(
+    `SELECT ba.bank_entry_id, ba.monto_aplicado, ba.origen, be.concepto, be.fecha
+       FROM payment_vouchers v
+       JOIN bank_entry_applications ba ON ba.payment_order_id = v.payment_order_id
+       LEFT JOIN bank_statement_entries be ON be.id = ba.bank_entry_id
+      WHERE v.id = $1
+        AND ba.reversed_at IS NULL
+        AND (ba.voucher_id IS NULL OR ba.voucher_id <> v.id)
+        AND ABS(ba.monto_aplicado - v.declared_amount) < 0.01
+      ORDER BY ba.id LIMIT 1`,
+    [voucherId]
+  );
+  if (r.rows.length === 0) return { ya: false };
+  const x = r.rows[0];
+  return {
+    ya: true,
+    entryId: Number(x.bank_entry_id),
+    monto: Number(x.monto_aplicado),
+    origen: x.origen,
+    fecha: x.fecha ? String(x.fecha).slice(0, 10) : undefined,
+    concepto: x.concepto || undefined,
+  };
+}
+
 export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) => {
   try {
     const { service_type, page = 1, limit = 50, vista = 'pendientes' } = req.query;
@@ -857,6 +901,16 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
               -- junto a los demas de Gil. El dinero siempre estuvo bien; lo que
               -- mentia era la etiqueta.
               cli.full_name as user_name, cli.email as user_email, cli.box_id as pobox_code,
+              -- Aviso ANTES del clic: el dinero de este comprobante ya podria
+              -- estar aplicado a la orden por el conciliador automatico.
+              (SELECT jsonb_build_object('entry_id', ba.bank_entry_id, 'origen', ba.origen,
+                                         'fecha', be.fecha, 'concepto', be.concepto)
+                 FROM bank_entry_applications ba
+                 LEFT JOIN bank_statement_entries be ON be.id = ba.bank_entry_id
+                WHERE ba.payment_order_id = p.id AND ba.reversed_at IS NULL
+                  AND (ba.voucher_id IS NULL OR ba.voucher_id <> v.id)
+                  AND ABS(ba.monto_aplicado - v.declared_amount) < 0.01
+                ORDER BY ba.id LIMIT 1) AS pago_ya_registrado,
               up.full_name as subido_por_nombre, up.role as subido_por_rol,
               (up.id IS NOT NULL AND up.id <> cli.id) as subido_por_otro,
               p.payment_reference, p.amount as order_amount, p.currency as order_currency,
@@ -1123,6 +1177,51 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
           `si es el mismo, recházalo; si de verdad son dos, vuelve a aprobar confirmando el duplicado.`,
         duplicate_of_voucher_id: dup.duplicate_of_voucher_id,
         requires_confirmation: true,
+      });
+    }
+
+    // 🛑 FRENO: el dinero de este comprobante ya está registrado.
+    //
+    // No se ofrece salida ni con confirmación, a diferencia del freno de
+    // duplicados: aquí no hay un caso legítimo del otro lado. El pago ya está
+    // contado en la orden; aprobarlo otra vez solo lo haría parecer un segundo
+    // pago y escondería lo que falta por cobrar.
+    const yaReg = await pagoYaRegistrado(Number(id));
+    if (yaReg.ya) {
+      const orden = await pool.query(
+        `SELECT p.payment_reference, p.amount,
+                COALESCE((SELECT SUM(ba.monto_aplicado) FROM bank_entry_applications ba
+                           WHERE ba.payment_order_id = p.id AND ba.reversed_at IS NULL), 0) AS pagado
+           FROM payment_vouchers v JOIN pobox_payments p ON p.id = v.payment_order_id
+          WHERE v.id = $1`,
+        [id]
+      );
+      const o = orden.rows[0] || {};
+      const total = Number(o.amount) || 0;
+      const pagado = Number(o.pagado) || 0;
+      const falta = +(total - pagado).toFixed(2);
+      const fmt = (n: number) => `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const comoEntro = yaReg.origen === 'auto_syncfy'
+        ? 'el conciliador automático lo detectó solo en el estado de cuenta'
+        : 'ya se había ligado a mano';
+
+      return res.status(409).json({
+        error: 'Este pago ya está registrado',
+        no_autorizable: true,
+        message:
+          `Este depósito de ${fmt(yaReg.monto || 0)} YA está aplicado a la orden ${o.payment_reference}: ` +
+          `${comoEntro}${yaReg.fecha ? ` el ${yaReg.fecha}` : ''} (movimiento #${yaReg.entryId}). ` +
+          `El cliente subió el comprobante del MISMO pago después, que es lo normal. ` +
+          `No hay nada que autorizar y aprobarlo haría parecer que pagó dos veces.` +
+          (falta > 0.01
+            ? ` OJO: a esta orden le faltan ${fmt(falta)} por cobrar de ${fmt(total)}. Eso se cobra en la pestaña «Por cobrar», no aquí.`
+            : ' La orden ya quedó cubierta.'),
+        bank_entry_id: yaReg.entryId,
+        concepto: yaReg.concepto,
+        orden: o.payment_reference,
+        monto_orden: total,
+        ya_pagado: pagado,
+        falta_por_cobrar: falta > 0.01 ? falta : 0,
       });
     }
 
