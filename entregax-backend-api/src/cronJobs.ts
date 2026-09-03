@@ -2005,13 +2005,22 @@ export const startComprobantesPorAutorizarCron = () => {
           : '') +
         ' Mientras no se autoricen, su crédito sigue ocupado.';
 
-      // Contabilidad y finanzas. El super admin va incluido porque hoy es quien
-      // tiene la pantalla, y así el aviso sirve desde el primer día.
+      // Solo a quien de verdad puede abrir la pantalla. El aviso vive dentro del
+      // dashboard de Cobranza y a él se entra por Herramientas › Administrativas,
+      // que pide el permiso admin_finance_dashboard: mandárselo a un contador
+      // que no lo tiene es darle un pendiente sin puerta. Se filtra por permiso
+      // y no por nombre para que se mantenga solo cuando cambien los accesos.
       const destinatarios = (await pool.query(
-        `SELECT id FROM users
-          WHERE role IN ('accountant', 'finanzas', 'super_admin')
-            AND COALESCE(is_active, true) = true
-            AND deleted_at IS NULL`)).rows.map((x: any) => Number(x.id));
+        `SELECT u.id FROM users u
+          WHERE COALESCE(u.is_active, true) = true
+            AND u.deleted_at IS NULL
+            AND (
+              u.role = 'super_admin'
+              OR (u.role IN ('accountant', 'finanzas')
+                  AND EXISTS (SELECT 1 FROM user_panel_permissions p
+                               WHERE p.user_id = u.id
+                                 AND p.panel_key = 'admin_finance_dashboard'))
+            )`)).rows.map((x: any) => Number(x.id));
       if (destinatarios.length === 0) {
         console.warn('[CRON] Comprobantes por autorizar: no hay contadores activos a quién avisar');
         return;
