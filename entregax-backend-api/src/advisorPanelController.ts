@@ -2494,10 +2494,33 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           );
         }
         if (files?.guiaExterna?.[0]) {
+          const urlGuia = fileUrl(files.guiaExterna[0]);
           await pool.query(
             `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
-            [shipmentId, advisorId, fileUrl(files.guiaExterna[0]), files.guiaExterna[0].originalname]
+            [shipmentId, advisorId, urlGuia, files.guiaExterna[0].originalname]
           );
+          // 🔗 Y también como etiqueta nacional del envío.
+          //
+          // La guía que manda el cliente se podía cargar por DOS caminos que no
+          // se hablaban: este (package_documents, que es lo que lee el módulo de
+          // Etiquetado de CEDIS) y el botón del panel del asesor
+          // (packages.national_label_url, que es lo que ve el repartidor). El
+          // traslape era CERO: 17 guías subidas por un lado eran invisibles del
+          // otro, y CEDIS acababa pidiéndolas por WhatsApp (tarea 473).
+          //
+          // Los dos caminos se necesitan —aquí se suben varios documentos de
+          // golpe, allá solo la guía—, así que en vez de quitar uno, cada uno
+          // escribe en ambos lugares.
+          await pool.query(
+            `UPDATE packages
+                SET national_label_url = COALESCE(NULLIF(national_label_url, ''), $1),
+                    national_label_source = COALESCE(national_label_source, 'uploaded'),
+                    national_label_actor_id = COALESCE(national_label_actor_id, $3),
+                    national_label_at = COALESCE(national_label_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP
+              WHERE id = $2 OR master_id = $2`,
+            [urlGuia, shipmentId, advisorId]
+          ).catch((e: any) => console.warn('[instrucciones] no pude reflejar la guía externa como etiqueta nacional:', e?.message));
         }
       } catch (docErr) {
         console.warn('[assignAdvisorShipmentInstructions] No se pudo guardar documento adjunto:', docErr);

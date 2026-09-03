@@ -6184,6 +6184,27 @@ export const uploadNationalGuide = async (req: Request, res: Response): Promise<
             [labelPath, masterId, actorId]
         );
 
+        // 🔗 Y también como documento del envío.
+        //
+        // El módulo de Etiquetado de CEDIS NO lee national_label_url: lee
+        // package_documents / guia_externa. Por eso las 17 guías subidas por
+        // este botón eran invisibles para ellos y las acababan pidiendo por
+        // WhatsApp (tarea 473). Los dos caminos se necesitan, así que este
+        // también deja el registro donde CEDIS lo busca.
+        //
+        // La ruta relativa sirve: el módulo la resuelve contra la base del API
+        // igual que cualquier URL absoluta.
+        try {
+            const nombre = (req as any).files?.[0]?.originalname || 'guia-cliente.pdf';
+            await pool.query(
+                `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename)
+                 VALUES ($1, $2, 'guia_externa', $3, $4)`,
+                [masterId, actorId, labelPath, nombre]
+            );
+        } catch (docErr: any) {
+            console.error('[national-guide] no pude registrar el documento para CEDIS:', docErr?.message);
+        }
+
         return res.json({ success: true, url: labelPath, pages: -1 });
     } catch (error: any) {
         console.error('[national-guide] error:', error.message);
