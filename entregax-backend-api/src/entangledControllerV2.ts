@@ -225,7 +225,7 @@ export const resolverPaisDestino = (
 const MENSAJE_GENERICO_XPAY =
   'La comercializadora no está disponible en este momento, habla con tu asesor.';
 
-function friendlyEntangledError(code?: string | null, respuesta?: any): string {
+function friendlyEntangledError(code?: string | null, respuesta?: any, ctx?: { swift?: any; paisDeclarado?: any; divisa?: any }): string {
   const raw = String(code || '').trim();
   if (!raw) return '';
   const key = raw.toLowerCase().replace(/\s+/g, '_');
@@ -256,18 +256,29 @@ function friendlyEntangledError(code?: string | null, respuesta?: any): string {
     // (que falta `pais_destino`, que no hay tarifa de operación en RMB) se
     // queda en el log y en error_code.
     destino_pais_faltante: 'Falta país destino, habla con tu asesor.',
-    // El texto anterior decia "No hay TC-RMB disponible, prueba con USD" y era
-    // doblemente falso cuando la operacion iba en USD: ni hablaba de la divisa
-    // correcta ni servia el consejo, porque USD era justo lo que estaba usando.
-    // Jesus Campos giro en circulos con eso (tarea 488, TKT-2026-2555): la
-    // solicitud 235 por 1,000 USD fallo con este codigo.
+    // Este codigo significa DESTINO NO HABILITADO, no un problema de divisa.
     //
-    // El problema real es que falta la tarifa de operacion de esa ruta, y eso
-    // no lo resuelve el asesor cambiando nada: hay que configurarla.
-    costo_operacion_no_configurado:
-      'No se puede cotizar esta operación: falta configurar su costo de operación. ' +
-      'No se arregla cambiando de divisa ni de monto — repórtalo para que lo revisemos.',
+    // El texto anterior decia "No hay TC-RMB disponible, prueba con USD" y era
+    // doblemente falso: la solicitud 235 iba en USD por 1,000 y a Taiwan. Jesus
+    // Campos giro en circulos siguiendo un consejo que ya estaba aplicando
+    // (tarea 488, TKT-2026-2555).
+    //
+    // El monto no tiene nada que ver —hay operaciones de 1,000 USD completadas—
+    // ni la divisa: ese mismo dia paso una de 28,000 USD. Lo unico distinto era
+    // el pais: primera vez que se mandaba a Taiwan, y esa ruta no esta dada de
+    // alta. El mensaje real se arma abajo con el pais y que hacer.
+    costo_operacion_no_configurado: '',
   };
+  // Destino no habilitado: se nombra el PAIS y se dice el siguiente paso, en vez
+  // de dejar al asesor reintentando algo que nunca va a pasar.
+  if (key === 'costo_operacion_no_configurado') {
+    const pais = resolverPaisDestino({
+      declarado: ctx?.paisDeclarado, swift: ctx?.swift, divisa: ctx?.divisa,
+    });
+    return `XPAY todavía no está habilitado para enviar a ${pais}. ` +
+      `No es un problema del monto ni de la divisa: esa ruta aún no está dada de alta. ` +
+      `Levanta un ticket solicitando el alta de ${pais} y te avisamos en cuanto quede.`;
+  }
   if (MAP[key]) return MAP[key];
   // ⚠️ NUNCA devolver el texto crudo del proveedor: son mensajes escritos para
   // desarrolladores y mencionan detalles internos. Ej. real que le llegaba al
@@ -936,7 +947,10 @@ export const createPaymentRequestV2 = async (
     return res.status(httpStatus).json({
       error: isEfectivoBug
         ? 'La modalidad Efectivo aún no está disponible en el proveedor de pagos (error del proveedor). Por favor usa Transferencia bancaria por ahora.'
-        : (friendlyEntangledError(remote.error, remote.raw) || 'No se devolvió un transaccion_id.'),
+        // El país va en el contexto: es la ruta donde reventó lo de Taiwán y
+        // donde el asesor necesita leer QUÉ destino no está habilitado.
+        : (friendlyEntangledError(remote.error, remote.raw, { paisDeclarado: paisDestino, divisa })
+           || 'No se devolvió un transaccion_id.'),
       error_code: remote.error || null,
       request_id: requestId,
       referencia_pago: referenciaPago,
@@ -1937,7 +1951,11 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
       // nosotros. Antes se reenviaba tal cual y el asesor leía el texto que
       // ENTANGLED escribió para desarrolladores.
       return res.status(upstream).json({
-        error: friendlyEntangledError(result.error, result.raw) || MENSAJE_GENERICO_XPAY,
+        // Se pasa el contexto del destino para poder NOMBRAR el país cuando la
+        // ruta no está habilitada: sin eso el asesor no sabe qué pedir.
+        error: friendlyEntangledError(result.error, result.raw, {
+          paisDeclarado: paisDestino, swift: req.body?.swift_bic, divisa: divisaUp,
+        }) || MENSAJE_GENERICO_XPAY,
         error_code: result.error || null,
         upstream_status: upstream,
       });
