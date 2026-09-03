@@ -790,6 +790,37 @@ export const deleteVoucher = async (req: AuthRequest, res: Response) => {
  * GET /api/admin/vouchers/pending
  * List all vouchers pending review (for conciliation panel)
  */
+/**
+ * LA GUARDA DE LA 377, en un solo lugar.
+ *
+ * `paid_at` y el log en 'procesado' significan DOS cosas distintas y el sistema
+ * no las distinguia:
+ *   1. "se cobro el dinero"  → la orden esta cerrada.
+ *   2. "se solto la mercancia contra la linea de credito" → NO esta cobrada.
+ *
+ * La tarea 377 salio del caso 1: ordenes ya cobradas salian con boton
+ * "Confirmar" y el modal decia "ya fue procesado" con el boton muerto. Se
+ * arreglo excluyendo todo lo que tuviera paid_at o log 'procesado' — y eso se
+ * llevo de paso el caso 2, que son las ordenes a credito que el cliente reabre
+ * para liquidar. Resultado: 11 ordenes por ~$278,000 invisibles para el
+ * contador durante semanas (TKT-2026-2439, tareas 472 y 479).
+ *
+ * El discriminador que faltaba: credito NO liquidado significa que el paid_at
+ * viene de soltar mercancia, no de cobrar.
+ *
+ * Se usa como funcion y no como constante para que cada consulta pase su alias
+ * de tabla; asi la regla vive una sola vez y no se puede escribir "casi igual"
+ * en otro lado.
+ */
+export const ORDEN_YA_COBRADA = (alias = 'p') => `(
+  (${alias}.paid_at IS NOT NULL
+     OR EXISTS (SELECT 1 FROM openpay_webhook_logs _l
+                 WHERE _l.transaction_id = ${alias}.payment_reference
+                   AND _l.estatus_procesamiento = 'procesado'))
+  AND NOT (LOWER(COALESCE(${alias}.payment_method,'')) = 'credit'
+           AND COALESCE(${alias}.credit_settled, false) = false)
+)`;
+
 export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) => {
   try {
     const { service_type, page = 1, limit = 50, vista = 'pendientes' } = req.query;
@@ -804,7 +835,7 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
     //
     // Por default se muestran solo los accionables. 'obsoletos' saca los otros
     // para poder cerrarlos, y 'todas' conserva el comportamiento anterior.
-    const ORDEN_CERRADA = `p.status IN ('paid', 'cancelled')`;
+    const ORDEN_CERRADA = `(p.status = 'cancelled' OR ${ORDEN_YA_COBRADA('p')})`;
     let whereClause = `v.status = 'pending_review'`;
     if (vista === 'obsoletos') whereClause += ` AND ${ORDEN_CERRADA}`;
     else if (vista !== 'todas') whereClause += ` AND NOT ${ORDEN_CERRADA}`;
