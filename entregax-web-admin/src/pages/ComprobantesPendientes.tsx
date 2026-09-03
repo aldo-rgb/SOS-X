@@ -350,6 +350,15 @@ export default function ComprobantesPendientes({
                             + otras.otras.filter((o: OtraOrden) => extras.includes(o.id))
                                          .reduce((t: number, o: OtraOrden) => t + o.amount, 0);
                           const cuadra = Math.abs(marcado - otras.deposito) < 0.01;
+                          // Si el depósito alcanza para TODAS, quedan fijas. Dejar
+                          // desmarcar aquí es lo que produce el error caro: el
+                          // dinero entra igual y abona a su deuda, pero la orden
+                          // sigue diciendo "sin pagar", las comisiones del asesor
+                          // siguen retenidas, y quien intente cerrarla después le
+                          // devuelve el crédito por segunda vez. No hay una razón
+                          // buena para dejar fuera una orden que este depósito paga.
+                          const sumaOtras = otras.otras.reduce((t: number, o: OtraOrden) => t + o.amount, 0);
+                          const alcanzaParaTodas = otras.monto_orden + sumaOtras <= otras.deposito + 0.01;
                           return (
                           <Box sx={{ mb: 2.5 }}>
                             <Typography fontWeight={800} sx={{ mb: 0.5 }}>
@@ -389,17 +398,21 @@ export default function ComprobantesPendientes({
 
                               {otras.otras.map((o: OtraOrden) => (
                                 <Stack key={o.id} direction="row" alignItems="center" spacing={1}
-                                  onClick={() => setExtras((prev) => prev.includes(o.id)
-                                    ? prev.filter((x) => x !== o.id) : [...prev, o.id])}
-                                  sx={{ p: 1.2, borderBottom: '1px solid #eee', cursor: 'pointer',
+                                  onClick={() => { if (!alcanzaParaTodas) setExtras((prev) => prev.includes(o.id)
+                                    ? prev.filter((x) => x !== o.id) : [...prev, o.id]); }}
+                                  sx={{ p: 1.2, borderBottom: '1px solid #eee',
+                                        cursor: alcanzaParaTodas ? 'default' : 'pointer',
                                         bgcolor: extras.includes(o.id) ? '#E8F5E9' : 'transparent' }}>
-                                  <Checkbox size="small" checked={extras.includes(o.id)} />
+                                  {alcanzaParaTodas
+                                    ? <CheckCircleIcon fontSize="small" sx={{ color: '#2E7D32', mx: '9px' }} />
+                                    : <Checkbox size="small" checked={extras.includes(o.id)} />}
                                   <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
                                       {o.payment_reference}
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary">
                                       {o.es_credito ? 'A crédito, sin liquidar' : o.status}
+                                      {alcanzaParaTodas ? ' · este depósito la paga' : ''}
                                     </Typography>
                                   </Box>
                                   <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap' }}>
@@ -426,15 +439,24 @@ export default function ComprobantesPendientes({
                               </Stack>
                             </Box>
 
-                            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                              <Button size="small" variant="contained" color="success"
-                                onClick={() => setExtras(otras.otras.map((o: OtraOrden) => o.id))}>
-                                Marcar todas
-                              </Button>
-                              {extras.length > 0 && (
-                                <Button size="small" onClick={() => setExtras([])}>Quitar todas</Button>
-                              )}
-                            </Stack>
+                            {alcanzaParaTodas ? (
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                🔒 Este depósito alcanza para las {otras.otras.length + 1} órdenes, así que se
+                                liquidan todas. No se pueden dejar fuera: el dinero entraría igual, pero la
+                                orden seguiría diciendo «sin pagar», las comisiones del asesor quedarían
+                                retenidas y quien intentara cerrarla después le devolvería el crédito dos veces.
+                              </Typography>
+                            ) : (
+                              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                <Button size="small" variant="contained" color="success"
+                                  onClick={() => setExtras(otras.otras.filter((o: OtraOrden) => o.alcanza).map((o: OtraOrden) => o.id))}>
+                                  Marcar las que alcanza
+                                </Button>
+                                {extras.length > 0 && (
+                                  <Button size="small" onClick={() => setExtras([])}>Quitar todas</Button>
+                                )}
+                              </Stack>
+                            )}
                           </Box>
                           );
                         })()}
