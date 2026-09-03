@@ -6726,11 +6726,17 @@ app.post('/api/admin/relabeling/maritime/:orderId/generate-pqtx', authenticateTo
 
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
-app.post('/api/admin/carrier-options/upload-icon', authenticateToken, requireMinLevel(ROLES.ADMIN), carrierIconUpload.single('icon'), uploadCarrierIcon);
-app.post('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.ADMIN), createCarrierOption);
-app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateCarrierOption);
-app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteCarrierOption);
-app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleCarrierOption);
+// Dar de alta paqueterias es trabajo de Soporte Tecnico: leer pedia nivel 40
+// (por eso Angel SI veia el modulo) pero escribir pedia ADMIN (95), y su rol
+// vale 63. Resultado: el menu se le abrio y cada boton devolvia "Nivel de
+// acceso insuficiente" (tarea 421). Se agrega el rol explicito en vez de bajar
+// el nivel minimo: bajarlo a 63 le daria de paso el alta a Operaciones y a
+// Servicio a Cliente, que no es lo que se decidio.
+app.post('/api/admin/carrier-options/upload-icon', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), carrierIconUpload.single('icon'), uploadCarrierIcon);
+app.post('/api/admin/carrier-options', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), createCarrierOption);
+app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), updateCarrierOption);
+app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), deleteCarrierOption);
+app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevelOrRoles(ROLES.ADMIN, ROLES.SOPORTE_TECNICO), toggleCarrierOption);
 // Endpoint público (para clientes) - opciones por tipo de servicio
 app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCarrierOptionsByService);
 
