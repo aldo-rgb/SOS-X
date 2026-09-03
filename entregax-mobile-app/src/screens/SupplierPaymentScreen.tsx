@@ -228,6 +228,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   };
 
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
+  // Si la lista de proveedores no carga, la calculadora se quedaba con el
+  // spinner girando PARA SIEMPRE: no habia estado de error ni forma de
+  // reintentar, y desde fuera parecia que el calculo nunca terminaba
+  // (tarea 488, TKT-2026-2555).
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
   // % de comisión que el ASESOR captura para cobrar al cliente (editable, como en web).
   // Vacío = usa el % configurado. Mínimo = venta fija del proveedor (el backend valida).
@@ -406,14 +411,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         const data = await provRes.value.json();
         const list: EntProviderPub[] = Array.isArray(data) ? data : [];
         setProviders(list);
+        setProvidersError(list.length === 0
+          ? 'No hay ninguna comercializadora disponible en este momento. Habla con tu asesor.'
+          : null);
         const def = list.find(x => x.is_default) || list[0] || null;
         if (def && !selectedProviderId) setSelectedProviderId(def.id);
+      } else {
+        setProvidersError('No se pudo cargar el tipo de cambio. Revisa tu conexión y vuelve a intentar.');
       }
       if (cfgRes.status === 'fulfilled' && cfgRes.value.ok) {
         const cfg = await cfgRes.value.json();
         if (cfg?.pago_con_factura && cfg?.pago_sin_factura) setClientCommissionCfg(cfg);
       }
-    } catch {}
+    } catch {
+      setProvidersError('No se pudo cargar el tipo de cambio. Revisa tu conexión y vuelve a intentar.');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedProviderId, advisorClientId]);
 
@@ -1820,10 +1832,20 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>LIVE</Text>
             </View>
+          ) : providersError ? (
+            <TouchableOpacity onPress={() => loadPricing()} style={styles.liveChip}>
+              <Ionicons name="refresh" size={12} color={ORANGE} />
+              <Text style={[styles.liveText, { color: ORANGE }]}>Reintentar</Text>
+            </TouchableOpacity>
           ) : (
             <ActivityIndicator size="small" color={ORANGE} />
           )}
         </View>
+
+        {/* Por qué no calcula, dicho en texto: el spinner solo no explica nada. */}
+        {!defaultProvider && !!providersError && (
+          <Text style={{ color: '#C0392B', fontSize: 12, marginBottom: 10 }}>{providersError}</Text>
+        )}
 
         {/* País de Destino (igual que la web): China / USA / México */}
         <Text style={styles.label}>País de Destino</Text>

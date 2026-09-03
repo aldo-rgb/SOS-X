@@ -256,8 +256,17 @@ function friendlyEntangledError(code?: string | null, respuesta?: any): string {
     // (que falta `pais_destino`, que no hay tarifa de operación en RMB) se
     // queda en el log y en error_code.
     destino_pais_faltante: 'Falta país destino, habla con tu asesor.',
+    // El texto anterior decia "No hay TC-RMB disponible, prueba con USD" y era
+    // doblemente falso cuando la operacion iba en USD: ni hablaba de la divisa
+    // correcta ni servia el consejo, porque USD era justo lo que estaba usando.
+    // Jesus Campos giro en circulos con eso (tarea 488, TKT-2026-2555): la
+    // solicitud 235 por 1,000 USD fallo con este codigo.
+    //
+    // El problema real es que falta la tarifa de operacion de esa ruta, y eso
+    // no lo resuelve el asesor cambiando nada: hay que configurarla.
     costo_operacion_no_configurado:
-      'No hay TC-RMB disponible, prueba con USD o habla con tu asesor.',
+      'No se puede cotizar esta operación: falta configurar su costo de operación. ' +
+      'No se arregla cambiando de divisa ni de monto — repórtalo para que lo revisemos.',
   };
   if (MAP[key]) return MAP[key];
   // ⚠️ NUNCA devolver el texto crudo del proveedor: son mensajes escritos para
