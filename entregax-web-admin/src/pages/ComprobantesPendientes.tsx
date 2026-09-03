@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Typography, Button, Chip, CircularProgress, Stack, Divider,
   Accordion, AccordionSummary, AccordionDetails, TextField, Alert, AlertTitle,
-  Dialog, DialogTitle, DialogContent, DialogActions, Radio, Tooltip, Snackbar,
+  Dialog, DialogTitle, DialogContent, DialogActions, Radio, Checkbox, Tooltip, Snackbar,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -93,7 +93,18 @@ export default function ComprobantesPendientes({
     buscarAbonos(v.id, '');
     // Solo devuelve algo cuando el depósito es mayor que la orden.
     api.get(`/admin/vouchers/${v.id}/otras-ordenes`)
-      .then((r) => { if (r.data?.aplica) setOtras(r.data); })
+      .then((r) => {
+        if (!r.data?.aplica) return;
+        setOtras(r.data);
+        // Vienen marcadas por default cuando el depósito alcanza para todas: es
+        // el caso normal —el cliente pagó todo junto— y dejarlas en blanco
+        // obliga a repetir a mano lo que el sistema ya dedujo. Si no alcanza,
+        // ninguna: ahí sí hay que decidir cuál cubre.
+        const suma = (r.data.otras || []).reduce((t: number, o: OtraOrden) => t + o.amount, 0);
+        if (r.data.monto_orden + suma <= r.data.deposito + 0.01) {
+          setExtras((r.data.otras || []).map((o: OtraOrden) => o.id));
+        }
+      })
       .catch(() => { /* sin esto la pantalla sigue funcionando igual */ });
   };
 
@@ -330,21 +341,24 @@ export default function ComprobantesPendientes({
                         )}
 
                         {/* PASO 2b · ¿el depósito cubre otras órdenes? */}
-                        {otras && otras.otras?.length > 0 && (
+                        {otras && otras.otras?.length > 0 && (() => {
+                          // El total marcado se muestra SIEMPRE contra el depósito.
+                          // Antes el aviso decía "márcalas todas" sin enseñar cuáles
+                          // ni cuánto, y la orden de este comprobante ni siquiera
+                          // aparecía: la suma no se podía verificar a ojo.
+                          const marcado = otras.monto_orden
+                            + otras.otras.filter((o: OtraOrden) => extras.includes(o.id))
+                                         .reduce((t: number, o: OtraOrden) => t + o.amount, 0);
+                          const cuadra = Math.abs(marcado - otras.deposito) < 0.01;
+                          return (
                           <Box sx={{ mb: 2.5 }}>
                             <Typography fontWeight={800} sx={{ mb: 0.5 }}>
-                              Depositó {money(otras.deposito)} y esta orden es de {money(otras.monto_orden)}
+                              Paso 2b · Depositó {money(otras.deposito)} y esta orden es de {money(otras.monto_orden)}
                             </Typography>
                             {otras.cobertura_exacta ? (
                               <Alert severity="success" sx={{ mb: 1.5 }}>
                                 <AlertTitle sx={{ fontWeight: 800 }}>Cubre exactamente todas sus órdenes</AlertTitle>
                                 {otras.mensaje} Márcalas todas y se liquidan con este mismo depósito.
-                                <Box sx={{ mt: 1 }}>
-                                  <Button size="small" variant="contained" color="success"
-                                    onClick={() => setExtras(otras.otras.map((o: OtraOrden) => o.id))}>
-                                    Aplicarlo a todas
-                                  </Button>
-                                </Box>
                               </Alert>
                             ) : (
                               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
@@ -353,16 +367,34 @@ export default function ComprobantesPendientes({
                                 se le queda como saldo a favor —o abona a su deuda si tiene crédito—.
                               </Typography>
                             )}
-                            <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+
+                            <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1, overflow: 'hidden' }}>
+                              {/* La orden de este comprobante va primero y fija:
+                                  sin ella la suma no cuadra con el depósito. */}
+                              <Stack direction="row" alignItems="center" spacing={1}
+                                sx={{ p: 1.2, borderBottom: '1px solid #eee', bgcolor: '#F1F8E9' }}>
+                                <CheckCircleIcon fontSize="small" sx={{ color: '#2E7D32' }} />
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                    {v.payment_reference}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Esta orden — ya incluida
+                                  </Typography>
+                                </Box>
+                                <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap' }}>
+                                  {money(otras.monto_orden)}
+                                </Typography>
+                              </Stack>
+
                               {otras.otras.map((o: OtraOrden) => (
-                                <Box key={o.id}
+                                <Stack key={o.id} direction="row" alignItems="center" spacing={1}
                                   onClick={() => setExtras((prev) => prev.includes(o.id)
                                     ? prev.filter((x) => x !== o.id) : [...prev, o.id])}
-                                  sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.2,
-                                        borderBottom: '1px solid #eee', cursor: 'pointer',
+                                  sx={{ p: 1.2, borderBottom: '1px solid #eee', cursor: 'pointer',
                                         bgcolor: extras.includes(o.id) ? '#E8F5E9' : 'transparent' }}>
-                                  <Radio size="small" checked={extras.includes(o.id)} />
-                                  <Box sx={{ flex: 1 }}>
+                                  <Checkbox size="small" checked={extras.includes(o.id)} />
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
                                       {o.payment_reference}
                                     </Typography>
@@ -370,17 +402,42 @@ export default function ComprobantesPendientes({
                                       {o.es_credito ? 'A crédito, sin liquidar' : o.status}
                                     </Typography>
                                   </Box>
-                                  <Typography fontWeight={700}>{money(o.amount)}</Typography>
-                                </Box>
+                                  <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap' }}>
+                                    {money(o.amount)}
+                                  </Typography>
+                                </Stack>
                               ))}
+
+                              {/* La cuenta, a la vista: marcado contra depositado. */}
+                              <Stack direction="row" alignItems="center" spacing={1}
+                                sx={{ p: 1.2, bgcolor: cuadra ? '#E8F5E9' : '#FAFAFA' }}>
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography fontWeight={800}>Total marcado</Typography>
+                                  <Typography variant="caption" color={cuadra ? 'success.main' : 'text.secondary'}>
+                                    {cuadra
+                                      ? '✓ Cuadra al centavo con el depósito'
+                                      : `Depositó ${money(otras.deposito)} · quedan ${money(otras.deposito - marcado)} sin asignar`}
+                                  </Typography>
+                                </Box>
+                                <Typography fontWeight={800} sx={{ whiteSpace: 'nowrap' }}
+                                  color={cuadra ? 'success.main' : 'text.primary'}>
+                                  {money(marcado)}
+                                </Typography>
+                              </Stack>
                             </Box>
-                            {extras.length > 0 && (
-                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                                Se liquidarán {extras.length} orden(es) más con este mismo depósito.
-                              </Typography>
-                            )}
+
+                            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                              <Button size="small" variant="contained" color="success"
+                                onClick={() => setExtras(otras.otras.map((o: OtraOrden) => o.id))}>
+                                Marcar todas
+                              </Button>
+                              {extras.length > 0 && (
+                                <Button size="small" onClick={() => setExtras([])}>Quitar todas</Button>
+                              )}
+                            </Stack>
                           </Box>
-                        )}
+                          );
+                        })()}
 
                         {/* PASO 3 */}
                         <Typography fontWeight={800} sx={{ mb: 0.5 }}>Paso 3 · Decide</Typography>
