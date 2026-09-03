@@ -288,8 +288,7 @@
     "branches": "Sucursales",
     "reports": "Reportes",
     "pricing": "Tarifas",
-    "settings": "Configuración",
-    "comprobantes": "Autorizar Pagos"
+    "settings": "Configuración"
   },
   "customerService": {
     "title": "Centro de Soporte",

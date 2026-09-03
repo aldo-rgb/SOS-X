@@ -56,7 +56,6 @@ import LanguageIcon from '@mui/icons-material/Language';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 // VerifiedUserIcon removido - Verificaciones ahora en Paneles > Admin
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import FactCheckIcon from '@mui/icons-material/FactCheck';
 // PaymentsIcon removido - Pago Proveedores ahora en Paneles > Admin
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -99,7 +98,6 @@ import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import PettyCashHubPage from './pages/PettyCashHubPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
-import ComprobantesPendientes from './pages/ComprobantesPendientes';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
@@ -247,7 +245,6 @@ const menuItemsConfig: Array<{
       { key: 'cajaChica', icon: <LocalAtmIcon /> },        // Caja CC (Control Cobros)
       { key: 'pettyCash', icon: <LocalAtmIcon /> },         // Caja Chica Sucursales
       { key: 'cobranza', icon: <ReceiptLongIcon /> },         // Dashboard de Cobranza
-      { key: 'comprobantes', icon: <FactCheckIcon /> },     // Autorizar pagos - SOLO super_admin
     ]
   },
   { key: 'commissions', icon: <MonetizationOnIcon /> },
@@ -689,13 +686,20 @@ function App() {
     // Sin esto la notificación llega y no lleva a ningún lado, que es la forma
     // más rápida de que dejen de leerla.
     if (notif.action_url === '/comprobantes' || notif.data?.screen === 'ComprobantesPendientes') {
-      const idx = menuItems.findIndex(i => i.key === 'cajaChicaGroup');
-      const sub = menuItems[idx]?.subItems?.findIndex(si => si.key === 'comprobantes') ?? -1;
+      // Va al dashboard de Cobranza, pestaña "Por autorizar". El contador no ve
+      // el menú Caja: entra por Herramientas › Administrativas. Quien sí ve Caja
+      // llega al mismo lugar, porque ahora la pantalla es una sola.
+      const idx = menuItems.findIndex(i => i.key === 'panels');
+      const sub = menuItems[idx]?.subItems?.findIndex(si => si.key === 'panelsAdmin') ?? -1;
       if (idx >= 0 && sub >= 0) {
         setSelectedIndex(idx);
         setSelectedSubIndex(sub);
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-finance-dashboard')), 60);
         return;
       }
+      const idxCaja = menuItems.findIndex(i => i.key === 'cajaChicaGroup');
+      const subCob = menuItems[idxCaja]?.subItems?.findIndex(si => si.key === 'cobranza') ?? -1;
+      if (idxCaja >= 0 && subCob >= 0) { setSelectedIndex(idxCaja); setSelectedSubIndex(subCob); return; }
     }
 
     // 🎫 Notificaciones de TICKET → abrir el ticket en el tablero de soporte.
@@ -781,13 +785,6 @@ function App() {
     // 'admin_finance_dashboard'. O sea que el acceso era solo por rol y
     // otorgar el permiso en Permisos no servía de nada — por eso Leonardo
     // reiniciaba sesión y seguía sin ver el cambio (tarea 374).
-    // Autorizar comprobantes mueve dinero y libera crédito. Empezó siendo solo
-    // super admin; se abre a contabilidad porque es quien recibe el aviso diario
-    // y quien concilia. El backend ya les permitía aprobar desde antes.
-    if (category === 'comprobantes') {
-      return ['super_admin', 'accountant', 'finanzas'].includes(currentUser?.role || '');
-    }
-
     if (['cajaChica', 'pettyCash', 'cobranza'].includes(category)) {
       const role = currentUser?.role || '';
       if (['super_admin', 'admin', 'director', 'finanzas'].includes(role)) return true;
@@ -1995,8 +1992,6 @@ function App() {
         case 'cajaChica': return <CajaChicaPage />;
         case 'pettyCash': return <PettyCashHubPage />;
         case 'cobranza': return <FinanceDashboardPage />;
-        case 'comprobantes': return ['super_admin', 'accountant', 'finanzas'].includes(currentUser?.role || '')
-          ? <ComprobantesPendientes /> : null;
         default: return null;
       }
     }

@@ -280,6 +280,19 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     const [showCajaChica, setShowCajaChica] = useState(false);
     const [showFinanceDashboard, setShowFinanceDashboard] = useState(false);
     
+    // Abrir Cobranza desde el aviso diario de pagos por autorizar. El contador
+    // no ve el menu Caja —solo Dashboard, Herramientas y Facturacion— asi que
+    // su unica puerta a Cobranza pasa por aqui.
+    useEffect(() => {
+        const handler = () => {
+            setShowFinanceDashboard(true);
+            setSelectedService(null);
+            setSelectedModule(null);
+        };
+        window.addEventListener('open-finance-dashboard', handler);
+        return () => window.removeEventListener('open-finance-dashboard', handler);
+    }, []);
+
     // Escuchar evento global para abrir directamente verificaciones desde el dashboard
     useEffect(() => {
         const handler = () => {

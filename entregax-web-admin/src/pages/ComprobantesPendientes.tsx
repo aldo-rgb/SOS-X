@@ -32,7 +32,12 @@ interface Candidato {
   importe_exacto: boolean; cita_al_cliente: boolean; razon: string;
 }
 
-export default function ComprobantesPendientes() {
+export default function ComprobantesPendientes({
+  // Vive dentro del dashboard de Cobranza, que ya pone su propio encabezado.
+  // Suelto tambien funciona: asi se puede abrir aparte sin duplicar titulos.
+  embebido = false,
+  onCambio,
+}: { embebido?: boolean; onCambio?: (pendientes: number) => void } = {}) {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [loading, setLoading] = useState(true);
   const [abierto, setAbierto] = useState<number | null>(null);
@@ -53,7 +58,9 @@ export default function ComprobantesPendientes() {
     setLoading(true);
     try {
       const r = await api.get('/admin/vouchers/pending?limit=200');
-      setVouchers(r.data?.vouchers || []);
+      const lista = r.data?.vouchers || [];
+      setVouchers(lista);
+      onCambio?.(lista.length);
     } catch {
       setAviso({ txt: 'No se pudo cargar la lista.', tipo: 'error' });
     } finally { setLoading(false); }
@@ -127,7 +134,9 @@ export default function ComprobantesPendientes() {
 
   return (
     <Box>
-      <Typography variant="h5" fontWeight={800} sx={{ mb: 0.5 }}>Autorizar pagos de clientes</Typography>
+      {!embebido && (
+        <Typography variant="h5" fontWeight={800} sx={{ mb: 0.5 }}>Autorizar pagos de clientes</Typography>
+      )}
       <Typography variant="body1" color="text.secondary" sx={{ mb: 2, maxWidth: 760 }}>
         Aquí están los pagos que los clientes ya hicieron y subieron su comprobante,
         pero que nadie ha autorizado todavía.

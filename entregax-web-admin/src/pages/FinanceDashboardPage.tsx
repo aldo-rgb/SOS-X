@@ -74,6 +74,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import api from '../services/api';
+import ComprobantesPendientes from './ComprobantesPendientes';
 import { useNavigate } from 'react-router-dom';
 import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
 
@@ -253,6 +254,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [confirmVouchers, setConfirmVouchers] = useState<{ loading: boolean; vouchers: any[]; fetched: boolean }>({ loading: false, vouchers: [], fetched: false });
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [subTabPagos, setSubTabPagos] = useState(0);
+  const [porAutorizar, setPorAutorizar] = useState(0);
   const [loadingPending, setLoadingPending] = useState(false);
   const [voucherGallery, setVoucherGallery] = useState<{ open: boolean; payment: any; vouchers: any[]; loading: boolean }>({ open: false, payment: null, vouchers: [], loading: false });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -1372,20 +1375,38 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         </Grid>
       </Grid>
 
-      {/* Sección de Pagos Pendientes en Sucursal */}
+      {/* ── PAGOS ────────────────────────────────────────────────────────
+          Dos pestañas porque son dos acciones distintas, no una lista
+          revuelta: en una el cliente DEBE y hay que recibir dinero; en la
+          otra el cliente YA PAGÓ y hay que ligar el depósito. Antes la
+          segunda no existía en esta pantalla y sus órdenes no se veían en
+          ningún lado (tareas 472 y 479). */}
       <Paper sx={{ borderRadius: 3, overflow: 'hidden', mb: 3 }}>
         <Box sx={{ bgcolor: ORANGE, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AccessTime sx={{ color: 'white' }} />
             <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
-              💳 Pagos Pendientes en Sucursal
+              💳 Pagos
             </Typography>
           </Box>
-          <Chip 
-            label={`${pendingPayments.length} pendiente${pendingPayments.length !== 1 ? 's' : ''}`}
-            sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold' }}
-          />
         </Box>
+
+        <Tabs
+          value={subTabPagos}
+          onChange={(_, v) => setSubTabPagos(v)}
+          sx={{ borderBottom: 1, borderColor: 'divider', px: 2, bgcolor: 'grey.50' }}
+        >
+          <Tab label={`Por cobrar (${pendingPayments.length})`} />
+          <Tab label={`Por autorizar${porAutorizar > 0 ? ` (${porAutorizar})` : ''}`} />
+        </Tabs>
+
+        {subTabPagos === 1 && (
+          <Box sx={{ p: 3 }}>
+            <ComprobantesPendientes embebido onCambio={(n) => setPorAutorizar(n)} />
+          </Box>
+        )}
+
+        <Box sx={{ display: subTabPagos === 0 ? 'block' : 'none' }}>
 
         {/* Buscador de referencia */}
         <Box sx={{ p: 2, bgcolor: 'grey.50', display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -1556,6 +1577,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             </TableBody>
           </Table>
         </TableContainer>
+        </Box>
       </Paper>
 
       {/* Tabs siempre visibles */}
