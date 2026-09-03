@@ -30,9 +30,24 @@ const multerUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por archivo
   fileFilter: (_req, file, cb) => {
-    // Aceptar imágenes (incl. HEIC/HEIF), PDFs y Excel (xls/xlsx/csv)
-    const allowedMime = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$/.test(file.mimetype);
-    cb(null, allowedMime);
+    // Imágenes (incl. HEIC/HEIF), PDF, Excel (xls/xlsx/csv) y XML.
+    //
+    // 📄 El XML faltaba y es la mitad de una factura: al cliente que pide su
+    // CFDI hay que mandarle PDF **y** XML. La pantalla dejaba adjuntarlo, el
+    // filtro lo tiraba SIN AVISAR —cb(null, false) descarta callado— y la
+    // respuesta salía solo con el PDF. Desde fuera parecía que se había
+    // enviado (tarea 458, reportado por Leonardo).
+    const mime = String(file.mimetype || '').toLowerCase();
+    const ext = String(file.originalname || '').toLowerCase().split('.').pop() || '';
+    const mimeOk = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$|^(application|text)\/xml$/.test(mime);
+    // Muchos navegadores mandan el XML como application/octet-stream, así que
+    // la extensión decide cuando el tipo viene genérico.
+    const extOk = ['xml', 'pdf', 'csv', 'xls', 'xlsx'].includes(ext);
+    const ok = mimeOk || extOk;
+    if (!ok) {
+      console.warn(`[SOPORTE] adjunto rechazado por tipo: ${file.originalname} (${mime}). Si es válido, agrégalo al filtro.`);
+    }
+    cb(null, ok);
   }
 }).array('images', 10);
 

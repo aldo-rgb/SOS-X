@@ -1660,7 +1660,10 @@ export default function SupportBoardPage() {
                       type="file"
                       hidden
                       multiple
-                      accept="image/*,application/pdf"
+                      // Una factura son DOS archivos: PDF y XML. El selector solo
+                      // ofrecia PDF, asi que el XML habia que buscarlo con "todos
+                      // los archivos" y aun asi el backend lo tiraba (tarea 458).
+                      accept="image/*,application/pdf,.pdf,.xml,text/xml,application/xml,.xls,.xlsx,.csv"
                       onChange={(e) => {
                         if (e.target.files) setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
                         e.target.value = '';
