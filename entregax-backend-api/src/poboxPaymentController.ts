@@ -945,6 +945,31 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 console.warn(`[orden-pago] paquetería DHL duplicada corregida para user ${userId}.`);
                 finalTotalAmount = chk.total;
             }
+
+            // 📦 DHL MULTICAJA: la orden cobra la GUÍA COMPLETA pero solo guardaba
+            // UNA caja en package_ids. Las hermanas quedaban sin orden que las
+            // respaldara y el tablero de comisiones las pintaba como "pendiente
+            // de pago" aunque el cliente ya hubiera pagado: al asesor le salían
+            // 24 comisiones por cobrar y a Dirección 18 — la diferencia eran
+            // justo las cajas huérfanas de dos guías master.
+            //
+            // 14 órdenes entre el 11 y el 28 de agosto quedaron así, con 21
+            // cajas sueltas. El alta de órdenes del asesor ya expandía el grupo;
+            // por esta ruta no pasaba (reportado por Neida).
+            //
+            // El monto NO se toca: ya venía cobrando la guía completa. Lo único
+            // que cambia es que la orden diga qué cajas cubrió.
+            try {
+                const { expandDhlGroupIds } = await import('./dhlGroup');
+                const grupo = await expandDhlGroupIds(pool, filteredPackageIds);
+                const nuevos = grupo.filter((id: number) => !filteredPackageIds.includes(id));
+                if (nuevos.length > 0) {
+                    filteredPackageIds.push(...nuevos);
+                    console.log(`[orden-pago] DHL multicaja: se agregaron ${nuevos.length} caja(s) hermana(s) a la orden (user ${userId}).`);
+                }
+            } catch (e: any) {
+                console.error('[orden-pago] no pude expandir el grupo DHL:', e?.message);
+            }
         }
 
         // ✨ Verificar si ya existe un pago pendiente para EXACTAMENTE estos paquetes (post-filtrado)
