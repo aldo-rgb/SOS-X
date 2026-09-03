@@ -2016,7 +2016,7 @@ export const startComprobantesPorAutorizarCron = () => {
             AND u.deleted_at IS NULL
             AND (
               u.role = 'super_admin'
-              OR (u.role IN ('accountant', 'finanzas')
+              OR (u.role IN ('accountant', 'finanzas', 'director')
                   AND EXISTS (SELECT 1 FROM user_panel_permissions p
                                WHERE p.user_id = u.id
                                  AND p.panel_key = 'admin_finance_dashboard'))
