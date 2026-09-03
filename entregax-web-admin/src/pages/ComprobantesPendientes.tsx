@@ -26,6 +26,10 @@ interface Voucher {
   order_status: string; voucher_total?: string; voucher_count?: number;
   user_name: string; pobox_code: string; user_email?: string;
 }
+interface OtraOrden {
+  id: number; payment_reference: string; amount: number; status: string;
+  es_credito: boolean; alcanza: boolean;
+}
 interface Candidato {
   id: number; fecha: string; concepto: string; referencia?: string;
   abono: string; banco?: string; disponible: number; alcanza: boolean;
@@ -53,6 +57,8 @@ export default function ComprobantesPendientes({
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ txt: string; tipo: 'success' | 'error' } | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [otras, setOtras] = useState<any>(null);
+  const [extras, setExtras] = useState<number[]>([]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -82,14 +88,26 @@ export default function ComprobantesPendientes({
   const abrir = (v: Voucher) => {
     if (abierto === v.id) { setAbierto(null); return; }
     setAbierto(v.id); setBusqueda(''); setCandidatos([]); setNotaCand(null);
+    setOtras(null); setExtras([]);
     buscarAbonos(v.id, '');
+    // Solo devuelve algo cuando el depósito es mayor que la orden.
+    api.get(`/admin/vouchers/${v.id}/otras-ordenes`)
+      .then((r) => { if (r.data?.aplica) setOtras(r.data); })
+      .catch(() => { /* sin esto la pantalla sigue funcionando igual */ });
   };
 
   const aprobar = async (v: Voucher, opts: { bank_entry_id?: number; aprobar_sin_ligar?: boolean; confirm_duplicate?: boolean }) => {
     setGuardando(true);
     try {
-      await api.post(`/admin/voucher/approve/${v.id}`, opts);
-      setAviso({ txt: `Comprobante #${v.id} autorizado. El pago de ${v.user_name} ya quedó aplicado.`, tipo: 'success' });
+      const r = await api.post(`/admin/voucher/approve/${v.id}`, { ...opts, ordenes_extra: extras });
+      const extraOk = (r.data?.ordenes_extra || []).filter((x: any) => x.ok);
+      const extraFail = (r.data?.ordenes_extra || []).filter((x: any) => x && x.ok === false);
+      setAviso({
+        txt: `Comprobante #${v.id} autorizado. El pago de ${v.user_name} ya quedó aplicado.`
+          + (extraOk.length ? ` También se liquidaron ${extraOk.length} orden(es) más: ${extraOk.map((x: any) => x.referencia).join(', ')}.` : '')
+          + (extraFail.length ? ` No se pudo con ${extraFail.length}: ${extraFail.map((x: any) => x.motivo).join(' ')}` : ''),
+        tipo: extraFail.length ? 'error' : 'success',
+      });
       setConfirmar(null); setSinLigar(null); setAbierto(null);
       cargar();
     } catch (e: any) {
@@ -300,6 +318,59 @@ export default function ComprobantesPendientes({
                                 </Box>
                               </Box>
                             ))}
+                          </Box>
+                        )}
+
+                        {/* PASO 2b · ¿el depósito cubre otras órdenes? */}
+                        {otras && otras.otras?.length > 0 && (
+                          <Box sx={{ mb: 2.5 }}>
+                            <Typography fontWeight={800} sx={{ mb: 0.5 }}>
+                              Depositó {money(otras.deposito)} y esta orden es de {money(otras.monto_orden)}
+                            </Typography>
+                            {otras.cobertura_exacta ? (
+                              <Alert severity="success" sx={{ mb: 1.5 }}>
+                                <AlertTitle sx={{ fontWeight: 800 }}>Cubre exactamente todas sus órdenes</AlertTitle>
+                                {otras.mensaje} Márcalas todas y se liquidan con este mismo depósito.
+                                <Box sx={{ mt: 1 }}>
+                                  <Button size="small" variant="contained" color="success"
+                                    onClick={() => setExtras(otras.otras.map((o: OtraOrden) => o.id))}>
+                                    Aplicarlo a todas
+                                  </Button>
+                                </Box>
+                              </Alert>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                                Sobran <b>{money(otras.sobrante)}</b>. Si el cliente pagó otras órdenes en el
+                                mismo depósito, márcalas aquí y se liquidan también. Lo que no marques
+                                se le queda como saldo a favor —o abona a su deuda si tiene crédito—.
+                              </Typography>
+                            )}
+                            <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                              {otras.otras.map((o: OtraOrden) => (
+                                <Box key={o.id}
+                                  onClick={() => setExtras((prev) => prev.includes(o.id)
+                                    ? prev.filter((x) => x !== o.id) : [...prev, o.id])}
+                                  sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.2,
+                                        borderBottom: '1px solid #eee', cursor: 'pointer',
+                                        bgcolor: extras.includes(o.id) ? '#E8F5E9' : 'transparent' }}>
+                                  <Radio size="small" checked={extras.includes(o.id)} />
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                      {o.payment_reference}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {o.es_credito ? 'A crédito, sin liquidar' : o.status}
+                                    </Typography>
+                                  </Box>
+                                  <Typography fontWeight={700}>{money(o.amount)}</Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                            {extras.length > 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                Se liquidarán {extras.length} orden(es) más con este mismo depósito.
+                              </Typography>
+                            )}
                           </Box>
                         )}
 
