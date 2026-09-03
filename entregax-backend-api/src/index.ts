@@ -5734,10 +5734,10 @@ app.get('/api/admin/vouchers/order/:orderId', authenticateToken, requireMinLevel
 app.get('/api/admin/vouchers/stats', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVoucherStats);
 app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), approveVoucher);
 app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), rejectVoucher);
-// Buscador de abonos para ligar un comprobante. Va restringido a super admin
-// igual que la pantalla que lo consume; aprobar sigue abierto a caja y
-// contabilidad por si algun dia se les habilita la vista.
-app.get('/api/admin/vouchers/:id/bank-candidates', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getVoucherBankCandidates);
+// Buscador de abonos para ligar un comprobante. Mismo permiso que aprobar: si
+// alguien puede autorizar el pago, tiene que poder ver contra que abono lo liga.
+// Dejarlo en super admin le pintaba el Paso 2 vacio al contador.
+app.get('/api/admin/vouchers/:id/bank-candidates', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVoucherBankCandidates);
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, verifyLimiter, uploadVerificationDocuments);

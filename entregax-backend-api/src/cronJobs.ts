@@ -1956,7 +1956,97 @@ export const startHidalgoListasParaEnviarCron = () => {
   console.log('📅 [CRON] Hidalgo: guías listas para enviar, cada 20 min (8am-7pm MX)');
 };
 
+/**
+ * CRON: aviso diario a Contabilidad de los pagos que faltan por autorizar.
+ *
+ * El atraso no era pereza: estos comprobantes NO se ven en ninguna pantalla del
+ * contador. La lista de Cobranza excluye toda orden con `paid_at` o con el log
+ * en 'procesado', y las órdenes a crédito que el cliente reabre para liquidar
+ * traen las dos cosas desde el pago original. Resultado: 19 comprobantes por
+ * $341,995 invisibles, el más viejo de hace dos semanas, y clientes llamando a
+ * preguntar por qué su crédito no se libera (TKT-2026-2439, tareas 472 y 479).
+ *
+ * Con la pantalla de Autorizar Pagos ya existe dónde resolverlos; faltaba que
+ * alguien se enterara de que están ahí.
+ *
+ * Solo se manda si hay algo pendiente: un "tienes 0" diario se vuelve ruido y
+ * en dos semanas nadie lo lee.
+ */
+export const startComprobantesPorAutorizarCron = () => {
+  const correr = async () => {
+    try {
+      const r = await pool.query(`
+        SELECT COUNT(*)::int AS n,
+               COALESCE(SUM(v.declared_amount), 0)::numeric(14,2) AS monto,
+               COUNT(*) FILTER (WHERE NOW() - v.created_at > INTERVAL '7 days')::int AS rezagados,
+               MIN(v.created_at) AS mas_viejo
+          FROM payment_vouchers v
+          JOIN pobox_payments p ON p.id = v.payment_order_id
+         WHERE v.status = 'pending_review'
+           AND p.status NOT IN ('paid', 'cancelled')
+           AND v.declared_amount > 0`);
+
+      const { n, monto, rezagados, mas_viejo } = r.rows[0] || {};
+      if (!n || Number(n) === 0) return;
+
+      const dias = mas_viejo
+        ? Math.floor((Date.now() - new Date(mas_viejo).getTime()) / 86400000)
+        : 0;
+      const dinero = `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      const titulo = `💰 ${n} pago${n === 1 ? '' : 's'} por autorizar`;
+      // El cuerpo lleva el dato que hace actuar: no cuántos son, sino cuánto
+      // lleva esperando el más viejo. Un cliente a crédito con su pago sin
+      // autorizar tiene la línea ocupada todo ese tiempo.
+      const cuerpo =
+        `${dinero} de clientes que ya pagaron y están esperando tu autorización.` +
+        (Number(rezagados) > 0
+          ? ` ${rezagados} llevan más de una semana; el más viejo, ${dias} días.`
+          : '') +
+        ' Mientras no se autoricen, su crédito sigue ocupado.';
+
+      // Contabilidad y finanzas. El super admin va incluido porque hoy es quien
+      // tiene la pantalla, y así el aviso sirve desde el primer día.
+      const destinatarios = (await pool.query(
+        `SELECT id FROM users
+          WHERE role IN ('accountant', 'finanzas', 'super_admin')
+            AND COALESCE(is_active, true) = true
+            AND deleted_at IS NULL`)).rows.map((x: any) => Number(x.id));
+      if (destinatarios.length === 0) {
+        console.warn('[CRON] Comprobantes por autorizar: no hay contadores activos a quién avisar');
+        return;
+      }
+
+      const { createCustomNotification } = await import('./notificationController');
+      const { sendPushToUsers } = await import('./pushService');
+      for (const uid of destinatarios) {
+        await createCustomNotification(
+          uid, titulo, cuerpo, 'info', 'cash-check',
+          { screen: 'ComprobantesPendientes', pendientes: Number(n) },
+          '/comprobantes'
+        ).catch(() => {});
+      }
+      await sendPushToUsers(destinatarios, {
+        title: titulo, body: cuerpo,
+        data: { screen: 'ComprobantesPendientes' },
+        notificationType: 'comprobantes_por_autorizar',
+      }).catch(() => {});
+
+      console.log(`💰 [CRON] Comprobantes por autorizar: ${n} (${dinero}), ${destinatarios.length} avisados`);
+    } catch (e: any) {
+      console.error('❌ [CRON] Comprobantes por autorizar:', e?.message || e);
+    }
+  };
+
+  // 11:00 am, lunes a sábado. Se omite el domingo por la misma razón que los
+  // recordatorios de tareas: no hay a quién le sirva y solo enseña a ignorar
+  // el aviso.
+  cron.schedule('0 11 * * 1-6', correr, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Comprobantes por autorizar: 11:00am lun-sáb');
+};
+
 export const initCronJobs = () => {
+  startComprobantesPorAutorizarCron();
   startHidalgoListasParaEnviarCron();
   startRecoveryCronJob();
   startTaskRemindersCron();
