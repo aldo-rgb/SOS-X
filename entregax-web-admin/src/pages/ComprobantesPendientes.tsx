@@ -25,6 +25,7 @@ interface Voucher {
   service_type?: string; payment_reference: string; order_amount: string;
   order_status: string; voucher_total?: string; voucher_count?: number;
   user_name: string; pobox_code: string; user_email?: string;
+  subido_por_nombre?: string; subido_por_rol?: string; subido_por_otro?: boolean;
 }
 interface OtraOrden {
   id: number; payment_reference: string; amount: number; status: string;
@@ -221,9 +222,16 @@ export default function ComprobantesPendientes({
                           <b style={{ fontFamily: 'monospace' }}>{v.payment_reference}</b>{' '}
                           (la orden es de {money(v.order_amount)})
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           Subido el {fecha(v.created_at)} · lleva {diasDesde(v.created_at)} días esperando
                         </Typography>
+                        {/* Muy seguido el comprobante lo sube el asesor, no el
+                            cliente. Decirlo evita la lectura de que el asesor
+                            está pagando algo suyo. */}
+                        {v.subido_por_otro && v.subido_por_nombre && (
+                          <Chip size="small" variant="outlined" sx={{ mt: 0.5 }}
+                            label={`Lo subió ${v.subido_por_nombre}${v.subido_por_rol === 'advisor' || v.subido_por_rol === 'sub_advisor' ? ' (su asesor)' : ''}`} />
+                        )}
                       </Box>
                       <Button variant={activo ? 'outlined' : 'contained'} onClick={() => abrir(v)}>
                         {activo ? 'Cerrar' : 'Revisar este pago'}
