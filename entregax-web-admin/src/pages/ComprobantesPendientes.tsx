@@ -26,6 +26,7 @@ interface Voucher {
   order_status: string; voucher_total?: string; voucher_count?: number;
   user_name: string; pobox_code: string; user_email?: string;
   subido_por_nombre?: string; subido_por_rol?: string; subido_por_otro?: boolean;
+  pago_ya_registrado?: { entry_id: number; origen: string; fecha?: string; concepto?: string } | null;
 }
 interface OtraOrden {
   id: number; payment_reference: string; amount: number; status: string;
@@ -58,6 +59,7 @@ export default function ComprobantesPendientes({
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ txt: string; tipo: 'success' | 'error' } | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [bloqueo, setBloqueo] = useState<{ titulo: string; texto: string } | null>(null);
   const [otras, setOtras] = useState<any>(null);
   const [extras, setExtras] = useState<number[]>([]);
 
@@ -130,6 +132,10 @@ export default function ComprobantesPendientes({
           await aprobar(v, { ...opts, confirm_duplicate: true });
           return;
         }
+      } else if (d?.no_autorizable) {
+        // Es una explicación larga a propósito: dice por qué no se autoriza y
+        // qué hacer en su lugar. Un snackbar la cortaría.
+        setBloqueo({ titulo: d.error || 'No se puede autorizar', texto: d.message || '' });
       } else {
         setAviso({ txt: d?.message || d?.error || 'No se pudo autorizar.', tipo: 'error' });
       }
@@ -244,10 +250,25 @@ export default function ComprobantesPendientes({
                             label={`Lo subió ${v.subido_por_nombre}${v.subido_por_rol === 'advisor' || v.subido_por_rol === 'sub_advisor' ? ' (su asesor)' : ''}`} />
                         )}
                       </Box>
-                      <Button variant={activo ? 'outlined' : 'contained'} onClick={() => abrir(v)}>
+                      <Button variant={activo ? 'outlined' : 'contained'}
+                        color={v.pago_ya_registrado ? 'inherit' : 'primary'} onClick={() => abrir(v)}>
                         {activo ? 'Cerrar' : 'Revisar este pago'}
                       </Button>
                     </Stack>
+
+                    {/* El dinero ya entró por otra vía: se dice antes del clic
+                        para no hacer perder el tiempo revisando el comprobante. */}
+                    {v.pago_ya_registrado && (
+                      <Alert severity="info" sx={{ mt: 1.5 }}>
+                        <AlertTitle sx={{ fontWeight: 800 }}>Este pago ya está registrado</AlertTitle>
+                        Ya está aplicado a la orden{' '}
+                        {v.pago_ya_registrado.origen === 'auto_syncfy'
+                          ? 'por el conciliador automático'
+                          : 'ligado a mano'}
+                        {v.pago_ya_registrado.fecha ? ` el ${fecha(v.pago_ya_registrado.fecha)}` : ''}
+                        {' '}(movimiento #{v.pago_ya_registrado.entry_id}). No hay nada que autorizar.
+                      </Alert>
+                    )}
 
                     {activo && (
                       <Box sx={{ mt: 2 }}>
@@ -464,11 +485,14 @@ export default function ComprobantesPendientes({
                         {/* PASO 3 */}
                         <Typography fontWeight={800} sx={{ mb: 0.5 }}>Paso 3 · Decide</Typography>
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 1 }}>
-                          <Tooltip title={elegido ? '' : 'Primero elige el movimiento del banco en el Paso 2'}>
+                          <Tooltip title={v.pago_ya_registrado
+                            ? 'Este pago ya está registrado en la orden: no hay nada que autorizar'
+                            : (elegido ? '' : 'Primero elige el movimiento del banco en el Paso 2')}>
                             <span>
                               <Button
                                 variant="contained" color="success" startIcon={<CheckCircleIcon />}
-                                disabled={!elegido} onClick={() => setConfirmar(v)}
+                                disabled={!elegido || !!v.pago_ya_registrado}
+                                onClick={() => setConfirmar(v)}
                               >
                                 Sí pagó — autorizar
                               </Button>
@@ -564,6 +588,16 @@ export default function ComprobantesPendientes({
             onClick={hacerRechazo}>
             {guardando ? 'Rechazando…' : 'Rechazar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!bloqueo} onClose={() => setBloqueo(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>{bloqueo?.titulo}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>{bloqueo?.texto}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setBloqueo(null)}>Entendido</Button>
         </DialogActions>
       </Dialog>
 
