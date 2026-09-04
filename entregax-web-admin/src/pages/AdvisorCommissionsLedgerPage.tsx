@@ -287,12 +287,17 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
     // líder eso siempre es 0 (columna en ceros). Lo que él gana está en las
     // comisiones de sus subasesores, así que se anexa como bloque aparte para
     // que el reporte muestre el total real a pagar y no se preste a confusión.
-    const ov = selectedIds.length > 0 ? null : overrideGanado;
+    // El override va SIEMPRE que se esté filtrando por un asesor, haya o no
+    // selección: no son filas de esta tabla —son comisiones de sus subasesores—
+    // así que no se pueden palomear, pero sí se le pagan. Omitirlo cuando hay
+    // selección era justo lo que dejaba el reporte sin el dato.
+    const ov = overrideGanado;
     let totalAPagar = total;
     if (ov && ov.count > 0) {
       const nombre = advisorsList.find(a => a.id === Number(filterAdvisor))?.full_name || 'el asesor';
       lineas.push('');
       lineas.push(fila([`OVERRIDE QUE ${nombre.toUpperCase()} GANA COMO LÍDER DE SUS SUBASESORES`]));
+      lineas.push(fila(['(No son comisiones suyas ni aparecen en la lista de arriba: son de sus subasesores. Se le pagan igual.)']));
       lineas.push(fila([
         'Fecha', 'Subasesor', 'Servicio', 'Tracking', 'Cliente',
         'Comisión del subasesor', '% override', 'Override a pagar', 'Estatus',
@@ -548,6 +553,21 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
                 <Box component="span" sx={{ fontSize: 17, fontWeight: 800, color: '#B34700' }}>
                   {formatMXN(selectedTotal)}
                 </Box>
+                {/* El override no es seleccionable —no son comisiones suyas, son de
+                    sus subasesores— pero sí se le paga. Sin esto la barra decía
+                    13,809 y se entendía como "esto es lo que le debo". */}
+                {overrideGanado && overrideGanado.pendingTotal > 0 && (
+                  <>
+                    {' + override '}
+                    <Box component="span" sx={{ fontWeight: 800, color: '#673ab7' }}>
+                      {formatMXN(overrideGanado.pendingTotal)}
+                    </Box>
+                    {' = '}
+                    <Box component="span" sx={{ fontSize: 17, fontWeight: 800, color: '#2e7d32' }}>
+                      {formatMXN(selectedTotal + overrideGanado.pendingTotal)}
+                    </Box>
+                  </>
+                )}
               </Typography>
               <Button size="small" startIcon={<DownloadIcon />} onClick={descargarReporte}
                 sx={{ color: '#B34700' }}>
