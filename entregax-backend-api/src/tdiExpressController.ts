@@ -603,17 +603,21 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     // ¿Es la primera caja del master? (para notificar "sin identificar" una sola vez)
     const wasEmptyMaster = boxNumber === 0;
 
-    // Validar que no se exceda el total de cajas esperado. Antes se permitía
-    // agregar más cajas de las declaradas (ej. total_boxes=1 pero se
-    // capturaban 2) y la tabla mostraba "2/1". Si el asesor necesita más
-    // cajas, debe crear otra recepción o (a futuro) editar el master.
+    // El total de cajas declarado es una ESTIMACIÓN, no un límite. Antes esto
+    // rechazaba con 400 y dejaba a CEDIS sin poder registrar cajas que ya tenía
+    // físicamente en piso: el envío del AWB 6088741190 se declaró de 1 caja y
+    // llegaron 5, así que las otras 4 no se podían capturar — y se leyó como si
+    // el sistema las rechazara por el waybill repetido, que era otra cosa.
+    // Ahora el total se ajusta solo HACIA ARRIBA; nunca hacia abajo, para no
+    // borrar cajas que se esperan y todavía no llegan.
     const totalEsperado = Number(master.total_boxes ?? 0);
-    if (totalEsperado > 0 && boxNumber + qty > totalEsperado) {
-      await client.query('ROLLBACK');
-      const disponibles = Math.max(0, totalEsperado - boxNumber);
-      return res.status(400).json({
-        error: `Excede el total de cajas esperado (${totalEsperado}). Ya capturadas: ${boxNumber}, disponibles: ${disponibles}, intentando agregar: ${qty}.`,
-      });
+    const totalTrasAgregar = boxNumber + qty;
+    if (totalEsperado > 0 && totalTrasAgregar > totalEsperado) {
+      await client.query(
+        `UPDATE packages SET total_boxes = $1, updated_at = NOW() WHERE id = $2`,
+        [totalTrasAgregar, masterId]
+      );
+      console.log(`[TDI] Master ${masterId}: cajas esperadas ajustadas de ${totalEsperado} a ${totalTrasAgregar} (llegaron mas de las declaradas)`);
     }
 
     const created: { id: number; tracking: string; boxNumber: number }[] = [];

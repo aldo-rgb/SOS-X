@@ -1478,6 +1478,41 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             LIMIT 1
         `, [trackingUpper, trackingCompact]);
 
+        // 🚨 AWB COMPARTIDO POR VARIOS CLIENTES.
+        // Un waybill aéreo es un CONSOLIDADO: puede traer cajas de varios
+        // clientes. La consulta de arriba termina en LIMIT 1, así que al buscar
+        // por el waybill elegía una caja en silencio —la de id más alto— y
+        // podía imprimirse la etiqueta de OTRO cliente. Pasó con el AWB
+        // 6088741190 (S693 y S2346): CEDIS escaneó el waybill de la caja de
+        // S693 y salió la etiqueta de S2346.
+        // Sólo aplica cuando lo buscado es un waybill y NO es la guía de una
+        // caja concreta; si escanean la guía TDX/interna, esa manda y no hay
+        // ambigüedad que resolver.
+        if (result.rows.length > 0) {
+            const amb = await pool.query(`
+                SELECT COUNT(DISTINCT p.user_id) AS clientes,
+                       STRING_AGG(DISTINCT COALESCE(u.box_id, '?'), ', ' ORDER BY COALESCE(u.box_id, '?')) AS casilleros
+                  FROM packages p
+                  LEFT JOIN users u ON u.id = p.user_id
+                 WHERE UPPER(COALESCE(p.international_tracking, '')) = $1
+                   AND p.user_id IS NOT NULL
+                   AND NOT EXISTS (
+                         SELECT 1 FROM packages q
+                          WHERE UPPER(COALESCE(q.tracking_internal, '')) = $1
+                             OR UPPER(COALESCE(q.tracking_provider, '')) = $1
+                             OR UPPER(COALESCE(q.child_no, '')) = $1)
+            `, [trackingUpper]);
+            const nClientes = Number(amb.rows[0]?.clientes || 0);
+            if (nClientes > 1) {
+                res.status(409).json({
+                    success: false,
+                    ambiguous: true,
+                    error: `El waybill ${trackingUpper} trae cajas de ${nClientes} clientes (${amb.rows[0].casilleros}). Escanea la guía de la caja, no el waybill, para no imprimir la etiqueta de otro cliente.`,
+                });
+                return;
+            }
+        }
+
         // Rescue: paquete encontrado pero SIN CLIENTE → buscar en china_receipts por FNO
         // Soporta: user_id directo (users) y legacy_clients via shipping_mark
         if (result.rows.length > 0 && !result.rows[0].user_id) {
