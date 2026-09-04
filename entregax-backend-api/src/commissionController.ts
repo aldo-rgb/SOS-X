@@ -529,7 +529,16 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
         const params: any[] = [];
         let paramIdx = 1;
 
+        // Se guarda DÓNDE quedó el filtro de asesor y con qué $n, porque más
+        // abajo se reusa la MISMA lista de condiciones cambiando solo ésta por
+        // "es el líder", para calcular el override que el asesor gana. Así el
+        // override sale con exactamente los mismos filtros que sus comisiones
+        // y las dos cifras no pueden discrepar.
+        let idxFiltroAsesor = -1;
+        let paramAsesor = 0;
         if (advisor_id) {
+            idxFiltroAsesor = conditions.length;
+            paramAsesor = paramIdx;
             conditions.push(`ac.advisor_id = $${paramIdx++}`);
             params.push(parseInt(advisor_id as string));
         }
@@ -741,6 +750,56 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
 
         const summary = summaryRes.rows[0] || {};
 
+        // 💰 OVERRIDE QUE EL ASESOR *GANA* COMO LÍDER.
+        // Ojo con la confusión que costó una aclaración con Dirección: la
+        // columna `leader_override_amount` de cada fila es lo que ESA comisión
+        // le genera AL LÍDER DE ESE ASESOR. Filtrando por un líder, sus propias
+        // filas traen 0 (él no tiene líder encima) y el override parecía no
+        // existir. Lo que él gana vive en las filas de sus SUBASESORES, que ese
+        // filtro nunca trae. Por eso se consulta aparte, reusando las mismas
+        // condiciones y cambiando solo "es el asesor" por "es el líder".
+        let overrideGanado: any = null;
+        if (advisor_id && idxFiltroAsesor >= 0) {
+            const condOverride = [...conditions];
+            condOverride[idxFiltroAsesor] =
+                `ac.leader_id = $${paramAsesor} AND ac.advisor_id <> $${paramAsesor} AND COALESCE(ac.leader_override_amount, 0) > 0`;
+            const whereOverride = `WHERE ${condOverride.join(' AND ')}`;
+            const ovRes = await pool.query(`
+                SELECT
+                    ac.id, ac.advisor_name, ac.service_type, ac.tracking,
+                    ac.client_name, ac.created_at, ac.status,
+                    ac.commission_amount_mxn, ac.leader_override_pct,
+                    ac.leader_override_amount,
+                    COALESCE(ac.awaiting_client_payment, FALSE) AS awaiting_client_payment
+                FROM advisor_commissions ac
+                ${whereOverride}
+                ORDER BY ac.created_at DESC
+            `, params);
+            const filas = ovRes.rows;
+            const suma = (f: (r: any) => boolean) =>
+                filas.filter(f).reduce((a, r) => a + (parseFloat(r.leader_override_amount) || 0), 0);
+            overrideGanado = {
+                count: filas.length,
+                total: suma(() => true),
+                pendingTotal: suma(r => r.status === 'pending' && r.awaiting_client_payment !== true),
+                paidTotal: suma(r => r.status === 'paid'),
+                creditHoldTotal: suma(r => r.awaiting_client_payment === true),
+                detalle: filas.map(r => ({
+                    id: r.id,
+                    subAdvisorName: r.advisor_name,
+                    serviceType: r.service_type,
+                    tracking: r.tracking,
+                    clientName: r.client_name,
+                    createdAt: r.created_at,
+                    status: r.status,
+                    awaitingClientPayment: r.awaiting_client_payment === true,
+                    commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
+                    overridePct: parseFloat(r.leader_override_pct) || 0,
+                    overrideAmount: parseFloat(r.leader_override_amount) || 0,
+                })),
+            };
+        }
+
         res.json({
             data: dataRes.rows.map(r => ({
                 id: r.id,
@@ -782,6 +841,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 totalLeaderOverride: parseFloat(summary.total_leader_override) || 0,
                 advisorCount: parseInt(summary.advisor_count) || 0,
             },
+            overrideGanado,
             total: parseInt(countRes.rows[0]?.total) || 0,
             page: parseInt(page as string),
             limit: parseInt(limit as string),

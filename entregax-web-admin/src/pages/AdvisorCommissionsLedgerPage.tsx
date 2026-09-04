@@ -74,6 +74,33 @@ interface CommissionRecord {
   paymentOrderStatus: string | null;
 }
 
+/**
+ * Override que el asesor filtrado GANA como líder de sus subasesores.
+ * No sale de las filas de la tabla: esas traen el override que cada comisión
+ * genera para el líder DE ESE asesor, que para un líder es siempre 0. Éste
+ * viene calculado aparte por el backend con los mismos filtros.
+ */
+interface OverrideGanado {
+  count: number;
+  total: number;
+  pendingTotal: number;
+  paidTotal: number;
+  creditHoldTotal: number;
+  detalle: {
+    id: number;
+    subAdvisorName: string;
+    serviceType: string;
+    tracking: string | null;
+    clientName: string | null;
+    createdAt: string;
+    status: string;
+    awaitingClientPayment: boolean;
+    commissionAmount: number;
+    overridePct: number;
+    overrideAmount: number;
+  }[];
+}
+
 interface Summary {
   totalCount: number;
   totalCommission: number;
@@ -93,6 +120,7 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
   // ─── State ───
   const [records, setRecords] = useState<CommissionRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [overrideGanado, setOverrideGanado] = useState<OverrideGanado | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -145,6 +173,7 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
       const res = await api.get('/admin/commissions/ledger', { params });
       setRecords(res.data.data);
       setSummary(res.data.summary);
+      setOverrideGanado(res.data.overrideGanado || null);
       setTotal(res.data.total);
     } catch (err) {
       console.error('Error fetching commission ledger:', err);
@@ -229,9 +258,13 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
     if (filas.length === 0) return;
     const cols = [
       'Fecha', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Guía master', 'Cliente', 'Casillero',
-      'Orden de pago', 'Monto cobrado', '% comisión', 'Comisión', 'Override líder',
+      'Orden de pago', 'Monto cobrado', '% comisión', 'Comisión', 'Override que genera a su líder',
       'Estatus', 'Pagada el',
     ];
+    // Excel arrastra el ruido del punto flotante (13809.359999999997 en el
+    // reporte que llegó a Dirección). Se redondea a centavos al escribir.
+    const r2 = (n: number) => Number((Number(n) || 0).toFixed(2));
+    const fila = (v: any[]) => v.map(esc).join(';');
     // El punto y coma separa mejor en Excel en español, y las comillas dobles
     // se escapan para que un nombre con coma no rompa la columna.
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -243,8 +276,41 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
       r.awaitingClientPayment ? 'Esperando pago del cliente' : (r.status === 'paid' ? 'Pagada' : 'Pendiente'),
       r.paidAt ? formatDate(r.paidAt) : '',
     ].map(esc).join(';'));
+    // La fila de totales iba corrida una columna: la etiqueta caía bajo
+    // "Comisión" y el monto bajo "Override", que fue justo lo que hizo pensar
+    // que el override valía 13,809. Ahora cada cosa cae en su columna.
     const total = filas.reduce((a, r) => a + r.commissionAmount, 0);
-    lineas.push([...Array(11).fill(''), 'TOTAL', total, '', ''].map(esc).join(';'));
+    lineas.push(fila([...Array(10).fill(''), 'TOTAL COMISIONES PROPIAS', r2(total), '', '', '']));
+
+    // 💰 El override del asesor NO puede salir de estas filas: aquí el override
+    // es el que cada comisión genera para el líder de quien la hizo, y para un
+    // líder eso siempre es 0 (columna en ceros). Lo que él gana está en las
+    // comisiones de sus subasesores, así que se anexa como bloque aparte para
+    // que el reporte muestre el total real a pagar y no se preste a confusión.
+    const ov = selectedIds.length > 0 ? null : overrideGanado;
+    let totalAPagar = total;
+    if (ov && ov.count > 0) {
+      const nombre = advisorsList.find(a => a.id === Number(filterAdvisor))?.full_name || 'el asesor';
+      lineas.push('');
+      lineas.push(fila([`OVERRIDE QUE ${nombre.toUpperCase()} GANA COMO LÍDER DE SUS SUBASESORES`]));
+      lineas.push(fila([
+        'Fecha', 'Subasesor', 'Servicio', 'Tracking', 'Cliente',
+        'Comisión del subasesor', '% override', 'Override a pagar', 'Estatus',
+      ]));
+      ov.detalle.forEach(d => {
+        lineas.push(fila([
+          formatDate(d.createdAt), d.subAdvisorName,
+          serviceLabels[d.serviceType] || d.serviceType || '',
+          d.tracking || '', d.clientName || '',
+          r2(d.commissionAmount), d.overridePct, r2(d.overrideAmount),
+          d.awaitingClientPayment ? 'Esperando pago del cliente' : (d.status === 'paid' ? 'Pagada' : 'Pendiente'),
+        ]));
+      });
+      lineas.push(fila([...Array(6).fill(''), 'TOTAL OVERRIDE', r2(ov.pendingTotal), '']));
+      totalAPagar = total + ov.pendingTotal;
+      lineas.push('');
+      lineas.push(fila([...Array(10).fill(''), 'TOTAL A PAGAR (comisiones + override)', r2(totalAPagar), '', '', '']));
+    }
     // El BOM es lo que hace que Excel respete los acentos.
     const csv = '\uFEFF' + [cols.map(esc).join(';'), ...lineas].join('\r\n');
     const nombreAsesor = advisorsList.find(a => a.id === Number(filterAdvisor))?.full_name;
@@ -326,6 +392,46 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
               </Box>
             </CardContent>
           </Card>
+          {/* El override solo se muestra si el asesor filtrado realmente lidera a
+              alguien. Cuando no, estas dos tarjetas estorbarían con ceros. */}
+          {overrideGanado && overrideGanado.count > 0 && (
+            <>
+              <Card sx={{ flex: 1, minWidth: 180 }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Avatar sx={{ bgcolor: '#ede7f6', color: '#673ab7' }}><MoneyIcon /></Avatar>
+                  <Box>
+                    <Tooltip title="Lo que este asesor gana como LÍDER sobre las ventas de sus subasesores. No aparece en la tabla de abajo porque esas comisiones son de los subasesores, no suyas.">
+                      <Typography variant="caption" color="text.secondary">
+                        Override por subasesores
+                      </Typography>
+                    </Tooltip>
+                    <Typography variant="h6" fontWeight={700} sx={{ color: '#673ab7' }}>
+                      {formatMXN(overrideGanado.pendingTotal)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {overrideGanado.count} partida{overrideGanado.count === 1 ? '' : 's'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+              <Card sx={{ flex: 1, minWidth: 200, border: '2px solid #2e7d32' }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Avatar sx={{ bgcolor: '#e8f5e9', color: '#2e7d32' }}><MoneyIcon /></Avatar>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                      TOTAL A PAGAR
+                    </Typography>
+                    <Typography variant="h6" fontWeight={800} sx={{ color: '#2e7d32' }}>
+                      {formatMXN(summary.pendingTotal + overrideGanado.pendingTotal)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      pendiente + override
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </>
+          )}
           <Card sx={{ flex: 1, minWidth: 180 }}>
             <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Avatar sx={{ bgcolor: '#e8f5e9', color: '#4caf50' }}><CheckCircleIcon /></Avatar>
