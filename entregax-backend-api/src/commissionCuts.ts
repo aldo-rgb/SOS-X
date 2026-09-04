@@ -438,6 +438,193 @@ export const listarCortes = async (req: Request, res: Response): Promise<any> =>
 };
 
 /**
+ * Registra como PAGADAS un conjunto suelto de comisiones, dejando exactamente el
+ * mismo rastro que un corte: registro en el historial, línea por asesor con su
+ * propio y su override, cut_id en cada comisión y aviso al asesor.
+ *
+ * Existe porque "Marcar como Pagadas" solo hacía un UPDATE de status: sin
+ * historial, sin notificación y sin contabilizar override. Se pagaron $15,941.66
+ * asi el 03-sep y no quedó constancia de nada.
+ *
+ * Ojo con lo que SÍ y NO puede cubrir: el override de un líder no vive en sus
+ * filas, vive en las de sus subasesores. Si sólo se marcan las filas del líder,
+ * su override NO se liquida —no hay dónde anotarlo— y se devuelve en
+ * `overrideNoCubierto` para que la pantalla lo advierta antes de confirmar.
+ */
+export async function registrarComisionesPagadas(
+  commissionIds: number[],
+  adminId: number | null,
+  notes?: string | null
+): Promise<{ cutId: number; total: number; lineas: any[]; comisiones: number; arrastradas: any[]; overrideNoCubierto: any[] }> {
+  await ensureEsquema();
+  const client = await pool.connect();
+  try {
+    // Solo las que siguen cobrables: si otra sesión ya las marcó, no se tocan
+    // ni se cuentan dos veces.
+    const filas = await client.query(
+      `SELECT ac.id, ac.advisor_id, ac.advisor_name, ac.leader_id, ac.leader_name,
+              ac.service_type, ac.tracking, ac.client_name, cu.box_id AS client_box,
+              ac.payment_amount_mxn, ac.commission_rate_pct, ac.commission_amount_mxn,
+              COALESCE(ac.leader_override_amount, 0) AS leader_override_amount,
+              ac.created_at
+         FROM advisor_commissions ac
+         LEFT JOIN users cu ON cu.id = ac.client_id
+        WHERE ac.id = ANY($1::int[])
+          AND ac.status = 'pending'
+          AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE
+        ORDER BY ac.advisor_name, ac.created_at`,
+      [commissionIds]
+    );
+    if (filas.rows.length === 0) {
+      throw new Error('Ninguna de las comisiones seleccionadas sigue pendiente de pago');
+    }
+
+    // 🔗 Expansión del override. El override de un líder NO vive en sus filas,
+    // vive en las de sus subasesores; si sólo se marcan las del líder, su
+    // override queda pendiente y se le puede pagar dos veces. Así que al marcar
+    // las filas de un líder se arrastran también las de sus subasesores que le
+    // generan override. Eso liquida al líder Y al subasesor a la vez, que es lo
+    // correcto: los dos cobran de la MISMA venta y siempre se pagan juntos
+    // (es justo lo que hace el corte cuando ambas caen en la semana).
+    const seleccionados = new Set<number>(filas.rows.map((r: any) => Number(r.advisor_id)));
+    const yaIncluidas = new Set<number>(filas.rows.map((r: any) => Number(r.id)));
+    const extra = await client.query(
+      `SELECT ac.id, ac.advisor_id, ac.advisor_name, ac.leader_id, ac.leader_name,
+              ac.service_type, ac.tracking, ac.client_name, cu.box_id AS client_box,
+              ac.payment_amount_mxn, ac.commission_rate_pct, ac.commission_amount_mxn,
+              COALESCE(ac.leader_override_amount, 0) AS leader_override_amount,
+              ac.created_at
+         FROM advisor_commissions ac
+         LEFT JOIN users cu ON cu.id = ac.client_id
+        WHERE ac.leader_id = ANY($1::int[])
+          AND ac.status = 'pending'
+          AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE
+          AND COALESCE(ac.penalized, false) = false
+          AND COALESCE(ac.leader_override_amount, 0) > 0
+          AND NOT (ac.id = ANY($2::int[]))`,
+      [[...seleccionados], [...yaIncluidas]]
+    );
+    const arrastradas = extra.rows.map((r: any) => ({
+      tracking: r.tracking, subAsesor: r.advisor_name, lider: r.leader_name,
+      propio: Number(r.commission_amount_mxn) || 0,
+      override: Number(r.leader_override_amount) || 0,
+    }));
+    filas.rows.push(...extra.rows);
+
+    const porAsesor = new Map<number, any>();
+    const nueva = (id: number, nombre: string) => ({
+      advisorId: id, advisorName: nombre, own: 0, override: 0, guides: 0, detalle: [] as any[], subs: {} as any,
+    });
+    for (const r of filas.rows) {
+      const aid = Number(r.advisor_id);
+      if (!porAsesor.has(aid)) porAsesor.set(aid, nueva(aid, r.advisor_name || '—'));
+      const l = porAsesor.get(aid);
+      const monto = Number(r.commission_amount_mxn) || 0;
+      l.own += monto; l.guides += 1;
+      l.detalle.push({
+        id: r.id, fecha: r.created_at, servicio: r.service_type, tracking: r.tracking,
+        cliente: r.client_name, clienteBox: r.client_box,
+        montoBase: Number(r.payment_amount_mxn) || 0, tasa: Number(r.commission_rate_pct) || 0,
+        comision: monto, tipo: 'propia',
+      });
+      // El override de estas filas le toca al líder de quien las hizo.
+      const ov = Number(r.leader_override_amount) || 0;
+      const lid = r.leader_id ? Number(r.leader_id) : null;
+      if (lid && ov > 0) {
+        if (!porAsesor.has(lid)) porAsesor.set(lid, nueva(lid, r.leader_name || '—'));
+        const jefe = porAsesor.get(lid);
+        jefe.override += ov;
+        jefe.detalle.push({
+          id: r.id, fecha: r.created_at, servicio: r.service_type, tracking: r.tracking,
+          cliente: r.client_name, clienteBox: r.client_box, montoBase: Number(r.payment_amount_mxn) || 0,
+          tasa: 0, comision: ov, tipo: 'override', subAsesor: r.advisor_name,
+        });
+        const sub = jefe.subs[aid] || { name: r.advisor_name || '—', monto: 0, guias: 0 };
+        sub.monto += ov; sub.guias += 1; jefe.subs[aid] = sub;
+      }
+    }
+    const lineas = [...porAsesor.values()].map(l => ({ ...l, total: l.own + l.override }));
+    const total = lineas.reduce((a, l) => a + l.total, 0);
+    const ids = filas.rows.map(r => Number(r.id));
+    const fechas = filas.rows.map(r => new Date(r.created_at).toISOString().slice(0, 10)).sort();
+
+    await client.query('BEGIN');
+    const cab = await client.query(
+      `INSERT INTO commission_cuts (period_start, period_end, total_mxn, advisor_count, created_by)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [fechas[0], fechas[fechas.length - 1], total, lineas.length, adminId]
+    );
+    const cutId = Number(cab.rows[0].id);
+    for (const l of lineas) {
+      await client.query(
+        `INSERT INTO commission_cut_lines (cut_id, advisor_id, advisor_name, own_mxn, override_mxn, total_mxn, guides_count, detalle, subs)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+        [cutId, l.advisorId, l.advisorName, l.own, l.override, l.total, l.guides,
+         JSON.stringify(l.detalle), JSON.stringify(l.subs)]
+      );
+    }
+    await client.query(
+      `UPDATE advisor_commissions
+          SET status = 'paid', paid_to_advisor_at = NOW(), paid_by_admin_id = $2,
+              payment_notes = COALESCE($3, payment_notes), cut_id = $4, updated_at = NOW()
+        WHERE id = ANY($1::int[])`,
+      [ids, adminId, notes || null, cutId]
+    );
+    await client.query('COMMIT');
+
+    // Override que estos asesores tienen pendiente y que ESTE pago no cubre,
+    // porque vive en filas de sus subasesores que no se marcaron.
+    const pendiente = await client.query(
+      `SELECT ac.leader_id AS advisor_id, MAX(ac.leader_name) AS advisor_name,
+              SUM(ac.leader_override_amount)::numeric(12,2) AS monto, COUNT(*)::int AS partidas
+         FROM advisor_commissions ac
+        WHERE ac.leader_id = ANY($1::int[])
+          AND ac.status = 'pending'
+          AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE
+          AND COALESCE(ac.penalized, false) = false
+          AND COALESCE(ac.leader_override_amount, 0) > 0
+        GROUP BY ac.leader_id`,
+      [lineas.map(l => l.advisorId)]
+    );
+
+    const fmt = (n: number) => `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    for (const l of lineas) {
+      const cuerpo = l.override > 0
+        ? `Te pagamos ${fmt(l.total)}: ${fmt(l.own)} de tus ${l.guides} guías y ${fmt(l.override)} de override por tus subasesores. Entra a Mis Comisiones › Historial para ver el detalle.`
+        : `Te pagamos ${fmt(l.total)} por ${l.guides} guías. Entra a Mis Comisiones › Historial para ver el detalle.`;
+      try {
+        const { createCustomNotification } = await import('./notificationController');
+        await createCustomNotification(
+          l.advisorId, `💰 Pago de comisiones · ${fmt(l.total)}`, cuerpo,
+          'payment', 'cash-check', { type: 'commission_cut', cut_id: String(cutId), screen: 'AdvisorCommissions' }, '/comisiones'
+        );
+      } catch (e: any) { console.warn('[pago-comisiones] in-app:', e?.message); }
+      try {
+        const { sendPushToUsers } = await import('./pushService');
+        await sendPushToUsers([l.advisorId], {
+          title: `💰 Pago de comisiones · ${fmt(l.total)}`,
+          body: cuerpo,
+          data: { type: 'commission_cut', cut_id: String(cutId), screen: 'AdvisorCommissions' },
+        });
+      } catch (e: any) { console.warn('[pago-comisiones] push:', e?.message); }
+    }
+
+    return {
+      cutId, total, lineas, comisiones: ids.length, arrastradas,
+      overrideNoCubierto: pendiente.rows.map(r => ({
+        advisorId: Number(r.advisor_id), advisorName: r.advisor_name,
+        monto: Number(r.monto), partidas: Number(r.partidas),
+      })),
+    };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Periodo del corte EN CURSO: el viernes que ya arrancó y el jueves que viene.
  * Es el que se le va a pagar al asesor en el siguiente corte.
  */

@@ -207,17 +207,37 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
         commission_ids: selectedIds,
         notes: payNotes || undefined,
       });
+      // El monto puede ser MAYOR a lo palomeado: para liquidar el override de un
+      // líder hay que arrastrar las filas de sus subasesores. Se dice explícito,
+      // porque callarlo es justo lo que dejaba el pago a medias.
+      const arr = res.data.arrastradas || [];
+      const extra = arr.length > 0
+        ? ` (incluye ${arr.length} de subasesores, necesarias para pagar el override)`
+        : '';
       setSnackbar({
         open: true,
-        message: `✅ ${res.data.paidCount} comisiones pagadas por ${formatMXN(res.data.totalPaid)}`,
+        message: `✅ ${res.data.paidCount} comisiones pagadas por ${formatMXN(res.data.totalPaid)}${extra}`,
         severity: 'success',
       });
       setSelectedIds([]);
       setPayNotes('');
       setPayDialogOpen(false);
       fetchLedger();
-    } catch {
-      setSnackbar({ open: true, message: 'Error al marcar comisiones', severity: 'error' });
+    } catch (e: any) {
+      // Antes esto era un catch vacio con un mensaje fijo: daba igual si el
+      // servidor rechazo la operacion, si la sesion expiro o si el backend
+      // estaba reiniciando por un despliegue. Sin el motivo no habia forma de
+      // saber si el dinero se marco o no, que es justo lo que hay que saber.
+      const status = e?.response?.status;
+      const delServidor = e?.response?.data?.error;
+      const motivo =
+        delServidor ||
+        (status === 401 || status === 403
+          ? 'Tu sesion no tiene permiso o expiro. Cierra sesion y vuelve a entrar.'
+          : status === 502 || status === 503 || !e?.response
+            ? 'El servidor no respondio (puede estar actualizandose). NO se marco ninguna comision: vuelve a intentar en un minuto.'
+            : `Error inesperado${status ? ` (${status})` : ''}.`);
+      setSnackbar({ open: true, message: `No se marcaron las comisiones — ${motivo}`, severity: 'error' });
     } finally {
       setPaying(false);
     }

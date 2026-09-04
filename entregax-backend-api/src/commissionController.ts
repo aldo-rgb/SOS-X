@@ -713,8 +713,28 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                   FROM pobox_payments pp
                  WHERE ac.shipment_type = 'DHL'
                    AND (pp.payment_reference LIKE 'UW-%' OR pp.service_type = 'AA_DHL')
-                   AND pp.package_ids @> to_jsonb(ac.shipment_id)
+                   AND (
+                        pp.package_ids @> to_jsonb(ac.shipment_id)
+                        -- 🧾 Pago en GRUPO: una orden DHL que liquida varias guías
+                        -- guarda UN SOLO id en package_ids. Sin esta rama, las
+                        -- hermanas no encontraban ninguna orden pagada y se
+                        -- mostraba la CANCELADA de un intento previo: la guía
+                        -- ...243798 salía "Cancelada" aunque el cliente sí pagó
+                        -- (UW-5935DC3C liquidó las dos del master 1674067931).
+                        -- El amarre es el mismo que ya usa el filtro de cobrable:
+                        -- al liquidar, cada guía del grupo recibe el paid_at de
+                        -- la orden en el mismo instante.
+                        OR (pp.status IN ('completed','paid')
+                            AND pp.payment_reference LIKE 'UW-%'
+                            AND EXISTS (SELECT 1 FROM dhl_shipments d2
+                                         WHERE d2.id = ac.shipment_id
+                                           AND d2.user_id = pp.user_id
+                                           AND d2.paid_at IS NOT NULL
+                                           AND ABS(EXTRACT(EPOCH FROM (pp.paid_at - d2.paid_at))) < 5))
+                       )
                  ORDER BY (CASE WHEN pp.status IN ('completed','paid') THEN 0 WHEN pp.status = 'cancelled' THEN 2 ELSE 1 END),
+                          -- entre dos igual de buenas, gana la que sí lista esta guía
+                          (CASE WHEN pp.package_ids @> to_jsonb(ac.shipment_id) THEN 0 ELSE 1 END),
                           pp.paid_at DESC NULLS LAST, pp.id DESC
                  LIMIT 1
             ) bd ON TRUE
@@ -862,29 +882,32 @@ export const markCommissionsAsPaid = async (req: Request, res: Response): Promis
             return res.status(400).json({ error: 'commission_ids es requerido (array de IDs)' });
         }
 
-        const result = await pool.query(`
-            UPDATE advisor_commissions 
-            SET status = 'paid', 
-                paid_to_advisor_at = NOW(), 
-                paid_by_admin_id = $1,
-                payment_notes = COALESCE($2, payment_notes),
-                updated_at = NOW()
-            WHERE id = ANY($3) AND status = 'pending'
-              AND COALESCE(awaiting_client_payment, FALSE) = FALSE
-            RETURNING id, advisor_name, commission_amount_mxn
-        `, [adminId, notes || null, commission_ids]);
-
-        const totalPaid = result.rows.reduce((sum: number, r: any) => sum + parseFloat(r.commission_amount_mxn), 0);
+        // Antes esto era un UPDATE suelto: cambiaba el status y ya. Sin registro
+        // de corte, sin aviso al asesor y sin contabilizar override, que fue lo
+        // que dejó 1,101 comisiones pagadas sin constancia de nada. Ahora pasa
+        // por el mismo camino que "Hacer corte" — un solo lugar, para que los
+        // dos botones no se desincronicen.
+        const { registrarComisionesPagadas } = await import('./commissionCuts');
+        const r = await registrarComisionesPagadas(commission_ids, adminId, notes);
 
         res.json({
-            message: `${result.rows.length} comisiones marcadas como pagadas`,
-            paidCount: result.rows.length,
-            totalPaid: totalPaid,
-            details: result.rows,
+            message: `${r.comisiones} comisiones marcadas como pagadas`,
+            paidCount: r.comisiones,
+            totalPaid: r.total,
+            cutId: r.cutId,
+            lineas: r.lineas.map((l: any) => ({
+                advisorId: l.advisorId, advisorName: l.advisorName,
+                own: l.own, override: l.override, total: l.total, guides: l.guides,
+            })),
+            // Filas de subasesores que se arrastraron para poder liquidar el
+            // override del líder: la pantalla las muestra para que quien paga
+            // sepa que el monto incluye más de lo que palomeó.
+            arrastradas: r.arrastradas,
+            overrideNoCubierto: r.overrideNoCubierto,
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error marking commissions as paid:', error);
-        res.status(500).json({ error: 'Error al marcar comisiones como pagadas' });
+        res.status(500).json({ error: error?.message || 'Error al marcar comisiones como pagadas' });
     }
 };
 
