@@ -394,10 +394,17 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         ))}
       </View>
 
-      {/* Filtros por tipo de servicio */}
+      {/* Filtros por tipo de servicio.
+          Sin flexGrow/flexShrink en 0 este ScrollView queda entre los chips de
+          estado y la FlatList, ninguno de los dos le cede alto, y se aplastaba
+          hasta dejar solo un asomo de los chips: se veia como un recorte raro y
+          nadie entendia que era. El titulo va porque una fila de chips sin
+          etiqueta no dice para que sirve. */}
+      <Text style={styles.serviceFiltersTitle}>Filtrar por servicio</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.serviceFiltersScroll}
         contentContainerStyle={styles.serviceFiltersRow}
       >
         {serviceFilters.map(f => (
@@ -638,9 +645,24 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'center',
   },
+  serviceFiltersTitle: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8A8A8E',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  // flexGrow/flexShrink en 0 es lo que impide que la fila se aplaste; el alto
+  // fijo la deja estable aunque cambien los chips.
+  serviceFiltersScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 44,
+  },
   serviceFiltersRow: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
     gap: 8,
     alignItems: 'center',
   },
