@@ -5037,9 +5037,27 @@ export default function DashboardAdvisor() {
                 <Typography variant="h5" fontWeight={700} color="warning.main">
                   {formatMXN(combinedPending)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {c.totals.pendingCount} comisiones{hasSubs ? ' + subs' : ''}
-                </Typography>
+                {/* Desglose en vez de "+ subs".
+                    El total suma DOS cosas: las comisiones propias del asesor y
+                    el override que gana por sus subasesores. Al compararlo
+                    contra el detalle —que solo lista las propias— nunca cuadraba
+                    y parecía un error: Dirección veía 24 partidas por
+                    \$13,809.36 y el asesor \$15,493.95. La diferencia era el
+                    override, pero el número salía ya sumado y sin decirlo. */}
+                {hasSubs ? (
+                  <>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      Tuyas ({c.totals.pendingCount}) · {formatMXN(c.totals.pendingCommission)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      Subasesores ({ov.subCount}) · {formatMXN(ov.pending)}
+                    </Typography>
+                  </>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    {c.totals.pendingCount} comisiones
+                  </Typography>
+                )}
               </Paper>
               </Tooltip>
             </Grid>
