@@ -120,6 +120,12 @@ export default function CommissionsPage() {
   // visible para admin y super_admin.
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
   const canSeeAsesores = currentRole === 'admin' || currentRole === 'super_admin';
+  // El corte va aparte de canSeeAsesores: ese flag también abre la pestaña de
+  // alta/baja de asesores, y Dirección no tiene por qué entrar ahí. Las rutas
+  // del corte piden DIRECTOR hacia arriba, así que el botón replica ese mismo
+  // nivel — antes quedaba oculto para Dirección aunque el backend sí la dejaba.
+  const puedeHacerCorte =
+    currentRole === 'director' || currentRole === 'admin' || currentRole === 'super_admin';
   // Tarifas se manejan ahora en System Settings; mantenemos el setter
   // por si otro effect aún lo escribe.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -256,7 +262,7 @@ export default function CommissionsPage() {
         <Box sx={{ display: 'flex', gap: 2 }}>
           {/* El pago semanal a asesores: se revisa el corte, se baja el Excel
               y al aceptar quedan liquidadas y notificadas. */}
-          {canSeeAsesores && (
+          {puedeHacerCorte && (
             <Button
               variant="contained"
               startIcon={<PaymentIcon />}
