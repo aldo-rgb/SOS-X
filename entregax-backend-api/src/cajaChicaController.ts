@@ -1169,6 +1169,47 @@ export const buscarPorReferencia = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
+    // ── Búsqueda por CASILLERO ──
+    // En mostrador nadie se sabe de memoria la referencia SAF- del cliente:
+    // lo natural es teclear su casillero (S96). Antes eso no encontraba nada y
+    // salía "no se encontró ningún pago pendiente", que no dice qué hacer.
+    // Ahora se resuelve el casillero a su referencia de cartera; y si el
+    // cliente todavía no la tiene, se dice exactamente eso en vez de un
+    // "no encontrado" que parece un error del sistema.
+    if (/^[A-Z]{1,3}\d{1,6}$/.test(referencia)) {
+      const porCasillero = await pool.query(
+        `SELECT u.id, u.full_name, u.email, u.box_id,
+                COALESCE(u.wallet_balance, 0) AS wallet_balance,
+                w.reference
+           FROM users u
+           LEFT JOIN wallet_funding_references w ON w.user_id = u.id
+          WHERE UPPER(u.box_id) = $1
+          LIMIT 1`,
+        [referencia]
+      );
+      if (porCasillero.rows.length > 0) {
+        const c = porCasillero.rows[0];
+        if (!c.reference) {
+          res.json({
+            found: false,
+            sin_cartera: true,
+            message: `${c.full_name} (${c.box_id}) no tiene cartera activa. Actívala primero para poder recibirle un fondeo.`,
+          });
+          return;
+        }
+        res.json({
+          found: true,
+          es_fondeo_cartera: true,
+          referencia: c.reference,
+          monto: 0,
+          saldo_actual: parseFloat(c.wallet_balance) || 0,
+          cliente: { id: c.id, nombre: c.full_name, email: c.email, box_id: c.box_id },
+          guias: [],
+        });
+        return;
+      }
+    }
+
     // Buscar en la tabla de pagos pendientes (payment_references o referencias generadas)
     // Primero buscar en packages que tengan esta referencia de pago asignada
     const result = await pool.query(`
