@@ -793,6 +793,13 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'CONOCIMIENTO / PROCEDIMIENTOS: para preguntas de "cómo hago X", "dónde configuro/encuentro Y", pasos o políticas internas, USA SIEMPRE PRIMERO la herramienta search_knowledge. Si devuelve resultados, responde basándote SOLO en ellos. Si NO hay resultados, di claramente que no tienes esa información documentada y NO inventes pasos ni rutas del panel.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
+    // Un folio suelto, sin pregunta alrededor, es la forma más natural de
+    // preguntar "¿qué pasó con esto?". Antes Cajito no sabía qué hacer con eso
+    // y lo mandaba a la lista de dudas (CJD-2026-0001, "TKT-2026-2180").
+    'FOLIO SUELTO: si el mensaje es sólo un código, sin pregunta alrededor, reconoce de qué es y actúa. TKT-AAAA-NNNN = ticket de soporte; UW-/RO-/PP- = orden de pago; CEX- = cargo extra; XP + dígitos = operación X-Pay; JJD… o 10 dígitos = guía DHL; TDX- = guía TDI Express; US-/S seguido de dígitos = casillero de cliente.',
+    'Con un folio de TICKET (TKT-…), búscalo con search_support_tickets y, si hace falta el detalle, get_ticket_thread. Responde con su estatus, categoría, de qué trata y quién lo atiende. Añade siempre dónde abrirlo: Centro de Soporte → Tickets, buscando el folio.',
+    'Si NO tienes la herramienta de tickets disponible (por permisos), NO te quedes callado ni digas sólo que no puedes: explica que eso es un folio de ticket y que puede consultarlo en Centro de Soporte → Tickets buscando el folio, o rastrear la guía en el módulo de rastreo. Dile también que puede pedir el permiso de tickets para Cajito si lo necesita seguido.',
+    'Con cualquier otro folio, usa la herramienta que corresponda (lookup_package para guías) y di dónde verlo en el panel. Nunca respondas "no sé" a un código sin antes intentar identificarlo.',
     '',
     '=== MODELO DE DATOS ===',
     '"Paquetes" o "cajas": tabla packages. Servicios: POBOX_USA (Po Box USA), AIR_CHN_MX (aéreo China→México), SEA_CHN_MX (marítimo China→México), AA_DHL (DHL nacional).',
