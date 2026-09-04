@@ -540,6 +540,10 @@ export const createPaymentRequestV2 = async (
   // 🎯 Override del asesor: SOLO en modo asesor puede subir el % que XPAY cobra
   //    al cliente, pero NUNCA por debajo de la venta fija (precio fijo asignado).
   const advisorPctRaw = body.comision_cliente_final_porcentaje;
+  // El % asignado al cliente ANTES de que el asesor lo toque. Se guarda aparte
+  // porque la rama de abajo sobrescribe commission.porcentaje.
+  const pctAsignado = Number(commission.porcentaje) || 0;
+  const tienePctAsignado = commission.es_override === true;
   if (opts?.advisorId && advisorPctRaw != null && String(advisorPctRaw).trim() !== '') {
     const custom = Number(advisorPctRaw);
     if (Number.isFinite(custom) && custom > 0) {
@@ -547,6 +551,17 @@ export const createPaymentRequestV2 = async (
       if (custom < minPct - 0.001) {
         return res.status(400).json({
           error: `La comisión al cliente (${custom.toFixed(2)}%) no puede ser menor a la venta fija (${minPct.toFixed(2)}%).`,
+        });
+      }
+      // 🔒 Techo: si al cliente ya se le asignó un porcentaje desde el módulo de
+      // porcentaje XPAY, ese es el trato y el asesor NO puede cobrarle más.
+      // Sin este candado el asesor podía subirlo (pasó en XP346889: cliente con
+      // 6% asignado, la operación salió al 8%) y como el asesor gana
+      // "cliente − venta fija", cada punto de más era suyo. Bajarlo sí se
+      // permite: ese descuento sale de su propia comisión.
+      if (tienePctAsignado && custom > pctAsignado + 0.001) {
+        return res.status(400).json({
+          error: `Este cliente tiene asignado ${pctAsignado.toFixed(2)}% y no se le puede cobrar más. Si necesitas subirlo, pide el cambio a Dirección.`,
         });
       }
       commission.porcentaje = custom;
