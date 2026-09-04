@@ -104,8 +104,26 @@ async function ensureEsquema(): Promise<void> {
  * Periodo por defecto: el último viernes→jueves YA CERRADO. Si hoy es viernes,
  * el corte que toca es el de los siete días que acaban ayer jueves.
  */
+/**
+ * "Hoy" leído SIEMPRE en Monterrey, como fecha pura (medianoche UTC).
+ *
+ * Antes cada periodo se armaba con hoy.getFullYear()/getMonth()/getDate(), que
+ * son la hora LOCAL DEL SERVIDOR. En Railway (UTC) y en una máquina en México
+ * eso da días distintos durante las 6 horas de diferencia, y como el corte
+ * arranca en viernes, un viernes de madrugada la ventana se recorría una
+ * semana COMPLETA según dónde corriera el proceso. El filtro de la consulta ya
+ * convierte a America/Monterrey, así que la fecha tiene que salir de ahí también.
+ */
+function hoyEnMonterrey(hoy: Date): Date {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Monterrey', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(hoy);
+  const val = (tipo: string) => Number(partes.find(x => x.type === tipo)?.value);
+  return new Date(Date.UTC(val('year'), val('month') - 1, val('day')));
+}
+
 export function periodoPorDefecto(hoy = new Date()): { from: string; to: string } {
-  const d = new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
+  const d = hoyEnMonterrey(hoy);
   // 0=domingo … 4=jueves. Se retrocede al jueves más reciente ya pasado.
   const dia = d.getUTCDay();
   const restar = ((dia - 4) + 7) % 7 || 7;   // nunca 0: el jueves de hoy aún no cierra
@@ -424,7 +442,7 @@ export const listarCortes = async (req: Request, res: Response): Promise<any> =>
  * Es el que se le va a pagar al asesor en el siguiente corte.
  */
 export function periodoEnCurso(hoy = new Date()): { from: string; to: string } {
-  const d = new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
+  const d = hoyEnMonterrey(hoy);   // misma razón que en periodoPorDefecto
   const dia = d.getUTCDay();                 // 0=dom … 5=vie
   const desdeViernes = ((dia - 5) + 7) % 7;  // días transcurridos desde el viernes
   const viernes = new Date(d); viernes.setUTCDate(d.getUTCDate() - desdeViernes);
