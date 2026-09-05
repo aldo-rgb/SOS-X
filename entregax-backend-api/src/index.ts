@@ -14789,10 +14789,11 @@ app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOME
 app.get('/api/cs/descuentos', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listDescuentos);
 // Validación de cargos de impuestos DHL antes de cobrárselos al cliente (tarea
 // 482). Mismo nivel que descuentos: es decidir si se le sube dinero a alguien.
-// Quien valida es Servicio a Cliente —Ricardo Mendez, que lo pidio, es
-// customer_service—, mas Contabilidad y Direccion. Dejarlo en DIRECTOR habria
-// dado una bandeja que su dueño no puede abrir.
-const puedeValidarCargos = requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT, ROLES.CUSTOMER_SERVICE);
+// Permiso GESTIONABLE desde la pantalla de Permisos, no rol cableado: quien
+// valida cargos hoy es Servicio a Cliente, pero eso cambia con el organigrama
+// y sin el panel habria que tocar codigo para mover a una persona. Direccion
+// entra siempre por nivel, como en el resto de paneles.
+const puedeValidarCargos = requirePanelPermissionOrRoles('cs_cargos_validar', ['super_admin', 'admin', 'director']);
 app.get('/api/cs/cargos-por-validar', authenticateToken, puedeValidarCargos, listCargosPorValidar);
 app.post('/api/cs/cargos-por-validar/:id/aceptar', authenticateToken, puedeValidarCargos, aceptarCargoPorValidar);
 app.post('/api/cs/cargos-por-validar/:id/rechazar', authenticateToken, puedeValidarCargos, rechazarCargoPorValidar);
@@ -15487,7 +15488,8 @@ async function ensureRequiredColumns() {
         ('cs_legacy_clients','Migración de Clientes','customer_service', 'UploadFile',          'Importar y gestionar clientes de la base anterior',     TRUE, 9),
         ('cs_chartback',     'Chartback — Reactivación', 'customer_service', 'Sync',            'Asignar asesores a clientes chartback para contactarlos', TRUE, 10),
         ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11),
-        ('cs_payment_orders_history', 'Historial de Órdenes de Pago', 'customer_service', 'ReceiptLong', 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo', TRUE, 12)
+        ('cs_payment_orders_history', 'Historial de Órdenes de Pago', 'customer_service', 'ReceiptLong', 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo', TRUE, 12),
+        ('cs_cargos_validar', 'Cargos por Validar', 'customer_service', 'Gavel', 'Impuestos DHL que el sistema calculó y esperan visto bueno antes de cobrarse al cliente', TRUE, 13)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,

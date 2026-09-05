@@ -2002,14 +2002,22 @@ export const startCargosPorValidarCron = () => {
         (dias >= 2 ? ` El más viejo lleva ${dias} días esperando.` : '') +
         ' Recuerda: si la guía viene declarada en 50 USD o menos, no aplica el impuesto adicional.';
 
-      // Servicio a Cliente, Contabilidad y Dirección: los mismos que pueden
-      // abrir la pantalla. Si el rol no puede entrar, el aviso es un pendiente
-      // sin puerta.
+      // Solo a quien de verdad puede abrir la pantalla: quien tenga el permiso
+      // cs_cargos_validar, más Dirección que entra por nivel. Se filtra por
+      // PERMISO y no por rol para que se mantenga solo cuando cambien los
+      // accesos — mandarle el pendiente a alguien sin puerta ya nos pasó con
+      // los comprobantes por autorizar.
       const destinatarios = (await pool.query(
         `SELECT u.id FROM users u
           WHERE COALESCE(u.is_active, true) = true
             AND u.deleted_at IS NULL
-            AND u.role IN ('super_admin', 'admin', 'director', 'accountant', 'finanzas', 'customer_service')`
+            AND (
+              u.role IN ('super_admin', 'admin', 'director')
+              OR EXISTS (SELECT 1 FROM user_panel_permissions p
+                          WHERE p.user_id = u.id
+                            AND p.panel_key = 'cs_cargos_validar'
+                            AND p.can_view = TRUE)
+            )`
       )).rows.map((x: any) => Number(x.id));
       if (destinatarios.length === 0) return;
 
