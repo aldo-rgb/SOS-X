@@ -65,6 +65,7 @@ import {
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
+import VideosAdjuntos from '../components/VideosAdjuntos';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -1699,6 +1700,15 @@ export default function SupportBoardPage() {
                   );
                 })}
                 <div ref={messagesEndRef} />
+              </Box>
+
+              <Divider />
+
+              {/* Videos del ticket. Van colgados del ticket y no de un mensaje
+                  suelto: es como la gente los busca ("el video de ese ticket")
+                  y evita que se pierdan al scrollear el hilo. */}
+              <Box sx={{ px: 2 }}>
+                <VideosAdjuntos scope="ticket" refId={selectedTicket.id} />
               </Box>
 
               <Divider />

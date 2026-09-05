@@ -35,6 +35,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
 import ReplyIcon from '@mui/icons-material/Reply';
 import ComentarioAdjunto from '../components/ComentarioAdjunto';
+import VideosAdjuntos from '../components/VideosAdjuntos';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -1964,16 +1965,23 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 <input hidden type="file" accept={ACCEPT_FILES} multiple onChange={e => uploadPhotos(e.target.files)} />
               </Button>
             </Box>
+            {/* Videos con su tira de cuadros, aparte del hilo: un video corto
+                genera hasta 12 cuadros y sueltos sepultarían la conversación. */}
+            <VideosAdjuntos scope="task" refId={data.id} />
+
             {(data.comments || []).length === 0 && (data.attachments || []).length === 0 && (
               <Typography variant="caption" color="text.secondary">Sin comentarios todavía.</Typography>
             )}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {/* Comentarios y archivos en un solo hilo, por hora. Las fotos que
                   llegan con el ticket ya no se quedan en una bandeja aparte:
-                  aparecen donde toca en la conversación. */}
+                  aparecen donde toca en la conversación. El video y sus cuadros
+                  se excluyen: ya salen arriba agrupados. */}
               {([
                 ...((data.comments || []) as any[]).map((c: any) => ({ tipo: 'c' as const, at: c.created_at, dato: c })),
-                ...((data.attachments || []) as any[]).map((a: any) => ({ tipo: 'a' as const, at: a.created_at, dato: a })),
+                ...((data.attachments || []) as any[])
+                  .filter((a: any) => !a.parent_id && !String(a.mime_type || '').startsWith('video/'))
+                  .map((a: any) => ({ tipo: 'a' as const, at: a.created_at, dato: a })),
               ]).sort((x, y) => new Date(x.at || 0).getTime() - new Date(y.at || 0).getTime()).map(item => {
                 const esArchivo = item.tipo === 'a';
                 const d = item.dato;

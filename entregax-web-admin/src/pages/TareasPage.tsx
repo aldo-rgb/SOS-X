@@ -35,6 +35,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import ReplyIcon from '@mui/icons-material/Reply';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ComentarioAdjunto from '../components/ComentarioAdjunto';
+import VideosAdjuntos from '../components/VideosAdjuntos';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -1539,11 +1540,20 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                 <input hidden type="file" accept={ACCEPT_FILES} multiple onChange={e => uploadPhotos(e.target.files)} />
               </Button>
             </Box>
+            {/* Videos, con su tira de cuadros. Aparte del hilo porque un video
+                de 30s genera hasta 12 cuadros y meterlos aquí sepultaría la
+                conversación. */}
+            <VideosAdjuntos scope="task" refId={data.id} />
+
             {/* Comentarios y archivos en un solo hilo, por hora: las fotos que
-                llegan con el ticket ya no viven en una bandeja aparte. */}
+                llegan con el ticket ya no viven en una bandeja aparte.
+                Se excluyen el video y sus cuadros (parent_id): ya se ven arriba
+                agrupados, y sueltos aquí solo serían ruido. */}
             {([
               ...((data.comments || []) as any[]).map((c: any) => ({ tipo: 'c' as const, at: c.created_at, dato: c })),
-              ...((data.attachments || []) as any[]).map((a: any) => ({ tipo: 'a' as const, at: a.created_at, dato: a })),
+              ...((data.attachments || []) as any[])
+                .filter((a: any) => !a.parent_id && !String(a.mime_type || '').startsWith('video/'))
+                .map((a: any) => ({ tipo: 'a' as const, at: a.created_at, dato: a })),
             ]).sort((x, y) => new Date(x.at || 0).getTime() - new Date(y.at || 0).getTime()).map(item => {
               const esArchivo = item.tipo === 'a';
               const d = item.dato;
