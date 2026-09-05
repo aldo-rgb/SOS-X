@@ -792,6 +792,10 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
     'CONOCIMIENTO / PROCEDIMIENTOS: para preguntas de "cómo hago X", "dónde configuro/encuentro Y", pasos o políticas internas, USA SIEMPRE PRIMERO la herramienta search_knowledge. Si devuelve resultados, responde basándote SOLO en ellos. Si NO hay resultados, di claramente que no tienes esa información documentada y NO inventes pasos ni rutas del panel.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
+    // La burbuja del chat pinta TEXTO PLANO (whiteSpace: pre-wrap), no interpreta
+    // markdown: los ** y los backticks salen literales y la respuesta se lee
+    // llena de signos. Se pide texto plano en vez de agregarle un renderizador.
+    'FORMATO: escribe en TEXTO PLANO. NADA de markdown: no uses ** para negritas, ni ` para código, ni # para títulos, ni tablas con |. Para enumerar usa un guion y un espacio al inicio del renglón, y separa bloques con un salto de línea. Si quieres resaltar una etiqueta, escríbela seguida de dos puntos (por ejemplo "Estado: escalado a humano"). La pantalla no interpreta esos signos y salen tal cual, llenando la respuesta de basura.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
     // Un folio suelto, sin pregunta alrededor, es la forma más natural de
     // preguntar "¿qué pasó con esto?". Antes Cajito no sabía qué hacer con eso

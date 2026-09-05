@@ -1195,6 +1195,50 @@ function ClientLookupResult({ data }: { data: PackageData }) {
   );
 }
 
+/**
+ * Vuelve clicables los folios de ticket dentro de una respuesta de Cajito.
+ *
+ * La burbuja pinta texto plano, así que un TKT-2026-2596 se quedaba como texto
+ * muerto: Cajito decía dónde buscarlo y había que ir a teclearlo a mano. Al
+ * tocarlo se dispara la MISMA navegación que ya usan las notificaciones y las
+ * tareas, así que el ticket se abre directo en el tablero de soporte.
+ */
+const RE_FOLIO_TKT = /(TKT-\d{4}-\d+)/g;
+// Una copia SIN el flag global para preguntar "¿esta parte es un folio?": con
+// /g, .test() guarda posición entre llamadas y alterna resultados.
+const ES_FOLIO_TKT = /^TKT-\d{4}-\d+$/;
+
+const abrirTicket = (folio: string) => {
+  window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+    detail: { action: 'service_tickets', ticketFolio: folio },
+  }));
+};
+
+const conFoliosClicables = (texto: string): React.ReactNode => {
+  const partes = String(texto).split(RE_FOLIO_TKT);
+  if (partes.length === 1) return texto;
+  return partes.map((parte, i) =>
+    ES_FOLIO_TKT.test(parte) ? (
+      <Box
+        key={i}
+        component="span"
+        onClick={() => abrirTicket(parte)}
+        sx={{
+          color: '#F05A28',
+          fontWeight: 700,
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          '&:hover': { color: '#C2410C' },
+        }}
+      >
+        {parte}
+      </Box>
+    ) : (
+      parte
+    )
+  );
+};
+
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
@@ -1639,7 +1683,9 @@ export default function CajitoFab() {
                   }
                   return (
                     <Box key={m.id} sx={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', bgcolor: m.role === 'user' ? CAJITO_RING : 'white', color: m.role === 'user' ? 'white' : 'text.primary', border: m.role === 'user' ? 'none' : '1px solid #FFE0B2', borderRadius: 2, px: 1.25, py: 0.75, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {conFoliosClicables(m.text || '')}
+                      </Typography>
                       {isSuperAdmin && m.role === 'cajito' && (m.text || '').trim().length > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
                           <Tooltip title="Guardar como conocimiento (revisa/edita antes)">
