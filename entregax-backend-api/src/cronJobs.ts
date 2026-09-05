@@ -1337,14 +1337,19 @@ export const drainSequenceBatches = async () => {
   if (seqDrainInProgress) return;
   seqDrainInProgress = true;
   try {
-    const { processDueSequenceSteps, SEQUENCE_BATCH_LIMIT } = await import('./waSequenceController');
+    const { processDueSequenceSteps, SEQUENCE_BATCH_LIMIT, SEQUENCE_BATCH_INTERVAL_MIN } =
+      await import('./waSequenceController');
     const runBatch = async (round: number) => {
       try {
         const { processed } = await processDueSequenceSteps();
-        // Lote lleno → todavía hay pendientes: siguiente tanda en 20 min.
+        // Lote lleno → todavía hay pendientes: siguiente tanda al rato.
+        // 10 cada 5 minutos hasta completar el tope diario (regla de Dirección):
+        // gotear en vez de dos ráfagas grandes, que es lo que Meta marcó como
+        // spam. El intervalo vive junto al tamaño del lote, para que cambiar uno
+        // sin el otro no rompa el ritmo.
         if (processed >= SEQUENCE_BATCH_LIMIT) {
-          console.log(`[SEQ] Lote ${round} lleno (${processed}); siguiente tanda en 20 min`);
-          setTimeout(() => { runBatch(round + 1).catch(() => {}); }, 20 * 60 * 1000);
+          console.log(`[SEQ] Lote ${round} lleno (${processed}); siguiente tanda en ${SEQUENCE_BATCH_INTERVAL_MIN} min`);
+          setTimeout(() => { runBatch(round + 1).catch(() => {}); }, SEQUENCE_BATCH_INTERVAL_MIN * 60 * 1000);
         } else {
           seqDrainInProgress = false;
         }

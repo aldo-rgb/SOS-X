@@ -524,7 +524,15 @@ async function sendStep(enr: any, step: any): Promise<boolean> {
 
 // Procesa las inscripciones cuyo próximo envío ya venció (llamado por el cron).
 // La tanda nunca puede rebasar el tope diario, así que se queda por debajo de él.
-export const SEQUENCE_BATCH_LIMIT = 50;
+//
+// RITMO DE ENVÍO (regla de Dirección): 10 mensajes cada 5 minutos hasta
+// completar el tope diario de 100. Eran 50 cada 20 minutos, o sea dos ráfagas
+// grandes; goteando de 10 en 10 el número se ve mucho menos como un envío
+// masivo, que es justo lo que Meta marcó como spam el 26-ago-2026. Los 100
+// tardan 50 minutos en salir.
+export const SEQUENCE_BATCH_LIMIT = 10;
+/** Espera entre tandas, en minutos. Va de la mano de SEQUENCE_BATCH_LIMIT. */
+export const SEQUENCE_BATCH_INTERVAL_MIN = 5;
 /**
  * Tope diario de envíos de la secuencia (marketing).
  *
