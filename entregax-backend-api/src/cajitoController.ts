@@ -1058,7 +1058,8 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '2. Saca TODOS los folios y códigos que menciona: guías (US-, TDX-, JJD, 10 dígitos), órdenes (UW-, RO-, PP-, CEX-), operaciones X-Pay (XP), casilleros.',
       '3. Búscalos con tus herramientas. No te quedes con lo que dice el ticket: compáralo contra lo que dicen los datos.',
       '4. Di si lo que reclama el usuario CUADRA o NO con el sistema, y con qué números.',
-      '5. Concluye en una de estas cuatro: (a) error del sistema que debemos reparar, (b) captura faltante o mal hecha por alguien, (c) está bien y hay que explicarlo, (d) no alcanzo a determinarlo.',
+      '5. Concluye en una de estas cuatro: (a) error del sistema que debemos reparar, (b) captura faltante o mal hecha, (c) está bien y hay que explicarlo, (d) no alcanzo a determinarlo.',
+      'OJO con (b): un dato mal capturado TAMBIÉN lo corregimos nosotros, así que también hay que levantarlo. No lo trates como algo que se resuelve solo ni como culpa de alguien: es trabajo pendiente igual que un error de código.',
       '',
       'REGLAS:',
       '- Cita SIEMPRE los números que encontraste. Sin cifras concretas la conclusión no sirve.',
@@ -1077,6 +1078,14 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '}',
       'En "hallazgos" pon SOLO lo que verificaste contra el sistema, con su cifra. `cuadra` es true si el dato coincide con lo que dice el ticket y false si no.',
       'Sé BREVE: la pantalla ya le da formato. Nada de introducciones ni de repetir lo que ya dijiste.',
+      '',
+      'HABLAS CON UNA PERSONA, NO CON UN PROGRAMADOR:',
+      '- NADA de nombres de columnas ni de campos. Nunca escribas cosas como "credito_liquidado=false", "is_master", "national_shipping_cost" o "status=paid". Dilo en español: "pagada con crédito, todavía sin liquidar".',
+      '- "dato" es una etiqueta corta (2 a 5 palabras). "valor" es la CIFRA o el dato concreto, corto. El contexto va en "nota".',
+      '- Ejemplo bueno: dato "Flete nacional cobrado", valor "$2,675.00", nota "las 5 cajas traen guía del propio cliente".',
+      '- Ejemplo malo: valor "$6,098.15 MXN, pagada con crédito, credito_liquidado=false, cliente S20 Jorge Chavez Gastelum".',
+      '',
+      'SI ES FALLA NUESTRA, DILO EN DINERO. No basta con "hay una inconsistencia": di qué le está pasando al cliente. Si se cobró algo que no debía, escribe cuánto se le está cobrando de más. Esa es la frase que hace que alguien actúe.',
     ].join('\n');
 
     // Quién escribe importa: un ticket levantado por un EMPLEADO lo escribe el

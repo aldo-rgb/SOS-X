@@ -2035,21 +2035,22 @@ export default function SupportBoardPage() {
           )}
 
           {!invLoading && inv && inv.pudo && (
-            <Alert severity={inv.es_error_sistema ? 'error' : 'success'} sx={{ mb: 2 }}
-              icon={inv.es_error_sistema ? <WarningIcon /> : undefined}>
+            {/* Un dato mal capturado TAMBIÉN lo corregimos nosotros, así que se
+                escala igual que un error de código. Solo "CORRECTO" no genera
+                trabajo nuestro. */}
+            <Alert severity={inv.conclusion === 'CORRECTO' ? 'success' : 'error'} sx={{ mb: 2 }}
+              icon={inv.conclusion === 'CORRECTO' ? undefined : <WarningIcon />}>
               <strong>
                 {inv.es_error_sistema
-                  ? 'Es un error del sistema y hay que escalarlo con desarrollo.'
+                  ? 'Es un error del sistema: hay que repararlo.'
                   : inv.conclusion === 'CAPTURA'
-                    ? 'No es falla del sistema: es captura faltante o mal hecha.'
+                    ? 'Hay un dato mal capturado que hay que corregir.'
                     : 'Revisé y el sistema está bien.'}
               </strong>
               <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
-                {inv.es_error_sistema
-                  ? 'Yo no lo puedo corregir. Te propongo levantarlo como tarea para que lo reparen.'
-                  : inv.conclusion === 'CAPTURA'
-                    ? 'Se resuelve corrigiendo el dato, no tocando código.'
-                    : 'Habría que explicárselo al cliente con estos números.'}
+                {inv.conclusion === 'CORRECTO'
+                  ? 'Habría que explicárselo al cliente con estos números.'
+                  : 'Yo no lo puedo corregir. Te propongo levantarlo como tarea para que lo atendamos.'}
               </Typography>
             </Alert>
           )}
@@ -2087,13 +2088,23 @@ export default function SupportBoardPage() {
                       display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: '#fff',
                       bgcolor: h.cuadra === false ? '#DC2626' : '#16A34A',
                     }}>{h.cuadra === false ? '!' : '✓'}</Box>
+                    {/* El valor va DEBAJO del dato y ocupa todo el ancho. Antes
+                        iba en columna propia con nowrap: se encimaba con el
+                        título y partía el texto en una palabra por renglón. */}
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" fontWeight={700}>{h.dato}</Typography>
-                      {h.nota && <Typography variant="caption" color="text.secondary">{h.nota}</Typography>}
+                      <Typography variant="body2" sx={{
+                        fontWeight: 700, mt: 0.25, overflowWrap: 'anywhere',
+                        color: h.cuadra === false ? '#B91C1C' : 'text.primary',
+                      }}>
+                        {h.valor}
+                      </Typography>
+                      {h.nota && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                          {h.nota}
+                        </Typography>
+                      )}
                     </Box>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      {h.valor}
-                    </Typography>
                   </Box>
                 ))}
               </Paper>
@@ -2134,9 +2145,9 @@ export default function SupportBoardPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
-          {!invLoading && inv?.es_error_sistema && !invPreview && (
+          {!invLoading && inv?.pudo && inv.conclusion !== 'CORRECTO' && !invPreview && (
             <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
-              Sí, escalarlo con desarrollo
+              Sí, levantarlo como tarea
             </Button>
           )}
           {invPreview && (
