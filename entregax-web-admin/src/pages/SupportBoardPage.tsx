@@ -2151,7 +2151,7 @@ export default function SupportBoardPage() {
           <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
           {!invLoading && inv?.pudo && inv.conclusion !== 'CORRECTO' && !invPreview && (
             <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
-              Sí, levantarlo como tarea
+              Sí, reportar error
             </Button>
           )}
           {invPreview && (
