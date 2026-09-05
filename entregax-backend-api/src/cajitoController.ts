@@ -770,6 +770,70 @@ const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- SALDO A FAVOR Y CRÉDITO DEL CLIENTE --------------------
+  // Lo pidió Cajito en el TKT-2026-2269: el asesor subió un comprobante MAYOR
+  // al monto de la cotización y no veía reflejado el excedente. Sin poder ver
+  // el saldo a favor no había forma de saber si el dinero se acreditó y no se
+  // muestra, o si de plano no se acreditó.
+  {
+    name: 'lookup_client_balance',
+    requiredCapability: 'cajito.read.payments',
+    readOnly: true,
+    description: 'Saldo a favor, cartera y crédito de un cliente, por casillero (S91) o por nombre. Devuelve el saldo disponible en su cartera, los saldos a favor por servicio, su línea de crédito y cuánto lleva usado, los excedentes pendientes de aplicar, y los últimos comprobantes con excedente. Úsalo cuando el ticket hable de saldo a favor, de un pago de más, de un excedente que no aparece, o de crédito.',
+    parameters: {
+      type: 'object',
+      properties: { cliente: { type: 'string', description: 'Casillero (S91) o nombre del cliente' } },
+      required: ['cliente'],
+    },
+    handler: async ({ cliente }) => {
+      const q = String(cliente || '').trim();
+      if (!q) return { error: 'Falta el cliente' };
+      const u = await pool.query(
+        `SELECT id, full_name, box_id, email, COALESCE(wallet_balance,0) AS cartera
+           FROM users
+          WHERE UPPER(box_id) = UPPER($1) OR full_name ILIKE $2
+          ORDER BY (UPPER(box_id) = UPPER($1)) DESC LIMIT 1`, [q, `%${q}%`]);
+      if (u.rows.length === 0) return { encontrado: false, mensaje: `No hallé al cliente "${q}".` };
+      const c = u.rows[0];
+
+      const creditos = await pool.query(
+        `SELECT service, credit_limit, used_credit,
+                (COALESCE(credit_limit,0) - COALESCE(used_credit,0)) AS disponible,
+                credit_days, COALESCE(is_blocked,false) AS bloqueado
+           FROM user_service_credits WHERE user_id = $1 ORDER BY service`, [c.id]);
+
+      const pendientes = await pool.query(
+        `SELECT monto, moneda, motivo, estado, created_at
+           FROM saldo_a_favor_pendientes WHERE cliente_id = $1
+          ORDER BY created_at DESC LIMIT 10`, [c.id]).catch(() => ({ rows: [] }));
+
+      // Órdenes con excedente: es justo el caso de "pagué de más y no aparece".
+      const excedentes = await pool.query(
+        `SELECT payment_reference, amount, COALESCE(voucher_total,0) AS comprobantes,
+                COALESCE(surplus_amount,0) AS excedente,
+                COALESCE(surplus_credited,false) AS excedente_acreditado,
+                status, paid_at
+           FROM pobox_payments
+          WHERE user_id = $1 AND COALESCE(surplus_amount,0) > 0
+          ORDER BY created_at DESC LIMIT 10`, [c.id]).catch(() => ({ rows: [] }));
+
+      return {
+        encontrado: true,
+        cliente: { nombre: c.full_name, casillero: c.box_id, cartera_disponible: Number(c.cartera) },
+        credito_por_servicio: creditos.rows,
+        saldos_a_favor_pendientes: pendientes.rows,
+        ordenes_con_excedente: excedentes.rows,
+        resumen: {
+          // La señal del caso más común: hubo excedente y NO se acreditó.
+          excedentes_sin_acreditar: excedentes.rows.filter((x: any) => !x.excedente_acreditado).length,
+          monto_sin_acreditar: excedentes.rows
+            .filter((x: any) => !x.excedente_acreditado)
+            .reduce((a: number, x: any) => a + (Number(x.excedente) || 0), 0),
+        },
+      };
+    }
+  },
+
   // -------------------- MIS TAREAS --------------------
   // Cajito no podía decir ni cuántas tareas tenía uno: la pregunta más básica
   // del tablero quedaba fuera (CJD-2026-0003). El handler usa ctx.userId, así
