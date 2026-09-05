@@ -126,6 +126,15 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectionMode, setSelectionMode] = useState(false);
+  // Notificaciones cuyo texto está desplegado. El cuerpo se cortaba a dos
+  // líneas y no había forma de leer el resto: el asesor veía "Se registró el
+  // pago de la guía JJD0146000127…" y ahí terminaba (TKT-2026-2436, tarea 439).
+  const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
+  const toggleExpandida = (id: number) => setExpandidas(prev => {
+    const s = new Set(prev);
+    s.has(id) ? s.delete(id) : s.add(id);
+    return s;
+  });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const fetchNotifications = useCallback(async () => {
@@ -453,7 +462,23 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
               <Text style={styles.title} numberOfLines={1}>{notifTitle}</Text>
               <Text style={styles.timeAgo}>{getTimeAgo(item.created_at)}</Text>
             </View>
-            <Text style={styles.message} numberOfLines={2}>{notifMessage}</Text>
+            <Text
+              style={styles.message}
+              numberOfLines={expandidas.has(item.id) ? undefined : 2}
+            >
+              {notifMessage}
+            </Text>
+            {/* El "Ver más" se decide por largo y no midiendo el render: es
+                predecible y no depende de la fuente ni del ancho del teléfono. */}
+            {String(notifMessage || '').length > 90 && (
+              <Text
+                style={styles.verMas}
+                onPress={() => toggleExpandida(item.id)}
+                suppressHighlighting
+              >
+                {expandidas.has(item.id) ? 'Ver menos' : 'Ver más'}
+              </Text>
+            )}
           </View>
 
           {!item.is_read && !selectionMode && (
@@ -629,6 +654,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     lineHeight: 18,
+  },
+  verMas: {
+    color: BRAND_ORANGE,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
   unreadDot: {
     width: 10,

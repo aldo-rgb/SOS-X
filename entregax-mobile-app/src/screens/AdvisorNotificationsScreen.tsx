@@ -73,6 +73,14 @@ const TYPE_COLORS: Record<string, string> = {
 export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Igual que en la pantalla del cliente: el cuerpo se cortaba a dos líneas y
+  // no había cómo leer el resto (tarea 439).
+  const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
+  const toggleExpandida = (id: number) => setExpandidas(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
@@ -320,7 +328,21 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
             </Text>
             <Text style={styles.notifTime}>{formatTime(item.created_at)}</Text>
           </View>
-          <Text style={styles.notifMessage} numberOfLines={2}>{humanizeMessage(item.message)}</Text>
+          <Text
+            style={styles.notifMessage}
+            numberOfLines={expandidas.has(item.id) ? undefined : 2}
+          >
+            {humanizeMessage(item.message)}
+          </Text>
+          {String(humanizeMessage(item.message) || '').length > 90 && (
+            <Text
+              style={styles.notifVerMas}
+              onPress={() => toggleExpandida(item.id)}
+              suppressHighlighting
+            >
+              {expandidas.has(item.id) ? 'Ver menos' : 'Ver más'}
+            </Text>
+          )}
           {item.source !== 'own' && (
             <View style={[styles.sourceBadge, { backgroundColor: color + '15' }]}>
               <Text style={[styles.sourceBadgeText, { color }]}>
@@ -597,6 +619,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     lineHeight: 18,
+  },
+  notifVerMas: {
+    color: '#F05A28',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
   sourceBadge: {
     alignSelf: 'flex-start',

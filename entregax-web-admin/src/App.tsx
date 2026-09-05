@@ -1513,8 +1513,22 @@ function App() {
                   <Typography variant="body2" fontWeight="600" noWrap>
                     {emoji} {notif.title}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    {notif.message?.substring(0, 60)}{notif.message?.length > 60 ? '...' : ''}
+                  {/* Antes se cortaba a 60 caracteres con substring, que parte
+                      la frase a media palabra y deja fuera el dato que importa
+                      (tarea 439). Ahora se recorta por RENGLONES: se ven dos
+                      completos y el texto íntegro queda en "Ver todas". */}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      mt: 0.25,
+                    }}
+                  >
+                    {notif.message}
                   </Typography>
                   <Typography variant="caption" display="block" color="primary" sx={{ mt: 0.5 }}>
                     {tiempoRelativo}
