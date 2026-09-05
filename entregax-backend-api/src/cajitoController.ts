@@ -31,7 +31,10 @@ interface AuthRequest extends Request {
 }
 
 const MAX_TOKENS = parseInt(process.env.CAJITO_MAX_TOKENS || '2048', 10);
-const MAX_TOOL_ITERATIONS = 5;
+// 8 y no 5: revisar varios tickets encadena una consulta por cada uno y con 5
+// se quedaba a medias. Más arriba no ayuda —el limite real es que no abra un
+// hilo por ticket, ver la regla de FORMATO/eficiencia en el prompt.
+const MAX_TOOL_ITERATIONS = 8;
 
 // --- Tabla auto-create ------------------------------------------------------
 let _tablesReady = false;
@@ -850,6 +853,7 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     // La burbuja del chat pinta TEXTO PLANO (whiteSpace: pre-wrap), no interpreta
     // markdown: los ** y los backticks salen literales y la respuesta se lee
     // llena de signos. Se pide texto plano en vez de agregarle un renderizador.
+    'EFICIENCIA: no abras un hilo por cada ticket. Si te piden revisar varios, usa primero search_support_tickets, que ya trae estado, categoría y asunto de todos, y abre get_ticket_thread SOLO para los dos o tres que de verdad necesites leer a fondo. Encadenar una consulta por ticket agota tus intentos y te quedas sin poder responder.',
     'FORMATO: escribe en TEXTO PLANO. NADA de markdown: no uses ** para negritas, ni ` para código, ni # para títulos, ni tablas con |. Para enumerar usa un guion y un espacio al inicio del renglón, y separa bloques con un salto de línea. Si quieres resaltar una etiqueta, escríbela seguida de dos puntos (por ejemplo "Estado: escalado a humano"). La pantalla no interpreta esos signos y salen tal cual, llenando la respuesta de basura.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
     // Un folio suelto, sin pregunta alrededor, es la forma más natural de
@@ -1102,7 +1106,35 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       break;
     }
 
-    if (!finalReply) finalReply = '(Cajito no generó respuesta)';
+    // 🔚 Cierre forzado. Si en la última vuelta el modelo TODAVÍA pedía
+    // herramientas, el ciclo salía sin texto y el usuario veía "(Cajito no
+    // generó respuesta)": se tiraba todo lo ya consultado. Pasa al revisar
+    // tickets, donde encadena un get_ticket_thread por cada uno y se le acaban
+    // las vueltas. Ahora se le pide UNA respuesta final SIN herramientas, para
+    // que conteste con lo que alcanzó a reunir.
+    if (!finalReply && usoHerramientas) {
+      try {
+        const cierre = await provider.complete({
+          system: systemPrompt +
+            '\n\nYA NO PUEDES USAR HERRAMIENTAS. Responde AHORA con la información que ya reuniste. ' +
+            'Si te faltó revisar algo, dilo en una línea al final ("no alcancé a revisar X") en vez de callarlo. ' +
+            'No pidas más datos ni prometas seguir buscando.',
+          messages,
+          maxTokens: MAX_TOKENS,
+        });
+        totalIn += cierre.usage.inputTokens;
+        totalOut += cierre.usage.outputTokens;
+        finalReply = cierre.text || '';
+      } catch (e: any) {
+        console.warn('[cajito] cierre forzado:', e?.message);
+      }
+    }
+
+    if (!finalReply) {
+      finalReply = usoHerramientas
+        ? 'Reuní la información pero no alcancé a resumirla. Vuelve a preguntarme acotando un poco —por ejemplo, un solo folio o un rango de fechas— y te respondo.'
+        : 'No pude responder eso. Intenta preguntarlo de otra forma o con más detalle.';
+    }
 
     // ── Bitácora de aprendizaje ──
     // La señal más fiable es que search_knowledge no encontró nada: alguien
