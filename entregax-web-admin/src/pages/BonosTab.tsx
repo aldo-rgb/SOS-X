@@ -25,6 +25,9 @@ const ROLE_LABELS: Record<string, string> = {
   operaciones: 'Operaciones', counter_staff: 'Mostrador', warehouse_ops: 'Operaciones bodega',
   repartidor: 'Repartidor', accountant: 'Contador', monitoreo: 'Monitoreo',
   soporte_tecnico: 'Soporte técnico',
+  // "external_partner" es como se guarda en la base, no como se le dice a la
+  // gente: son las cuentas que llegan sincronizadas desde Grupo Rino.
+  external_partner: 'Grupo Rino',
 };
 const roleLabel = (r: string) => ROLE_LABELS[r] || r;
 const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();

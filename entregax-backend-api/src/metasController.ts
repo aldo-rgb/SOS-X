@@ -185,6 +185,14 @@ export const getBonosStaff = async (_req: AuthRequest, res: Response): Promise<a
          FROM users u
          LEFT JOIN branches b ON b.id = u.branch_id
         WHERE u.role NOT IN ('client','advisor','sub_advisor','asesor','sub_asesor','asesor_lider','abogado')
+          -- Fuera las cuentas sincronizadas desde Grupo Rino: no son personal de
+          -- EntregaX y no les corresponde bono. Ademas venian duplicando a gente
+          -- que YA sale en la lista con su cuenta propia —Christian Gonzalez como
+          -- asesor, Aldo Campos como super admin— asi que aparecian dos veces.
+          -- Se filtra por rol Y por source_app para que no dependa de cual de los
+          -- dos venga marcado.
+          AND u.role <> 'external_partner'
+          AND COALESCE(u.source_app, '') <> 'grupo_rino'
           AND COALESCE(u.is_active, TRUE) = TRUE
           AND COALESCE(u.is_blocked, FALSE) = FALSE
         ORDER BY b.name NULLS LAST, u.full_name`)).rows;
