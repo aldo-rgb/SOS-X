@@ -427,7 +427,9 @@ export default function SupportBoardPage() {
     const urls = Array.isArray(msg.attachments) ? msg.attachments : [];
     setCitando({
       id: msg.id,
-      autor: msg.sender_type === 'client' ? 'Cliente' : (msg.sender_type === 'ai' ? 'Cajito' : (msg.sender_name || 'Soporte')),
+      autor: msg.sender_type === 'client'
+        ? (selectedTicket?.creator_type === 'employee' ? 'Asesor' : 'Cliente')
+        : (msg.sender_type === 'ai' ? 'Cajito' : (msg.sender_name || 'Soporte')),
       texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
       url: urls[0] || msg.attachment_url || null,
     });
@@ -1539,7 +1541,14 @@ export default function SupportBoardPage() {
                         {msg.sender_type === 'client' && <PersonIcon fontSize="small" color="action" />}
                         {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: msg.is_internal ? '#F9A825' : '#4caf50' }} />}
                         <Typography variant="caption" color="text.secondary">
-                          {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
+                          {/* Un ticket levantado por un empleado lo escribe el ASESOR,
+                              aunque el mensaje venga marcado como 'client'. Decirle
+                              "Cliente" hacía creer que escribía el dueño del casillero
+                              y confundía a quien lo revisaba —y a Cajito, que lo
+                              reportó como una inconsistencia que no existía. */}
+                          {msg.sender_type === 'client'
+                            ? (selectedTicket?.creator_type === 'employee' ? 'Asesor' : 'Cliente')
+                            : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
                           {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           {msg.edited_at && !msg.deleted_at && ' · editado'}
                         </Typography>

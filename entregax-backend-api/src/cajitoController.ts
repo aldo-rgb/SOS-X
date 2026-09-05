@@ -1034,7 +1034,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
     if (!hasCap(caps, 'cajito.access')) { res.status(403).json({ error: 'Sin acceso a Cajito' }); return; }
 
     const t = await pool.query(
-      `SELECT t.id, t.ticket_folio, t.status, t.category, t.subject,
+      `SELECT t.id, t.ticket_folio, t.status, t.category, t.subject, t.creator_type,
               u.box_id, u.full_name AS cliente
          FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id
         WHERE t.id = $1`, [ticketId]);
@@ -1079,9 +1079,17 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       'Sé BREVE: la pantalla ya le da formato. Nada de introducciones ni de repetir lo que ya dijiste.',
     ].join('\n');
 
+    // Quién escribe importa: un ticket levantado por un EMPLEADO lo escribe el
+    // asesor a nombre de su cliente, aunque los mensajes vengan marcados como
+    // 'client'. Sin decírselo, Cajito reportaba como inconsistencia que el
+    // nombre del casillero no fuera el de quien escribe — y no lo es.
+    const loLevantoEmpleado = String(tk.creator_type || '') === 'employee';
     const contexto = [
       `Ticket ${tk.ticket_folio} · estado ${tk.status} · categoría ${tk.category}`,
-      `Cliente: ${tk.cliente || '—'} (${tk.box_id || 'sin casillero'})`,
+      loLevantoEmpleado
+        ? `QUIÉN LO LEVANTÓ: un ASESOR de EntregaX, a nombre de su cliente. Los mensajes marcados como "client" en el hilo los escribió el ASESOR, no el dueño del casillero. Que el nombre de quien escribe no coincida con el titular del casillero es NORMAL: NO lo reportes como hallazgo ni como algo que aclarar.`
+        : `QUIÉN LO LEVANTÓ: el propio cliente.`,
+      `Casillero del que se habla: ${tk.box_id || 'sin casillero'} · titular: ${tk.cliente || '—'}`,
       '',
       'Hilo:',
       hilo || '(sin mensajes)',
