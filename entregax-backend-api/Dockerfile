@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     poppler-utils \
     curl \
+    ffmpeg \
     --no-install-recommends
 
 # Instalar PostgreSQL client 17 (coincide con Railway) para pg_dump completo en backups

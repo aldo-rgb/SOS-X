@@ -334,3 +334,26 @@ export const listS3Keys = async (prefix: string): Promise<string[]> => {
   }
   return keys;
 };
+
+/**
+ * URL firmada para SUBIR directo a S3 (PUT), sin pasar por la API.
+ *
+ * Un video del CEDIS grabado con el celular pesa 60–90MB. Mandarlo por la API
+ * significa que Railway lo carga entero en memoria (multer usa memoryStorage) y
+ * que el archivo viaja dos veces: celular → API → S3. Con la URL firmada el
+ * navegador o la app suben directo al bucket y la API sólo registra la fila.
+ *
+ * El contentType se firma: quien reciba la URL no puede subir otra cosa.
+ */
+export const getSignedUploadUrl = async (
+  key: string,
+  contentType: string,
+  expiresIn: number = 900
+): Promise<string> => {
+  const cmd = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    ContentType: contentType,
+  });
+  return await getSignedUrl(s3Client, cmd, { expiresIn });
+};

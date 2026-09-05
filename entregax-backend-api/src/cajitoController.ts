@@ -975,7 +975,26 @@ const TOOLS: ToolDef[] = [
           LIMIT 200`,
         [t.id]
       );
-      return { found: true, ticket: t, mensajes: msgs.rows };
+      // Videos del ticket. Cajito no puede VER un video, pero al subirlo se le
+      // sacan cuadros; los cuadros sí se leen. Si el video ya se depuró (30
+      // días) los cuadros siguen ahí, y eso hay que decirlo para que no
+      // concluya "no hay evidencia" cuando sí la hay.
+      const vids = await pool.query(
+        `SELECT file_name, duration_seconds, frames, frames_status, created_at, purged_at
+           FROM video_adjuntos WHERE scope = 'ticket' AND ref_id = $1 ORDER BY created_at ASC`,
+        [t.id]
+      ).catch(() => ({ rows: [] as any[] }));
+      const videos = vids.rows.map((v: any) => ({
+        archivo: v.file_name,
+        duracion_seg: v.duration_seconds ? Number(v.duration_seconds) : null,
+        cuadros: Array.isArray(v.frames) ? v.frames.length : 0,
+        momentos_seg: (Array.isArray(v.frames) ? v.frames : []).map((f: any) => Number(f.segundo) || 0),
+        estado_cuadros: v.frames_status,
+        video_depurado: !!v.purged_at,
+        subido: v.created_at,
+      }));
+
+      return { found: true, ticket: t, mensajes: msgs.rows, ...(videos.length ? { videos } : {}) };
     }
   },
 
@@ -1262,6 +1281,31 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
     // 'employee' y 'advisor': los dos son personal nuestro escribiendo a nombre
     // del cliente. Solo 'client' es el cliente de verdad.
     const loLevantoEmpleado = ['employee', 'advisor'].includes(String(tk.creator_type || ''));
+    // Videos del ticket. Sin esto Cajito diría "no hay evidencia" con el video
+    // ahí colgado: no puede ver un MP4, pero sí puede leer los cuadros que se
+    // le sacaron al subirlo, y necesita saber que existen para pedirlos.
+    const vids = await pool.query(
+      `SELECT file_name, duration_seconds, frames, frames_status, purged_at
+         FROM video_adjuntos WHERE scope = 'ticket' AND ref_id = $1 ORDER BY created_at ASC`,
+      [ticketId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const lineaVideos = vids.rows.length
+      ? [
+          '',
+          `VIDEOS ADJUNTOS (${vids.rows.length}). No puedes VER el video, pero se le sacaron cuadros al subirlo y esos cuadros son evidencia: menciónalos y dile a la persona que los revise. NO digas que no hay evidencia.`,
+          ...vids.rows.map((v: any) => {
+            const n = Array.isArray(v.frames) ? v.frames.length : 0;
+            const dur = v.duration_seconds ? `${Math.round(Number(v.duration_seconds))}s` : 'duración desconocida';
+            const estado = v.purged_at
+              ? 'el video ya se depuró (pasaron 30 días) pero los cuadros se conservan'
+              : v.frames_status === 'listo' ? 'video disponible'
+              : v.frames_status === 'pendiente' ? 'los cuadros todavía se están sacando'
+              : 'no se le pudieron sacar cuadros';
+            return `  - ${v.file_name} (${dur}, ${n} cuadros) — ${estado}`;
+          }),
+        ].join('\n')
+      : '';
+
     const contexto = [
       `Ticket ${tk.ticket_folio} · estado ${tk.status} · categoría ${tk.category}`,
       loLevantoEmpleado
@@ -1271,6 +1315,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '',
       'Hilo:',
       hilo || '(sin mensajes)',
+      lineaVideos,
     ].join('\n');
 
     const tools = toolsForUser(caps);

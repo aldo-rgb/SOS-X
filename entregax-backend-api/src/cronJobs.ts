@@ -1831,6 +1831,31 @@ export const startPaypalAutoInvoiceScheduleCron = () => {
  * 3 días hábiles, y escalamiento (aviso al equipo + tarea urgente con
  * administración dentro) de los que pasan de 4. Ver ticketAtrasos.ts.
  */
+/**
+ * CRON: depuración de videos a los 30 días.
+ *
+ * Los videos del CEDIS pesan 60-90MB cada uno; guardarlos para siempre es
+ * pagar almacenamiento por evidencia que ya nadie mira. Se borra el MP4 de S3
+ * y se CONSERVAN los cuadros que se le sacaron al subirlo (~200KB): la
+ * evidencia sigue siendo legible, el peso se va.
+ *
+ * A las 3am MX, después del backup, para no encimar dos trabajos pesados.
+ */
+export const startPurgaVideosCron = () => {
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      const { purgarVideosVencidos } = await import('./videoAdjuntosController');
+      const r = await purgarVideosVencidos();
+      if (r.borrados > 0) {
+        console.log(`[CRON] Videos depurados: ${r.borrados} (${r.liberadoMb} MB liberados). Los cuadros se conservan.`);
+      }
+    } catch (e: any) {
+      console.error('[CRON] Error depurando videos:', e?.message);
+    }
+  }, { timezone: 'America/Monterrey' });
+  console.log('📅 [CRON] Depuración de videos programada: 03:00 MX (retención 30 días)');
+};
+
 export const startTicketAtrasosCron = () => {
   const correr = async () => {
     try {
@@ -2191,6 +2216,7 @@ export const initCronJobs = () => {
   startPagoParcialReminderCron();
   startCalendarReminderCron();
   startTicketAtrasosCron();
+  startPurgaVideosCron();
 };
 
 export default initCronJobs;

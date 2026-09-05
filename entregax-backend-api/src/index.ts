@@ -373,6 +373,13 @@ import {
   getSupplierPaymentStats
 } from './supplierPaymentController';
 import {
+  crearUrlDeSubida as videoCrearUrl,
+  registrarVideo as videoRegistrar,
+  infoDeVideo as videoInfo,
+  listarVideos as videoListar,
+  purgarVideosVencidos,
+} from './videoAdjuntosController';
+import {
   createPaymentRequest as _createEntangledRequestV1Unused,
   getMyPaymentRequests as getMyEntangledRequests,
   getPaymentRequestDetail as getEntangledRequestDetail,
@@ -17130,6 +17137,21 @@ app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations
 app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
 app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
+
+// 🎥 Videos en tickets y tareas. El CEDIS graba con el celular; el archivo sube
+// DIRECTO a S3 con URL firmada porque 60-90MB no caben por la API. Al
+// registrarlo se le sacan cuadros con ffmpeg: un video no se puede leer, los
+// cuadros sí, y son lo que sobrevive a la depuración de los 30 días.
+app.post('/api/uploads/video-url', authenticateToken, videoCrearUrl);
+app.post('/api/uploads/video-registrar', authenticateToken, videoRegistrar);
+app.get('/api/uploads/video-info', authenticateToken, videoInfo);
+app.get('/api/uploads/videos', authenticateToken, videoListar);
+// Depuración a mano. La automática corre a las 3am MX; esta existe para
+// forzarla y para comprobar que borra lo que debe sin esperar un día.
+app.post('/api/admin/videos/purgar', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  try { res.json({ success: true, ...(await purgarVideosVencidos()) }); }
+  catch (e: any) { res.status(500).json({ error: e?.message || 'Error al depurar' }); }
+});
 app.get('/api/cajito/client-lookup', authenticateToken, cajitoClientLookup);
 app.get('/api/cajito/ticket-lookup', authenticateToken, cajitoTicketLookup);
 app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
