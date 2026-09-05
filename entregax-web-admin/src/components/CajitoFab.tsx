@@ -1279,6 +1279,40 @@ export default function CajitoFab() {
     return Number.isFinite(n) && n > 0 ? n : null;
   });
 
+  // 🧠 Memoria entre recargas. El conversationId ya se guardaba y el backend ya
+  // conservaba el historial —el modelo nunca perdió el contexto—, pero la
+  // pantalla arrancaba en blanco: uno recargaba y parecía que Cajito había
+  // olvidado todo. Al abrir se trae la conversación y se pinta.
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const historialCargado = useRef(false);
+
+  const cargarHistorial = useCallback(async () => {
+    if (!conversationId || historialCargado.current) return;
+    historialCargado.current = true;
+    setCargandoHistorial(true);
+    try {
+      const r = await api.get(`/cajito/conversations/${conversationId}`);
+      const filas: any[] = r.data?.messages || [];
+      const previos: ChatMsg[] = filas
+        // Las filas de herramienta son ruido al releer: interesa la conversación.
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m, i) => ({
+          id: Number(m.id) || i,
+          role: (m.role === 'user' ? 'user' : 'cajito') as ChatMsg['role'],
+          text: String(m.content || ''),
+          ts: new Date(m.created_at).getTime() || Date.now(),
+        }))
+        .filter((m) => m.text.trim().length > 0);
+      if (previos.length > 0) setMessages(previos);
+    } catch {
+      // Si la conversación ya no existe (borrada o de otro usuario), se empieza
+      // limpio en vez de dejar el chat roto.
+      localStorage.removeItem(CONV_KEY);
+    historialCargado.current = false;
+      setConversationId(null);
+    } finally { setCargandoHistorial(false); }
+  }, [conversationId]);
+
   // Track state
   const [trackInput, setTrackInput] = useState('');
   const [trackLoading, setTrackLoading] = useState(false);
@@ -1314,8 +1348,18 @@ export default function CajitoFab() {
   // Roles que solo ven "Rastrear guía" (sin Chat IA) y sin costo proveedor.
   const isTrackOnly = isAdvisor || isCustomerService || isSoporteTecnico || isAccountant;
 
+  // Al abrir el chat: si hay una conversación previa, se recupera y NO se pinta
+  // el saludo — si no, cada recarga volvía a saludar como si fuera la primera
+  // vez y se perdía de vista lo que se venía hablando.
   useEffect(() => {
-    if (open && mode === 'chat' && messages.length === 0) {
+    if (open && mode === 'chat' && conversationId && !historialCargado.current) {
+      cargarHistorial();
+    }
+  }, [open, mode, conversationId, cargarHistorial]);
+
+  useEffect(() => {
+    if (open && mode === 'chat' && messages.length === 0
+        && !conversationId && !cargandoHistorial) {
       const userName = user?.full_name?.split(' ')?.[0] || 'aquí';
       // El aviso de entrenamiento va SIEMPRE y de entrada, no al final ni solo
       // cuando falla: sirve para que la persona pregunte sin miedo a "gastar"
