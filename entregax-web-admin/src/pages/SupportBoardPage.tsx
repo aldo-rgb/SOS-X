@@ -2034,10 +2034,10 @@ export default function SupportBoardPage() {
             </Alert>
           )}
 
+          {/* Un dato mal capturado TAMBIÉN lo corregimos nosotros, así que se
+              escala igual que un error de código. Solo "CORRECTO" no genera
+              trabajo nuestro. */}
           {!invLoading && inv && inv.pudo && (
-            {/* Un dato mal capturado TAMBIÉN lo corregimos nosotros, así que se
-                escala igual que un error de código. Solo "CORRECTO" no genera
-                trabajo nuestro. */}
             <Alert severity={inv.conclusion === 'CORRECTO' ? 'success' : 'error'} sx={{ mb: 2 }}
               icon={inv.conclusion === 'CORRECTO' ? undefined : <WarningIcon />}>
               <strong>
