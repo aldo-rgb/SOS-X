@@ -21,6 +21,7 @@ const fmtDate = (iso?: string) => { try { return iso ? new Date(iso).toLocaleDat
 
 interface Descuento {
   id: number; guia_tracking: string; servicio: string; monto: number; moneda: string;
+  monto_mxn?: number;
   concepto: string; fecha_registro: string;
   cliente_nombre?: string; box_id?: string; autorizado_nombre?: string;
 }
@@ -30,6 +31,8 @@ export default function DescuentosPanel() {
   const [descuentos, setDescuentos] = useState<Descuento[]>([]);
   const [porAutorizador, setPorAutorizador] = useState<PorAutorizador[]>([]);
   const [total, setTotal] = useState(0);
+  const [tcUsd, setTcUsd] = useState(0);
+  const [porMoneda, setPorMoneda] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [cliente, setCliente] = useState('');
   const [desde, setDesde] = useState('');
@@ -46,6 +49,8 @@ export default function DescuentosPanel() {
       setDescuentos(r.data?.descuentos || []);
       setPorAutorizador(r.data?.por_autorizador || []);
       setTotal(Number(r.data?.total) || 0);
+      setTcUsd(Number(r.data?.tipo_cambio_usd) || 0);
+      setPorMoneda(r.data?.por_moneda || {});
     } catch { /* la tabla queda vacía */ } finally { setLoading(false); }
   }, [cliente, desde, hasta]);
 
@@ -67,11 +72,20 @@ export default function DescuentosPanel() {
           lista más, y lo que hace falta saber es cuánto se deja de cobrar. */}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <Paper sx={{ p: 2, flex: 1, borderLeft: '4px solid #EF4444' }}>
-          <Typography variant="caption" color="text.secondary">Total descontado</Typography>
+          <Typography variant="caption" color="text.secondary">Total descontado (MXN)</Typography>
           <Typography variant="h4" fontWeight={800} color="#EF4444">{money(total)}</Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             {descuentos.length} descuento{descuentos.length === 1 ? '' : 's'} en la vista
           </Typography>
+          {/* De dónde sale el total. Los descuentos vienen en dos monedas y
+              sumarlos tal cual daba una cifra sin sentido: se muestra el
+              desglose y el tipo de cambio para poder verificarlo a mano. */}
+          {Number(porMoneda.USD) > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              {money(porMoneda.MXN || 0)} en pesos + {money(porMoneda.USD)} USD
+              {tcUsd > 0 ? ` (TC $${tcUsd.toFixed(2)})` : ''}
+            </Typography>
+          )}
         </Paper>
         <Paper sx={{ p: 2, flex: 2 }}>
           <Typography variant="caption" color="text.secondary">Quién los autoriza (histórico completo)</Typography>
@@ -139,7 +153,14 @@ export default function DescuentosPanel() {
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 13 }}>{d.guia_tracking || '—'}</TableCell>
                     <TableCell><Chip size="small" variant="outlined" label={svcLabel(d.servicio)} /></TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700, color: '#EF4444', whiteSpace: 'nowrap' }}>
-                      −{money(d.monto)}
+                      −{money(d.monto)} {String(d.moneda || 'MXN').toUpperCase()}
+                      {/* Sin la moneda, un descuento de 20 USD se leía como 20
+                          pesos. Se muestra el equivalente para comparar. */}
+                      {String(d.moneda || '').toUpperCase() === 'USD' && d.monto_mxn != null && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 500 }}>
+                          ≈ {money(d.monto_mxn)} MXN
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell sx={{ maxWidth: 280 }}>
                       <Typography variant="body2" color="text.secondary">{d.concepto || '—'}</Typography>

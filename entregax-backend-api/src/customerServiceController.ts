@@ -642,24 +642,42 @@ export const listDescuentos = async (req: Request, res: Response): Promise<any> 
        LIMIT 500
     `, params);
 
-    // El total y el desglose por quién autorizó son el punto de la pantalla:
-    // sin eso es una lista más, y lo que hace falta saber es cuánto se está
-    // dejando de cobrar y quién lo autoriza.
+    // 💱 Los descuentos NO están todos en la misma moneda: hoy 100 de 108 son en
+    // USD. Sumar el monto tal cual daba $5,295 cuando lo real ronda los $25,000
+    // MXN: se estaba subestimando a menos de la cuarta parte lo que se deja de
+    // cobrar. Todo se convierte a PESOS con el tipo de cambio vigente, que es la
+    // única forma de que un total signifique algo, y cada renglón conserva su
+    // moneda original para que se pueda verificar.
+    const tcUsd = await getUsdToMxnRate();
+    const aMxn = (monto: any, moneda: any) =>
+      (Number(monto) || 0) * (String(moneda || 'MXN').toUpperCase() === 'USD' ? tcUsd : 1);
+
     const resumen = await pool.query(`
       SELECT COALESCE(au.full_name, 'Sin registrar') AS autorizado_nombre,
-             COUNT(*)::int AS n, SUM(a.monto)::numeric(12,2) AS monto
+             COUNT(*)::int AS n,
+             SUM(a.monto * CASE WHEN UPPER(COALESCE(a.moneda,'MXN')) = 'USD' THEN $1::numeric ELSE 1 END)::numeric(12,2) AS monto
         FROM guias_ajustes_financieros a
         LEFT JOIN users au ON au.id = a.autorizado_por
        WHERE a.tipo = 'descuento' AND a.activo = TRUE
        GROUP BY 1 ORDER BY monto DESC
-    `);
+    `, [tcUsd]);
 
-    const total = r.rows.reduce((acc: number, x: any) => acc + (Number(x.monto) || 0), 0);
+    // Total ya convertido, y el desglose por moneda para que cuadre a mano.
+    const total = r.rows.reduce((acc: number, x: any) => acc + aMxn(x.monto, x.moneda), 0);
+    const porMoneda = r.rows.reduce((acc: any, x: any) => {
+      const m = String(x.moneda || 'MXN').toUpperCase();
+      acc[m] = (acc[m] || 0) + (Number(x.monto) || 0);
+      return acc;
+    }, {} as Record<string, number>);
     res.json({
-      descuentos: r.rows,
+      // Cada renglón lleva su equivalente en pesos, para que la pantalla no
+      // tenga que repetir la conversión ni conocer el tipo de cambio.
+      descuentos: r.rows.map((x: any) => ({ ...x, monto_mxn: +aMxn(x.monto, x.moneda).toFixed(2) })),
       total: +total.toFixed(2),
       count: r.rows.length,
       por_autorizador: resumen.rows,
+      tipo_cambio_usd: tcUsd,
+      por_moneda: porMoneda,
     });
   } catch (e: any) {
     console.error('[cs] listDescuentos:', e);
