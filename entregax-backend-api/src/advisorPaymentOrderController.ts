@@ -963,7 +963,13 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     // línea del envío nacional y el asesor la leía como un cobro faltante
     // (TKT-2026-2266: guía con Estafeta por cobrar y $0 de flete).
     const cost_breakdown = {
+      // `extra` es el NETO (cargos menos descuentos) y se conserva tal cual
+      // porque ya lo consumen la app y el portal del cliente. Los dos campos
+      // nuevos lo abren en sus partes: un descuento imprimiéndose bajo la
+      // etiqueta "Cargos Extra" y en negativo era justo lo que hacía pensar a
+      // los asesores que el costo estaba mal (tarea 282).
       pobox: 0, paqueteria: 0, gex: 0, extra: 0,
+      cargos_extra: 0, descuento: 0,
       paqueteria_collect: false, paqueteria_carrier: '' as string,
       // DHL se desglosa aparte: su cobro es importación + impuesto de aduana +
       // última milla, no servicio PO Box.
@@ -1001,7 +1007,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             [trks]
           );
           for (const c of ch.rows) {
-            cost_breakdown.extra += (c.tipo === 'descuento' ? -1 : 1) * (Number(c.monto) || 0);
+            const monto = Number(c.monto) || 0;
+            if (c.tipo === 'descuento') {
+              cost_breakdown.descuento -= monto;   // negativo: resta del total
+              cost_breakdown.extra -= monto;
+            } else {
+              cost_breakdown.cargos_extra += monto;
+              cost_breakdown.extra += monto;
+            }
           }
         }
       }

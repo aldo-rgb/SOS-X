@@ -54,6 +54,8 @@ interface PaymentPDFData {
     paqueteria?: number;
     gex?: number;
     extra?: number;
+    cargos_extra?: number;
+    descuento?: number;
     paqueteria_collect?: boolean;
     paqueteria_carrier?: string;
   };
@@ -135,7 +137,13 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   const breakdownRows =
     breakdownRow('🚚 Paquetería (Envío Nacional)', Number(bd.paqueteria) || 0) +
     breakdownRow('🛡️ GEX — Garantía Extendida', Number(bd.gex) || 0, '#2E7D32') +
-    breakdownRow('➕ Cargos Extra', Number(bd.extra) || 0, '#C2410C');
+    // Separados, no netos: un descuento bajo la etiqueta "Cargos Extra" y en
+    // negativo se leía como un cobro (tarea 282). Cae al neto si el backend
+    // todavía no manda los campos abiertos.
+    (bd.cargos_extra != null || bd.descuento != null
+      ? breakdownRow('➕ Cargos Extra', Number(bd.cargos_extra) || 0, '#C2410C')
+        + breakdownRow('🏷️ Descuento aplicado', Number(bd.descuento) || 0, '#2E7D32')
+      : breakdownRow('➕ Cargos Extra', Number(bd.extra) || 0, '#C2410C'));
 
   const html = `
 <!DOCTYPE html>
