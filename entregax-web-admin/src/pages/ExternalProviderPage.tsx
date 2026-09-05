@@ -195,7 +195,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack, use
             <Box
               sx={{
                 width: '100%',
-                maxWidth: 420,
+                maxWidth: 560,
                 border: `1px solid ${ORANGE}4A`,
                 borderRadius: 4,
                 p: { xs: 3, md: 4 },
@@ -233,11 +233,78 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack, use
                   />
                 </Box>
               </Box>
-              <Typography sx={{ color: '#ffffff', fontWeight: 800, mb: 1.5, fontSize: { xs: 20, md: 22 } }}>
-                {t('auth.loginRequired', '')}
+              <Typography sx={{ color: '#ffffff', fontWeight: 800, mb: 1, fontSize: { xs: 22, md: 26 }, lineHeight: 1.25 }}>
+                {t('xpay.landingTitle', 'Envíos de dinero seguros a China y Estados Unidos')}
               </Typography>
-              <Typography sx={{ color: '#b8bec9', fontSize: 15, mb: 3, lineHeight: 1.55 }}>
-                {t('auth.loginToContinue', 'Ingresa con tu cuenta para ver y gestionar tus pagos.')}
+              <Typography sx={{ color: '#b8bec9', fontSize: 15, mb: 2.5, lineHeight: 1.6 }}>
+                {t('xpay.landingIntro', 'X-Pay es el servicio de pagos internacionales de EntregaX. Paga a tus proveedores en el extranjero desde México, con tipo de cambio claro desde el inicio y seguimiento de la operación de principio a fin.')}
+              </Typography>
+
+              {/* Cómo funciona: los mismos cuatro pasos que ve el cliente ya dentro
+                  del servicio, para que quien llega al dominio sin cuenta entienda
+                  el proceso antes de descargar nada. */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' },
+                  gap: 1.5,
+                  mb: 3,
+                  textAlign: 'center',
+                }}
+              >
+                {[
+                  { n: '1', k: 'xpay.step1', d: 'Registro' },
+                  { n: '2', k: 'xpay.step2', d: 'Verificación' },
+                  { n: '3', k: 'xpay.step3', d: 'Transferencia' },
+                  { n: '4', k: 'xpay.step4', d: 'Recepción' },
+                ].map((p) => (
+                  <Box key={p.n} sx={{ py: 1.25, borderRadius: 2, border: '1px solid rgba(255,255,255,0.09)', bgcolor: 'rgba(255,255,255,0.03)' }}>
+                    <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: 15, lineHeight: 1 }}>{p.n}</Typography>
+                    <Typography sx={{ color: '#e5e7eb', fontSize: 12.5, fontWeight: 600, mt: 0.5 }}>{t(p.k, p.d)}</Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              <Typography sx={{ color: '#ffffff', fontSize: 14.5, fontWeight: 700, mb: 0.5 }}>
+                {t('xpay.landingAppTitle', 'Para usar el servicio necesitas la app de EntregaX')}
+              </Typography>
+              <Typography sx={{ color: '#9aa1ad', fontSize: 13.5, mb: 2, lineHeight: 1.55 }}>
+                {t('xpay.landingAppHint', 'Desde ahí creas tu cuenta, te verificas y realizas tus envíos. Este sitio es sólo para consultar y gestionar operaciones ya iniciadas.')}
+              </Typography>
+
+              {/* Mismas tiendas que EntregaX: X-Pay vive dentro de esa app, no
+                  tiene una propia. */}
+              <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center', flexWrap: 'wrap', mb: 3 }}>
+                <Box
+                  component="a"
+                  href="https://apps.apple.com/mx/app/entregax/id6762685124"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{
+                    display: 'inline-flex', alignItems: 'center', gap: 1, px: 2.25, py: 1.1,
+                    borderRadius: 999, bgcolor: '#ffffff', color: '#0b0b0b', textDecoration: 'none',
+                    fontWeight: 800, fontSize: 13.5, '&:hover': { bgcolor: '#f1f1f1' },
+                  }}
+                >
+                  App Store
+                </Box>
+                <Box
+                  component="a"
+                  href="https://play.google.com/store/apps/details?id=com.entregax.mobile"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{
+                    display: 'inline-flex', alignItems: 'center', gap: 1, px: 2.25, py: 1.1,
+                    borderRadius: 999, bgcolor: '#ffffff', color: '#0b0b0b', textDecoration: 'none',
+                    fontWeight: 800, fontSize: 13.5, '&:hover': { bgcolor: '#f1f1f1' },
+                  }}
+                >
+                  Google Play
+                </Box>
+              </Box>
+
+              <Typography sx={{ color: '#7c828d', fontSize: 12.5, mb: 2 }}>
+                {t('xpay.landingHasAccount', '¿Ya tienes cuenta? Entra desde la app para ver tus pagos aquí.')}
               </Typography>
               <Box
                 sx={{
