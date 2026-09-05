@@ -856,6 +856,21 @@ export default function SupportBoardPage() {
     return () => clearInterval(t);
   }, [invLoading]);
 
+  // Investigar exige la capacidad cajito.access, que se concede persona por
+  // persona (Permisos > Cajito), no por rol. Antes el boton se dibujaba para
+  // todos: quien no la tenia lo oprimia, esperaba, y recibia "Sin acceso a
+  // Cajito" dentro del dialogo — parecia que Cajito habia fallado. Mejor no
+  // ofrecer lo que no se puede hacer.
+  const [puedeInvestigar, setPuedeInvestigar] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`${API_URL}/cajito/my-access`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (vivo) setPuedeInvestigar(d?.access === true); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [token]);
+
   const handleInvestigar = async () => {
     if (!selectedTicket) return;
     setInvOpen(true); setInv(null); setInvLoading(true);
@@ -1853,16 +1868,18 @@ export default function SupportBoardPage() {
                     </Button>
                   ) : (
                     <>
-                    <Tooltip title="Cajito lee el ticket, busca los folios en el sistema y te dice qué encontró">
-                      <Button
-                        variant="outlined"
-                        startIcon={<SearchIcon />}
-                        onClick={handleInvestigar}
-                        sx={{ mr: 1, color: '#6D28D9', borderColor: '#C4B5FD' }}
-                      >
-                        Investigar
-                      </Button>
-                    </Tooltip>
+                    {puedeInvestigar && (
+                      <Tooltip title="Cajito lee el ticket, busca los folios en el sistema y te dice qué encontró">
+                        <Button
+                          variant="outlined"
+                          startIcon={<SearchIcon />}
+                          onClick={handleInvestigar}
+                          sx={{ mr: 1, color: '#6D28D9', borderColor: '#C4B5FD' }}
+                        >
+                          Investigar
+                        </Button>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Crea una tarea para Super Admin con este ticket y sus archivos">
                       <Button
                         variant="outlined" color="error"
