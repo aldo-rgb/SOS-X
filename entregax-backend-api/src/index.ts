@@ -17146,6 +17146,29 @@ app.post('/api/uploads/video-url', authenticateToken, videoCrearUrl);
 app.post('/api/uploads/video-registrar', authenticateToken, videoRegistrar);
 app.get('/api/uploads/video-info', authenticateToken, videoInfo);
 app.get('/api/uploads/videos', authenticateToken, videoListar);
+// ¿Quedó ffmpeg dentro del contenedor? Es lo único de esta función que no se
+// puede comprobar leyendo el código: si falta, los videos suben bien pero se
+// quedan sin cuadros, que es justo lo que los hace legibles.
+app.get('/api/admin/videos/diagnostico', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  try {
+    const { hayFfmpeg } = await import('./videoAdjuntos');
+    const ok = await hayFfmpeg();
+    const r = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE frames_status = 'listo')::int  AS con_cuadros,
+              COUNT(*) FILTER (WHERE frames_status = 'fallo')::int  AS sin_cuadros,
+              COUNT(*) FILTER (WHERE purged_at IS NOT NULL)::int    AS depurados
+         FROM video_adjuntos`);
+    res.json({
+      ffmpeg: ok,
+      mensaje: ok
+        ? 'ffmpeg disponible: los videos sí van a generar cuadros.'
+        : 'FALTA ffmpeg en el contenedor. Los videos suben, pero se quedan sin cuadros y entonces no se pueden leer.',
+      videos: r.rows[0],
+    });
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'Error' }); }
+});
+
 // Depuración a mano. La automática corre a las 3am MX; esta existe para
 // forzarla y para comprobar que borra lo que debe sin esperar un día.
 app.post('/api/admin/videos/purgar', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
