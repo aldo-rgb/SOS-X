@@ -428,7 +428,7 @@ export default function SupportBoardPage() {
     setCitando({
       id: msg.id,
       autor: msg.sender_type === 'client'
-        ? (selectedTicket?.creator_type === 'employee' ? 'Asesor' : 'Cliente')
+        ? (['employee','advisor'].includes(String(selectedTicket?.creator_type || '')) ? 'Asesor' : 'Cliente')
         : (msg.sender_type === 'ai' ? 'Cajito' : (msg.sender_name || 'Soporte')),
       texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
       url: urls[0] || msg.attachment_url || null,
@@ -1547,7 +1547,7 @@ export default function SupportBoardPage() {
                               y confundía a quien lo revisaba —y a Cajito, que lo
                               reportó como una inconsistencia que no existía. */}
                           {msg.sender_type === 'client'
-                            ? (selectedTicket?.creator_type === 'employee' ? 'Asesor' : 'Cliente')
+                            ? (['employee','advisor'].includes(String(selectedTicket?.creator_type || '')) ? 'Asesor' : 'Cliente')
                             : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
                           {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           {msg.edited_at && !msg.deleted_at && ' · editado'}

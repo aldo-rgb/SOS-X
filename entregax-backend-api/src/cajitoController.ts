@@ -1083,7 +1083,9 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
     // asesor a nombre de su cliente, aunque los mensajes vengan marcados como
     // 'client'. Sin decírselo, Cajito reportaba como inconsistencia que el
     // nombre del casillero no fuera el de quien escribe — y no lo es.
-    const loLevantoEmpleado = String(tk.creator_type || '') === 'employee';
+    // 'employee' y 'advisor': los dos son personal nuestro escribiendo a nombre
+    // del cliente. Solo 'client' es el cliente de verdad.
+    const loLevantoEmpleado = ['employee', 'advisor'].includes(String(tk.creator_type || ''));
     const contexto = [
       `Ticket ${tk.ticket_folio} · estado ${tk.status} · categoría ${tk.category}`,
       loLevantoEmpleado
