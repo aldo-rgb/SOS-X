@@ -1432,18 +1432,32 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       }
     } catch { /* si falla, seguimos sin la inyección */ }
 
-    // Cargar historial reciente (últimos 20 mensajes user/assistant) para contexto
+    // Historial que se le pasa al modelo. Eran 20 mensajes: alcanzaba para un
+    // intercambio corto, pero en una conversación de trabajo lo del principio se
+    // le salía del contexto y volvía a preguntar cosas ya dichas. Se sube a 60
+    // —el costo por consulta sube, es la contrapartida aceptada—, y se traen 90
+    // filas porque entre ellas vienen las de herramienta, que se descartan.
+    //
+    // Cada mensaje se recorta a 4,000 caracteres: un solo mensaje enorme (un
+    // volcado pegado, por ejemplo) podía comerse el contexto de los otros 59.
+    const HISTORIAL_MENSAJES = 60;
+    const LARGO_MAX_MENSAJE = 4000;
     const hist = await pool.query(
       `SELECT role, content, tool_name, tool_args, tool_result
          FROM cajito_messages
         WHERE conversation_id = $1
+          AND role IN ('user', 'assistant')
         ORDER BY created_at DESC
-        LIMIT 20`,
-      [conversationId]
+        LIMIT $2`,
+      [conversationId, HISTORIAL_MENSAJES]
     );
     const historyMsgs = hist.rows.reverse()
       .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-      .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }));
+      .map((m: any) => ({
+        role: m.role as 'user' | 'assistant',
+        content: String(m.content || '').slice(0, LARGO_MAX_MENSAJE),
+      }))
+      .filter((m: any) => m.content.trim().length > 0);
 
     // Guardar el mensaje del usuario
     await saveMessage(conversationId!, { role: 'user', content: message });
