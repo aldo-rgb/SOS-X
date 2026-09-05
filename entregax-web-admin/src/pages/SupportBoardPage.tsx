@@ -33,6 +33,7 @@ import {
   Tooltip,
   Alert,
   Snackbar,
+  Stack,
 } from '@mui/material';
 import {
   SupportAgent as AgentIcon,
@@ -830,8 +831,29 @@ export default function SupportBoardPage() {
   // nada — si concluye que es error nuestro, ofrece armar el reporte.
   const [invOpen, setInvOpen] = useState(false);
   const [invLoading, setInvLoading] = useState(false);
-  const [inv, setInv] = useState<{ hallazgo: string; conclusion: string; pudo: boolean; es_error_sistema: boolean } | null>(null);
+  type Hallazgo = { dato: string; valor: string; cuadra?: boolean; nota?: string };
+  const [inv, setInv] = useState<{
+    conclusion: string; pudo: boolean; es_error_sistema: boolean;
+    reclamo: string; folios: string[]; hallazgos: Hallazgo[];
+    explicacion: string; falto: string; hallazgo: string;
+  } | null>(null);
   const [invPreview, setInvPreview] = useState(false);
+  // Los pasos que va diciendo mientras trabaja son los que de verdad ejecuta,
+  // no relleno: leer, extraer folios, buscarlos, comparar y concluir. Ver a
+  // Cajito avanzar hace la espera menos larga y explica qué está haciendo.
+  const PASOS_INV = [
+    'Leyendo el hilo del ticket…',
+    'Sacando las guías y órdenes que menciona…',
+    'Buscándolas en el sistema…',
+    'Comparando lo que dice el ticket contra los datos…',
+    'Sacando conclusiones…',
+  ];
+  const [invPaso, setInvPaso] = useState(0);
+  useEffect(() => {
+    if (!invLoading) { setInvPaso(0); return; }
+    const t = setInterval(() => setInvPaso(p => Math.min(p + 1, PASOS_INV.length - 1)), 3500);
+    return () => clearInterval(t);
+  }, [invLoading]);
 
   const handleInvestigar = async () => {
     if (!selectedTicket) return;
@@ -841,10 +863,12 @@ export default function SupportBoardPage() {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
       const d = await r.json().catch(() => ({}));
-      if (r.ok) setInv({ hallazgo: d.hallazgo || '', conclusion: d.conclusion || 'NO_PUDE', pudo: !!d.pudo, es_error_sistema: !!d.es_error_sistema });
-      else setInv({ hallazgo: d.error || 'No se pudo investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
+      const base = { reclamo: '', folios: [], hallazgos: [], explicacion: '', falto: '', hallazgo: '' };
+      if (r.ok) setInv({ ...base, ...d, conclusion: d.conclusion || 'NO_PUDE', pudo: !!d.pudo, es_error_sistema: !!d.es_error_sistema });
+      else setInv({ ...base, explicacion: d.error || 'No se pudo investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
     } catch {
-      setInv({ hallazgo: 'No se pudo conectar para investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
+      setInv({ reclamo: '', folios: [], hallazgos: [], falto: '', hallazgo: '',
+        explicacion: 'No se pudo conectar para investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
     } finally { setInvLoading(false); }
   };
 
@@ -857,7 +881,13 @@ export default function SupportBoardPage() {
       const r = await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/report-error`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hallazgo_cajito: inv?.hallazgo || '' }),
+        body: JSON.stringify({
+          hallazgo_cajito: [
+            inv?.reclamo ? 'Reclamo: ' + inv.reclamo : '',
+            ...(inv?.hallazgos || []).map((h) => '· ' + h.dato + ': ' + h.valor + (h.nota ? ' (' + h.nota + ')' : '')),
+            inv?.explicacion || '', inv?.hallazgo || '',
+          ].filter(Boolean).join('\n'),
+        }),
       });
       const d = await r.json().catch(() => ({}));
       setReportSnack({
@@ -1947,14 +1977,39 @@ export default function SupportBoardPage() {
         </DialogTitle>
         <DialogContent dividers>
           {invLoading && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 3 }}>
-              <CircularProgress size={22} />
-              <Box>
-                <Typography variant="body2" fontWeight={700}>Leyendo el hilo y buscando los folios…</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Saca las guías y órdenes que menciona el ticket y las compara contra el sistema.
-                </Typography>
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              {/* Cajito caminando. El piso se mueve y él sólo se balancea: da
+                  sensación de avance sin sacarlo del encuadre. */}
+              <Box sx={{ position: 'relative', height: 96, mb: 1.5, overflow: 'hidden' }}>
+                <Box
+                  sx={{
+                    position: 'absolute', left: 0, right: 0, bottom: 8, height: 2,
+                    backgroundImage: 'repeating-linear-gradient(90deg,#E5E7EB 0 14px,transparent 14px 28px)',
+                    animation: 'piso 900ms linear infinite',
+                    '@keyframes piso': { from: { backgroundPositionX: '0px' }, to: { backgroundPositionX: '-28px' } },
+                    '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                  }}
+                />
+                <Box
+                  component="img"
+                  src="/cajito-full-blanco.png"
+                  alt=""
+                  sx={{
+                    height: 84, position: 'relative', zIndex: 1,
+                    transformOrigin: 'bottom center',
+                    animation: 'camina 700ms ease-in-out infinite',
+                    '@keyframes camina': {
+                      '0%,100%': { transform: 'translateY(0) rotate(-3deg)' },
+                      '50%':     { transform: 'translateY(-7px) rotate(3deg)' },
+                    },
+                    '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                  }}
+                />
               </Box>
+              <Typography variant="body2" fontWeight={700}>{PASOS_INV[invPaso]}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Tarda un poco: está consultando el sistema guía por guía.
+              </Typography>
             </Box>
           )}
 
@@ -1962,21 +2017,91 @@ export default function SupportBoardPage() {
             <Alert severity="warning" sx={{ mb: 2 }}>
               <strong>Todavía no sé investigar esto.</strong> Ya quedó registrado para enseñarme;
               vuelve a intentarlo en 24 horas y debería poder.
+              {inv.falto && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Me faltó: {inv.falto}
+                </Typography>
+              )}
             </Alert>
           )}
 
           {!invLoading && inv && inv.pudo && (
-            <Alert severity={inv.es_error_sistema ? 'error' : 'success'} sx={{ mb: 2 }}>
-              {inv.es_error_sistema
-                ? 'Encontré un error del sistema. Yo no puedo corregirlo: hay que reportarlo para que lo reparen.'
-                : inv.conclusion === 'CAPTURA'
-                  ? 'No es falla del sistema: parece captura faltante o mal hecha.'
-                  : 'Revisé y el sistema está bien. Habría que explicárselo al cliente.'}
+            <Alert severity={inv.es_error_sistema ? 'error' : 'success'} sx={{ mb: 2 }}
+              icon={inv.es_error_sistema ? <WarningIcon /> : undefined}>
+              <strong>
+                {inv.es_error_sistema
+                  ? 'Es un error del sistema y hay que escalarlo con desarrollo.'
+                  : inv.conclusion === 'CAPTURA'
+                    ? 'No es falla del sistema: es captura faltante o mal hecha.'
+                    : 'Revisé y el sistema está bien.'}
+              </strong>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
+                {inv.es_error_sistema
+                  ? 'Yo no lo puedo corregir. Te propongo levantarlo como tarea para que lo reparen.'
+                  : inv.conclusion === 'CAPTURA'
+                    ? 'Se resuelve corrigiendo el dato, no tocando código.'
+                    : 'Habría que explicárselo al cliente con estos números.'}
+              </Typography>
             </Alert>
           )}
 
-          {!invLoading && inv && (
-            <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FAFAFA' }}>
+          {/* Qué se reclama + los folios que encontró */}
+          {!invLoading && inv?.reclamo && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={800}>EL RECLAMO</Typography>
+              <Typography variant="body2" sx={{ mt: 0.25 }}>{inv.reclamo}</Typography>
+              {inv.folios?.length > 0 && (
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                  {inv.folios.map((f) => (
+                    <Chip key={f} size="small" label={f} variant="outlined"
+                      sx={{ fontFamily: 'monospace', fontSize: 11.5 }} />
+                  ))}
+                </Stack>
+              )}
+            </Box>
+          )}
+
+          {/* Lo que verificó contra el sistema, dato por dato */}
+          {!invLoading && (inv?.hallazgos?.length ?? 0) > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                LO QUE ENCONTRÉ EN EL SISTEMA
+              </Typography>
+              <Paper variant="outlined" sx={{ mt: 0.5 }}>
+                {inv!.hallazgos.map((h, i) => (
+                  <Box key={i} sx={{
+                    display: 'flex', alignItems: 'flex-start', gap: 1.25, px: 1.5, py: 1.25,
+                    borderTop: i === 0 ? 'none' : '1px solid', borderColor: 'divider',
+                  }}>
+                    <Box sx={{
+                      mt: '2px', width: 18, height: 18, borderRadius: '50%', flex: 'none',
+                      display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: '#fff',
+                      bgcolor: h.cuadra === false ? '#DC2626' : '#16A34A',
+                    }}>{h.cuadra === false ? '!' : '✓'}</Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>{h.dato}</Typography>
+                      {h.nota && <Typography variant="caption" color="text.secondary">{h.nota}</Typography>}
+                    </Box>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      {h.valor}
+                    </Typography>
+                  </Box>
+                ))}
+              </Paper>
+            </Box>
+          )}
+
+          {!invLoading && inv?.explicacion && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" fontWeight={800}>QUÉ SIGNIFICA</Typography>
+              <Typography variant="body2" sx={{ mt: 0.25 }}>{inv.explicacion}</Typography>
+            </Box>
+          )}
+
+          {/* Respaldo: si el modelo no devolvió el formato, se muestra tal cual
+              en vez de perder la investigación. */}
+          {!invLoading && inv?.hallazgo && (
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FAFAFA', mt: 2 }}>
               <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{inv.hallazgo}</Typography>
             </Paper>
           )}
@@ -1989,7 +2114,11 @@ export default function SupportBoardPage() {
               </Typography>
               <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
                 {'🐛 Error localizado ' + (selectedTicket?.ticket_folio || '')
-                  + '\n\n🔎 Lo que encontró Cajito al investigarlo:\n' + inv.hallazgo}
+                  + '\n\n🔎 Lo que encontró Cajito al investigarlo:\n'
+                  + (inv.reclamo ? 'Reclamo: ' + inv.reclamo + '\n' : '')
+                  + inv.hallazgos.map((h) => '· ' + h.dato + ': ' + h.valor + (h.nota ? ' (' + h.nota + ')' : '')).join('\n')
+                  + (inv.explicacion ? '\n\n' + inv.explicacion : '')
+                  + (inv.hallazgo ? '\n\n' + inv.hallazgo : '')}
               </Typography>
             </Paper>
           )}
@@ -1998,7 +2127,7 @@ export default function SupportBoardPage() {
           <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
           {!invLoading && inv?.es_error_sistema && !invPreview && (
             <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
-              Ayúdame a reportarlo
+              Sí, escalarlo con desarrollo
             </Button>
           )}
           {invPreview && (

@@ -607,6 +607,88 @@ const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- ÓRDENES DE PAGO --------------------
+  // Sin esto Cajito podia ver las guias pero no el COBRO, que es de lo que
+  // reclama la mitad de los tickets: "me cobraron flete", "esta orden no
+  // corresponde", "pague y sigue pendiente". Investigo el TKT-2026-2403 y se
+  // quedo a medias justo por esto.
+  {
+    name: 'lookup_payment_order',
+    requiredCapability: 'cajito.read.payments',
+    readOnly: true,
+    description: 'Detalle de una ORDEN DE PAGO por su referencia (RO-, PP-, UW-, CEX-): monto, estatus, método de pago, si se pagó con crédito y si ya se liquidó, el cliente, y el DESGLOSE por caja — costo del servicio, flete nacional cobrado, paquetería, si la guía nacional la puso el cliente, y los cargos extra o descuentos aplicados. Úsalo SIEMPRE que el ticket hable de un cobro, de una orden, de flete, de un monto que no cuadra o de algo que ya se pagó.',
+    parameters: {
+      type: 'object',
+      properties: { referencia: { type: 'string', description: 'Referencia de la orden, p.ej. RO-65105F71' } },
+      required: ['referencia'],
+    },
+    handler: async ({ referencia }) => {
+      const ref = String(referencia || '').trim().toUpperCase();
+      if (!ref) return { error: 'Falta la referencia' };
+      const o = await pool.query(
+        `SELECT p.id, p.payment_reference, p.status, p.amount, p.currency, p.payment_method,
+                COALESCE(p.credit_settled,false) AS credito_liquidado, p.paid_at, p.created_at,
+                p.package_ids, p.concepto, u.box_id, u.full_name AS cliente
+           FROM pobox_payments p LEFT JOIN users u ON u.id = p.user_id
+          WHERE UPPER(p.payment_reference) = $1 LIMIT 1`, [ref]);
+      if (o.rows.length === 0) return { encontrada: false, mensaje: `No existe ninguna orden con la referencia ${ref}.` };
+      const ord = o.rows[0];
+
+      const ids: number[] = Array.isArray(ord.package_ids) ? ord.package_ids.map(Number).filter(Number.isFinite) : [];
+      let cajas: any[] = [];
+      if (ids.length > 0) {
+        const c = await pool.query(
+          `SELECT p.id, p.tracking_internal, p.weight, p.is_master, p.master_id,
+                  COALESCE(p.national_shipping_cost,0) AS flete_nacional,
+                  p.national_carrier, p.national_tracking,
+                  (p.national_label_url IS NOT NULL) AS guia_nacional_la_puso_el_cliente,
+                  COALESCE(p.is_collect,false) AS flete_por_cobrar,
+                  COALESCE(p.assigned_cost_mxn,0) AS costo_servicio
+             FROM packages p
+            WHERE p.id = ANY($1::int[]) OR p.master_id = ANY($1::int[])
+            ORDER BY p.is_master DESC, p.id`, [ids]);
+        cajas = c.rows;
+      }
+
+      // Cargos extra y descuentos aplicados a esas guias.
+      const trks = cajas.map((x: any) => x.tracking_internal).filter(Boolean);
+      let ajustes: any[] = [];
+      if (trks.length > 0) {
+        const a = await pool.query(
+          `SELECT guia_tracking, tipo, monto, moneda, concepto, activo, estado_validacion
+             FROM guias_ajustes_financieros WHERE guia_tracking = ANY($1::text[])`, [trks]);
+        ajustes = a.rows;
+      }
+
+      const fleteTotal = cajas
+        .filter((x: any) => x.is_master || cajas.every((y: any) => !y.is_master))
+        .reduce((acc: number, x: any) => acc + (Number(x.flete_nacional) || 0), 0);
+      const conGuiaPropia = cajas.filter((x: any) => !x.is_master && x.guia_nacional_la_puso_el_cliente).length;
+      const hijas = cajas.filter((x: any) => !x.is_master).length;
+
+      return {
+        encontrada: true,
+        orden: {
+          referencia: ord.payment_reference, estatus: ord.status,
+          monto: Number(ord.amount), moneda: ord.currency,
+          metodo_pago: ord.payment_method, credito_liquidado: ord.credito_liquidado,
+          pagada_el: ord.paid_at, creada_el: ord.created_at,
+          cliente: ord.cliente, casillero: ord.box_id, concepto: ord.concepto,
+        },
+        cajas,
+        ajustes,
+        // Señal directa para el caso mas comun: se cobro flete aunque la guia
+        // nacional la haya puesto el cliente.
+        resumen_flete: {
+          flete_cobrado: fleteTotal,
+          cajas_totales: hijas,
+          cajas_con_guia_del_cliente: conGuiaPropia,
+          posible_flete_indebido: fleteTotal > 0 && hijas > 0 && conGuiaPropia === hijas,
+        },
+      };
+    }
+  },
+
   // -------------------- MIS TAREAS --------------------
   // Cajito no podía decir ni cuántas tareas tenía uno: la pregunta más básica
   // del tablero quedaba fuera (CJD-2026-0003). El handler usa ctx.userId, así
@@ -983,8 +1065,18 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '- Si te falta una herramienta o un dato para concluir, dilo claramente con la frase "NO PUDE INVESTIGAR" y explica qué te faltó. Es mejor eso que inventar.',
       '- No propongas tocar la base de datos ni dar de alta nada: eso lo decide una persona.',
       '',
-      'Cierra tu respuesta con una última línea EXACTAMENTE en uno de estos formatos:',
-      'CONCLUSION: ERROR_SISTEMA | CAPTURA | CORRECTO | NO_PUDE',
+      '',
+      'RESPONDE SOLO CON UN JSON, sin texto antes ni después, sin markdown. Este formato exacto:',
+      '{',
+      '  "reclamo": "una línea: qué se está reclamando",',
+      '  "folios": ["RO-65105F71", "US-1563322842", "S20"],',
+      '  "hallazgos": [{"dato": "Flete nacional cobrado", "valor": "$2,675.00", "cuadra": false, "nota": "las 5 cajas traen guía del cliente"}],',
+      '  "conclusion": "ERROR_SISTEMA|CAPTURA|CORRECTO|NO_PUDE",',
+      '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
+      '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó"',
+      '}',
+      'En "hallazgos" pon SOLO lo que verificaste contra el sistema, con su cifra. `cuadra` es true si el dato coincide con lo que dice el ticket y false si no.',
+      'Sé BREVE: la pantalla ya le da formato. Nada de introducciones ni de repetir lo que ya dijiste.',
     ].join('\n');
 
     const contexto = [
@@ -1034,10 +1126,20 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       texto = c.text || '';
     }
 
-    const m = /CONCLUSION:\s*(ERROR_SISTEMA|CAPTURA|CORRECTO|NO_PUDE)/i.exec(texto || '');
-    const conclusion = String(m?.[1] || 'NO_PUDE').toUpperCase();
-    const pudo = conclusion !== 'NO_PUDE' && !/NO PUDE INVESTIGAR/i.test(texto || '');
-    const hallazgo = (texto || '').replace(/CONCLUSION:.*$/im, '').trim();
+    // Se pide JSON, pero el modelo a veces lo envuelve en texto o en un bloque
+    // de código: se rescata el objeto en vez de tirar toda la investigación.
+    let datos: any = null;
+    try {
+      const bruto = String(texto || '');
+      const ini = bruto.indexOf('{');
+      const fin = bruto.lastIndexOf('}');
+      if (ini >= 0 && fin > ini) datos = JSON.parse(bruto.slice(ini, fin + 1));
+    } catch { datos = null; }
+
+    const conclusion = String(datos?.conclusion || 'NO_PUDE').toUpperCase();
+    const pudo = conclusion !== 'NO_PUDE';
+    // Si no vino JSON, se devuelve el texto crudo para no perder el trabajo.
+    const hallazgo = datos ? '' : String(texto || '').trim();
 
     // No supo: se registra como duda para enseñarle, igual que en el chat.
     if (!pudo) {
@@ -1045,7 +1147,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
         conversationId: null, userId: Number(userId) || 0,
         pregunta: `Investigar ticket ${tk.ticket_folio}`,
         motivo: 'no_pudo',
-        detalle: (hallazgo || '').slice(0, 1000),
+        detalle: String(datos?.falto || datos?.explicacion || hallazgo || '').slice(0, 1000),
       }).catch(() => {});
     }
 
@@ -1055,7 +1157,12 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       conclusion,
       pudo,
       es_error_sistema: conclusion === 'ERROR_SISTEMA',
-      hallazgo: hallazgo || 'No obtuve resultado.',
+      reclamo: datos?.reclamo || '',
+      folios: Array.isArray(datos?.folios) ? datos.folios : [],
+      hallazgos: Array.isArray(datos?.hallazgos) ? datos.hallazgos : [],
+      explicacion: datos?.explicacion || '',
+      falto: datos?.falto || '',
+      hallazgo,   // sólo si el modelo no devolvió JSON
     });
   } catch (e: any) {
     console.error('[cajito] investigarTicket:', e);
