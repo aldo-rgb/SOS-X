@@ -15,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { API_URL } from '../../services/api';
+import VideosAdjuntos from '../../components/VideosAdjuntos';
 
 export const ORANGE = '#F05A28';
 export const BG = '#F4F6F8';
@@ -1950,9 +1951,17 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   </TouchableOpacity>
                 </View>
               </View>
+              {/* Videos con su tira de cuadros. Aparte del hilo: un video corto
+                  genera hasta 12 cuadros y sueltos sepultarian la conversacion. */}
+              {taskId != null && (
+                <VideosAdjuntos scope="task" refId={taskId} token={token} onCambio={() => reload()} />
+              )}
+
               {([
                 ...((data.comments || []) as any[]).map((c: any) => ({ tipo: 'c', at: c.created_at, dato: c })),
-                ...((atts || []) as any[]).map((a: any) => ({ tipo: 'a', at: a.created_at, dato: a })),
+                ...((atts || []) as any[])
+                  .filter((a: any) => !a.parent_id && !String(a.mime_type || '').startsWith('video/'))
+                  .map((a: any) => ({ tipo: 'a', at: a.created_at, dato: a })),
               ]).sort((x, y) => new Date(x.at || 0).getTime() - new Date(y.at || 0).getTime()).map((item: any) => {
                 const esArchivo = item.tipo === 'a';
                 const c = item.dato;

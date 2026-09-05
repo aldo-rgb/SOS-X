@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { api, API_URL } from '../services/api';
+import VideosAdjuntos from '../components/VideosAdjuntos';
 
 const BLUE = '#3F51B5';
 const BLACK = '#111';
@@ -727,6 +728,12 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                   <Text style={styles.noMessages}>Sin mensajes aún</Text>
                 ) : (
                   messages.map(renderMessage)
+                )}
+                {/* Videos del ticket, con su tira de cuadros. Van colgados del
+                    ticket y no de un mensaje suelto: es como la gente los
+                    busca y evita que se pierdan al scrollear el hilo. */}
+                {!!selectedTicket && !!token && (
+                  <VideosAdjuntos scope="ticket" refId={selectedTicket.id} token={token} />
                 )}
               </ScrollView>
             )}
