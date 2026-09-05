@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 import {
-  Box, Paper, Typography, Avatar, Chip, CircularProgress, TextField, InputAdornment,
+  Box, Paper, Typography, Avatar, Chip, CircularProgress, TextField, InputAdornment, Stack,
 } from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
 import SearchIcon from '@mui/icons-material/Search';
@@ -32,7 +32,12 @@ const ROLE_LABELS: Record<string, string> = {
 const roleLabel = (r: string) => ROLE_LABELS[r] || r;
 const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
 
+import SimuladorBonosPanel from './SimuladorBonosPanel';
+
 export default function BonosTab() {
+  // El simulador vive aquí como vista aparte y NO toca nada de lo de arriba:
+  // sirve para dimensionar esquemas antes de decidir cuál construir.
+  const [vista, setVista] = useState<'personal' | 'simulador'>('personal');
   const H = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -71,8 +76,31 @@ export default function BonosTab() {
 
   const total = useMemo(() => groups.reduce((s, g) => s + g.items.length, 0), [groups]);
 
+  const selector = (
+    <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+      <Chip
+        label="Personal" clickable
+        color={vista === 'personal' ? 'primary' : 'default'}
+        variant={vista === 'personal' ? 'filled' : 'outlined'}
+        onClick={() => setVista('personal')}
+      />
+      <Chip
+        label="Simulador de bonos" clickable
+        color={vista === 'simulador' ? 'primary' : 'default'}
+        variant={vista === 'simulador' ? 'filled' : 'outlined'}
+        onClick={() => setVista('simulador')}
+      />
+    </Stack>
+  );
+
+  if (vista === 'simulador') {
+    return (<Box>{selector}<SimuladorBonosPanel /></Box>);
+  }
+
   return (
     <Box>
+      {selector}
+      <Box>
       {/* Encabezado */}
       <Box sx={{ borderRadius: 3, p: 3, mb: 2, color: '#fff',
         background: 'linear-gradient(120deg, #5E35B1 0%, #B07206 100%)', boxShadow: 3 }}>
@@ -134,6 +162,7 @@ export default function BonosTab() {
           </Paper>
         ))
       )}
+    </Box>
     </Box>
   );
 }
