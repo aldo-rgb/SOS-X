@@ -1426,16 +1426,31 @@ export const startWaSequenceCron = () => {
 // a.m. hora Monterrey. Solo corre si el toggle (Central de Leads) está activo.
 // Inscribe hasta 500 prospectos "nuevos", no inscritos, con >2 días de antigüedad.
 export const startAutoEnrollExternalProspectsCron = () => {
-  cron.schedule('0 8 * * 1,2,3', async () => {
+  // Los días NO se escriben aquí: se leen del MISMO calendario que usa el envío
+  // (wa_sequence_schedule). Estaban fijos en lun/mar/mié mientras el envío corría
+  // mar-vie, así que jueves y viernes salían sin nadie nuevo inscrito y el lunes
+  // se inscribía gente que no tenía envío ese día. Con una sola fuente no se
+  // pueden volver a separar: si mañana cambian los días de envío, la inscripción
+  // los sigue sola.
+  cron.schedule('0 8 * * *', async () => {
     try {
-      const { runAutoEnrollExternalProspects } = await import('./waSequenceController');
+      const { runAutoEnrollExternalProspects, getSequenceSchedule } = await import('./waSequenceController');
+      const sch = await getSequenceSchedule();
+      // Día de la semana EN MONTERREY (0=domingo). Se saca del formateador y no
+      // de getDay(), que daría el día del servidor.
+      const DIAS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const abrev = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Monterrey', weekday: 'short',
+      }).format(new Date());
+      const hoyMx = DIAS.indexOf(abrev);
+      if (hoyMx < 0 || !sch.days.includes(hoyMx)) return;   // hoy no hay envío → no se inscribe
       const { enrolled, eligible } = await runAutoEnrollExternalProspects();
       if (enrolled > 0) console.log(`✅ [CRON] Auto-inscripción prospectos externos: ${enrolled}/${eligible} inscritos`);
     } catch (e) {
       console.error('[CRON] startAutoEnrollExternalProspectsCron:', (e as Error).message);
     }
   }, { timezone: 'America/Mexico_City' });
-  console.log('✅ Cron de auto-inscripción de prospectos externos activo (Lun/Mar/Mié 8am MTY, si el toggle está activo)');
+  console.log('✅ Cron de auto-inscripción de prospectos externos activo (8am MTY los mismos días que el envío, si el toggle está activo)');
 };
 
 // 📦 Enlaza envíos huérfanos a su cliente por box_id (DHL/aéreo/marítimo/packages)
