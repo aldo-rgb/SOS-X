@@ -311,7 +311,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | null>(null); // Para submenús
   const [panelsExpanded, setPanelsExpanded] = useState(false); // Estado del submenú expandido
-  const [csHubPendingView, setCsHubPendingView] = useState<'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | null>(null);
+  const [csHubPendingView, setCsHubPendingView] = useState<'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'cargos_validar' | null>(null);
   const [cajaChicaExpanded, setCajaChicaExpanded] = useState(false); // Estado del submenú Caja Chica
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -705,6 +705,15 @@ function App() {
     // 🎫 Notificaciones de TICKET → abrir el ticket en el tablero de soporte.
     // El aviso traía el folio y el id pero nadie los usaba: al darle click no
     // pasaba nada y había que ir a buscarlo a mano.
+    // Cargos por validar: el aviso trae action_url '/cargos-por-validar'.
+    if (String(notif.action_url || '') === '/cargos-por-validar'
+        || notif.data?.screen === 'CargosPorValidar') {
+      window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+        detail: { action: 'cargos_validar' },
+      }));
+      return;
+    }
+
     const ticketFolio = notif.data?.ticket_folio
       || (String(notif.title || '').match(/TKT-\d{4}-\d+/) || [])[0]
       || (String(notif.message || '').match(/TKT-\d{4}-\d+/) || [])[0];
@@ -1050,6 +1059,17 @@ function App() {
             detail: { service: 'china_air', module: 'air_management', airFilter: 'no_awb' },
           }));
         }, 120);
+        return;
+      }
+
+      // Aviso diario de cargos de impuestos DHL por validar (tarea 482): al
+      // tocarlo abre la bandeja, no el hub. Un aviso que no lleva a ningun lado
+      // obliga a buscar la pantalla a mano y se deja de leer.
+      if (action === 'cargos_validar') {
+        setCsHubPendingView('cargos_validar');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
         return;
       }
 

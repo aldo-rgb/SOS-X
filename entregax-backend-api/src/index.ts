@@ -14789,9 +14789,13 @@ app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOME
 app.get('/api/cs/descuentos', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listDescuentos);
 // Validación de cargos de impuestos DHL antes de cobrárselos al cliente (tarea
 // 482). Mismo nivel que descuentos: es decidir si se le sube dinero a alguien.
-app.get('/api/cs/cargos-por-validar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), listCargosPorValidar);
-app.post('/api/cs/cargos-por-validar/:id/aceptar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), aceptarCargoPorValidar);
-app.post('/api/cs/cargos-por-validar/:id/rechazar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), rechazarCargoPorValidar);
+// Quien valida es Servicio a Cliente —Ricardo Mendez, que lo pidio, es
+// customer_service—, mas Contabilidad y Direccion. Dejarlo en DIRECTOR habria
+// dado una bandeja que su dueño no puede abrir.
+const puedeValidarCargos = requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT, ROLES.CUSTOMER_SERVICE);
+app.get('/api/cs/cargos-por-validar', authenticateToken, puedeValidarCargos, listCargosPorValidar);
+app.post('/api/cs/cargos-por-validar/:id/aceptar', authenticateToken, puedeValidarCargos, aceptarCargoPorValidar);
+app.post('/api/cs/cargos-por-validar/:id/rechazar', authenticateToken, puedeValidarCargos, rechazarCargoPorValidar);
 
 // Cartera Vencida Dashboard
 app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);

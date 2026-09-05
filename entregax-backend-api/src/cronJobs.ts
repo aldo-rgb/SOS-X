@@ -1972,6 +1972,74 @@ export const startHidalgoListasParaEnviarCron = () => {
  * Solo se manda si hay algo pendiente: un "tienes 0" diario se vuelve ruido y
  * en dos semanas nadie lo lee.
  */
+/**
+ * CRON: aviso diario de los cargos de impuestos DHL esperando validación.
+ *
+ * Al poner el candado (tarea 482) el cargo dejó de cobrarse solo: ahora espera
+ * a que alguien lo acepte. Eso es lo correcto, pero crea una bandeja nueva, y
+ * una bandeja que nadie sabe que existe es dinero que no se cobra. Por eso el
+ * aviso, y por eso lleva la puerta: al tocarlo abre la pantalla.
+ *
+ * Solo se manda si hay algo pendiente: un "tienes 0" diario se vuelve ruido.
+ */
+export const startCargosPorValidarCron = () => {
+  const correr = async () => {
+    try {
+      const r = await pool.query(`
+        SELECT COUNT(*)::int AS n,
+               COALESCE(SUM(monto), 0)::numeric(14,2) AS monto,
+               MIN(fecha_registro) AS mas_viejo
+          FROM guias_ajustes_financieros
+         WHERE estado_validacion = 'pendiente'`);
+      const { n, monto, mas_viejo } = r.rows[0] || {};
+      if (!n || Number(n) === 0) return;
+
+      const dias = mas_viejo ? Math.floor((Date.now() - new Date(mas_viejo).getTime()) / 86400000) : 0;
+      const dinero = `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const titulo = `🧾 ${n} cargo${n === 1 ? '' : 's'} de impuestos DHL por validar`;
+      const cuerpo =
+        `${dinero} que el sistema calculó y NO se le ha cobrado a nadie todavía.` +
+        (dias >= 2 ? ` El más viejo lleva ${dias} días esperando.` : '') +
+        ' Recuerda: si la guía viene declarada en 50 USD o menos, no aplica el impuesto adicional.';
+
+      // Servicio a Cliente, Contabilidad y Dirección: los mismos que pueden
+      // abrir la pantalla. Si el rol no puede entrar, el aviso es un pendiente
+      // sin puerta.
+      const destinatarios = (await pool.query(
+        `SELECT u.id FROM users u
+          WHERE COALESCE(u.is_active, true) = true
+            AND u.deleted_at IS NULL
+            AND u.role IN ('super_admin', 'admin', 'director', 'accountant', 'finanzas', 'customer_service')`
+      )).rows.map((x: any) => Number(x.id));
+      if (destinatarios.length === 0) return;
+
+      const { createCustomNotification } = await import('./notificationController');
+      const { sendPushToUsers } = await import('./pushService');
+      for (const uid of destinatarios) {
+        try {
+          await createCustomNotification(
+            uid, titulo, cuerpo, 'info', 'gavel',
+            { screen: 'CargosPorValidar', pendientes: Number(n) },
+            '/cargos-por-validar'
+          );
+        } catch (e: any) { console.warn('[CRON] cargos por validar in-app:', e?.message); }
+      }
+      try {
+        await sendPushToUsers(destinatarios, {
+          title: titulo, body: cuerpo,
+          data: { screen: 'CargosPorValidar', pendientes: String(n) },
+        });
+      } catch (e: any) { console.warn('[CRON] cargos por validar push:', e?.message); }
+      console.log(`📬 [CRON] Aviso de ${n} cargos por validar enviado a ${destinatarios.length} personas`);
+    } catch (e: any) {
+      console.error('[CRON] cargos por validar:', e?.message || e);
+    }
+  };
+
+  cron.schedule('0 11 * * 1-6', correr, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Cargos de impuestos DHL por validar: lun-sáb 11am (MX)');
+};
+
 export const startComprobantesPorAutorizarCron = () => {
   const correr = async () => {
     try {
@@ -2056,6 +2124,7 @@ export const startComprobantesPorAutorizarCron = () => {
 
 export const initCronJobs = () => {
   startComprobantesPorAutorizarCron();
+  startCargosPorValidarCron();
   startHidalgoListasParaEnviarCron();
   startRecoveryCronJob();
   startTaskRemindersCron();

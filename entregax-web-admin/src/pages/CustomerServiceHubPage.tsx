@@ -39,6 +39,7 @@ import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PercentIcon from '@mui/icons-material/Percent';
+import GavelIcon from '@mui/icons-material/Gavel';
 import DescuentosPanel from './DescuentosPanel';
 import CargosPorValidarPanel from './CargosPorValidarPanel';
 
@@ -76,7 +77,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history' | 'descuentos';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history' | 'descuentos' | 'cargos_validar';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -278,6 +279,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       bgColor: 'rgba(239, 68, 68, 0.1)',
     },
     {
+      key: 'cargos_validar',
+      title: 'Cargos por Validar',
+      description: 'Impuestos DHL que el sistema calculó y esperan tu visto bueno antes de cobrarse',
+      icon: <GavelIcon sx={{ fontSize: 40 }} />,
+      color: '#F05A28',
+      bgColor: 'rgba(240, 90, 40, 0.1)',
+    },
+    {
       key: 'delayed',
       title: t('customerService.delayed.title', 'Guías con Retraso'),
       description: t('customerService.delayed.description', 'Paquetes cuya consolidación llegó a MTY sin ellos'),
@@ -419,11 +428,23 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           <Typography variant="h5" fontWeight={700}>Descuentos Aplicados</Typography>
         </Box>
         <DescuentosPanel />
-        {/* La validación de cargos vive junto a los descuentos porque es la
-            misma decisión: cuánto se le cobra de más o de menos al cliente. */}
-        <Box sx={{ mt: 4 }}>
-          <CargosPorValidarPanel />
+      </Box>
+    );
+  }
+
+  // Vista propia y NO bajo Descuentos: esa es solo de Dirección, y quien valida
+  // estos cargos es Servicio a Cliente —Ricardo Méndez, que la pidió, es
+  // customer_service—. Metida ahí no habría podido ni abrirla.
+  if (activeView === 'cargos_validar') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Cargos por Validar</Typography>
         </Box>
+        <CargosPorValidarPanel />
       </Box>
     );
   }
@@ -561,8 +582,12 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
 
   // Hub principal
   // Filtrar herramientas según permisos
+  const puedeValidarCargos = esDireccion
+    || ['customer_service', 'accountant', 'finanzas'].includes(String(currentUser?.role || ''));
   const filteredTools = serviceTools.filter(tool =>
-    tool.key === 'descuentos' ? esDireccion : hasPermission(tool.key));
+    tool.key === 'descuentos' ? esDireccion
+      : tool.key === 'cargos_validar' ? puedeValidarCargos
+        : hasPermission(tool.key));
 
   // Si no tiene permisos para ninguna herramienta
   if (filteredTools.length === 0) {
