@@ -839,7 +839,6 @@ export default function SupportBoardPage() {
     reclamo: string; folios: string[]; hallazgos: Hallazgo[];
     explicacion: string; falto: string; hallazgo: string; folio_duda?: string | null;
   } | null>(null);
-  const [invPreview, setInvPreview] = useState(false);
   // Los pasos que va diciendo mientras trabaja son los que de verdad ejecuta,
   // no relleno: leer, extraer folios, buscarlos, comparar y concluir. Ver a
   // Cajito avanzar hace la espera menos larga y explica qué está haciendo.
@@ -859,7 +858,7 @@ export default function SupportBoardPage() {
 
   const handleInvestigar = async () => {
     if (!selectedTicket) return;
-    setInvOpen(true); setInv(null); setInvPreview(false); setInvLoading(true);
+    setInvOpen(true); setInv(null); setInvLoading(true);
     try {
       const r = await fetch(`${API_URL}/cajito/investigar-ticket/${selectedTicket.id}`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -2137,33 +2136,15 @@ export default function SupportBoardPage() {
             </Paper>
           )}
 
-          {/* Antes de mandar nada se ve exactamente qué se va a enviar. */}
-          {invPreview && inv && (
-            <Paper variant="outlined" sx={{ p: 2, mt: 2, borderColor: '#FCA5A5' }}>
-              <Typography variant="caption" fontWeight={800} color="error">
-                Esto es lo que se va a enviar como tarea:
-              </Typography>
-              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
-                {'🐛 Error localizado ' + (selectedTicket?.ticket_folio || '')
-                  + '\n\n🔎 Lo que encontró Cajito al investigarlo:\n'
-                  + (inv.reclamo ? 'Reclamo: ' + inv.reclamo + '\n' : '')
-                  + inv.hallazgos.map((h) => '· ' + h.dato + ': ' + h.valor + (h.nota ? ' (' + h.nota + ')' : '')).join('\n')
-                  + (inv.explicacion ? '\n\n' + inv.explicacion : '')
-                  + (inv.hallazgo ? '\n\n' + inv.hallazgo : '')}
-              </Typography>
-            </Paper>
-          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
-          {!invLoading && inv?.pudo && !['CORRECTO', 'ACOMPANAR'].includes(inv.conclusion) && !invPreview && (
-            <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
-              Sí, reportar error
-            </Button>
-          )}
-          {invPreview && (
+          {/* Un solo clic. Antes habia un segundo boton de confirmacion sobre
+              una vista previa: quien llega hasta aqui ya leyo el hallazgo
+              completo arriba, asi que volver a preguntarle sobra. */}
+          {!invLoading && inv?.pudo && !['CORRECTO', 'ACOMPANAR'].includes(inv.conclusion) && (
             <Button variant="contained" color="error" disabled={reporting} onClick={handleReportarConHallazgo}>
-              {reporting ? 'Enviando…' : 'Aceptar y crear la tarea'}
+              {reporting ? 'Enviando…' : 'Sí, reportar error'}
             </Button>
           )}
         </DialogActions>
