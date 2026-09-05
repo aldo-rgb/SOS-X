@@ -16944,7 +16944,16 @@ const CAJITO_CAPABILITIES: {
   { key: 'cajito.read.drivers',         label: 'Ver información de choferes',        description: 'Asignaciones del día, vehículo y ruta del chofer.', category: 'read',      risk: 'low' },
   { key: 'cajito.read.routes',          label: 'Ver rutas y entregas del día',       description: 'Listado y avance de rutas activas.', category: 'read',      risk: 'low' },
   { key: 'cajito.read.warehouses',      label: 'Ver inventarios y almacenes',        description: 'Conteos y ubicaciones en CEDIS / PO Box.', category: 'read',      risk: 'low' },
-  { key: 'cajito.read.support_tickets', label: 'Ver tickets de soporte',             description: 'Consultar el historial de tickets de servicio a cliente.', category: 'read',      risk: 'medium' },
+  // OJO con la clave: las herramientas piden 'cajito.read.support'. El catálogo
+  // decía 'cajito.read.support_tickets', que no la pide nadie, así que
+  // otorgarlo desde la pantalla de Permisos no servía de nada y el usuario
+  // seguía sin poder consultar tickets. Nadie lo tenía concedido, así que
+  // renombrarla no le quita el acceso a nadie.
+  { key: 'cajito.read.support',         label: 'Ver tickets de soporte',             description: 'Consultar tickets por folio, estado y departamento.', category: 'read',      risk: 'medium' },
+  { key: 'cajito.read.leads',           label: 'Ver leads y prospectos',             description: 'Consultar la Central de Leads: prospectos, estados y seguimiento.', category: 'read',      risk: 'medium' },
+  // Cada quien ve SOLO lo suyo: la herramienta filtra por el usuario que
+  // pregunta, no permite consultar el pendiente de otra persona.
+  { key: 'cajito.read.tasks',           label: 'Ver mis tareas',                     description: 'Cuántas tareas tiene el usuario, cuáles están vencidas o vencen hoy, y cómo se reparten en la matriz. Solo las suyas.', category: 'read',      risk: 'low' },
   // Financiero (medio/alto)
   { key: 'cajito.read.invoices',        label: 'Consultar facturas',                 description: 'Ver folios, montos y emisores. Datos fiscales sensibles.', category: 'read',      risk: 'high' },
   { key: 'cajito.read.payments',        label: 'Ver historial de pagos',             description: 'Consultar pagos recibidos y métodos.', category: 'read',      risk: 'medium' },

@@ -604,6 +604,61 @@ const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- MIS TAREAS --------------------
+  // Cajito no podía decir ni cuántas tareas tenía uno: la pregunta más básica
+  // del tablero quedaba fuera (CJD-2026-0003). El handler usa ctx.userId, así
+  // que cada quien ve LO SUYO y nadie consulta el pendiente de otro.
+  {
+    name: 'my_tasks',
+    requiredCapability: 'cajito.read.tasks',
+    readOnly: true,
+    description: 'Las tareas del usuario que pregunta: cuántas tiene abiertas, cuáles están vencidas, cuáles vencen hoy o esta semana, cómo se reparten en la matriz de Eisenhower (estrella=importante y urgente, planear=importante no urgente, delegar=urgente no importante, eliminar=ninguna) y el detalle de cada una. Úsalo SIEMPRE que pregunten por "mis tareas", "cuántas tareas tengo", "qué tengo pendiente", "qué se me venció" o pidan que analices su carga de trabajo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        incluir_completadas: { type: 'boolean', description: 'Incluir también las ya terminadas (por defecto no)' },
+      },
+    },
+    handler: async ({ incluir_completadas }, ctx) => {
+      const soloAbiertas = incluir_completadas ? '' : `AND t.status <> 'done'`;
+      const r = await pool.query(`
+        SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
+               t.due_at, t.created_at, t.completed_at,
+               c.full_name AS creada_por,
+               (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'done') AS vencida,
+               (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
+          FROM tasks t
+          LEFT JOIN users c ON c.id = t.created_by
+         WHERE t.assignee_id = $1 ${soloAbiertas}
+         ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC
+         LIMIT 100`, [ctx.userId]);
+
+      const filas = r.rows;
+      const cuenta = (f: (x: any) => boolean) => filas.filter(f).length;
+      return {
+        resumen: {
+          total: filas.length,
+          abiertas: cuenta((t) => t.status !== 'done'),
+          vencidas: cuenta((t) => t.vencida === true),
+          vencen_hoy: cuenta((t) => t.vence_hoy === true),
+          sin_fecha: cuenta((t) => !t.due_at && t.status !== 'done'),
+          completadas: cuenta((t) => t.status === 'done'),
+        },
+        por_matriz: {
+          estrella: cuenta((t) => t.eisenhower === 'estrella' && t.status !== 'done'),
+          planear: cuenta((t) => t.eisenhower === 'planear' && t.status !== 'done'),
+          delegar: cuenta((t) => t.eisenhower === 'delegar' && t.status !== 'done'),
+          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && t.status !== 'done'),
+        },
+        tareas: filas.map((t: any) => ({
+          id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
+          vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
+          creada_por: t.creada_por,
+        })),
+      };
+    }
+  },
+
   // -------------------- CENTRO DE SOPORTE: buscar tickets --------------------
   {
     name: 'search_support_tickets',
