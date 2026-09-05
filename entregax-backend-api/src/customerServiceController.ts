@@ -129,6 +129,16 @@ export async function ensureCargoExtraSchema() {
     await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS bank_clabe TEXT`);
     await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS bank_account TEXT`);
     await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS beneficiario TEXT`);
+    // Validación de cargos de impuestos DHL (tarea 482). No todo lo que cobra
+    // DHL le corresponde al cliente: con valor declarado bajo aplica solo el
+    // default y no la nota completa. El cargo nace PENDIENTE y con activo=false
+    // —así no toca ningún saldo ni cotización— hasta que alguien lo acepta.
+    // Las filas viejas quedan en 'aceptado' porque ya estaban cobrandose.
+    await pool.query(`ALTER TABLE guias_ajustes_financieros ADD COLUMN IF NOT EXISTS estado_validacion TEXT NOT NULL DEFAULT 'aceptado'`);
+    await pool.query(`ALTER TABLE guias_ajustes_financieros ADD COLUMN IF NOT EXISTS validado_por INTEGER`);
+    await pool.query(`ALTER TABLE guias_ajustes_financieros ADD COLUMN IF NOT EXISTS validado_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE guias_ajustes_financieros ADD COLUMN IF NOT EXISTS motivo_rechazo TEXT`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ajustes_validacion ON guias_ajustes_financieros(estado_validacion) WHERE estado_validacion = 'pendiente'`);
     cargoExtraSchemaReady = true;
   } catch (e) { console.error('ensureCargoExtraSchema:', e); }
 }
@@ -282,6 +292,101 @@ const genCexRef = (): string => `CEX-${String(Date.now() % 10000).padStart(4, '0
 // cuenta por pagar del cliente (pobox_payments), la deja lista para Cobranza
 // (openpay_webhook_logs), se la muestra al asesor (advisor_payment_orders), guarda
 // el ajuste de auditoría y notifica en sistema. Devuelve la referencia CEX.
+/**
+ * Cargos de impuestos DHL esperando validación (tarea 482).
+ *
+ * Nacen en `pendiente` con activo=false: no tocan saldo, cotización ni orden
+ * hasta que alguien los acepta. La regla que hay que verificar a mano es que
+ * una guía declarada en $50 USD o menos NO lleva impuesto adicional —solo el
+ * default de $390 que ya venía en la orden—, y ese valor declarado no vive en
+ * el sistema, así que lo confirma quien revisa la documentación de DHL.
+ */
+export const listCargosPorValidar = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureCargoExtraSchema();
+    const r = await pool.query(`
+      SELECT a.id, a.guia_tracking, a.monto, a.moneda, a.concepto, a.notas,
+             a.fecha_registro, a.cliente_id,
+             u.full_name AS cliente_nombre, u.box_id AS cliente_box,
+             d.import_cost_usd, d.import_tax_mxn, d.exchange_rate, d.total_cost_mxn,
+             d.paid_at
+        FROM guias_ajustes_financieros a
+        LEFT JOIN users u ON u.id = a.cliente_id
+        LEFT JOIN dhl_shipments d ON d.id = a.guia_id
+       WHERE a.estado_validacion = 'pendiente'
+       ORDER BY a.fecha_registro ASC`);
+    return res.json({ cargos: r.rows, total: r.rows.length });
+  } catch (e: any) {
+    console.error('[cargos-validar] list:', e);
+    return res.status(500).json({ error: 'Error al listar cargos por validar' });
+  }
+};
+
+/** Acepta el cargo: hasta ahora se genera el CEX cobrable de verdad. */
+export const aceptarCargoPorValidar = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureCargoExtraSchema();
+    const id = Number(req.params.id);
+    const uid = (req as any).user?.userId || (req as any).user?.id || null;
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+
+    const r = await pool.query(
+      `SELECT * FROM guias_ajustes_financieros WHERE id = $1 AND estado_validacion = 'pendiente'`, [id]);
+    const cargo = r.rows[0];
+    if (!cargo) return res.status(404).json({ error: 'El cargo no existe o ya fue validado' });
+
+    const cex = await createCexCollectible({
+      servicio: String(cargo.servicio || 'dhl'),
+      guia_id: Number(cargo.guia_id) || 0,
+      guia_tracking: String(cargo.guia_tracking || ''),
+      cliente_id: Number(cargo.cliente_id),
+      montoMxn: Number(cargo.monto) || 0,
+      concepto: String(cargo.concepto || 'Cargo extra'),
+      uid,
+    });
+    if (!cex.ok) return res.status(400).json({ error: cex.error || 'No se pudo generar el cobro' });
+
+    // La fila pendiente queda como constancia de QUIÉN lo aceptó; el cobro real
+    // vive en la fila nueva que creó createCexCollectible.
+    await pool.query(
+      `UPDATE guias_ajustes_financieros
+          SET estado_validacion = 'aceptado', validado_por = $2, validado_at = NOW()
+        WHERE id = $1`, [id, uid]);
+
+    return res.json({ ok: true, reference: cex.reference, monto: cex.amount_mxn });
+  } catch (e: any) {
+    console.error('[cargos-validar] aceptar:', e);
+    return res.status(500).json({ error: 'Error al aceptar el cargo' });
+  }
+};
+
+/** Rechaza el cargo: no se le cobra al cliente y queda el motivo. */
+export const rechazarCargoPorValidar = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureCargoExtraSchema();
+    const id = Number(req.params.id);
+    const uid = (req as any).user?.userId || (req as any).user?.id || null;
+    const motivo = String(req.body?.motivo || '').trim();
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    // El motivo es obligatorio: sin él, dentro de un mes nadie sabe por qué no
+    // se cobró y la duda vuelve como ticket.
+    if (!motivo) return res.status(400).json({ error: 'El motivo del rechazo es obligatorio' });
+
+    const r = await pool.query(
+      `UPDATE guias_ajustes_financieros
+          SET estado_validacion = 'rechazado', activo = FALSE,
+              motivo_rechazo = $3, validado_por = $2, validado_at = NOW()
+        WHERE id = $1 AND estado_validacion = 'pendiente'
+        RETURNING guia_tracking, monto`, [id, uid, motivo]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'El cargo no existe o ya fue validado' });
+
+    return res.json({ ok: true, guia: r.rows[0].guia_tracking, monto: Number(r.rows[0].monto) });
+  } catch (e: any) {
+    console.error('[cargos-validar] rechazar:', e);
+    return res.status(500).json({ error: 'Error al rechazar el cargo' });
+  }
+};
+
 export async function createCexCollectible(opts: {
   servicio: string; guia_id?: number; guia_tracking: string; cliente_id: number;
   montoMxn: number; concepto: string; uid?: number | null; pkgServiceType?: string | null; notify?: boolean;

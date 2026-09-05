@@ -40,6 +40,7 @@ import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PercentIcon from '@mui/icons-material/Percent';
 import DescuentosPanel from './DescuentosPanel';
+import CargosPorValidarPanel from './CargosPorValidarPanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -418,6 +419,11 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           <Typography variant="h5" fontWeight={700}>Descuentos Aplicados</Typography>
         </Box>
         <DescuentosPanel />
+        {/* La validación de cargos vive junto a los descuentos porque es la
+            misma decisión: cuánto se le cobra de más o de menos al cliente. */}
+        <Box sx={{ mt: 4 }}>
+          <CargosPorValidarPanel />
+        </Box>
       </Box>
     );
   }

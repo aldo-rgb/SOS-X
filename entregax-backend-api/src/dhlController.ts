@@ -1930,23 +1930,36 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
     const diff = Math.round((effective - alreadyCharged) * 100) / 100;
     if (diff <= 0.5) return 0; // ya estaba cubierto
     // Dedup: no duplicar el CEX de impuestos si ya se generó uno para esta guía.
+    // El dedup mira TODOS los estados, no solo los activos: un cargo pendiente
+    // o ya rechazado no debe volver a generarse si la nota llega dos veces.
     const dup = await pool.query(
       `SELECT 1 FROM guias_ajustes_financieros
-        WHERE guia_tracking = $1 AND servicio = 'dhl' AND activo = TRUE
-          AND COALESCE(payment_reference,'') <> '' AND concepto ILIKE 'Impuestos DHL%' LIMIT 1`, [tk]);
+        WHERE guia_tracking = $1 AND servicio = 'dhl' AND concepto ILIKE 'Impuestos DHL%'
+          AND (activo = TRUE OR estado_validacion IN ('pendiente','rechazado'))
+        LIMIT 1`, [tk]);
     if (dup.rows.length > 0) return 0;
-    const { createCexCollectible } = await import('./customerServiceController');
-    // El concepto dice de dónde sale el cargo. Sin esto el asesor solo veía
-    // "Impuestos DHL (diferencia por cobrar)" en una orden a su nombre y no
-    // tenía forma de saber que la generó el sistema al llegar la nota real
-    // (TKT-2026-2395: "me aparecen como si las hubiese creado yo").
-    const cex = await createCexCollectible({
-      servicio: 'dhl', guia_id: Number(row.id), guia_tracking: tk, cliente_id: Number(row.user_id),
-      montoMxn: diff,
-      concepto: `Impuestos DHL guía ${tk}: la nota real fue $${effective.toFixed(2)} y se habían cobrado $${alreadyCharged.toFixed(2)}`,
-    });
-    if (cex.ok) console.log(`  🧾 [DHL tax] Guía pagada ${tk} → CEX por diferencia ${cex.reference}: $${diff} (real ${effective} − cobrado ${alreadyCharged})`);
-    else console.warn(`  ⚠️ [DHL tax] No se pudo generar CEX para ${tk}: ${cex.error}`);
+    // ⏸️ El cargo NO se cobra solo: queda PENDIENTE DE VALIDACIÓN.
+    // No todo lo que cobra DHL le corresponde al cliente —una guía declarada en
+    // $50 USD o menos no lleva impuesto adicional, solo el default— y hasta
+    // ahora el sistema se lo subía completo sin que nadie lo revisara
+    // (tarea 482, Ricardo Méndez). Se guarda con activo=false para que no toque
+    // ningún saldo ni cotización; al aceptarlo se genera el CEX de verdad.
+    // El concepto dice de dónde sale: sin esto el asesor solo veía "Impuestos
+    // DHL (diferencia por cobrar)" en una orden a su nombre y parecía suya
+    // (TKT-2026-2395).
+    const { ensureCargoExtraSchema } = await import('./customerServiceController');
+    await ensureCargoExtraSchema();
+    await pool.query(
+      `INSERT INTO guias_ajustes_financieros
+         (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas,
+          cliente_id, activo, estado_validacion)
+       VALUES ($1,$2,'dhl','cargo_extra',$3,'MXN',$4,$5,$6,FALSE,'pendiente')`,
+      [Number(row.id), tk, diff,
+       `Impuestos DHL guía ${tk}: la nota real fue $${effective.toFixed(2)} y se habían cobrado $${alreadyCharged.toFixed(2)}`,
+       `Generado por el sistema al llegar la nota de DHL. Requiere validación antes de cobrarse al cliente.`,
+       Number(row.user_id)]
+    );
+    console.log(`  ⏸️ [DHL tax] Guía pagada ${tk} → cargo de $${diff} PENDIENTE de validación (real ${effective} − cobrado ${alreadyCharged})`);
   } catch (e: any) { console.error('[crossDhlTaxNote] CEX diferencia:', e?.message || e); }
   return 0;
 };

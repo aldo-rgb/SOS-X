@@ -1383,8 +1383,7 @@ import {
   // Abandono
   getAbandonosListosProceso,
   // Reasignación de cliente
-  reassignPackageClient
-} from './customerServiceController';
+  reassignPackageClient, listCargosPorValidar, aceptarCargoPorValidar, rechazarCargoPorValidar } from './customerServiceController';
 import {
   getAllLegalDocuments,
   getLegalDocumentByType,
@@ -14788,6 +14787,11 @@ app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOME
 // 💸 Descuentos aplicados, vista de conjunto. Solo dirección para arriba
 // (director, admin, super_admin): es dinero que se deja de cobrar.
 app.get('/api/cs/descuentos', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listDescuentos);
+// Validación de cargos de impuestos DHL antes de cobrárselos al cliente (tarea
+// 482). Mismo nivel que descuentos: es decidir si se le sube dinero a alguien.
+app.get('/api/cs/cargos-por-validar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), listCargosPorValidar);
+app.post('/api/cs/cargos-por-validar/:id/aceptar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), aceptarCargoPorValidar);
+app.post('/api/cs/cargos-por-validar/:id/rechazar', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), rechazarCargoPorValidar);
 
 // Cartera Vencida Dashboard
 app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);
