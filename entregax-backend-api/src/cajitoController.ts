@@ -689,6 +689,66 @@ const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- ESTATUS DE PAGO DE UNA GUÍA --------------------
+  // Lo pidió Cajito al investigar el TKT-2026-2597: podía ver la guía y podía
+  // ver una orden SI le daban la referencia, pero no podía ir de la guía a su
+  // cobro. Justo lo que hace falta cuando el reclamo es "esta guía aparece
+  // pagada aquí y no allá".
+  {
+    name: 'lookup_package_payment',
+    requiredCapability: 'cajito.read.payments',
+    readOnly: true,
+    description: 'Estatus de PAGO de una guía a partir de su tracking, sin necesidad de la referencia de la orden. Devuelve todas las órdenes que la incluyen (pagadas, canceladas o pendientes), cuánto se cobró, con qué método, si fue crédito y si ya se liquidó. Úsalo cuando el ticket diga que una guía aparece pagada en una pantalla y no en otra, o pregunte si ya se pagó.',
+    parameters: {
+      type: 'object',
+      properties: { tracking: { type: 'string', description: 'Guía, p.ej. US-7262886354 o JJD0146...' } },
+      required: ['tracking'],
+    },
+    handler: async ({ tracking }) => {
+      const tk = String(tracking || '').trim();
+      if (!tk) return { error: 'Falta el tracking' };
+
+      const pk = await pool.query(
+        `SELECT p.id, p.tracking_internal, p.master_id, p.is_master, p.status,
+                COALESCE(p.saldo_pendiente,0) AS saldo_pendiente,
+                COALESCE(p.assigned_cost_mxn,0) AS costo, u.box_id, u.full_name AS cliente
+           FROM packages p LEFT JOIN users u ON u.id = p.user_id
+          WHERE UPPER(p.tracking_internal) = UPPER($1) LIMIT 1`, [tk]);
+      const paquete = pk.rows[0] || null;
+
+      // La guía puede estar en package_ids como ella misma o a través de su
+      // master: se buscan las dos rutas, si no una caja hija parece sin cobrar.
+      const ids = paquete ? [paquete.id, paquete.master_id].filter(Boolean) : [];
+      let ordenes: any[] = [];
+      if (ids.length > 0) {
+        const o = await pool.query(
+          `SELECT payment_reference, status, amount, payment_method,
+                  COALESCE(credit_settled,false) AS credito_liquidado,
+                  paid_at, created_at
+             FROM pobox_payments
+            WHERE package_ids ?| $1::text[] OR package_ids @> to_jsonb($2::int)
+            ORDER BY created_at DESC`,
+          [ids.map(String), Number(paquete?.id) || 0]);
+        ordenes = o.rows;
+      }
+      // DHL guarda sus guías en otra tabla; se busca ahí también.
+      const dhl = await pool.query(
+        `SELECT id, inbound_tracking, secondary_tracking, paid_at, status, total_cost_mxn
+           FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1 LIMIT 1`, [tk]);
+
+      return {
+        encontrada: !!paquete || dhl.rows.length > 0,
+        paquete, guia_dhl: dhl.rows[0] || null,
+        ordenes,
+        resumen: {
+          tiene_orden_pagada: ordenes.some((o: any) => ['paid', 'completed'].includes(String(o.status))),
+          ordenes_canceladas: ordenes.filter((o: any) => o.status === 'cancelled').length,
+          saldo_pendiente: Number(paquete?.saldo_pendiente || 0),
+        },
+      };
+    }
+  },
+
   // -------------------- MIS TAREAS --------------------
   // Cajito no podía decir ni cuántas tareas tenía uno: la pregunta más básica
   // del tablero quedaba fuera (CJD-2026-0003). El handler usa ctx.userId, así
@@ -1042,10 +1102,23 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
     if (!tk) { res.status(404).json({ error: 'Ticket no encontrado' }); return; }
 
     const msgs = await pool.query(
-      `SELECT sender_type, message, created_at FROM ticket_messages
+      `SELECT sender_type, message, created_at, attachments, attachment_url FROM ticket_messages
         WHERE ticket_id = $1 AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 40`, [ticketId]);
+    // Los adjuntos importan: en el TKT-2026-2597 el asesor decía haber anexado
+    // capturas y Cajito no las veía, así que no podía saber si existían. No
+    // puede LEER una imagen, pero saber que está y cómo se llama le permite
+    // decir "el asesor sí adjuntó evidencia" en vez de darla por ausente.
     const hilo = msgs.rows
-      .map((m: any) => `[${m.sender_type}] ${String(m.message || '').slice(0, 800)}`)
+      .map((m: any) => {
+        const adj = [
+          ...(Array.isArray(m.attachments) ? m.attachments : []),
+          ...(m.attachment_url ? [{ name: String(m.attachment_url).split('/').pop() }] : []),
+        ];
+        const nota = adj.length
+          ? ` [adjuntó ${adj.length} archivo(s): ${adj.map((a: any) => a?.name || a?.filename || 'archivo').join(', ')}]`
+          : '';
+        return `[${m.sender_type}] ${String(m.message || '').slice(0, 800)}${nota}`;
+      })
       .join('\n');
 
     // El proceso, escrito como instrucción. Es el mismo que sigue una persona.
@@ -1066,6 +1139,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '- Cita SIEMPRE los números que encontraste. Sin cifras concretas la conclusión no sirve.',
       '- Si te falta una herramienta o un dato para concluir, dilo claramente con la frase "NO PUDE INVESTIGAR" y explica qué te faltó. Es mejor eso que inventar.',
       '- No propongas tocar la base de datos ni dar de alta nada: eso lo decide una persona.',
+      '- En el hilo verás cuándo alguien adjuntó archivos. NO puedes abrirlos, pero SÍ debes tomarlos en cuenta: si el asesor anexó evidencia, dilo, y no concluyas que no la mandó.',
       '',
       '',
       'RESPONDE SOLO CON UN JSON, sin texto antes ni después, sin markdown. Este formato exacto:',
