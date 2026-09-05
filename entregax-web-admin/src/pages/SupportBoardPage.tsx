@@ -2042,19 +2042,26 @@ export default function SupportBoardPage() {
               escala igual que un error de código. Solo "CORRECTO" no genera
               trabajo nuestro. */}
           {!invLoading && inv && inv.pudo && (
-            <Alert severity={inv.conclusion === 'CORRECTO' ? 'success' : 'error'} sx={{ mb: 2 }}
-              icon={inv.conclusion === 'CORRECTO' ? undefined : <WarningIcon />}>
+            <Alert
+              severity={['CORRECTO'].includes(inv.conclusion) ? 'success'
+                : inv.conclusion === 'ACOMPANAR' ? 'info' : 'error'}
+              sx={{ mb: 2 }}
+              icon={['CORRECTO', 'ACOMPANAR'].includes(inv.conclusion) ? undefined : <WarningIcon />}>
               <strong>
                 {inv.es_error_sistema
                   ? 'Es un error del sistema: hay que repararlo.'
                   : inv.conclusion === 'CAPTURA'
                     ? 'Hay un dato mal capturado que hay que corregir.'
-                    : 'Revisé y el sistema está bien.'}
+                    : inv.conclusion === 'ACOMPANAR'
+                      ? 'No hay nada roto: esto necesita que Servicio a Cliente sostenga al cliente.'
+                      : 'Revisé y el sistema está bien.'}
               </strong>
               <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
                 {inv.conclusion === 'CORRECTO'
                   ? 'Habría que explicárselo al cliente con estos números.'
-                  : 'Yo no lo puedo corregir. Te propongo levantarlo como tarea para que lo atendamos.'}
+                  : inv.conclusion === 'ACOMPANAR'
+                    ? 'El caso está en curso o depende de un tercero. No es reporte: es hablarle al cliente, explicarle en qué va y darle seguimiento.'
+                    : 'Yo no lo puedo corregir. Te propongo levantarlo como tarea para que lo atendamos.'}
               </Typography>
             </Alert>
           )}
@@ -2149,7 +2156,7 @@ export default function SupportBoardPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
-          {!invLoading && inv?.pudo && inv.conclusion !== 'CORRECTO' && !invPreview && (
+          {!invLoading && inv?.pudo && !['CORRECTO', 'ACOMPANAR'].includes(inv.conclusion) && !invPreview && (
             <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
               Sí, reportar error
             </Button>

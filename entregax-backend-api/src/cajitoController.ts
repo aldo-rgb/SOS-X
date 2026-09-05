@@ -365,6 +365,18 @@ const TOOLS: ToolDef[] = [
     handler: async ({ tracking }) => {
       const t = String(tracking || '').trim();
       if (!t) return { error: 'tracking vacío' };
+      // Las guías se teclean o se leen del escáner, y llegan con basura: una
+      // letra de más al final, espacios, el número pegado dos veces. La guía
+      // aérea AIR2617931KKpOT-001L del TKT-2026-2226 existía, pero con la "L"
+      // final no la encontraba y se concluyó que "no existe en el sistema".
+      // Se normaliza AQUÍ y no con una instrucción al modelo: así funciona
+      // siempre, venga de donde venga.
+      const variantes = [t];
+      const limpio = t.replace(/\s+/g, '');
+      if (limpio !== t) variantes.push(limpio);
+      // AIR…-001L → AIR…-001 (sufijo de 3 dígitos con una letra pegada)
+      const sinLetraFinal = limpio.replace(/(-\d{3})[A-Za-z]$/, '$1');
+      if (sinLetraFinal !== limpio) variantes.push(sinLetraFinal);
       const r = await pool.query(
         `SELECT p.id, p.tracking_internal, p.tracking_provider, p.status, p.service_type,
                 p.weight,
@@ -375,13 +387,22 @@ const TOOLS: ToolDef[] = [
                 u.full_name AS client_name, u.email AS client_email
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
-          WHERE p.tracking_internal = $1
-             OR p.tracking_provider = $1
-          ORDER BY p.created_at DESC
+          WHERE p.tracking_internal = ANY($1::text[])
+             OR p.tracking_provider = ANY($1::text[])
+             -- Último recurso: por prefijo, para cuando trae un sufijo que no
+             -- reconocemos. Se limita a 5 para no devolver medio almacén.
+             OR p.tracking_internal ILIKE $2
+          ORDER BY (p.tracking_internal = ANY($1::text[])) DESC, p.created_at DESC
           LIMIT 5`,
-        [t]
+        [variantes, `${sinLetraFinal}%`]
       );
-      if (!r.rows.length) return { found: false };
+      if (!r.rows.length) {
+        return {
+          found: false,
+          probe: variantes,
+          nota: 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
+        };
+      }
       return { found: true, packages: r.rows };
     }
   },
@@ -1131,7 +1152,14 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '2. Saca TODOS los folios y códigos que menciona: guías (US-, TDX-, JJD, 10 dígitos), órdenes (UW-, RO-, PP-, CEX-), operaciones X-Pay (XP), casilleros.',
       '3. Búscalos con tus herramientas. No te quedes con lo que dice el ticket: compáralo contra lo que dicen los datos.',
       '4. Di si lo que reclama el usuario CUADRA o NO con el sistema, y con qué números.',
-      '5. Concluye en una de estas cuatro: (a) error del sistema que debemos reparar, (b) captura faltante o mal hecha, (c) está bien y hay que explicarlo, (d) no alcanzo a determinarlo.',
+      '5. Concluye en una de estas CINCO:',
+      '   (a) ERROR_SISTEMA — el sistema hizo algo mal y hay que repararlo.',
+      '   (b) CAPTURA — un dato quedó mal y hay que corregirlo.',
+      '   (c) ACOMPANAR — no hay nada roto que reparar: el caso está en curso o depende de un tercero (aduana, la paquetería, el proveedor) y lo que hace falta es que Servicio a Cliente CONTENGA al cliente: hablarle, explicarle en qué va y darle seguimiento. Una guía detenida en aduana desde hace semanas es esto, no un error de código.',
+      '   (d) CORRECTO — el sistema está bien y sólo hay que explicárselo.',
+      '   (e) NO_PUDE — no alcanzo a determinarlo.',
+      'No confundas (a) con (c): que algo lleve semanas sin resolverse NO lo vuelve un error del sistema. Pregúntate si hay algo que reparar en el software; si no lo hay, es acompañamiento.',
+      'Cuando concluyas ACOMPANAR, di en la explicación QUÉ debería decirle Servicio a Cliente al cliente, en dos o tres líneas, con los datos que encontraste.',
       'OJO con (b): SIEMPRE que haga falta corregir un dato hay que levantarlo con nosotros. No es "culpa de quien capturó" ni algo que se arregla y ya: si el dato quedó mal, hay que revisar CÓMO permitió el sistema que quedara así y repararlo de raíz. Un dato mal capturado casi siempre es una validación que falta.',
       'Por eso, cuando concluyas (b), incluye en la explicación qué habría que revisar para que no vuelva a pasar — qué pantalla o qué paso lo dejó entrar.',
       '',
@@ -1147,7 +1175,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '  "reclamo": "una línea: qué se está reclamando",',
       '  "folios": ["RO-65105F71", "US-1563322842", "S20"],',
       '  "hallazgos": [{"dato": "Flete nacional cobrado", "valor": "$2,675.00", "cuadra": false, "nota": "las 5 cajas traen guía del cliente"}],',
-      '  "conclusion": "ERROR_SISTEMA|CAPTURA|CORRECTO|NO_PUDE",',
+      '  "conclusion": "ERROR_SISTEMA|CAPTURA|ACOMPANAR|CORRECTO|NO_PUDE",',
       '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
       '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó"',
       '}',
