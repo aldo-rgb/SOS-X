@@ -995,8 +995,7 @@ import {
   deleteKnowledge as cajitoDeleteKnowledge,
   listGaps as cajitoListGaps,
   updateGap as cajitoUpdateGap,
-  teachGap as cajitoTeachGap,
-} from './cajitoController';
+  teachGap as cajitoTeachGap, investigarTicket as cajitoInvestigarTicket } from './cajitoController';
 import {
   listAwbCosts,
   getAwbCostDetail,
@@ -17124,6 +17123,9 @@ app.put('/api/admin/cajito/user/:userId', authenticateToken, requireRole('super_
 // CAJITO — Chat IA (OpenAI) · solo lectura + auditoría completa
 // ============================================================
 app.post('/api/cajito/chat', authenticateToken, cajitoChat);
+// Investigar un ticket como lo haría una persona. Solo LEE: Cajito investiga y
+// reporta, la corrección la hace alguien con permiso.
+app.post('/api/cajito/investigar-ticket/:id', authenticateToken, cajitoInvestigarTicket);
 app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations);
 app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);

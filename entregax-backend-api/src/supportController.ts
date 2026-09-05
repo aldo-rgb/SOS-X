@@ -2409,7 +2409,15 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
         WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent'
         ORDER BY id LIMIT 1`, [ticketId])).rows[0]?.message;
     const cuerpo = String(primerMsg || ticket.subject || '').trim();
-    const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${cuerpo}`.trim();
+    // Si Cajito ya investigó el ticket, su hallazgo viaja en la tarea. Sin esto
+    // quien la abre empieza de cero y repite la misma investigación que ya se
+    // hizo hace un minuto.
+    const hallazgo = String((req.body || {}).hallazgo_cajito || '').trim();
+    const desc = [
+      `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.`,
+      cuerpo,
+      hallazgo ? `\n🔎 Lo que encontró Cajito al investigarlo:\n${hallazgo}` : '',
+    ].filter(Boolean).join('\n').trim();
 
     // Tablero "Error de Sistema" (categoría). Si no existe, cae al personal.
     const boardRes = await pool.query(`SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);

@@ -825,6 +825,56 @@ export default function SupportBoardPage() {
   // Reportar error → crea tarea a Super Admin con los archivos del ticket.
   // Disponible en cualquier categoría de ticket.
   const [reporting, setReporting] = useState(false);
+  // 🔎 Investigación de Cajito. Sigue el mismo proceso que una persona: lee el
+  // hilo, saca los folios, los busca y compara contra los datos. NO corrige
+  // nada — si concluye que es error nuestro, ofrece armar el reporte.
+  const [invOpen, setInvOpen] = useState(false);
+  const [invLoading, setInvLoading] = useState(false);
+  const [inv, setInv] = useState<{ hallazgo: string; conclusion: string; pudo: boolean; es_error_sistema: boolean } | null>(null);
+  const [invPreview, setInvPreview] = useState(false);
+
+  const handleInvestigar = async () => {
+    if (!selectedTicket) return;
+    setInvOpen(true); setInv(null); setInvPreview(false); setInvLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/cajito/investigar-ticket/${selectedTicket.id}`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setInv({ hallazgo: d.hallazgo || '', conclusion: d.conclusion || 'NO_PUDE', pudo: !!d.pudo, es_error_sistema: !!d.es_error_sistema });
+      else setInv({ hallazgo: d.error || 'No se pudo investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
+    } catch {
+      setInv({ hallazgo: 'No se pudo conectar para investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
+    } finally { setInvLoading(false); }
+  };
+
+  // Reporta el error llevándose lo que Cajito ya investigó, para que quien abra
+  // la tarea no empiece de cero.
+  const handleReportarConHallazgo = async () => {
+    if (!selectedTicket) return;
+    setReporting(true);
+    try {
+      const r = await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/report-error`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hallazgo_cajito: inv?.hallazgo || '' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      setReportSnack({
+        msg: r.ok
+          ? (d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).`
+                       : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}" con lo que investigó Cajito.`)
+          : (d.error || 'No se pudo reportar el error'),
+        sev: r.ok ? 'success' : 'error',
+      });
+      if (r.ok) {
+        setInvOpen(false);
+        setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client', error_reported: true } : prev));
+        await loadTickets(); await loadStats();
+      }
+    } catch { setReportSnack({ msg: 'Error de red al reportar', sev: 'error' }); }
+    finally { setReporting(false); }
+  };
   const [reportSnack, setReportSnack] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
   const handleReportError = async () => {
     if (!selectedTicket) return;
@@ -1764,6 +1814,17 @@ export default function SupportBoardPage() {
                       Reportado
                     </Button>
                   ) : (
+                    <>
+                    <Tooltip title="Cajito lee el ticket, busca los folios en el sistema y te dice qué encontró">
+                      <Button
+                        variant="outlined"
+                        startIcon={<SearchIcon />}
+                        onClick={handleInvestigar}
+                        sx={{ mr: 1, color: '#6D28D9', borderColor: '#C4B5FD' }}
+                      >
+                        Investigar
+                      </Button>
+                    </Tooltip>
                     <Tooltip title="Crea una tarea para Super Admin con este ticket y sus archivos">
                       <Button
                         variant="outlined" color="error"
@@ -1774,6 +1835,7 @@ export default function SupportBoardPage() {
                         {reporting ? 'Reportando…' : 'Reportar error'}
                       </Button>
                     </Tooltip>
+                    </>
                   )
                 )}
               </Box>
@@ -1876,6 +1938,76 @@ export default function SupportBoardPage() {
       <Snackbar open={!!reportSnack} autoHideDuration={5000} onClose={() => setReportSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         {reportSnack ? <Alert severity={reportSnack.sev} onClose={() => setReportSnack(null)}>{reportSnack.msg}</Alert> : undefined}
       </Snackbar>
+
+      {/* 🔎 Investigación de Cajito. Investiga y reporta: NO corrige nada. */}
+      <Dialog open={invOpen} onClose={() => setInvOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SearchIcon sx={{ color: '#6D28D9' }} />
+          Cajito investigando {selectedTicket?.ticket_folio || ''}
+        </DialogTitle>
+        <DialogContent dividers>
+          {invLoading && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 3 }}>
+              <CircularProgress size={22} />
+              <Box>
+                <Typography variant="body2" fontWeight={700}>Leyendo el hilo y buscando los folios…</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Saca las guías y órdenes que menciona el ticket y las compara contra el sistema.
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          {!invLoading && inv && !inv.pudo && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>Todavía no sé investigar esto.</strong> Ya quedó registrado para enseñarme;
+              vuelve a intentarlo en 24 horas y debería poder.
+            </Alert>
+          )}
+
+          {!invLoading && inv && inv.pudo && (
+            <Alert severity={inv.es_error_sistema ? 'error' : 'success'} sx={{ mb: 2 }}>
+              {inv.es_error_sistema
+                ? 'Encontré un error del sistema. Yo no puedo corregirlo: hay que reportarlo para que lo reparen.'
+                : inv.conclusion === 'CAPTURA'
+                  ? 'No es falla del sistema: parece captura faltante o mal hecha.'
+                  : 'Revisé y el sistema está bien. Habría que explicárselo al cliente.'}
+            </Alert>
+          )}
+
+          {!invLoading && inv && (
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FAFAFA' }}>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{inv.hallazgo}</Typography>
+            </Paper>
+          )}
+
+          {/* Antes de mandar nada se ve exactamente qué se va a enviar. */}
+          {invPreview && inv && (
+            <Paper variant="outlined" sx={{ p: 2, mt: 2, borderColor: '#FCA5A5' }}>
+              <Typography variant="caption" fontWeight={800} color="error">
+                Esto es lo que se va a enviar como tarea:
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
+                {'🐛 Error localizado ' + (selectedTicket?.ticket_folio || '')
+                  + '\n\n🔎 Lo que encontró Cajito al investigarlo:\n' + inv.hallazgo}
+              </Typography>
+            </Paper>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInvOpen(false)}>Cerrar</Button>
+          {!invLoading && inv?.es_error_sistema && !invPreview && (
+            <Button variant="outlined" color="error" onClick={() => setInvPreview(true)}>
+              Ayúdame a reportarlo
+            </Button>
+          )}
+          {invPreview && (
+            <Button variant="contained" color="error" disabled={reporting} onClick={handleReportarConHallazgo}>
+              {reporting ? 'Enviando…' : 'Aceptar y crear la tarea'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
@@ -2064,5 +2196,7 @@ function TicketCard({
         )}
       </CardContent>
     </Card>
+
+
   );
 }

@@ -928,6 +928,141 @@ async function saveMessage(conversationId: number, opts: {
 // Body: { conversationId?: number, message: string }
 // Resp: { conversationId, reply, toolCalls: [{name,args,resultPreview}] }
 // ============================================================
+/**
+ * INVESTIGAR UN TICKET.
+ *
+ * Encoda el proceso que sigue un humano al revisar un ticket: leer el hilo,
+ * sacar los folios que menciona, buscarlos en el sistema, comparar lo que dice
+ * el ticket contra lo que dicen los datos, y concluir si es error nuestro,
+ * captura faltante o algo que ya está bien.
+ *
+ * Cajito NO corrige nada: investiga y reporta. La corrección es de quien tenga
+ * permiso, y por eso este endpoint solo lee.
+ *
+ * Si no supo investigarlo, se registra como duda para enseñarle y se le dice al
+ * usuario que vuelva en 24 horas — es la misma promesa que ya hace el chat.
+ */
+export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ticketId = Number(req.params.id);
+    const userId = req.user?.userId || (req.user as any)?.id;
+    if (!Number.isFinite(ticketId)) { res.status(400).json({ error: 'ticket inválido' }); return; }
+
+    const caps = await getUserCapabilities(userId, String(req.user?.role || ''));
+    if (!hasCap(caps, 'cajito.access')) { res.status(403).json({ error: 'Sin acceso a Cajito' }); return; }
+
+    const t = await pool.query(
+      `SELECT t.id, t.ticket_folio, t.status, t.category, t.subject,
+              u.box_id, u.full_name AS cliente
+         FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id
+        WHERE t.id = $1`, [ticketId]);
+    const tk = t.rows[0];
+    if (!tk) { res.status(404).json({ error: 'Ticket no encontrado' }); return; }
+
+    const msgs = await pool.query(
+      `SELECT sender_type, message, created_at FROM ticket_messages
+        WHERE ticket_id = $1 AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 40`, [ticketId]);
+    const hilo = msgs.rows
+      .map((m: any) => `[${m.sender_type}] ${String(m.message || '').slice(0, 800)}`)
+      .join('\n');
+
+    // El proceso, escrito como instrucción. Es el mismo que sigue una persona.
+    const sistema = [
+      'Eres Cajito investigando un ticket de soporte de EntregaX. Responde SIEMPRE en español y en TEXTO PLANO (sin ** ni backticks).',
+      'NO PUEDES CORREGIR NADA. Solo investigas y reportas: la corrección la hace una persona. No prometas arreglar ni digas que ya lo arreglaste.',
+      '',
+      'SIGUE ESTE PROCESO, EN ORDEN:',
+      '1. Lee el hilo completo y di en una línea qué se está reclamando.',
+      '2. Saca TODOS los folios y códigos que menciona: guías (US-, TDX-, JJD, 10 dígitos), órdenes (UW-, RO-, PP-, CEX-), operaciones X-Pay (XP), casilleros.',
+      '3. Búscalos con tus herramientas. No te quedes con lo que dice el ticket: compáralo contra lo que dicen los datos.',
+      '4. Di si lo que reclama el usuario CUADRA o NO con el sistema, y con qué números.',
+      '5. Concluye en una de estas cuatro: (a) error del sistema que debemos reparar, (b) captura faltante o mal hecha por alguien, (c) está bien y hay que explicarlo, (d) no alcanzo a determinarlo.',
+      '',
+      'REGLAS:',
+      '- Cita SIEMPRE los números que encontraste. Sin cifras concretas la conclusión no sirve.',
+      '- Si te falta una herramienta o un dato para concluir, dilo claramente con la frase "NO PUDE INVESTIGAR" y explica qué te faltó. Es mejor eso que inventar.',
+      '- No propongas tocar la base de datos ni dar de alta nada: eso lo decide una persona.',
+      '',
+      'Cierra tu respuesta con una última línea EXACTAMENTE en uno de estos formatos:',
+      'CONCLUSION: ERROR_SISTEMA | CAPTURA | CORRECTO | NO_PUDE',
+    ].join('\n');
+
+    const contexto = [
+      `Ticket ${tk.ticket_folio} · estado ${tk.status} · categoría ${tk.category}`,
+      `Cliente: ${tk.cliente || '—'} (${tk.box_id || 'sin casillero'})`,
+      '',
+      'Hilo:',
+      hilo || '(sin mensajes)',
+    ].join('\n');
+
+    const tools = toolsForUser(caps);
+    const provider = getLlmProvider();
+    const messages: LlmMessage[] = [{ role: 'user', content: contexto }];
+
+    let texto = '';
+    for (let iter = 0; iter < 8; iter++) {
+      const c = await provider.complete({ system: sistema, messages, ...(tools.length ? { tools } : {}), maxTokens: MAX_TOKENS });
+      if (c.toolCalls.length > 0) {
+        const bloques: LlmContentBlock[] = [];
+        if (c.text) bloques.push({ type: 'text', text: c.text });
+        for (const tc of c.toolCalls) bloques.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+        messages.push({ role: 'assistant', content: bloques });
+        const results: LlmContentBlock[] = [];
+        for (const tc of c.toolCalls) {
+          const def = TOOLS.find(x => x.name === tc.name);
+          let r: any;
+          try {
+            r = def && hasCap(caps, def.requiredCapability)
+              ? await def.handler(tc.input || {}, { userId: Number(userId) || 0, role: String(req.user?.role || '') })
+              : { error: 'Sin permiso o herramienta desconocida' };
+          } catch (e: any) { r = { error: e?.message || 'falló la consulta' }; }
+          results.push({ type: 'tool_result', tool_use_id: tc.id, content: JSON.stringify(r).slice(0, 6000) });
+        }
+        messages.push({ role: 'user', content: results });
+        continue;
+      }
+      texto = c.text || '';
+      break;
+    }
+    // Cierre forzado: si se acabaron las vueltas pidiendo datos, que conteste
+    // con lo que reunió en vez de devolver vacío.
+    if (!texto) {
+      const c = await provider.complete({
+        system: sistema + '\n\nYA NO PUEDES USAR HERRAMIENTAS. Concluye con lo que reuniste.',
+        messages, maxTokens: MAX_TOKENS,
+      });
+      texto = c.text || '';
+    }
+
+    const m = /CONCLUSION:\s*(ERROR_SISTEMA|CAPTURA|CORRECTO|NO_PUDE)/i.exec(texto || '');
+    const conclusion = String(m?.[1] || 'NO_PUDE').toUpperCase();
+    const pudo = conclusion !== 'NO_PUDE' && !/NO PUDE INVESTIGAR/i.test(texto || '');
+    const hallazgo = (texto || '').replace(/CONCLUSION:.*$/im, '').trim();
+
+    // No supo: se registra como duda para enseñarle, igual que en el chat.
+    if (!pudo) {
+      await registrarHueco({
+        conversationId: null, userId: Number(userId) || 0,
+        pregunta: `Investigar ticket ${tk.ticket_folio}`,
+        motivo: 'no_pudo',
+        detalle: (hallazgo || '').slice(0, 1000),
+      }).catch(() => {});
+    }
+
+    res.json({
+      ok: true,
+      folio: tk.ticket_folio,
+      conclusion,
+      pudo,
+      es_error_sistema: conclusion === 'ERROR_SISTEMA',
+      hallazgo: hallazgo || 'No obtuve resultado.',
+    });
+  } catch (e: any) {
+    console.error('[cajito] investigarTicket:', e);
+    res.status(500).json({ error: 'No se pudo investigar el ticket' });
+  }
+};
+
 export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await ensureChatTables();
