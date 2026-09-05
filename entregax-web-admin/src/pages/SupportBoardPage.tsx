@@ -837,7 +837,7 @@ export default function SupportBoardPage() {
   const [inv, setInv] = useState<{
     conclusion: string; pudo: boolean; es_error_sistema: boolean;
     reclamo: string; folios: string[]; hallazgos: Hallazgo[];
-    explicacion: string; falto: string; hallazgo: string;
+    explicacion: string; falto: string; hallazgo: string; folio_duda?: string | null;
   } | null>(null);
   const [invPreview, setInvPreview] = useState(false);
   // Los pasos que va diciendo mientras trabaja son los que de verdad ejecuta,
@@ -2024,8 +2024,12 @@ export default function SupportBoardPage() {
 
           {!invLoading && inv && !inv.pudo && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              <strong>Todavía no sé investigar esto.</strong> Ya quedó registrado para enseñarme;
-              vuelve a intentarlo en 24 horas y debería poder.
+              <strong>Todavía no sé investigar esto.</strong>{' '}
+              {/* El número de tarea es lo que vuelve real la promesa: sin él,
+                  "quedó registrado" no le sirve a nadie para dar seguimiento. */}
+              {inv.folio_duda
+                ? <>Ya quedó reportado con la tarea <strong>{inv.folio_duda}</strong>. Vuelve a intentarlo en 24 horas y debería poder.</>
+                : <>Ya quedó registrado para enseñarme; vuelve a intentarlo en 24 horas y debería poder.</>}
               {inv.falto && (
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
                   Me faltó: {inv.falto}

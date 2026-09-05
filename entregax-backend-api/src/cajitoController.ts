@@ -1161,14 +1161,28 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
     // Si no vino JSON, se devuelve el texto crudo para no perder el trabajo.
     const hallazgo = datos ? '' : String(texto || '').trim();
 
-    // No supo: se registra como duda para enseñarle, igual que en el chat.
+    // No supo: se registra como duda para enseñarle, igual que en el chat, y se
+    // devuelve el folio CJD para poder decírselo a quien preguntó. Sin el
+    // número, "quedó registrado" suena a promesa vacía y nadie puede darle
+    // seguimiento.
+    let folioDuda: string | null = null;
     if (!pudo) {
-      await registrarHueco({
+      const hueco = await registrarHueco({
         conversationId: null, userId: Number(userId) || 0,
         pregunta: `Investigar ticket ${tk.ticket_folio}`,
         motivo: 'no_pudo',
         detalle: String(datos?.falto || datos?.explicacion || hallazgo || '').slice(0, 1000),
-      }).catch(() => {});
+      }).catch(() => null);
+      folioDuda = hueco?.folio || null;
+      // La TAREA se crea aquí, no dentro de registrarHueco: esa función solo
+      // guarda la fila. Sin esta llamada la duda quedaba registrada pero nadie
+      // se enteraba —pasó con CJD-2026-0004 y 0005, que no generaron tarea— y
+      // la promesa de las 24 horas no tenía a nadie detrás.
+      if (hueco?.nueva) {
+        avisarDudaASuperAdmins(
+          hueco.id, `Investigar ticket ${tk.ticket_folio}`, Number(userId) || 0, hueco.folio, 'no_pudo'
+        ).catch(() => {});
+      }
     }
 
     res.json({
@@ -1182,6 +1196,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       hallazgos: Array.isArray(datos?.hallazgos) ? datos.hallazgos : [],
       explicacion: datos?.explicacion || '',
       falto: datos?.falto || '',
+      folio_duda: folioDuda,
       hallazgo,   // sólo si el modelo no devolvió JSON
     });
   } catch (e: any) {
