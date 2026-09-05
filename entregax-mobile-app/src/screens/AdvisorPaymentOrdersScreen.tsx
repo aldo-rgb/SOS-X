@@ -683,13 +683,17 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     const st     = STATUS_LABEL[o.status] ?? { label: o.status, color: '#888', bg: '#EEE' };
     const isPending = o.status === 'pendiente';
     const isAdvisor = o.created_by === 'advisor';
-    // Solicitar factura: solo si está pagada y dentro de 2 días de marcada como pagada
     const isPaidStatus = o.status === 'pagado' || o.status === 'completed' || o.status === 'paid';
     const yaFacturada = !!o.facturada;
     const facturaPendiente = !!o.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor)
-    // Solicitar factura: pagada, ≤2 días, y que no esté ya facturada ni solicitada
-    const canInvoice = isPaidStatus && !!o.paid_at &&
-      (Date.now() - new Date(o.paid_at as string).getTime()) <= 2 * 24 * 60 * 60 * 1000 &&
+    // El plazo lo manda el backend en invoice_deadline: 15 días desde el pago y
+    // nunca pasando el fin del mes en que se pagó (tarea 449). Aquí decía 2 días,
+    // la web 3 y el servidor otra cosa: tres reglas distintas para lo mismo, así
+    // que el botón salía cuando el servidor ya lo rechazaba. Ahora hay una sola.
+    const limiteFactura = (o as any).invoice_deadline
+      ? new Date((o as any).invoice_deadline).getTime()
+      : (o.paid_at ? new Date(o.paid_at as string).getTime() + 2 * 24 * 60 * 60 * 1000 : 0);
+    const canInvoice = isPaidStatus && !!limiteFactura && Date.now() <= limiteFactura &&
       !yaFacturada && !facturaPendiente;
     const expanded  = expandedIds.has(o.id);
     const mxn       = Number(o.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });

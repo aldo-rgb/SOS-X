@@ -74,7 +74,49 @@ const ensureTable = async () => {
 const advisorId = (req: Request): number | null => (req as any).user?.userId ?? null;
 
 // Ventana para solicitar factura: 3 días después del pago.
-const INVOICE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const INVOICE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
+
+/**
+ * Fecha límite para pedir factura de una orden pagada.
+ *
+ * Son 15 días desde el pago, PERO nunca cruzando al mes siguiente: al cerrar el
+ * mes contabilidad factura a público en general, y una factura a nombre del
+ * cliente emitida después ya no cuadra con ese corte. Un pago del 30 de agosto
+ * vence el 31 de agosto, no el 14 de septiembre (tarea 449, Leonardo Reyna).
+ *
+ * El mes se calcula en hora de MÉXICO, no del servidor: en UTC un pago del 31
+ * a las 7 de la noche ya cae en el mes siguiente y el candado se abriría de más.
+ */
+const TZ_MX = 'America/Monterrey';
+
+const inicioDelMesSiguienteMX = (ms: number): number => {
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: TZ_MX, year: 'numeric', month: '2-digit' })
+    .formatToParts(new Date(ms));
+  const val = (t: string) => Number(partes.find((x) => x.type === t)?.value);
+  const y = val('year');
+  const m = val('month');                    // 1-12
+  const anio = m === 12 ? y + 1 : y;
+  const mes = m === 12 ? 1 : m + 1;
+  // México va de UTC-6 a UTC-5 segun horario de verano: se prueban ambos y se
+  // toma el que efectivamente cae en el dia 1 a las 00:00 hora local.
+  for (const desfase of [6, 5]) {
+    const cand = Date.UTC(anio, mes - 1, 1, desfase, 0, 0);
+    const chk = new Intl.DateTimeFormat('en-CA', {
+      timeZone: TZ_MX, day: '2-digit', hour: '2-digit', hour12: false,
+    }).formatToParts(new Date(cand));
+    const dia = Number(chk.find((x) => x.type === 'day')?.value);
+    const hora = Number(chk.find((x) => x.type === 'hour')?.value) % 24;
+    if (dia === 1 && hora === 0) return cand;
+  }
+  return Date.UTC(anio, mes - 1, 1, 6, 0, 0);
+};
+
+/** Limite en ms para facturar, o 0 si la orden no tiene fecha de pago. */
+export const limiteParaFacturar = (paidAt: any): number => {
+  const paidMs = paidAt ? new Date(paidAt).getTime() : 0;
+  if (!paidMs) return 0;
+  return Math.min(paidMs + INVOICE_WINDOW_MS, inicioDelMesSiguienteMX(paidMs) - 1);
+};
 
 // ─── LIST ───────────────────────────────────────────────────────────────────
 // Returns both advisor-created orders AND client self-generated orders for
@@ -257,7 +299,14 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
       LIMIT 300
     `, [aid]);
 
-    return res.json(r.rows);
+    // Fecha limite para facturar, calculada en UN solo lugar. Antes la web y la
+    // app repetian la regla ("3 dias") por su cuenta y al cambiarla habria tres
+    // versiones distintas: el cliente veria el boton y el backend se lo rebota.
+    const conLimite = r.rows.map((o: any) => {
+      const limite = limiteParaFacturar(o.paid_at);
+      return { ...o, invoice_deadline: limite ? new Date(limite).toISOString() : null };
+    });
+    return res.json(conLimite);
   } catch (e: any) {
     console.error('[payment-orders] list:', e);
     return res.status(500).json({ error: 'Error al listar órdenes' });
@@ -1255,13 +1304,17 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
     const amount = Number(order.total_mxn) || 0;
     if (amount <= 0) return res.status(400).json({ error: 'La orden no tiene monto a facturar' });
 
-    // La factura se puede solicitar dentro de los 3 días posteriores al pago.
+    // 15 dias desde el pago, sin cruzar al mes siguiente (ver limiteParaFacturar).
     const isPaid = ['completed', 'paid'].includes(String(order.pay_status || ''));
-    const paidAtMs = order.paid_at ? new Date(order.paid_at).getTime() : 0;
-    const withinInvoiceWindow = paidAtMs > 0 && (Date.now() - paidAtMs) <= INVOICE_WINDOW_MS;
-    if (!isPaid || !withinInvoiceWindow) {
+    const limite = limiteParaFacturar(order.paid_at);
+    if (!isPaid || !limite || Date.now() > limite) {
+      const fechaLimite = limite
+        ? new Date(limite).toLocaleDateString('es-MX', { timeZone: TZ_MX, day: 'numeric', month: 'long', year: 'numeric' })
+        : null;
       return res.status(400).json({
-        error: 'La factura solo puede solicitarse dentro de los 3 días posteriores al pago de la orden',
+        error: !isPaid
+          ? 'La orden todavia no esta pagada, asi que aun no se puede facturar'
+          : `El plazo para facturar esta orden vencio el ${fechaLimite}. Son 15 dias desde el pago y nunca despues de que termina el mes en que se pago, porque al cerrar el mes la operacion ya se factura al publico en general. Si la necesitas, pidela a Contabilidad.`,
       });
     }
 

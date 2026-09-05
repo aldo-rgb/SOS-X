@@ -3948,11 +3948,18 @@ export default function DashboardAdvisor() {
                 const yaFacturada = !!op.facturada;
                 const facturaPendiente = !!op.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor), en pendientes por timbrar
                 // Facturable:
-                //  • Contado (efectivo/SPEI/etc.): dentro de los 3 días posteriores al pago.
-                //  • Crédito PAGADO (liquidado): puede solicitarse al liquidar (sin ventana de 3 días).
+                //  • Contado (efectivo/SPEI/etc.): hasta la fecha límite que manda
+                //    el backend en invoice_deadline — 15 días desde el pago y nunca
+                //    pasando el fin del mes en que se pagó, porque al cerrar el mes
+                //    la operación ya se facturó al público en general (tarea 449).
+                //  • Crédito PAGADO (liquidado): puede solicitarse al liquidar.
                 //  • Crédito SIN liquidar: NO facturable.
-                const withinPaidWindow = !!op.paid_at &&
-                  (Date.now() - new Date(op.paid_at).getTime()) <= 3 * 24 * 60 * 60 * 1000;
+                // Se usa la fecha del backend en vez de recalcular aquí: si cada
+                // pantalla arma la regla por su cuenta, el botón aparece donde el
+                // servidor ya la rechaza.
+                const withinPaidWindow = op.invoice_deadline
+                  ? Date.now() <= new Date(op.invoice_deadline).getTime()
+                  : (!!op.paid_at && (Date.now() - new Date(op.paid_at).getTime()) <= 3 * 24 * 60 * 60 * 1000);
                 const canInvoice = !yaFacturada && !facturaPendiente && (
                   isSettledCredit || (!isCreditPay && isPaidStatus && withinPaidWindow)
                 );
