@@ -335,6 +335,62 @@ type ToolDef = {
   handler: (args: any, ctx: ToolCtx) => Promise<any>;
 };
 
+/**
+ * Condensa las 10 notas mas viejas de una persona en UNA sola.
+ *
+ * Se usa al llegar al tope. La alternativa era pedirle a la persona que borrara
+ * algo, y eso es tarea nuestra, no suya: ella dijo "acuerdate", no "administra
+ * tu memoria". Resumir en vez de borrar tambien evita perder lo viejo por ser
+ * viejo — una preferencia de hace meses puede seguir vigente.
+ *
+ * Si el resumen falla NO se borra nada: perder notas en silencio seria peor que
+ * quedarse en el tope.
+ */
+const NOTAS_A_CONDENSAR = 10;
+
+export async function consolidarMemorias(userId: number): Promise<{ ok: boolean; resumen?: string; borradas?: number; error?: string }> {
+  const viejas = await pool.query(
+    `SELECT id, contenido FROM cajito_memorias WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2`,
+    [userId, NOTAS_A_CONDENSAR]);
+  if (viejas.rows.length < NOTAS_A_CONDENSAR) return { ok: false, error: 'todavía no hay suficientes notas que condensar' };
+
+  const lista = viejas.rows.map((m: any, i: number) => `${i + 1}. ${m.contenido}`).join('\n');
+  const sistema = [
+    'Condensa estas notas sobre cómo trabaja una persona en UNA SOLA nota.',
+    'Reglas:',
+    '- Conserva TODO lo que siga siendo útil: preferencias, formatos, atajos, cómo le gusta que le respondan.',
+    '- Junta lo que se repite y quita lo que ya quedó sin efecto (si una nota contradice a otra más nueva, gana la más nueva).',
+    '- Escribe en tercera persona, en español, en una sola frase o dos como máximo.',
+    '- No inventes nada que no esté en las notas.',
+    'Responde SOLO con el texto de la nota, sin comillas ni explicación.',
+  ].join('\n');
+
+  try {
+    const provider = getLlmProvider();
+    const c = await provider.complete({
+      system: sistema,
+      messages: [{ role: 'user', content: lista }],
+      maxTokens: 300,
+    });
+    const resumen = String(c.text || '').trim().replace(/^["'`]+|["'`]+$/g, '').slice(0, 500);
+    if (resumen.length < 10) return { ok: false, error: 'el resumen salió vacío' };
+
+    // Primero se guarda el resumen y SOLO despues se borran las originales: si
+    // truena en medio, se queda una nota de mas, no diez de menos.
+    await pool.query(
+      `INSERT INTO cajito_memorias (user_id, contenido, origen) VALUES ($1,$2,'resumen')
+       ON CONFLICT (user_id, md5(lower(contenido))) DO UPDATE SET updated_at = NOW()`,
+      [userId, resumen]);
+    const ids = viejas.rows.map((m: any) => m.id);
+    await pool.query(`DELETE FROM cajito_memorias WHERE user_id = $1 AND id = ANY($2::int[])`, [userId, ids]);
+    console.log(`[cajito] memoria de ${userId}: ${ids.length} notas condensadas en una`);
+    return { ok: true, resumen, borradas: ids.length };
+  } catch (e: any) {
+    console.error('[cajito] consolidarMemorias:', e?.message);
+    return { ok: false, error: e?.message || 'no se pudo resumir' };
+  }
+}
+
 const TOOLS: ToolDef[] = [
   // -------------------- BASE DE CONOCIMIENTO --------------------
   {
@@ -1266,16 +1322,29 @@ const TOOLS: ToolDef[] = [
     handler: async ({ nota }, ctx) => {
       const txt = String(nota || '').trim().slice(0, 500);
       if (txt.length < 5) return { error: 'La nota está vacía o es demasiado corta.' };
+      // Al tope no se le pide a la persona que borre: se condensan las 10 mas
+      // viejas en una sola y se sigue. Ella dijo "acuerdate", no "administra tu
+      // memoria".
+      let condensado: any = null;
       const n = await pool.query(`SELECT COUNT(*)::int c FROM cajito_memorias WHERE user_id = $1`, [ctx.userId]);
       if (n.rows[0].c >= 60) {
-        return { error: 'Ya hay 60 notas guardadas de esta persona, que es el máximo. Pídele que borre alguna antes de agregar otra.' };
+        condensado = await consolidarMemorias(ctx.userId);
+        if (!condensado.ok) {
+          return { error: `Se llegó al máximo de notas y no se pudo resumir las más viejas (${condensado.error}). Pídele que borre alguna.` };
+        }
       }
       const r = await pool.query(
         `INSERT INTO cajito_memorias (user_id, contenido, origen) VALUES ($1,$2,'usuario')
          ON CONFLICT (user_id, md5(lower(contenido))) DO UPDATE SET updated_at = NOW()
          RETURNING id`,
         [ctx.userId, txt]);
-      return { id: r.rows[0].id, guardado: txt, nota: 'Queda guardado solo para esta persona.' };
+      return {
+        id: r.rows[0].id, guardado: txt,
+        nota: 'Queda guardado solo para esta persona.',
+        ...(condensado?.ok ? {
+          memoria_condensada: `Se juntaron las ${condensado.borradas} notas más viejas en una: "${condensado.resumen}"`,
+        } : {}),
+      };
     }
   },
   {
