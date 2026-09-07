@@ -12632,12 +12632,25 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     const { tracking } = req.body;
     if (!tracking) return res.status(400).json({ error: 'Tracking requerido' });
     const norm = String(tracking).trim().toUpperCase();
+    // Estados desde los que SI se puede recibir en MTY: todo lo que significa
+    // "ya salio de origen y todavia no llega aqui".
+    //
+    // 'shipped' estaba fuera y ahi se atoraban cajas reales. No es un estado
+    // invalido: lo usan 1,449 paquetes de la ruta aerea y quiere decir lo mismo
+    // que in_transit. La recepcion de TDI era mas angosta que los estados que
+    // de verdad existen, y una caja marcada asi quedaba sin forma de entrar
+    // —el mensaje decia "no puede recibirse de nuevo", como si ya estuviera
+    // recibida. Caso: TDX-4285572354-001 y TDX-7148644302-002, de S2346.
+    const ESTADOS_RECIBIBLES = ['received_china', 'in_transit', 'customs', 'shipped'];
     // 🔧 Compacto alfanumérico: el escáner físico a veces sustituye el guión "-"
     // por apóstrofe/espacio (TDX'5894471122'001). Comparamos ignorando cualquier
     // separador para que "TDX'5894471122'001" == "TDX-5894471122-001".
     const compact = norm.replace(/[^A-Z0-9]/g, '');
-    // Buscar master o hijo por tracking_internal / child_no / AWB (international_tracking),
-    // preferimos el master cuando el match es por AWB compartido.
+    // Buscar por CUALQUIER identificador que traiga la caja fisica, no solo por
+    // el TDX. Antes solo miraba tracking_internal, child_no y el AWB, asi que
+    // la guia del proveedor (SY0023872) —que viene impresa en la caja y SI la
+    // tenemos guardada— no servia para escanear. Tampoco la guia de origen
+    // secundaria (los JJD de DHL), que se captura en 'notes'.
     const pkgRes = await pool.query(`
       SELECT p.id, p.master_id, p.tracking_internal, p.status::text AS status,
         p.service_type, COALESCE(p.is_master, false) AS is_master,
@@ -12650,18 +12663,53 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
           UPPER(COALESCE(p.tracking_internal, '')) = $1
           OR UPPER(COALESCE(p.child_no, '')) = $1
           OR UPPER(COALESCE(p.international_tracking, '')) = $1
+          OR UPPER(COALESCE(p.tracking_provider, '')) = $1
+          OR UPPER(COALESCE(p.national_tracking, '')) = $1
+          OR UPPER(COALESCE(p.notes, '')) = $1
           OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.national_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
         )
       ORDER BY
         CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 0
              WHEN REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 1
-             ELSE 2 END ASC,
+             -- La guia del proveedor y la de origen identifican UNA caja; el AWB
+             -- puede ser de varios clientes, asi que va al final.
+             WHEN REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 2
+             WHEN UPPER(COALESCE(p.notes, '')) = $1 THEN 2
+             ELSE 3 END ASC,
         COALESCE(p.is_master, false) DESC,
         p.id ASC
-      LIMIT 1
+      LIMIT 5
     `, [norm, compact]);
+
+    // El AWB puede venir compartido: dos clientes distintos viajan en el mismo
+    // waybill. Antes esto se resolvia con LIMIT 1 y se tomaba el de id mas bajo
+    // — con suerte el correcto. Caso real: el waybill 6088741190 es de S693 y
+    // de S2346; al escanearlo salia el de S693, que ya estaba recibido, y el
+    // mensaje decia "esta guia ya esta recibida" culpando a la guia cuando el
+    // problema era que el codigo era ambiguo. Ahora se dice y se piden las TDX.
+    if (pkgRes.rows.length > 1) {
+      const porMaster = new Map<string, any>();
+      for (const r of pkgRes.rows) {
+        const clave = String(r.tracking_internal || '').replace(/-\d{3}$/, '');
+        if (!porMaster.has(clave)) porMaster.set(clave, r);
+      }
+      if (porMaster.size > 1) {
+        const opciones = [...porMaster.values()].map((r: any) =>
+          `${String(r.tracking_internal || '').replace(/-\d{3}$/, '')} (${r.client_box_id || '—'} · ${r.client_name || '—'})`);
+        return res.status(409).json({
+          error: `Ese código va en ${porMaster.size} envíos de clientes distintos, así que no se sabe cuál recibir. Escanea la guía TDX de la caja: ${opciones.join(' o ')}.`,
+          ambiguo: true,
+          opciones: [...porMaster.values()].map((r: any) => ({
+            tracking: String(r.tracking_internal || '').replace(/-\d{3}$/, ''),
+            cliente: r.client_name, casillero: r.client_box_id, status: r.status,
+          })),
+        });
+      }
+    }
 
     if (pkgRes.rows.length === 0) {
       // Fallback: guías DHL (dhl_shipments) — mismo flujo de 2 pasos. La
@@ -12679,7 +12727,7 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       `, [norm, compact]);
       if (dhlRes.rows.length > 0) {
         const d = dhlRes.rows[0];
-        if (!['received_china', 'in_transit', 'customs'].includes(d.status)) {
+        if (!ESTADOS_RECIBIBLES.includes(d.status)) {
           return res.status(400).json({ error: `Esta guía ya está en status "${d.status}" — no puede recibirse de nuevo`, already_received: d.status === 'received_mty' });
         }
         await pool.query(`UPDATE dhl_shipments SET status = 'received_mty', updated_at = NOW() WHERE id = $1`, [d.id]);
@@ -12693,7 +12741,7 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     }
     const pkg = pkgRes.rows[0];
 
-    if (!['received_china', 'in_transit', 'customs'].includes(pkg.status)) {
+    if (!ESTADOS_RECIBIBLES.includes(pkg.status)) {
       return res.status(400).json({
         error: `Esta guía ya está en status "${pkg.status}" — no puede recibirse de nuevo`,
         already_received: pkg.status === 'received_mty'
