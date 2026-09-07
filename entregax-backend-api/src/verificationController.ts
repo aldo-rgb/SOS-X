@@ -193,10 +193,28 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
             return;
         }
 
+        // ============ NORMALIZAR EL FORMATO ============
+        // Las fotos del iPhone son HEIC, y la app las manda etiquetadas como
+        // image/jpeg. Creerle a la etiqueta costaba dos cosas a la vez: OpenAI
+        // respondia 400 "unsupported image" y la pantalla de revision mostraba
+        // los tres documentos rotos, porque ningun navegador pinta HEIC.
+        // Va ANTES de la IA a proposito: convertir solo al guardar dejaba a la
+        // IA analizando el HEIC y fallando igual.
+        const { normalizarDataUrl } = await import('./imagenNormalizar');
+        const nFront   = await normalizarDataUrl(ineFrontBase64, `ine-front-${userId}`);
+        const nBack    = await normalizarDataUrl(ineBackBase64,  `ine-back-${userId}`);
+        const nSelfie  = await normalizarDataUrl(selfieBase64,   `selfie-${userId}`);
+        if (nFront.convertida || nBack.convertida || nSelfie.convertida) {
+            console.log(`🔄 [verificacion] usuario ${userId}: documentos HEIC convertidos a JPEG`);
+        }
+        const ineFrontOk = nFront.dataUrl as string;
+        const ineBackOk  = nBack.dataUrl as string;
+        const selfieOk   = nSelfie.dataUrl as string;
+
         // ============ VERIFICACIÓN CON GPT-4 VISION ============
         console.log('🔍 Iniciando verificación facial con IA...');
         
-        const aiAnalysis = await compareFacesWithAI(selfieBase64, ineFrontBase64);
+        const aiAnalysis = await compareFacesWithAI(selfieOk, ineFrontOk);
         
         console.log('📊 Resultado IA:', aiAnalysis);
 
@@ -218,9 +236,9 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
         // (se embebe en PDFs de RRHH/legales). Si S3 no está, persistBase64ToS3
         // devuelve el base64 intacto (fallback seguro, no rompe).
         const timestamp = Date.now();
-        const ineFrontStored = await persistBase64ToS3(ineFrontBase64, `users/${userId}/ine-front`);
-        const ineBackStored = await persistBase64ToS3(ineBackBase64, `users/${userId}/ine-back`);
-        const selfieStored = await persistBase64ToS3(selfieBase64, `users/${userId}/selfie`);
+        const ineFrontStored = await persistBase64ToS3(ineFrontOk, `users/${userId}/ine-front`);
+        const ineBackStored = await persistBase64ToS3(ineBackOk, `users/${userId}/ine-back`);
+        const selfieStored = await persistBase64ToS3(selfieOk, `users/${userId}/selfie`);
         await pool.query(
             `UPDATE users
              SET ine_front_url = $1,

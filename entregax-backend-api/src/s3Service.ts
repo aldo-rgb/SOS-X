@@ -29,6 +29,32 @@ export const uploadToS3 = async (
   key: string,
   contentType: string = 'application/pdf'
 ): Promise<string> => {
+  // Red central contra el HEIC del iPhone.
+  //
+  // Va AQUI y no en cada controlador porque el problema aparecia en varios a la
+  // vez —verificacion, chat, tickets— y siempre igual: se guardaba un HEIC con
+  // nombre y content-type de JPEG, ningun navegador lo pintaba y la IA lo
+  // rechazaba, sin que nada avisara que el formato era el problema. Los bytes
+  // deciden. Para cualquier cosa que no sea HEIC esto no hace nada: ni PDF, ni
+  // Excel, ni una imagen que ya se ve.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { formatoReal, normalizarImagen } = require('./imagenNormalizar');
+    if (formatoReal(buffer) === 'heic') {
+      const norm = await normalizarImagen(buffer, 'archivo.heic', 'image/heic');
+      if (norm.convertida) {
+        console.log(`[s3] HEIC convertido a JPEG antes de guardar: ${key}`);
+        buffer = norm.buffer;
+        contentType = 'image/jpeg';
+        key = key.replace(/\.[^./]+$/, '') + '.jpg';
+      }
+    }
+  } catch (e: any) {
+    // Si la conversion falla se sube tal cual: perder el archivo por no poder
+    // convertirlo seria peor que guardarlo en un formato incomodo.
+    console.warn('[s3] no se pudo normalizar el formato, se sube como llego:', e?.message);
+  }
+
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,
     Key: key,
@@ -279,9 +305,23 @@ export const persistBase64ToS3 = async (
   if (!m || !m[2]) return value; // no es base64 → ya es URL o texto: dejar intacto
   if (!isS3Configured()) return value; // sin S3 no rompemos: conservar base64
   try {
-    const mime = m[1] || 'image/jpeg';
+    let mime = m[1] || 'image/jpeg';
     const buffer = Buffer.from(m[2], 'base64');
     if (buffer.length === 0) return value;
+
+    // El data-URL puede mentir, y mentia: la app mandaba HEIC de iPhone
+    // etiquetado como image/jpeg. El archivo quedaba guardado como .jpeg,
+    // servido como image/jpeg, y por dentro era HEIC — asi que ningun
+    // navegador lo pintaba y OpenAI lo rechazaba, sin que nada avisara que el
+    // problema era el formato. Los bytes deciden; la etiqueta solo desempata.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { formatoReal } = require('./imagenNormalizar');
+    const real: string | null = formatoReal(buffer);
+    if (real && real !== 'video' && !mime.includes(real)) {
+      const antes = mime;
+      mime = real === 'pdf' ? 'application/pdf' : `image/${real}`;
+      console.warn(`[persistBase64ToS3] el data-URL decia "${antes}" pero los bytes son ${real}; se guarda como ${mime}`);
+    }
     const subtype = mime.split('/')[1] || 'jpg';
     const ext = (subtype.split('+')[0] || 'jpg').split(';')[0] || 'jpg';
     const rand = Math.random().toString(36).slice(2, 8);
