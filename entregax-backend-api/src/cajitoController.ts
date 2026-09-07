@@ -1250,11 +1250,55 @@ const TOOLS: ToolDef[] = [
 ];
 
 // --- System prompt ----------------------------------------------------------
-function buildSystemPrompt(user: { userId: number; role: string; full_name?: string }, caps: Set<string>): string {
+/**
+ * Como se llama cada rol en voz alta, y hasta donde alcanza lo que puede ver.
+ *
+ * Sin esto Cajito solo veia "rol=branch_manager": un codigo, sin idea de que
+ * esa persona manda una sucursal y no la empresa. Saber CON QUIEN habla es lo
+ * que le permite decidir que informacion dar — y sobre todo cual no.
+ */
+const PERFIL_POR_ROL: Record<string, { titulo: string; alcance: string }> = {
+  super_admin:     { titulo: 'Super Admin (dueño del sistema)', alcance: 'Ve todo, sin restriccion.' },
+  admin:           { titulo: 'Administrador',                   alcance: 'Ve casi todo lo operativo de la empresa.' },
+  director:        { titulo: 'Direccion',                       alcance: 'Ve la operacion completa: comisiones, cobranza, tickets y tareas de todos.' },
+  accountant:      { titulo: 'Contabilidad',                    alcance: 'Ve lo financiero: pagos, comprobantes, facturacion y saldos. No maneja la operacion de guias.' },
+  customer_service:{ titulo: 'Servicio a Cliente',              alcance: 'Ve clientes, guias, tickets y saldos para poder atender. No ve comisiones de asesores ni sueldos.' },
+  soporte_tecnico: { titulo: 'Soporte Tecnico',                 alcance: 'Ve tickets, guias y datos tecnicos para diagnosticar. No ve comisiones ni sueldos.' },
+  branch_manager:  { titulo: 'Gerente de sucursal',             alcance: 'Manda UNA sucursal. Lo suyo es su sucursal: no le des cifras globales de la empresa ni datos de otras sucursales.' },
+  advisor:         { titulo: 'Asesor',                          alcance: 'SOLO lo suyo: SUS clientes y SUS comisiones. NUNCA le des datos de clientes de otro asesor, ni comisiones ajenas, ni totales de la empresa.' },
+  sub_advisor:     { titulo: 'Sub-asesor',                       alcance: 'SOLO lo suyo: SUS clientes y SUS comisiones. Nunca datos de otros.' },
+  warehouse_ops:   { titulo: 'Bodega / CEDIS',                  alcance: 'Ve inventario, recepciones y paquetes. No ve dinero: ni precios al cliente, ni comisiones, ni saldos.' },
+  repartidor:      { titulo: 'Repartidor',                      alcance: 'Ve sus rutas y sus entregas. No ve dinero ni datos de otros clientes.' },
+  counter_staff:   { titulo: 'Personal de mostrador',           alcance: 'Ve lo de su mostrador: recepciones y cobros del dia. No ve cifras globales ni comisiones.' },
+  monitoreo:       { titulo: 'Monitoreo',                       alcance: 'Ve estatus y rastreo. No ve dinero.' },
+  client:          { titulo: 'Cliente',                         alcance: 'SOLO lo suyo: sus guias, sus pagos, su saldo. Jamas datos de otro cliente ni informacion interna de la empresa.' },
+  external_partner:{ titulo: 'Socio externo (Grupo Rino)',      alcance: 'Es de OTRA empresa. Solo lo que le corresponde de la integracion; nada interno de EntregaX.' },
+};
+
+function buildSystemPrompt(
+  user: { userId: number; role: string; full_name?: string; sucursal?: string | null; paneles?: string[] },
+  caps: Set<string>
+): string {
   const capList = caps.has('*') ? '(todas)' : Array.from(caps).filter(c => c.startsWith('cajito.read.')).join(', ') || '(ninguna de lectura)';
+  const perfil = PERFIL_POR_ROL[String(user.role || '').toLowerCase()]
+    || { titulo: user.role || 'sin rol', alcance: 'Rol no catalogado: se prudente y no des datos sensibles.' };
+  const paneles = (user.paneles || []).length ? user.paneles!.join(', ') : '(ninguno adicional)';
   return [
     'Eres Cajito, asistente IA operativo de EntregaX (paquetería).',
     'Responde SIEMPRE en español, con tono cordial y directo. Sin emojis salvo en saludos cortos.',
+    '',
+    '=== CON QUIÉN ESTÁS HABLANDO (léelo antes de contestar) ===',
+    `Es ${user.full_name || 'un usuario'}, ${perfil.titulo}.${user.sucursal ? ` Sucursal: ${user.sucursal}.` : ''}`,
+    `Alcance de esta persona: ${perfil.alcance}`,
+    `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
+    'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
+    '',
+    'QUÉ INFORMACIÓN LE PUEDES DAR. El alcance de arriba manda sobre todo lo demás:',
+    '  - Si un dato queda fuera de su alcance, NO se lo des —ni completo, ni resumido, ni "en general". Un total de la empresa también es un dato de la empresa.',
+    '  - No basta con que una herramienta te devuelva el dato: que la consulta funcione no significa que a esta persona le toque verlo.',
+    '  - Si te lo pide igual, dile con naturalidad que eso lo ve Dirección (o quien corresponda) y ofrécele lo que sí puedes darle. Sin sermones.',
+    '  - Dinero ajeno es lo más delicado: comisiones de otros, sueldos, costos de proveedor y márgenes. Ante la duda, no.',
+    '  - XPAY: si hablas con un asesor o un cliente, NUNCA menciones el nombre de la comercializadora. Di "la comercializadora" y ya.',
     'SOLO LECTURA SOBRE LOS DATOS DE OPERACIÓN: NO puedes modificar guías, saldos, comisiones, órdenes, status ni nada del negocio. Si te lo piden, niégate y di en qué módulo del panel se hace.',
     'El sistema bloquea en runtime cualquier herramienta de escritura sobre datos de operación: aunque lo intentes, será rechazada.',
     '',
@@ -1324,8 +1368,7 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Para "cuántos leads/prospectos hay / estado del funnel / cuántos convertidos" → usa leads_stats.',
     'Para buscar o listar leads (por nombre, casillero, teléfono, correo, asesor o etapa) → usa search_leads.',
     '',
-    `Usuario actual: id=${user.userId}, rol=${user.role}${user.full_name ? `, nombre=${user.full_name}` : ''}.`,
-    `Capacidades concedidas: ${capList}.`
+    `Recordatorio de identidad: id=${user.userId}, rol=${user.role}, nombre=${user.full_name || '—'}. Capacidades de consulta: ${capList}.`
   ].join('\n');
 }
 
@@ -1662,9 +1705,27 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       conversationId = created.rows[0].id;
     }
 
-    // Cargar usuario (para system prompt)
-    const u = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
-    let systemPrompt = buildSystemPrompt({ userId, role, full_name: u.rows[0]?.full_name }, caps);
+    // Cargar quién es (para el system prompt). No solo el nombre: tambien su
+    // sucursal y las pantallas que tiene concedidas, porque de eso depende que
+    // informacion le puede dar. Saber que alguien es "branch_manager" no dice
+    // nada; saber que manda la sucursal Monterrey Centro si.
+    const u = await pool.query(
+      `SELECT u.full_name, b.name AS sucursal
+         FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.id = $1`, [userId]
+    ).catch(() => ({ rows: [{ full_name: null, sucursal: null }] as any[] }));
+    const pan = await pool.query(
+      `SELECT p.panel_name FROM user_panel_permissions up
+         JOIN admin_panels p ON p.panel_key = up.panel_key
+        WHERE up.user_id = $1 AND up.can_view = TRUE
+        ORDER BY p.panel_name`, [userId]
+    ).catch(() => ({ rows: [] as any[] }));
+    let systemPrompt = buildSystemPrompt({
+      userId, role,
+      full_name: u.rows[0]?.full_name,
+      sucursal: u.rows[0]?.sucursal || null,
+      paneles: pan.rows.map((x: any) => String(x.panel_name)),
+    }, caps);
 
     // Inyectar los TEMAS documentados en la base de conocimiento. Así el modelo
     // sabe con certeza qué SÍ está documentado y deja de inventar procedimientos
