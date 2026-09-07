@@ -408,16 +408,30 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         fetch(cfgUrl, { headers: authHeaders }),
       ]);
       if (provRes.status === 'fulfilled') {
-        const data = await provRes.value.json();
-        const list: EntProviderPub[] = Array.isArray(data) ? data : [];
-        setProviders(list);
-        setProvidersError(list.length === 0
-          ? 'No hay ninguna comercializadora disponible en este momento. Habla con tu asesor.'
-          : null);
-        const def = list.find(x => x.is_default) || list[0] || null;
-        if (def && !selectedProviderId) setSelectedProviderId(def.id);
+        // Ojo: fetch NO falla ante un 500 o un 403 — la promesa se cumple igual.
+        // Sin revisar res.ok, la respuesta de error entraba como "no es arreglo"
+        // y se volvia lista vacia, asi que una caida de nuestra API o un
+        // problema de permisos se veian EXACTAMENTE igual que "no hay
+        // comercializadoras". Imposible saber cual de las tres era.
+        if (!provRes.value.ok) {
+          setProvidersError(`No se pudo consultar la calculadora (error ${provRes.value.status}). Vuelve a intentar en unos minutos.`);
+        } else {
+          const data = await provRes.value.json();
+          const list: EntProviderPub[] = Array.isArray(data) ? data : [];
+          setProviders(list);
+          // Lista vacia = las comercializadoras estan apagadas del lado del
+          // proveedor. Se reactivan solas cuando ellos abren; por eso la hora,
+          // en vez de dejar a la persona reintentando a ciegas.
+          setProvidersError(list.length === 0
+            ? (isAdvisorMode
+                ? 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am.'
+                : 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am. Si sigue igual, avísale a tu asesor.')
+            : null);
+          const def = list.find(x => x.is_default) || list[0] || null;
+          if (def && !selectedProviderId) setSelectedProviderId(def.id);
+        }
       } else {
-        setProvidersError('No se pudo cargar el tipo de cambio. Revisa tu conexión y vuelve a intentar.');
+        setProvidersError('No se pudo conectar. Revisa tu conexión y vuelve a intentar.');
       }
       if (cfgRes.status === 'fulfilled' && cfgRes.value.ok) {
         const cfg = await cfgRes.value.json();

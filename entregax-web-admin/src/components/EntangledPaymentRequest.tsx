@@ -433,6 +433,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   };
   type RateSnapshot = { t: number; usd_mxn: number; rmb_mxn: number };
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
+  // Antes, si la lista de comercializadoras llegaba vacia la pantalla no decia
+  // NADA: la calculadora se quedaba en blanco y nadie sabia por que. En movil
+  // al menos salia un mensaje; aqui el fallo era mudo.
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const defaultProvider = providers.find(p => p.is_default) || providers[0] || null;
   // 🎯 Venta fija = mínimo que el asesor puede cobrarle al cliente.
   const ventaFijaPct = Number(defaultProvider?.venta_fija ?? 0) || 0;
@@ -969,12 +973,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     if (!token) return;
     try {
       const r = await axios.get(`${API_URL}/api/entangled/providers`, { headers: authHeader });
-      const list: EntProviderPub[] = (r.data || []).map((p: EntProviderPub) => ({
+      const list: EntProviderPub[] = (Array.isArray(r.data) ? r.data : []).map((p: EntProviderPub) => ({
         ...p,
         bank_accounts: Array.isArray(p.bank_accounts) ? p.bank_accounts : [],
       }));
       console.log('[ENTANGLED] Providers loaded:', list);
       setProviders(list);
+      // Lista vacia = las comercializadoras estan apagadas del lado del
+      // proveedor. Se reactivan solas cuando ellos abren, de ahi la hora: sin
+      // ella la persona reintenta a ciegas o llama al asesor, que tampoco puede
+      // hacer nada.
+      setProvidersError(list.length === 0
+        ? 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am.'
+        : null);
       // Seleccionar default o el primero
       const def = list.find((x) => x.is_default) || list[0] || null;
       if (def) {
@@ -998,8 +1009,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           costo_operacion_usd: Number(def.costo_operacion_usd || 0),
         });
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('[ENTANGLED] loadProviders:', err);
+      // Un fallo de red o un 500 NO es lo mismo que "no hay comercializadoras":
+      // se dicen distinto para poder saber cual de los dos es.
+      const codigo = err?.response?.status;
+      setProvidersError(codigo
+        ? `No se pudo consultar la calculadora (error ${codigo}). Vuelve a intentar en unos minutos.`
+        : 'No se pudo conectar con la calculadora. Revisa tu conexión y vuelve a intentar.');
     }
   }, [authHeader, token]);
 
@@ -2229,6 +2246,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   return (
     <Box sx={{ bgcolor: C.pageBg, minHeight: '100vh', color: C.textPrimary, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+
+      {/* Va hasta arriba a proposito: si no se puede cotizar, es lo primero que
+          hay que saber, no algo que se descubre tras llenar el formulario. */}
+      {!!providersError && (
+        <Alert severity="warning" sx={{ borderRadius: 0 }}>{providersError}</Alert>
+      )}
 
       {/* ══════════════════════════════════════════════════
           X-Pay HERO BANNER
