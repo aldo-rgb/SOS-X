@@ -212,6 +212,22 @@ const STATUS_PALETTE: Record<string, { bg: string; bd: string; fg: string }> = {
   error_envio:{ bg: 'rgba(248,113,113,0.14)', bd: 'rgba(248,113,113,0.5)',  fg: '#fca5a5' },
   cancelado:  { bg: 'rgba(251,146,60,0.16)', bd: 'rgba(251,146,60,0.45)',  fg: '#fdba74' },
 };
+/**
+ * La hora a la que vale la pena reintentar.
+ *
+ * Las comercializadoras se apagan del lado del proveedor y aqui se vuelven a
+ * prender solas: la sincronizacion corre CADA HORA EN PUNTO. Por eso no se
+ * pone una hora fija —seria mentira 23 veces al dia— sino la siguiente hora
+ * en punto, que es cuando de verdad se vuelve a consultar.
+ */
+const proximaRevision = (): string => {
+  const d = new Date();
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  const h24 = d.getHours();
+  const h12 = h24 % 12 || 12;
+  return `${h12}:00 ${h24 >= 12 ? 'pm' : 'am'}`;
+};
+
 const StatusBadge: React.FC<{ status: string; label: string; variant?: 'solid' | 'outline' }> = ({ status, label, variant = 'solid' }) => {
   const palette = STATUS_PALETTE[status] || { bg: 'rgba(156,163,175,0.08)', bd: 'rgba(156,163,175,0.3)', fg: '#9ca3af' };
   const isLive = status === 'en_proceso' || status === 'enviado';
@@ -984,7 +1000,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       // ella la persona reintenta a ciegas o llama al asesor, que tampoco puede
       // hacer nada.
       setProvidersError(list.length === 0
-        ? 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am.'
+        ? `Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las ${proximaRevision()}.`
         : null);
       // Seleccionar default o el primero
       const def = list.find((x) => x.is_default) || list[0] || null;

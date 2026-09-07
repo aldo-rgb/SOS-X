@@ -154,6 +154,22 @@ interface PaymentRequest {
   created_at: string;
 }
 
+/**
+ * La hora a la que vale la pena reintentar.
+ *
+ * Las comercializadoras se apagan del lado del proveedor y aqui se vuelven a
+ * prender solas: la sincronizacion corre CADA HORA EN PUNTO. Por eso no se
+ * pone una hora fija —seria mentira 23 veces al dia— sino la siguiente hora
+ * en punto, que es cuando de verdad se vuelve a consultar.
+ */
+const proximaRevision = (): string => {
+  const d = new Date();
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  const h24 = d.getHours();
+  const h12 = h24 % 12 || 12;
+  return `${h12}:00 ${h24 >= 12 ? 'pm' : 'am'}`;
+};
+
 export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Modo asesor: cuando se navega con advisorClientId, la operación Xpay se crea
   // a nombre de ese cliente (endpoints /api/advisor/xpay/*), no del usuario logueado.
@@ -424,8 +440,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           // en vez de dejar a la persona reintentando a ciegas.
           setProvidersError(list.length === 0
             ? (isAdvisorMode
-                ? 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am.'
-                : 'Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las 10:00 am. Si sigue igual, avísale a tu asesor.')
+                ? `Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las ${proximaRevision()}.`
+                : `Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las ${proximaRevision()}. Si sigue igual, avísale a tu asesor.`)
             : null);
           const def = list.find(x => x.is_default) || list[0] || null;
           if (def && !selectedProviderId) setSelectedProviderId(def.id);
