@@ -28,13 +28,23 @@ for (const reg of crudo.split(SEP_REG)) {
   const [sha, fecha, titulo, cuerpo = ''] = reg.replace(/^\n/, '').split(SEP_CAMPO);
   if (!sha || !titulo) continue;
   const m = /^(feat|fix|chore|refactor|docs|perf)\(([^)]+)\):\s*(.+)$/.exec(titulo);
+  const tipo = m ? m[1] : 'otro';
+  const area = m ? m[2] : 'general';
+  // Qué NO se anuncia nunca: trabajo interno que nadie fuera del equipo nota.
+  // Un refactor o un script no cambian nada en la pantalla de nadie, y meterlos
+  // en un comunicado entrena a la gente a no leerlos.
+  const INTERNO = ['chore', 'refactor', 'docs'];
+  const AREAS_INTERNAS = ['scripts', 'build', 'ci', 'deps', 'infra', 'tipos', 'lint'];
+  const anunciable = !INTERNO.includes(tipo) && !AREAS_INTERNAS.includes(area.toLowerCase());
+
   cambios.push({
     sha: sha.slice(0, 12),
     fecha,
-    tipo: m ? m[1] : 'otro',
-    area: m ? m[2] : 'general',
+    tipo,
+    area,
     titulo: m ? m[3] : titulo,
     detalle: cuerpo.replace(/Co-Authored-By:.*/gi, '').trim().slice(0, 1200),
+    anunciable,
   });
 }
 

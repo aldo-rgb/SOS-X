@@ -390,8 +390,15 @@ export async function enviarPreview(id: number, userId: number): Promise<any> {
   return { enviado_a_ti: true, le_llegaria_a: dest.total };
 }
 
-/** Los cambios del sistema, para poder contar qué se hizo. */
-export function listarCambios(desde?: string, hasta?: string, area?: string): any[] {
+/**
+ * Los cambios del sistema.
+ *
+ * Por omisión deja fuera el trabajo interno (refactors, scripts, documentación):
+ * no cambian nada en la pantalla de nadie, y meterlos en un comunicado entrena
+ * a la gente a no leerlos. El recorte fino —qué de lo que queda le sirve a esta
+ * audiencia— es criterio, y va en las instrucciones de Cajito.
+ */
+export function listarCambios(desde?: string, hasta?: string, area?: string, incluirInternos = false): any[] {
   let todos: any[] = [];
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -401,6 +408,8 @@ export function listarCambios(desde?: string, hasta?: string, area?: string): an
   const h = hasta || '9999-12-31';
   const a = area ? String(area).toLowerCase() : null;
   return todos.filter((c: any) =>
-    c.fecha >= d && c.fecha <= h && (!a || String(c.area).toLowerCase().includes(a))
+    c.fecha >= d && c.fecha <= h
+    && (!a || String(c.area).toLowerCase().includes(a))
+    && (incluirInternos || c.anunciable !== false)
   );
 }
