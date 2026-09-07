@@ -84,10 +84,23 @@ interface ChatMsg {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PackageData = Record<string, any>;
 
-const CONV_KEY = 'cajito.conversationId';
-
 const getCurrentUser = () => {
   try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
+};
+
+/**
+ * El hilo de Cajito se guarda POR USUARIO, no por navegador.
+ *
+ * Antes la llave era una sola para toda la maquina. En una computadora
+ * compartida —mostrador, CEDIS— el que entraba despues heredaba el hilo del
+ * anterior. Para un usuario normal eso terminaba en un 403 y el hilo se
+ * borraba solo; para un super admin era peor: puede LEER cualquier
+ * conversacion (lo necesita la auditoria), asi que se le cargaba en pantalla
+ * la conversacion de otra persona.
+ */
+const convKey = (): string => {
+  const id = getCurrentUser()?.id;
+  return id ? `cajito.conversationId.${id}` : 'cajito.conversationId.anon';
 };
 
 const statusLabel = (s?: string, ctx?: { warehouseLocation?: string | null; serviceType?: string | null }): string => {
@@ -1274,7 +1287,7 @@ export default function CajitoFab() {
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Cajito está pensando…');
   const [conversationId, setConversationId] = useState<number | null>(() => {
-    const raw = localStorage.getItem(CONV_KEY);
+    const raw = localStorage.getItem(convKey());
     const n = raw ? parseInt(raw, 10) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   });
@@ -1307,7 +1320,7 @@ export default function CajitoFab() {
     } catch {
       // Si la conversación ya no existe (borrada o de otro usuario), se empieza
       // limpio en vez de dejar el chat roto.
-      localStorage.removeItem(CONV_KEY);
+      localStorage.removeItem(convKey());
     historialCargado.current = false;
       setConversationId(null);
     } finally { setCargandoHistorial(false); }
@@ -1469,7 +1482,7 @@ export default function CajitoFab() {
       const newConvId: number | null = data.conversationId || null;
       if (newConvId && newConvId !== conversationId) {
         setConversationId(newConvId);
-        localStorage.setItem(CONV_KEY, String(newConvId));
+        localStorage.setItem(convKey(), String(newConvId));
       }
       const calls: { name: string }[] = Array.isArray(data.toolCalls) ? data.toolCalls : [];
       const extras: ChatMsg[] = calls.map((c, i) => ({
@@ -1589,7 +1602,7 @@ export default function CajitoFab() {
 
   const startNewConversation = () => {
     setConversationId(null);
-    localStorage.removeItem(CONV_KEY);
+    localStorage.removeItem(convKey());
     setMessages([]);
   };
 

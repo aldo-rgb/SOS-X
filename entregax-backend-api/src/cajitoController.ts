@@ -1246,6 +1246,67 @@ const TOOLS: ToolDef[] = [
       const { enviarPreview } = await import('./avisosProgramados');
       return await enviarPreview(Number(id), ctx.userId);
     }
+  },
+
+  // ==================== MEMORIA DE LA PERSONA ====================
+  // Escribe, pero solo en el renglon de QUIEN esta preguntando: como trabaja,
+  // que le importa, sus atajos. No toca datos de operacion y no cruza usuarios
+  // —el user_id sale del token, nunca de lo que diga el modelo—, asi que no
+  // hay forma de guardarle algo a otra persona ni de leer lo suyo.
+  {
+    name: 'guardar_recuerdo',
+    requiredCapability: 'cajito.access',
+    readOnly: false,
+    description: 'Guarda una nota sobre CÓMO TRABAJA la persona con la que hablas, para recordarla en próximas conversaciones. Úsala SOLO cuando te lo pida ("recuerda que…", "acuérdate de…", "de ahora en adelante…"). Guarda la nota en una frase, en tercera persona y con el dato concreto. NO guardes datos de operación (guías, montos, saldos): eso se consulta, no se recuerda.',
+    parameters: {
+      type: 'object',
+      properties: { nota: { type: 'string', description: 'La nota, en una frase. Ej: "Prefiere que le den los montos en pesos, no en dólares."' } },
+      required: ['nota']
+    },
+    handler: async ({ nota }, ctx) => {
+      const txt = String(nota || '').trim().slice(0, 500);
+      if (txt.length < 5) return { error: 'La nota está vacía o es demasiado corta.' };
+      const n = await pool.query(`SELECT COUNT(*)::int c FROM cajito_memorias WHERE user_id = $1`, [ctx.userId]);
+      if (n.rows[0].c >= 60) {
+        return { error: 'Ya hay 60 notas guardadas de esta persona, que es el máximo. Pídele que borre alguna antes de agregar otra.' };
+      }
+      const r = await pool.query(
+        `INSERT INTO cajito_memorias (user_id, contenido, origen) VALUES ($1,$2,'usuario')
+         ON CONFLICT (user_id, md5(lower(contenido))) DO UPDATE SET updated_at = NOW()
+         RETURNING id`,
+        [ctx.userId, txt]);
+      return { id: r.rows[0].id, guardado: txt, nota: 'Queda guardado solo para esta persona.' };
+    }
+  },
+  {
+    name: 'listar_recuerdos',
+    requiredCapability: 'cajito.access',
+    readOnly: true,
+    description: 'Lo que tienes guardado sobre la persona con la que hablas. Úsala cuando pregunte "¿qué sabes de mí?", "¿qué tienes guardado?" o antes de borrar algo, para poder decirle el número.',
+    parameters: { type: 'object', properties: {} },
+    handler: async (_a, ctx) => {
+      const r = await pool.query(
+        `SELECT id, contenido, created_at FROM cajito_memorias WHERE user_id = $1 ORDER BY created_at ASC`,
+        [ctx.userId]);
+      return { total: r.rows.length, recuerdos: r.rows };
+    }
+  },
+  {
+    name: 'olvidar_recuerdo',
+    requiredCapability: 'cajito.access',
+    readOnly: false,
+    description: 'Borra una nota guardada de la persona con la que hablas. Úsala cuando te diga que lo olvides o que ya no aplica. Si no sabes cuál es, lista primero y pregúntale.',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'Id de la nota (sale de listar_recuerdos)' } },
+      required: ['id']
+    },
+    handler: async ({ id }, ctx) => {
+      const r = await pool.query(
+        `DELETE FROM cajito_memorias WHERE id = $1 AND user_id = $2 RETURNING id`, [Number(id), ctx.userId]);
+      if (r.rows.length === 0) return { error: 'No existe esa nota, o no es de esta persona.' };
+      return { borrado: r.rows[0].id };
+    }
   }
 ];
 
@@ -1292,6 +1353,13 @@ function buildSystemPrompt(
     `Alcance de esta persona: ${perfil.alcance}`,
     `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
     'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
+    '',
+    'MEMORIA DE ESTA PERSONA. Vas conociendo a cada quien y cómo trabaja:',
+    '  - Si te pide que recuerdes algo ("recuerda que…", "de ahora en adelante…"), guárdalo con guardar_recuerdo y confírmaselo en una línea.',
+    '  - Lo que guardas es de ESA persona y solo de ella. Nunca le cuentes a alguien lo que otro te pidió guardar, ni des por hecho con uno lo que aprendiste de otro.',
+    '  - Guarda CÓMO TRABAJA: preferencias, atajos, en qué está, qué formato le sirve. NO guardes datos de operación (guías, montos, saldos): eso se consulta cada vez, y guardado se vuelve mentira en cuanto cambia.',
+    '  - No guardes por iniciativa propia salvo que sea una preferencia clara que te acaba de decir. Ante la duda, pregúntale si quiere que lo recuerdes.',
+    '  - Si te dice que lo olvides, bórralo con olvidar_recuerdo.',
     '',
     'QUÉ INFORMACIÓN LE PUEDES DAR. El alcance de arriba manda sobre todo lo demás:',
     '  - Si un dato queda fuera de su alcance, NO se lo des —ni completo, ni resumido, ni "en general". Un total de la empresa también es un dato de la empresa.',
@@ -1726,6 +1794,20 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       sucursal: u.rows[0]?.sucursal || null,
       paneles: pan.rows.map((x: any) => String(x.panel_name)),
     }, caps);
+
+    // Lo que Cajito ya sabe de ESTA persona. Va inyectado y no como herramienta
+    // a proposito: si tuviera que acordarse de consultarlo, no lo haria, y la
+    // gracia de la memoria es justamente no tener que pedirla.
+    try {
+      const mem = await pool.query(
+        `SELECT id, contenido FROM cajito_memorias WHERE user_id = $1 ORDER BY created_at ASC LIMIT 60`,
+        [userId]);
+      if (mem.rows.length > 0) {
+        systemPrompt += `\n\n=== LO QUE YA SABES DE ${String(u.rows[0]?.full_name || 'ESTA PERSONA').toUpperCase()} ===\n`
+          + 'Te lo pidió guardar esta misma persona. Aplícalo sin que te lo repita y sin presumirlo.\n'
+          + mem.rows.map((m: any) => `  [${m.id}] ${m.contenido}`).join('\n');
+      }
+    } catch { /* sin memoria se sigue igual */ }
 
     // Inyectar los TEMAS documentados en la base de conocimiento. Así el modelo
     // sabe con certeza qué SÍ está documentado y deja de inventar procedimientos
