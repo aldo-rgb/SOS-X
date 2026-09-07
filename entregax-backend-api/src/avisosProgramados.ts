@@ -124,14 +124,92 @@ export async function enviarAvisosPendientes(): Promise<{ avisos: number; person
     `UPDATE avisos_programados SET enviado_at = NOW(), enviados = $2 WHERE id = ANY($1::int[])`,
     [due.rows.map((a: any) => a.id), destinatarios.length]);
 
+  await copiaASuperAdmins(due.rows, porPersona).catch((e) =>
+    console.error('[avisos] no se pudo mandar la copia a super admins:', e?.message));
+
   console.log(`📣 [avisos] ${due.rows.length} aviso(s) enviados a ${destinatarios.length} persona(s)`);
   return { avisos: due.rows.length, personas: destinatarios.length };
+}
+
+/**
+ * Copia para los super admins: qué se mandó, con el texto completo, y a quién.
+ *
+ * No van dentro de las audiencias —entran a todo por nivel y aparecerían en
+ * casi todas— pero sí tienen que poder revisar qué salió a nombre de la
+ * empresa. Y un aviso que se quedó SIN destinatarios es justo lo que hay que
+ * ver: significa que nadie tiene el permiso de la mejora que se anunció.
+ */
+async function copiaASuperAdmins(
+  avisos: any[],
+  porPersona: Map<number, { titulo: string; mensaje: string; url: string | null }[]>
+): Promise<void> {
+  const admins = (await pool.query(
+    `SELECT id FROM users
+      WHERE role = 'super_admin' AND COALESCE(is_active,true) AND deleted_at IS NULL`
+  )).rows.map((x: any) => Number(x.id));
+  if (admins.length === 0) return;
+
+  // Quién recibió cada aviso, por título (es la clave con la que se agrupó).
+  const nombres = new Map<number, string>();
+  if (porPersona.size > 0) {
+    const r = await pool.query(
+      `SELECT id, full_name FROM users WHERE id = ANY($1::int[])`,
+      [[...porPersona.keys()]]);
+    r.rows.forEach((u: any) => nombres.set(Number(u.id), String(u.full_name || `#${u.id}`)));
+  }
+  const recibieron = (titulo: string): string[] => {
+    const out: string[] = [];
+    for (const [uid, items] of porPersona.entries()) {
+      if (items.some((i) => i.titulo === titulo)) out.push(nombres.get(uid) || `#${uid}`);
+    }
+    return out.sort();
+  };
+
+  const cuerpo = textoCopia(
+    avisos.map((a: any) => ({ titulo: a.titulo, mensaje: a.mensaje, recibieron: recibieron(a.titulo) })),
+    porPersona.size);
+
+  const { createCustomNotification } = await import('./notificationController');
+  const { sendPushToUsers } = await import('./pushService');
+  for (const uid of admins) {
+    await createCustomNotification(
+      uid, `Copia: se enviaron ${avisos.length} avisos de mejoras`, cuerpo,
+      'info', 'clipboard-check', { screen: 'Notifications', tipo: 'mejoras_copia' }
+    ).catch(() => {});
+  }
+  await sendPushToUsers(admins, {
+    title: 'Copia de los avisos enviados',
+    body: `${avisos.length} avisos salieron a ${porPersona.size} personas. Ábrelo para ver qué y a quién.`,
+    data: { screen: 'Notifications' },
+    notificationType: 'mejoras_producto',
+  }).catch(() => {});
+}
+
+/**
+ * El texto de la copia. Aparte del envío para poder verlo ANTES de la hora:
+ * un aviso mal redactado o dirigido a nadie se corrige antes, no después.
+ */
+export function textoCopia(
+  avisos: { titulo: string; mensaje: string; recibieron: string[] }[],
+  totalPersonas: number
+): string {
+  const bloques = avisos.map((a, n) => {
+    const quien = a.recibieron.length
+      ? `Le llega a ${a.recibieron.length}: ${a.recibieron.join(', ')}`
+      : 'NO le llega a nadie: no hay quien tenga ese permiso.';
+    return `${n + 1}. ${a.titulo}\n   ${quien}\n   Texto: ${a.mensaje}`;
+  });
+  // join ya mete la línea en blanco entre bloques; un '' extra la duplicaba.
+  return [
+    `Se enviaron ${avisos.length} aviso(s) a ${totalPersonas} persona(s). Esto es lo que salió:`,
+    ...bloques,
+  ].join('\n\n');
 }
 
 /** Para revisar antes de la hora a quién le va a llegar y qué. */
 export async function previsualizarAvisos(): Promise<any> {
   const r = await pool.query(
-    `SELECT id, audiencia, titulo, enviar_at, enviado_at, enviados
+    `SELECT id, audiencia, titulo, mensaje, enviar_at, enviado_at, enviados
        FROM avisos_programados ORDER BY enviar_at ASC, id ASC`);
   const out: any[] = [];
   for (const a of r.rows) {
@@ -141,5 +219,19 @@ export async function previsualizarAvisos(): Promise<any> {
       : [];
     out.push({ ...a, destinatarios: gente });
   }
-  return out;
+  // La copia exacta que le va a llegar al super admin, para poder corregir el
+  // texto o los destinatarios antes de la hora y no despues.
+  const pendientes = out.filter((a) => !a.enviado_at);
+  const personas = new Set<number>();
+  pendientes.forEach((a) => a.destinatarios.forEach((u: any) => personas.add(Number(u.id))));
+  const copia = pendientes.length
+    ? textoCopia(
+        pendientes.map((a) => ({
+          titulo: a.titulo,
+          mensaje: a.mensaje,
+          recibieron: a.destinatarios.map((u: any) => String(u.full_name)).sort(),
+        })),
+        personas.size)
+    : null;
+  return { avisos: out, copia_para_super_admin: copia };
 }

@@ -17163,7 +17163,7 @@ app.get('/api/uploads/videos', authenticateToken, videoListar);
 app.get('/api/admin/avisos', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
   try {
     const { previsualizarAvisos } = await import('./avisosProgramados');
-    res.json({ avisos: await previsualizarAvisos() });
+    res.json(await previsualizarAvisos());
   } catch (e: any) { res.status(500).json({ error: e?.message || 'Error' }); }
 });
 app.post('/api/admin/avisos/enviar-ahora', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
