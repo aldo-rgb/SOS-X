@@ -15502,6 +15502,18 @@ async function ensureRequiredColumns() {
         icon        = EXCLUDED.icon,
         sort_order  = EXCLUDED.sort_order
     `);
+    // Panel de videos. Gestionable y no cableado por rol porque quien graba en
+    // el CEDIS cambia: Gaona y Román son branch_manager, y abrir ese rol entero
+    // daría subida de 200MB a seis personas más que nadie pidió.
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
+      VALUES ('videos_adjuntar', 'Subir Videos', 'operaciones', 'Videocam',
+              'Adjuntar videos a tickets y tareas (evidencia de CEDIS). Se guardan 30 días; los cuadros que se les sacan se conservan', TRUE, 20)
+      ON CONFLICT (panel_key) DO UPDATE SET
+        panel_name  = EXCLUDED.panel_name,
+        description = EXCLUDED.description,
+        icon        = EXCLUDED.icon
+    `);
     // Sembrar panel de Contabilidad en admin_panels si no existe
     await pool.query(`
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
@@ -17146,6 +17158,20 @@ app.post('/api/uploads/video-url', authenticateToken, videoCrearUrl);
 app.post('/api/uploads/video-registrar', authenticateToken, videoRegistrar);
 app.get('/api/uploads/video-info', authenticateToken, videoInfo);
 app.get('/api/uploads/videos', authenticateToken, videoListar);
+// Ver a quien le va a llegar cada aviso ANTES de la hora, y forzarlo si hace
+// falta. La lista se calcula al vuelo, asi que refleja los permisos de ahorita.
+app.get('/api/admin/avisos', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  try {
+    const { previsualizarAvisos } = await import('./avisosProgramados');
+    res.json({ avisos: await previsualizarAvisos() });
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'Error' }); }
+});
+app.post('/api/admin/avisos/enviar-ahora', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  try {
+    const { enviarAvisosPendientes } = await import('./avisosProgramados');
+    res.json({ success: true, ...(await enviarAvisosPendientes()) });
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'Error' }); }
+});
 // ¿Quedó ffmpeg dentro del contenedor? Es lo único de esta función que no se
 // puede comprobar leyendo el código: si falta, los videos suben bien pero se
 // quedan sin cuadros, que es justo lo que los hace legibles.

@@ -31,14 +31,33 @@ function limpiarNombre(n: string): string {
   return String(n || 'video').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60) || 'video';
 }
 
-/** ¿Esta persona puede adjuntar en este ticket / esta tarea? */
+/**
+ * ¿Esta persona puede adjuntar en este ticket / esta tarea?
+ *
+ * Tres caminos, en orden:
+ *  1. El panel videos_adjuntar, gestionable desde Permisos. Es el que usan los
+ *     de CEDIS: Gaona y Román son branch_manager, y abrir el rol entero le
+ *     habría dado subida de 200MB a seis personas más que nadie pidió.
+ *  2. Los roles internos que ya viven de tickets y tareas.
+ *  3. Cualquiera, en SU propio ticket o SU propia tarea.
+ */
 async function puedeAdjuntar(scope: string, refId: number, userId: number, role: string): Promise<boolean> {
-  if (['super_admin', 'admin', 'customer_service', 'soporte_tecnico', 'director'].includes(role)) {
-    // Personal interno: basta con que exista.
+  const existe = async () => {
     const t = scope === 'ticket'
       ? await pool.query(`SELECT 1 FROM support_tickets WHERE id = $1`, [refId])
       : await pool.query(`SELECT 1 FROM tasks WHERE id = $1`, [refId]);
     return t.rows.length > 0;
+  };
+
+  const conPanel = await pool.query(
+    `SELECT 1 FROM user_panel_permissions
+      WHERE user_id = $1 AND panel_key = 'videos_adjuntar' AND can_view = TRUE LIMIT 1`,
+    [userId]).catch(() => ({ rows: [] as any[] }));
+  if (conPanel.rows.length > 0) return await existe();
+
+  if (['super_admin', 'admin', 'customer_service', 'soporte_tecnico', 'director'].includes(role)) {
+    // Personal interno: basta con que exista.
+    return await existe();
   }
   if (scope === 'ticket') {
     const t = await pool.query(

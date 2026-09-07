@@ -1841,6 +1841,24 @@ export const startPaypalAutoInvoiceScheduleCron = () => {
  *
  * A las 3am MX, después del backup, para no encimar dos trabajos pesados.
  */
+/**
+ * CRON: avisos programados (anuncios de mejoras).
+ *
+ * Cada 5 minutos revisa si ya toca alguno. La audiencia se resuelve al enviar,
+ * no al programar: si entre tanto alguien recibio el permiso, le llega.
+ */
+export const startAvisosProgramadosCron = () => {
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const { enviarAvisosPendientes } = await import('./avisosProgramados');
+      await enviarAvisosPendientes();
+    } catch (e: any) {
+      console.error('[CRON] Error enviando avisos programados:', e?.message);
+    }
+  });
+  console.log('📅 [CRON] Avisos programados: revision cada 5 min');
+};
+
 export const startPurgaVideosCron = () => {
   cron.schedule('0 3 * * *', async () => {
     try {
@@ -2217,6 +2235,7 @@ export const initCronJobs = () => {
   startCalendarReminderCron();
   startTicketAtrasosCron();
   startPurgaVideosCron();
+  startAvisosProgramadosCron();
 };
 
 export default initCronJobs;
