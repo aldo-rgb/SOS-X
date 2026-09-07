@@ -16971,6 +16971,11 @@ const CAJITO_CAPABILITIES: {
   { key: 'cajito.read.leads',           label: 'Ver leads y prospectos',             description: 'Consultar la Central de Leads: prospectos, estados y seguimiento.', category: 'read',      risk: 'medium' },
   // Cada quien ve SOLO lo suyo: la herramienta filtra por el usuario que
   // pregunta, no permite consultar el pendiente de otra persona.
+  // La ÚNICA capacidad que permite escribir, y lo que escribe son borradores de
+  // comunicados internos: nunca datos de operación. Aun con ella concedida,
+  // proponer y autorizar están reservados al super admin en el dispatch, y un
+  // borrador no sale hasta que alguien lo autoriza a mano.
+  { key: 'cajito.avisos',               label: 'Redactar comunicados',               description: 'Leer los cambios del sistema y PROPONER comunicados en borrador. No los envía: el envío lo autoriza un super admin y queda margen para cancelar.', category: 'write',     risk: 'high' },
   { key: 'cajito.read.tasks',           label: 'Ver mis tareas',                     description: 'Cuántas tareas tiene el usuario, cuáles están vencidas o vencen hoy, y cómo se reparten en la matriz. Solo las suyas.', category: 'read',      risk: 'low' },
   // Financiero (medio/alto)
   { key: 'cajito.read.invoices',        label: 'Consultar facturas',                 description: 'Ver folios, montos y emisores. Datos fiscales sensibles.', category: 'read',      risk: 'high' },
