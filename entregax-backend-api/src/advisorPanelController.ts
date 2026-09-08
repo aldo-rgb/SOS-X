@@ -2292,8 +2292,28 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           const idT = parseInt(String(uid).substring(String(uid).indexOf('-') + 1));
           let cajas = 1;
           if (kindT === 'PKG') {
+            // Cuántas cajas tiene el cliente POR ENTREGAR, no cuántas trae esta
+            // guía sola.
+            //
+            // Antes se leía `total_boxes` de la guía. En PO Box USA cada guía
+            // US- es UNA caja, así que el contador valía 1 siempre y el "gratis
+            // desde 3" nunca se alcanzaba: S802 tenía 667 cajas recibidas y las
+            // 667 salieron a $99 — $66,033 de última milla sobre una venta de
+            // USD 13,954 (tarea 530).
+            //
+            // Se cuenta lo PENDIENTE y no lo ya asignado a la dirección: la
+            // asignación masiva va guía por guía, así que contar lo asignado
+            // haría que las primeras pagaran y las últimas salieran gratis
+            // según el orden en que se procesaron.
             const c = await pool.query(
-              `SELECT GREATEST(COALESCE(total_boxes, 1), 1) AS n FROM packages WHERE id = $1`, [idT]);
+              `SELECT COALESCE(SUM(GREATEST(COALESCE(p.total_boxes, 1), 1)), 1)::int AS n
+                 FROM packages p
+                WHERE p.user_id = (SELECT user_id FROM packages WHERE id = $1)
+                  AND p.service_type = (SELECT service_type FROM packages WHERE id = $1)
+                  AND p.master_id IS NULL
+                  AND COALESCE(p.client_paid, false) = false
+                  AND p.status::text NOT IN ('delivered', 'shipped')`,
+              [idT]);
             cajas = Number(c.rows[0]?.n) || 1;
           } else if (kindT === 'DHL') {
             const c = await pool.query(
