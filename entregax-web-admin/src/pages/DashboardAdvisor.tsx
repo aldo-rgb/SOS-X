@@ -938,13 +938,40 @@ export default function DashboardAdvisor() {
     } catch { return []; } finally { setPaymentOrdersLoading(false); }
   }, []);
 
+  /**
+   * Trae TODAS las guías del cliente, no las primeras 200.
+   *
+   * Estaba fijo en `limit: 200` y eso rompía dos cosas a la vez con un cliente
+   * grande: no se podían incluir todas en una sola orden, y el buscador —que
+   * filtra sobre lo ya cargado— no encontraba nada fuera de esas 200.
+   * Caso real: S802 tiene 667 guías recibidas; 467 eran invisibles, y la guía
+   * que se buscó estaba en la posición 655.
+   *
+   * El endpoint devuelve `total`, así que se piden páginas hasta completarlo.
+   * El tope duro existe para que un cliente con miles no cuelgue el navegador.
+   */
   const fetchNewOrderShipments = useCallback(async (clientId?: string) => {
     setNewOrderShipmentsLoading(true);
+    const POR_PAGINA = 500;
+    const TOPE_DURO = 5000;
     try {
-      const params: any = { filter: 'in_transit', limit: 200 };
-      if (clientId && clientId !== 'all') params.clientId = clientId;
-      const res = await api.get('/advisor/shipments', { params });
-      setNewOrderShipments(res.data.shipments || []);
+      const base: any = { filter: 'in_transit', limit: POR_PAGINA };
+      if (clientId && clientId !== 'all') base.clientId = clientId;
+
+      const todas: AdvisorShipment[] = [];
+      let page = 1;
+      let total = Infinity;
+      while (todas.length < Math.min(total, TOPE_DURO)) {
+        const res = await api.get('/advisor/shipments', { params: { ...base, page } });
+        const lote: AdvisorShipment[] = res.data?.shipments || [];
+        total = Number(res.data?.total ?? lote.length);
+        todas.push(...lote);
+        // Si una página viene incompleta ya no hay más que pedir: evita quedarse
+        // dando vueltas si el total viniera mal.
+        if (lote.length < POR_PAGINA) break;
+        page++;
+      }
+      setNewOrderShipments(todas);
     } catch { /* silent */ } finally { setNewOrderShipmentsLoading(false); }
   }, []);
 
