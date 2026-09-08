@@ -12666,6 +12666,11 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
           OR UPPER(COALESCE(p.tracking_provider, '')) = $1
           OR UPPER(COALESCE(p.national_tracking, '')) = $1
           OR UPPER(COALESCE(p.notes, '')) = $1
+          -- El campo del AWB a veces trae VARIOS separados por coma
+          -- ("1144659191, 2510006726"), asi que la comparacion exacta fallaba
+          -- y el waybill no se podia escanear: habia que teclear la TDX.
+          -- Se compara contra cada parte por separado.
+          OR $2 = ANY(string_to_array(REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9,]', '', 'g'), ','))
           OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
@@ -12682,7 +12687,10 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
              ELSE 3 END ASC,
         COALESCE(p.is_master, false) DESC,
         p.id ASC
-      LIMIT 5
+      -- 50 y no 5: el limite tiene que alcanzar para VER si el codigo cae en
+      -- mas de un envio. Con 5, un envio de 5 cajas llenaba el cupo y el
+      -- segundo cliente quedaba fuera, asi que la ambiguedad no se detectaba.
+      LIMIT 50
     `, [norm, compact]);
 
     // El AWB puede venir compartido: dos clientes distintos viajan en el mismo
