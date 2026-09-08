@@ -153,7 +153,34 @@ export const getMetas = async (req: AuthRequest, res: Response): Promise<any> =>
 // nuevos) por asesor en el mes. Para el detalle de "Altas este mes" en la app.
 export const getAltasPorAsesor = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const mr = monthRange(String(req.query.period || '') || null);
+    // Tres formas de pedir el periodo:
+    //   ?period=2026-09        → un mes
+    //   ?from=2026-09-01&to=2026-09-08 → un rango (un solo dia = from == to)
+    //   nada                   → el mes en curso
+    const from = String(req.query.from || '').trim();
+    const to = String(req.query.to || '').trim();
+    const esFecha = (x: string) => /^\d{4}-\d{2}-\d{2}$/.test(x);
+    const porRango = esFecha(from) && esFecha(to);
+
+    let where: string;
+    let params: any[];
+    let label: string;
+
+    if (porRango) {
+      // La fecha se decide en hora de MONTERREY, no en UTC. created_at es
+      // 'timestamp without time zone' guardado en UTC: comparar en crudo metia
+      // las altas de después de las 6 pm en el día siguiente.
+      where = `((u.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Monterrey')::date BETWEEN $1::date AND $2::date`;
+      params = [from, to];
+      const fmt = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+      label = from === to ? fmt(from) : `${fmt(from)} — ${fmt(to)}`;
+    } else {
+      const mr = monthRange(String(req.query.period || '') || null);
+      where = `u.created_at >= $1 AND u.created_at < $2`;
+      params = [mr.start, mr.end];
+      label = mr.label;
+    }
+
     const rows = (await pool.query(
       `SELECT a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url,
               (a.role IN ('asesor_lider','advisor')) AS is_leader,
@@ -163,12 +190,12 @@ export const getAltasPorAsesor = async (req: AuthRequest, res: Response): Promis
          JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
          LEFT JOIN users l ON l.id = a.referred_by_id
         WHERE u.role='client'
-          AND u.created_at >= $1 AND u.created_at < $2
+          AND ${where}
           AND COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         GROUP BY a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url, is_leader, l.full_name
-        ORDER BY count DESC, a.full_name`, [mr.start, mr.end])).rows;
+        ORDER BY count DESC, a.full_name`, params)).rows;
     const total = rows.reduce((s: number, r: any) => s + Number(r.count), 0);
-    res.json({ period_label: mr.label, total, advisors: rows });
+    res.json({ period_label: label, total, advisors: rows, from: porRango ? from : null, to: porRango ? to : null });
   } catch (e: any) {
     console.error('[metas] getAltasPorAsesor:', e); res.status(500).json({ error: 'Error al obtener altas por asesor' });
   }

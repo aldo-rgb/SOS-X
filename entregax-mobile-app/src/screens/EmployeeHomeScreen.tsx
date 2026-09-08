@@ -26,6 +26,7 @@ import {
   Share,
   Clipboard,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Appbar, Avatar, Divider, Icon, Chip, Surface } from 'react-native-paper';
@@ -464,6 +465,40 @@ const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Administrador',
 };
 
+/**
+ * Hoy en MONTERREY, como AAAA-MM-DD.
+ *
+ * El telefono puede estar en otro huso —o el usuario de viaje— y "hoy" tiene
+ * que ser el dia de la operacion, no el del aparato. El backend cuenta las
+ * altas con la misma regla, asi que los dos hablan del mismo dia.
+ */
+const fechaMx = (d: Date = new Date()): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Monterrey', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+
+/** Un dia antes/despues de una fecha AAAA-MM-DD, sin lios de huso. */
+const sumarDias = (iso: string, n: number): string => {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Los ultimos N meses como [{ period:'2026-09', label:'sep 2026' }]. */
+const mesesRecientes = (n = 12): { period: string; label: string }[] => {
+  const hoy = fechaMx();
+  const [y, m] = [parseInt(hoy.slice(0, 4)), parseInt(hoy.slice(5, 7))];
+  const out: { period: string; label: string }[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push({
+      period: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('es-MX', { month: 'short', year: 'numeric', timeZone: 'UTC' }),
+    });
+  }
+  return out;
+};
+
 export default function EmployeeHomeScreen({ navigation, route }: any) {
   const { user: initialUser, token } = route.params;
   const { t } = useTranslation();
@@ -526,13 +561,30 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [altasModal, setAltasModal] = useState(false);
   const [altasData, setAltasData] = useState<{ period_label: string; total: number; advisors: any[] } | null>(null);
   const [altasLoading, setAltasLoading] = useState(false);
-  const openAltasBreakdown = async () => {
-    setAltasModal(true); setAltasLoading(true); setAltasData(null);
+  // Periodo del desglose. Se puede ver un mes, un rango o un solo dia.
+  const [altasFiltro, setAltasFiltro] = useState<{ tipo: 'mes'; period: string } | { tipo: 'rango'; from: string; to: string }>(
+    () => ({ tipo: 'mes', period: fechaMx().slice(0, 7) })
+  );
+  const [altasRangoAbierto, setAltasRangoAbierto] = useState(false);
+  const [altasDesde, setAltasDesde] = useState('');
+  const [altasHasta, setAltasHasta] = useState('');
+
+  const cargarAltas = useCallback(async (f: typeof altasFiltro) => {
+    setAltasLoading(true); setAltasData(null);
     try {
-      const r = await fetch(`${API_URL}/api/admin/altas-por-asesor`, { headers: { Authorization: `Bearer ${token}` } });
+      const qs = f.tipo === 'mes' ? `period=${f.period}` : `from=${f.from}&to=${f.to}`;
+      const r = await fetch(`${API_URL}/api/admin/altas-por-asesor?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
       if (r.ok) setAltasData(await r.json());
     } catch { /* */ } finally { setAltasLoading(false); }
+  }, [token]);
+
+  const openAltasBreakdown = async () => {
+    const inicial = { tipo: 'mes' as const, period: fechaMx().slice(0, 7) };
+    setAltasFiltro(inicial); setAltasRangoAbierto(false);
+    setAltasModal(true);
+    cargarAltas(inicial);
   };
+  const aplicarFiltroAltas = (f: typeof altasFiltro) => { setAltasFiltro(f); cargarAltas(f); };
   // Contador de mis tareas pendientes (para el widget del home, todos los roles).
   const [myTaskCount, setMyTaskCount] = useState<number | null>(null);
   const loadMyTaskCount = useCallback(async () => {
@@ -1879,11 +1931,92 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' }}>
             <View style={{ backgroundColor: '#2E9E9E', padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View>
-                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>📈 Altas este mes por asesor</Text>
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>📈 Altas por asesor</Text>
                 <Text style={{ color: '#E0F2F1', fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>{altasData?.period_label || ''}{altasData ? ` · ${altasData.total} altas` : ''}</Text>
               </View>
               <TouchableOpacity onPress={() => setAltasModal(false)} hitSlop={10}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '700' }}>✕</Text></TouchableOpacity>
             </View>
+            {/* Periodo: atajos, mes suelto y rango libre. Sin calendario nativo
+                a proposito — meter una libreria de fechas obliga a compilar la
+                app y esto se entrega por OTA. */}
+            {(() => {
+              const hoy = fechaMx();
+              const esteMes = hoy.slice(0, 7);
+              const atajos: { k: string; label: string; f: any }[] = [
+                { k: 'hoy',   label: 'Hoy',        f: { tipo: 'rango', from: hoy, to: hoy } },
+                { k: 'ayer',  label: 'Ayer',       f: { tipo: 'rango', from: sumarDias(hoy, -1), to: sumarDias(hoy, -1) } },
+                { k: '7d',    label: 'Últimos 7 días', f: { tipo: 'rango', from: sumarDias(hoy, -6), to: hoy } },
+                { k: 'mes',   label: 'Este mes',   f: { tipo: 'mes', period: esteMes } },
+              ];
+              const activo = (f: any) => altasFiltro.tipo === f.tipo
+                && (f.tipo === 'mes' ? (altasFiltro as any).period === f.period
+                                     : (altasFiltro as any).from === f.from && (altasFiltro as any).to === f.to);
+              const chip = (on: boolean) => ({
+                paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, marginRight: 8,
+                borderWidth: 1.5, borderColor: on ? '#2E9E9E' : '#DDD',
+                backgroundColor: on ? '#2E9E9E' : '#FFF',
+              });
+              const chipTxt = (on: boolean) => ({ fontSize: 12.5, fontWeight: '700' as const, color: on ? '#FFF' : '#555' });
+              return (
+                <View style={{ paddingTop: 10 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
+                    {atajos.map(a => (
+                      <TouchableOpacity key={a.k} style={chip(activo(a.f))} onPress={() => aplicarFiltroAltas(a.f)}>
+                        <Text style={chipTxt(activo(a.f))}>{a.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity style={chip(altasRangoAbierto)} onPress={() => setAltasRangoAbierto(v => !v)}>
+                      <Text style={chipTxt(altasRangoAbierto)}>Rango…</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                              contentContainerStyle={{ paddingHorizontal: 12, marginTop: 8 }}>
+                    {mesesRecientes(12).map(m => {
+                      const on = altasFiltro.tipo === 'mes' && (altasFiltro as any).period === m.period;
+                      return (
+                        <TouchableOpacity key={m.period} style={chip(on)}
+                                          onPress={() => aplicarFiltroAltas({ tipo: 'mes', period: m.period })}>
+                          <Text style={[chipTxt(on), { textTransform: 'capitalize' }]}>{m.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  {altasRangoAbierto && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, marginTop: 10 }}>
+                      <TextInput
+                        value={altasDesde} onChangeText={setAltasDesde}
+                        placeholder="Desde AAAA-MM-DD" placeholderTextColor="#AAA"
+                        autoCapitalize="none" keyboardType="numbers-and-punctuation"
+                        style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5 }}
+                      />
+                      <TextInput
+                        value={altasHasta} onChangeText={setAltasHasta}
+                        placeholder="Hasta AAAA-MM-DD" placeholderTextColor="#AAA"
+                        autoCapitalize="none" keyboardType="numbers-and-punctuation"
+                        style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5 }}
+                      />
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#2E9E9E', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 }}
+                        onPress={() => {
+                          const ok = /^\d{4}-\d{2}-\d{2}$/;
+                          if (!ok.test(altasDesde) || !ok.test(altasHasta)) {
+                            Alert.alert('Fechas', 'Escríbelas como AAAA-MM-DD. Ejemplo: 2026-09-01');
+                            return;
+                          }
+                          // Si las invierten, se acomodan solas en vez de no traer nada.
+                          const [d, h] = altasDesde <= altasHasta ? [altasDesde, altasHasta] : [altasHasta, altasDesde];
+                          aplicarFiltroAltas({ tipo: 'rango', from: d, to: h });
+                        }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12.5 }}>Ver</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
             {/* El desglose contesta "quién", pero no "cómo venimos": desde aquí
                 se salta a la serie de los últimos 12 meses. */}
             <TouchableOpacity activeOpacity={0.85}
@@ -1905,7 +2038,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             ) : (
               <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 28 }}>
                 {(altasData?.advisors || []).length === 0 ? (
-                  <Text style={{ textAlign: 'center', color: '#888', paddingVertical: 24 }}>Sin altas este mes.</Text>
+                  <Text style={{ textAlign: 'center', color: '#888', paddingVertical: 24 }}>Sin altas en este periodo.</Text>
                 ) : (altasData!.advisors).map((a: any, idx: number) => {
                   const max = Number(altasData!.advisors[0]?.count || 1);
                   const pct = Math.max(4, Math.round((Number(a.count) / max) * 100));
