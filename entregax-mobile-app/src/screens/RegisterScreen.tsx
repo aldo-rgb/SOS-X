@@ -86,6 +86,7 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
     { flag: '🇲🇽', code: '+52', label: 'México' },
     { flag: '🇺🇸', code: '+1',  label: 'USA' },
     { flag: '🇨🇳', code: '+86', label: '中国' },
+    { flag: '🇮🇳', code: '+91', label: 'India' },
   ];
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

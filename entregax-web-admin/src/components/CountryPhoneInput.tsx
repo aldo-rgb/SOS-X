@@ -32,6 +32,7 @@ const COUNTRIES: Country[] = [
   { code: '1',   iso: 'US', name: 'Estados Unidos',  flag: '\ud83c\uddfa\ud83c\uddf8', expectedLen: 10 },
   { code: '1',   iso: 'CA', name: 'Canad\u00e1',           flag: '\ud83c\udde8\ud83c\udde6', expectedLen: 10 },
   { code: '86',  iso: 'CN', name: 'China',           flag: '\ud83c\udde8\ud83c\uddf3', expectedLen: 11 },
+  { code: '91',  iso: 'IN', name: 'India',           flag: '\ud83c\uddee\ud83c\uddf3', expectedLen: 10 },
   { code: '57',  iso: 'CO', name: 'Colombia',        flag: '\ud83c\udde8\ud83c\uddf4', expectedLen: 10 },
   { code: '54',  iso: 'AR', name: 'Argentina',       flag: '\ud83c\udde6\ud83c\uddf7', expectedLen: 10 },
   { code: '56',  iso: 'CL', name: 'Chile',           flag: '\ud83c\udde8\ud83c\uddf1', expectedLen: 9  },
