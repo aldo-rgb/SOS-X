@@ -2697,7 +2697,40 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Razón Social:</Text> {razon}</Text>
                     <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>RFC:</Text> {rfc}</Text>
                     <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>CP:</Text> {cp}</Text>
-                    <TouchableOpacity onPress={() => setEditingFiscalData(true)}>
+
+                    {/* Uso de CFDI, a la mano. Antes solo se podia cambiar
+                        entrando a "Editar", asi que quien traia los datos ya
+                        cargados no lo veia y se iba con el que viniera del
+                        perfil — casi siempre G03. Es un dato que cambia por
+                        operacion, no por cliente: la misma persona puede
+                        importar mercancia (G01) y al mes siguiente equipo de
+                        computo (I04). */}
+                    <Text style={[styles.infoCardLineLabel, { marginBottom: 6 }]}>Uso de CFDI:</Text>
+                    <View style={styles.chipScroll}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {USOS_CFDI.map(u => (
+                          <TouchableOpacity
+                            key={u.code}
+                            style={[styles.chip, uso === u.code && styles.chipActive]}
+                            onPress={() => {
+                              // Marca que fue elegido a mano: si no, la carga de
+                              // datos fiscales que viene despues lo pisaba y la
+                              // pantalla mostraba uno mientras la API recibia
+                              // otro (el caso G01/G03 que reporto XPay).
+                              usoTouchedRef.current = true;
+                              setUso(u.code);
+                            }}
+                          >
+                            <View>
+                              <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontWeight: '600' }]}>{u.code}</Text>
+                              <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontSize: 10 }]}>{u.name.slice(0, 20)}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+
+                    <TouchableOpacity onPress={() => setEditingFiscalData(true)} style={{ marginTop: 8 }}>
                       <Text style={styles.editLink}>✏️ {t('xpay.editData', 'Editar')}</Text>
                     </TouchableOpacity>
                   </View>

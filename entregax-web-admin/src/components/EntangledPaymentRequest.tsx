@@ -3425,6 +3425,40 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>C.P. Fiscal:</strong> {form.cp}
                       </Typography>
+
+                      {/* Uso de CFDI a la mano. Antes solo se podía cambiar
+                          entrando a "Editar datos fiscales", así que quien traía
+                          los datos ya cargados ni lo veía y se iba con el del
+                          perfil —casi siempre G03—. Es un dato que cambia por
+                          OPERACIÓN, no por cliente: el mismo importador puede
+                          traer mercancía (G01) y al mes siguiente equipo de
+                          cómputo (I04). */}
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" sx={{ color: C.textSecondary, display: 'block', mb: 0.5 }}>
+                          Uso de CFDI
+                        </Typography>
+                        <Stack direction="row" spacing={0.8} sx={{ flexWrap: 'wrap', gap: 0.8 }}>
+                          {USOS_CFDI.map((o) => (
+                            <Chip
+                              key={o.value}
+                              size="small"
+                              label={o.label}
+                              onClick={() => {
+                                // Marca que se eligió a mano: si no, la carga de
+                                // datos fiscales que llega después lo pisa y la
+                                // pantalla muestra uno mientras la API recibe
+                                // otro (el caso G01/G03 que reportó XPay).
+                                usoCfdiTouchedRef.current = true;
+                                setForm((prev: any) => ({ ...prev, uso_cfdi: o.value }));
+                              }}
+                              color={form.uso_cfdi === o.value ? 'primary' : 'default'}
+                              variant={form.uso_cfdi === o.value ? 'filled' : 'outlined'}
+                              sx={{ fontSize: '0.72rem' }}
+                            />
+                          ))}
+                        </Stack>
+                      </Box>
+
                       <Button
                         size="small"
                         variant="text"
