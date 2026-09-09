@@ -14532,6 +14532,7 @@ import {
 import {
   upsertExternalUsers as syncUpsertExternalUsers,
   inboundWebhook as syncInboundWebhook,
+  syncListOurUsers,
   attachmentDownload as syncAttachmentDownload,
   syncHealth as syncHealthCheck,
   verifyAuth as syncVerifyAuth,
@@ -14674,6 +14675,10 @@ app.post('/api/webhooks/grupo-rino', syncInboundWebhook);
 // Reconciliación: estado actual de todas las tareas compartidas, con las
 // borradas marcadas. Para que Grupo Rino cuadre solo sin depender de que cada
 // webhook haya llegado.
+// La lista de NUESTRA gente que Grupo Rino puede nombrar al encargarnos algo.
+// Solo Direccion y Administracion: no se expone el resto del personal.
+app.get('/api/sync/usuarios', syncListOurUsers);
+app.get('/api/sync/users', syncListOurUsers); // alias, por si usan el nombre en ingles
 app.get('/api/sync/tasks', syncListTasks);
 app.get('/api/sync/attachments/:id', syncAttachmentDownload);
 app.post('/api/sync/verify', syncVerifyAuth);

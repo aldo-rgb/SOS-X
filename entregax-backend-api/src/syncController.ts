@@ -180,8 +180,26 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
     const event = String(body.event || '');
     const data = body.data || {};
     const task = data.task || {};
-    // Nuestra tarea: Grupo Rino referencia nuestro id como external_id (o id).
-    const localTaskId = Number(task.external_id ?? task.local_id ?? task.id);
+    // El id que mandan significa DOS cosas distintas segun quien creo la tarea:
+    //  · tarea NUESTRA  → external_id es NUESTRO id (asi lo mandamos nosotros)
+    //  · tarea SUYA     → external_id es el id de ELLOS
+    // Por eso se busca primero el mapeo externo: si esa tarea la crearon ellos,
+    // ya la tenemos guardada con su id. Si no aparece, es una de las nuestras y
+    // el numero es nuestro id, como siempre.
+    const refExterna = String(task.external_id ?? task.local_id ?? task.id ?? '').trim();
+    if (!refExterna) return res.status(400).json({ error: 'Falta el id de la tarea' });
+
+    // Alta de una tarea SUYA en nuestro tablero.
+    if (event === 'task.created') {
+      const r = await crearTareaDesdeRino(task, refExterna);
+      await pool.query(
+        `INSERT INTO sync_inbox (event_id, event) VALUES ($1,$2) ON CONFLICT (event_id) DO NOTHING`, [eventId, event]);
+      return res.status(r.ok ? 200 : 422).json(r);
+    }
+
+    const mapeo = await pool.query(
+      `SELECT id FROM tasks WHERE external_app = $1 AND external_id = $2 LIMIT 1`, [EXTERNAL_APP, refExterna]);
+    const localTaskId = Number(mapeo.rows[0]?.id ?? refExterna);
     if (!localTaskId) return res.status(400).json({ error: 'Falta el id de la tarea' });
 
     // Mapear el actor externo → usuario local. El autor de un comentario viene
@@ -254,3 +272,137 @@ export const syncHealth = async (_req: Request, res: Response): Promise<any> => 
     console.error('[sync] health:', e); res.status(500).json({ error: 'Error' });
   }
 };
+
+// ============================================================
+// GET /api/sync/usuarios — nuestra gente, para que Grupo Rino nos asigne
+// ============================================================
+/**
+ * Espejo de lo que ellos nos dan: la lista completa, no un incremento.
+ *
+ * SOLO se comparte Direccion y Administracion (hoy Neida Arriaga y Juan
+ * Segura). Decision de Aldo, 8-sep-2026: son los unicos que pueden recibir
+ * trabajo de un socio externo. Los 73 del personal interno NO se exponen —
+ * nombre y puesto de un repartidor o de bodega no le sirven a nadie del otro
+ * lado y son datos de nuestra gente.
+ *
+ * Tampoco va el CORREO. Ellos lo pidieron para mostrarlo al elegir
+ * responsable, pero con id y nombre ya pueden; el correo es dato personal que
+ * no hace falta para el flujo. Si algun dia se necesita, se agrega aqui.
+ *
+ * OJO: la lista se arma por ROL. Si se nombra a otro admin o director, entra
+ * solo. Es lo correcto para que no se quede vieja, pero conviene saberlo.
+ */
+const PUESTO_VISIBLE: Record<string, string> = {
+  admin: 'Administración',
+  director: 'Dirección',
+};
+
+export const syncListOurUsers = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!verifyInboundApiKey(req.header('X-EntregaX-Key') || req.header('x-entregax-key') || undefined)) {
+      return res.status(401).json({ error: DIAG_MSG.key_mismatch, reason: 'key_mismatch' });
+    }
+    const r = await pool.query(
+      `SELECT id, full_name, role
+         FROM users
+        WHERE role IN ('admin','director')
+          AND COALESCE(is_active, TRUE) = TRUE
+          AND deleted_at IS NULL
+          AND COALESCE(source_app, '') <> $1
+        ORDER BY full_name`,
+      [EXTERNAL_APP]
+    );
+    return res.json({
+      ok: true,
+      usuarios: r.rows.map((u: any) => ({
+        id: Number(u.id),
+        nombre: String(u.full_name || ''),
+        puesto: PUESTO_VISIBLE[String(u.role)] || String(u.role),
+      })),
+      nota: 'Lista COMPLETA, no incremento: reemplaza tu copia. Solo Dirección y Administración pueden recibir tareas.',
+    });
+  } catch (e: any) {
+    console.error('[sync] listOurUsers:', e);
+    return res.status(500).json({ error: 'Error al listar usuarios' });
+  }
+};
+
+/**
+ * Da de alta en NUESTRO tablero una tarea que nos encarga Grupo Rino.
+ *
+ * Reglas, y las tres importan:
+ *
+ *  1. Cae en el tablero "Grupo Rino", no revuelta con las nuestras. Asi se ve
+ *     de un vistazo que el encargo viene de fuera y quien la atiende sabe con
+ *     quien hablar.
+ *  2. El responsable solo puede ser alguien de la lista que compartimos
+ *     (Direccion y Administracion). Si mandan a otro, se rechaza en vez de
+ *     asignarsela a quien sea: un socio externo no le pone trabajo a cualquiera.
+ *  3. Se guarda SU id. Los eventos que manden despues —terminada, comentario—
+ *     vienen con ese id y sin el no habria como saber de que tarea hablan.
+ */
+const TABLERO_RINO = 'grupo_rino';
+const PUEDEN_RECIBIR_DE_RINO = ['admin', 'director'];
+
+async function crearTareaDesdeRino(task: any, refExterna: string): Promise<any> {
+  // Reintento del mismo envio: se devuelve la que ya existe en vez de duplicar.
+  const ya = await pool.query(
+    `SELECT id FROM tasks WHERE external_app = $1 AND external_id = $2 LIMIT 1`, [EXTERNAL_APP, refExterna]);
+  if (ya.rows.length > 0) return { ok: true, task_id: ya.rows[0].id, duplicate: true };
+
+  const titulo = String(task.title || '').trim();
+  if (!titulo) return { ok: false, error: 'La tarea necesita título' };
+
+  const tablero = await pool.query(
+    `SELECT id FROM task_boards WHERE board_key = $1 AND COALESCE(is_active, TRUE) = TRUE LIMIT 1`, [TABLERO_RINO]);
+  const boardId = tablero.rows[0]?.id;
+  if (!boardId) return { ok: false, error: 'No existe el tablero de Grupo Rino' };
+
+  // El responsable: id NUESTRO, y solo de quienes compartimos.
+  const asignado = Number(task.assignee_id);
+  if (!Number.isFinite(asignado) || asignado <= 0) {
+    return { ok: false, error: 'Falta assignee_id. Sácalo de GET /api/sync/usuarios.' };
+  }
+  const u = await pool.query(
+    `SELECT id, full_name, role FROM users
+      WHERE id = $1 AND COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
+        AND role = ANY($2::text[])`,
+    [asignado, PUEDEN_RECIBIR_DE_RINO]);
+  if (u.rows.length === 0) {
+    return {
+      ok: false,
+      error: `El usuario ${asignado} no puede recibir tareas. Solo los que devuelve GET /api/sync/usuarios.`,
+    };
+  }
+
+  const eisen = ['fuego', 'estrella', 'reloj', 'hoja'].includes(String(task.eisenhower))
+    ? String(task.eisenhower) : 'estrella';
+  const vence = task.due_at ? new Date(task.due_at) : null;
+
+  const r = await pool.query(
+    `INSERT INTO tasks (board_id, title, description, assignee_id, due_at, eisenhower, status,
+                        external_app, external_id, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,'open',$7,$8,NOW(),NOW())
+     RETURNING id, created_at`,
+    [boardId, titulo.slice(0, 300), String(task.description || '').slice(0, 4000) || null,
+     asignado, vence && !isNaN(vence.getTime()) ? vence : null, eisen, EXTERNAL_APP, refExterna]);
+
+  const taskId = r.rows[0].id;
+  console.log(`[sync] Grupo Rino nos encargó la tarea ${taskId} ("${titulo}") para ${u.rows[0].full_name}`);
+
+  try {
+    const { createCustomNotification } = await import('./notificationController');
+    await createCustomNotification(
+      asignado, '📥 Nueva tarea de Grupo Rino', titulo,
+      'info', 'clipboard', { screen: 'Tasks', taskId }, '/tareas'
+    );
+    const { sendPushToUsers } = await import('./pushService');
+    await sendPushToUsers([asignado], {
+      title: '📥 Nueva tarea de Grupo Rino', body: titulo,
+      data: { screen: 'Tasks', taskId: String(taskId) },
+      notificationType: 'task_assigned',
+    });
+  } catch (e: any) { console.warn('[sync] no se pudo avisar la tarea de Rino:', e?.message); }
+
+  return { ok: true, task_id: taskId, assignee: u.rows[0].full_name, board: 'Grupo Rino' };
+}
