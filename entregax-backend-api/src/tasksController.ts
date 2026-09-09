@@ -119,8 +119,12 @@ export async function upsertSalesLeadTask(opts: {
       return;
     }
     const ins = await pool.query(
-      `INSERT INTO tasks (board_id, column_id, title, assignee_id, eisenhower, linked_type, linked_id, contact_phone, created_by)
-       VALUES ($1,$2,$3,$4,'estrella','lead',$5,$6,$7) RETURNING id`,
+      // requiere_confirmacion=FALSE: la tarjeta del prospecto es la propia
+      // chamba del asesor, no un encargo. Cuando la cierra, se cierra — sin
+      // dejarla esperando el visto bueno de quien asigno el lead, que no tiene
+      // nada que revisar.
+      `INSERT INTO tasks (board_id, column_id, title, assignee_id, eisenhower, linked_type, linked_id, contact_phone, created_by, requiere_confirmacion)
+       VALUES ($1,$2,$3,$4,'estrella','lead',$5,$6,$7,FALSE) RETURNING id`,
       [boardId, columnId, title, advisorId, leadKey, leadPhone, actor]);
     const tid = ins.rows[0]?.id;
     if (tid) {
@@ -1656,7 +1660,11 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     // confirmación"; el creador la cierra en un segundo paso. Gerencia que NO sea
     // el responsable puede confirmar como apoyo (override), pero un
     // responsable/involucrado (aunque sea gerente) NUNCA auto-aprueba su trabajo.
-    const canFinalize = isCreator || (mgr && !isAssignee);
+    // Hay tareas que no piden confirmacion aunque el responsable y quien
+    // asigno sean distintos: las que genera el sistema como carga de trabajo
+    // propia (la tarjeta de un prospecto). Ahi el responsable cierra y ya.
+    const pideConfirmacion = task.requiere_confirmacion !== false;
+    const canFinalize = isCreator || (mgr && !isAssignee) || !pideConfirmacion;
     // Si hay un creador conocido y quien cierra no puede finalizar → a espera.
     const goingToAwaiting = creatorId > 0 && !alreadyAwaiting && !canFinalize && !skipAwaiting;
 
