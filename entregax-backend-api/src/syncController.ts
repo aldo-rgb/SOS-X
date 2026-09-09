@@ -375,8 +375,20 @@ async function crearTareaDesdeRino(task: any, refExterna: string): Promise<any> 
     };
   }
 
-  const eisen = ['fuego', 'estrella', 'reloj', 'hoja'].includes(String(task.eisenhower))
-    ? String(task.eisenhower) : 'estrella';
+  // La urgencia la decidimos NOSOTROS.
+  //
+  // Lo que para un socio es urgente no lo es necesariamente para nuestra
+  // operacion, y "fuego" en el tablero significa dejar lo que se este haciendo.
+  // La primera solicitud de devolucion llego marcada asi (tarea 533) y no lo
+  // era: entra como importante y aqui se escala si hace falta.
+  //
+  // El resto de su senal si se respeta: si mandan reloj u hoja, se queda.
+  const pedido = String(task.eisenhower || '');
+  const eisen = pedido === 'fuego' ? 'estrella'
+    : (['estrella', 'reloj', 'hoja'].includes(pedido) ? pedido : 'estrella');
+  if (pedido === 'fuego') {
+    console.log('[sync] Grupo Rino la marco urgente; entra como importante. Se escala de este lado si toca.');
+  }
   const vence = task.due_at ? new Date(task.due_at) : null;
 
   const r = await pool.query(
