@@ -375,20 +375,15 @@ async function crearTareaDesdeRino(task: any, refExterna: string): Promise<any> 
     };
   }
 
-  // La urgencia la decidimos NOSOTROS.
+  // La prioridad llega tal cual la mandan, urgente incluido.
   //
-  // Lo que para un socio es urgente no lo es necesariamente para nuestra
-  // operacion, y "fuego" en el tablero significa dejar lo que se este haciendo.
-  // La primera solicitud de devolucion llego marcada asi (tarea 533) y no lo
-  // era: entra como importante y aqui se escala si hace falta.
-  //
-  // El resto de su senal si se respeta: si mandan reloj u hoja, se queda.
-  const pedido = String(task.eisenhower || '');
-  const eisen = pedido === 'fuego' ? 'estrella'
-    : (['estrella', 'reloj', 'hoja'].includes(pedido) ? pedido : 'estrella');
-  if (pedido === 'fuego') {
-    console.log('[sync] Grupo Rino la marco urgente; entra como importante. Se escala de este lado si toca.');
-  }
+  // Se penso en topar el "fuego" —la primera solicitud de devolucion llego
+  // marcada asi y no lo era (tarea 533)— pero Aldo decidio dejarlos con la
+  // facultad y pedirles que la cataloguen bien. Es lo correcto: si un socio
+  // marca urgente algo que de verdad lo es, taparlo nos deja ciegos, y el
+  // problema de que la etiqueten de mas se arregla hablando, no en el codigo.
+  const eisen = ['fuego', 'estrella', 'reloj', 'hoja'].includes(String(task.eisenhower))
+    ? String(task.eisenhower) : 'estrella';
   const vence = task.due_at ? new Date(task.due_at) : null;
 
   const r = await pool.query(
