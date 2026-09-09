@@ -459,6 +459,14 @@ const TOOLS: ToolDef[] = [
                 COALESCE(p.pkg_width, 0)  AS width,
                 COALESCE(p.pkg_height, 0) AS height,
                 p.box_id, p.created_at, p.received_at, p.delivered_at,
+                -- QUIEN puso la guia nacional. Es la diferencia entre un cobro
+                -- legitimo y uno indebido, y sin este dato se deduce al reves:
+                -- en el TKT-2026-2403 se concluyo "cobro indebido de $2,675"
+                -- porque las cajas tenian guia de Paquete Express, cuando esas
+                -- guias las habiamos generado NOSOTROS y por tanto pagado.
+                p.national_label_source,
+                COALESCE(p.national_shipping_cost, 0) AS flete_nacional,
+                p.national_carrier, p.national_tracking,
                 u.full_name AS client_name, u.email AS client_email
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
@@ -478,7 +486,16 @@ const TOOLS: ToolDef[] = [
           nota: 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
         };
       }
-      return { found: true, packages: r.rows };
+      // Se traduce el origen de la guia a lenguaje llano: dejarlo como
+      // "generated" invita a leerlo mal.
+      const paquetes = r.rows.map((x: any) => ({
+        ...x,
+        guia_nacional_la_puso:
+          x.national_label_source === 'uploaded' ? 'EL CLIENTE (subio su propia guia)'
+          : x.national_label_source === 'generated' ? 'ENTREGAX (la generamos nosotros y la pagamos)'
+          : 'no registrado',
+      }));
+      return { found: true, packages: paquetes };
     }
   },
 
@@ -1468,6 +1485,12 @@ function buildSystemPrompt(
     'Si es una HERRAMIENTA NUEVA, explica CÓMO se usa y DÓNDE está —en qué pantalla, qué botón—, no solo que existe. Un aviso que dice "ya hay videos" sin decir dónde apretar no sirve de nada.',
     'Prefiere tres cosas bien explicadas a diez enumeradas. Si después de filtrar no queda nada que de verdad le sirva a una audiencia, DILO y no propongas comunicado para ella.',
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
+    '',
+    'FLETE NACIONAL: antes de decir que un cobro es indebido, mira QUIÉN puso la guía.',
+    '  - Si la guía la generamos nosotros ("ENTREGAX"), la pagamos: el cobro al cliente es CORRECTO, aunque la guía sea de Paquete Express o de otra paquetería.',
+    '  - Solo es indebido si el cliente subió su propia guía ("EL CLIENTE").',
+    '  - Que una caja tenga número de guía de paquetería NO significa que sea del cliente. Es el error que se cometió en el TKT-2026-2403: se concluyó un cobro indebido de $2,675 cuando esas guías las había generado el CEDIS seis minutos antes de que el cliente pidiera usar las suyas.',
+    '  - Si el origen dice "no registrado", dilo como dato faltante en vez de suponer.',
     'CONOCIMIENTO / PROCEDIMIENTOS: para preguntas de "cómo hago X", "dónde configuro/encuentro Y", pasos o políticas internas, USA SIEMPRE PRIMERO la herramienta search_knowledge. Si devuelve resultados, responde basándote SOLO en ellos. Si NO hay resultados, di claramente que no tienes esa información documentada y NO inventes pasos ni rutas del panel.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
     // La burbuja del chat pinta TEXTO PLANO (whiteSpace: pre-wrap), no interpreta
