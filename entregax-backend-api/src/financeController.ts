@@ -420,115 +420,170 @@ export const processPayment = async (
 // PAGAR SALDO DE CRÉDITO (Liquidar deuda)
 // ============================================
 
-export const payCredit = async (req: AuthRequest, res: Response): Promise<any> => {
-  const client = await pool.connect();
-  
-  try {
-    const userId = req.user?.userId;
-    const { amount, invoice_id } = req.body;
+/**
+ * Lo que un cliente DEBE de crédito, por servicio.
+ *
+ * El crédito NO vive en users.used_credit —ese es el global y casi siempre
+ * está en 0—: vive en user_service_credits, una línea por servicio.
+ *
+ * Leer el global costaba caro y en silencio: Nancy Robledo (S96) tenía
+ * $356,010 consumidos de su línea DHL, su global decía $0.00, y por eso
+ * "pagar crédito" respondía "el monto excede tu deuda actual. Deuda: $0.00"
+ * con $211,227 esperando en su monedero. Le pasa a 12 clientes (tarea 468).
+ */
+export async function deudaPorServicio(
+  cx: any, userId: number
+): Promise<{ servicio: string; debe: number }[]> {
+  const r = await cx.query(
+    `SELECT service, COALESCE(used_credit, 0)::numeric AS debe
+       FROM user_service_credits
+      WHERE user_id = $1 AND COALESCE(used_credit, 0) > 0
+      ORDER BY used_credit DESC`,
+    [userId]
+  );
+  return r.rows.map((x: any) => ({ servicio: String(x.service), debe: Number(x.debe) }));
+}
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Monto inválido' });
+/**
+ * Aplica un pago de crédito con el saldo a favor del cliente.
+ *
+ * Vive aparte porque lo usan DOS caminos: el cliente desde su app y el asesor
+ * a nombre de su cliente. Que sea la misma función es lo que garantiza que el
+ * abono, el marcado de operaciones liquidadas y la liberación de comisiones
+ * pasen igual por los dos lados.
+ *
+ * Debe correr DENTRO de una transacción ya abierta por quien la llama.
+ */
+export async function aplicarPagoDeCredito(
+  cx: any, userId: number, amount: number, service?: string | null, invoiceId?: number | null
+): Promise<{ servicio: string; new_balance: number; new_credit_used: number; message: string }> {
+  const userRes = await cx.query(
+    'SELECT wallet_balance FROM users WHERE id = $1 FOR UPDATE', [userId]);
+  if (!userRes.rows[0]) throw new Error('Cliente no encontrado');
+  const walletBalance = parseFloat(userRes.rows[0].wallet_balance) || 0;
+
+  // La deuda REAL sale de user_service_credits, no del global.
+  const deudas = await deudaPorServicio(cx, userId);
+  const deudaTotal = deudas.reduce((n, d) => n + d.debe, 0);
+  if (deudaTotal <= 0) throw new Error('Este cliente no tiene deuda de crédito por pagar.');
+
+  // Con deuda en varios servicios hay que decir a cuál va: repartirlo por
+  // nuestra cuenta sería decidir con dinero ajeno.
+  let servicio = String(service || '').trim();
+  if (!servicio) {
+    if (deudas.length === 1) servicio = deudas[0]!.servicio;
+    else {
+      const detalle = deudas.map(d => `${d.servicio}: $${d.debe.toFixed(2)}`).join(' · ');
+      throw new Error(`Hay deuda en varios servicios (${detalle}). Indica a cuál aplicar el pago.`);
     }
+  }
+  const laDelServicio = deudas.find(d => d.servicio === servicio);
+  if (!laDelServicio) {
+    throw new Error(`No hay deuda en "${servicio}". Deudas: ${deudas.map(d => d.servicio).join(', ')}.`);
+  }
+  const usedCredit = laDelServicio.debe;
 
-    await client.query('BEGIN');
+  if (walletBalance < amount) {
+    throw new Error(`Saldo insuficiente en monedero. Disponible: $${walletBalance.toFixed(2)} MXN`);
+  }
+  if (amount > usedCredit) {
+    throw new Error(`El monto excede la deuda de ${servicio}: $${usedCredit.toFixed(2)} MXN`);
+  }
 
-    // Obtener saldo del monedero
-    const userRes = await client.query(
-      'SELECT wallet_balance, used_credit FROM users WHERE id = $1 FOR UPDATE',
-      [userId]
-    );
+  const newBalance = walletBalance - amount;
+  const newUsedCredit = usedCredit - amount;
 
-    const walletBalance = parseFloat(userRes.rows[0].wallet_balance) || 0;
-    const usedCredit = parseFloat(userRes.rows[0].used_credit) || 0;
+  // Se descuenta del monedero y de la línea DEL SERVICIO. El global se deja
+  // como está: no es la fuente de verdad y tocarlo solo confundiría.
+  await cx.query(`UPDATE users SET wallet_balance = $1 WHERE id = $2`, [newBalance, userId]);
+  await cx.query(
+    // Los casts son necesarios: sin ellos Postgres no puede deducir el tipo de
+    // $1, que se usa como valor y dentro de una comparacion.
+    `UPDATE user_service_credits
+        SET used_credit = $1::numeric,
+            is_blocked = CASE WHEN $1::numeric <= 0 THEN FALSE ELSE is_blocked END,
+            updated_at = NOW()
+      WHERE user_id = $2::int AND service = $3::text`,
+    [newUsedCredit, userId, servicio]);
 
-    if (walletBalance < amount) {
-      throw new Error(`Saldo insuficiente en monedero. Disponible: $${walletBalance.toFixed(2)} MXN`);
-    }
+  await cx.query(
+    `INSERT INTO financial_transactions
+       (user_id, type, amount, balance_after, description, reference_type)
+     VALUES ($1, 'credit_settlement', $2, $3, $4, 'credit_payment')`,
+    [userId, -amount, newBalance, `Pago de línea de crédito (${servicio})`]);
 
-    if (amount > usedCredit) {
-      throw new Error(`El monto excede tu deuda actual. Deuda: $${usedCredit.toFixed(2)} MXN`);
-    }
+  // Marcar operaciones como liquidadas, con cuidado.
+  //
+  // Casi ningún pago trae credit_service (221 de 222 lo tienen en NULL), así
+  // que "las de este servicio" no se puede saber por el dato. Si se diera por
+  // hecho, liquidar PO Box marcaría también las de DHL como saldadas teniendo
+  // $360,106 pendientes.
+  //
+  // Entonces: las que SÍ dicen su servicio se marcan al saldarse ese servicio;
+  // las que no lo dicen, solo cuando el cliente ya no debe NADA en ningún
+  // servicio — ahí no hay ambigüedad posible.
+  const restante = (await deudaPorServicio(cx, userId)).reduce((n, d) => n + d.debe, 0);
+  await cx.query(
+    `UPDATE pobox_payments SET credit_settled = true, credit_settled_at = NOW()
+      WHERE user_id = $1 AND payment_method = 'credit'
+        AND COALESCE(credit_settled, false) = false
+        AND ( credit_service = $2::text
+              OR (credit_service IS NULL AND $3::boolean) )`,
+    [userId, servicio, restante <= 0]);
 
-    const newBalance = walletBalance - amount;
-    const newUsedCredit = usedCredit - amount;
-
-    // Actualizar usuario
-    await client.query(`
-      UPDATE users 
-      SET wallet_balance = $1, 
-          used_credit = $2,
-          is_credit_blocked = CASE WHEN $2 = 0 THEN FALSE ELSE is_credit_blocked END
-      WHERE id = $3
-    `, [newBalance, newUsedCredit, userId]);
-
-    // Registrar transacción
-    await client.query(`
-      INSERT INTO financial_transactions
-      (user_id, type, amount, balance_after, description, reference_type)
-      VALUES ($1, 'credit_settlement', $2, $3, 'Pago de línea de crédito', 'credit_payment')
-    `, [userId, -amount, newBalance]);
-
-    // 💳 Si la deuda quedó en 0, marcar las órdenes a crédito como liquidadas
-    // (pasan de "Órdenes de Pago" a "Historial").
-    if (newUsedCredit <= 0) {
-      await client.query(
-        `UPDATE pobox_payments SET credit_settled = true, credit_settled_at = NOW()
-         WHERE user_id = $1 AND payment_method = 'credit' AND COALESCE(credit_settled, false) = false`,
-        [userId]
-      );
-    }
-
-    // Si se especificó una factura, marcarla como pagada
-    if (invoice_id) {
-      await client.query(`
-        UPDATE credit_invoices 
-        SET amount_paid = amount_paid + $1,
-            status = CASE WHEN amount_paid + $1 >= amount THEN 'paid' ELSE 'partial' END,
-            paid_at = CASE WHEN amount_paid + $1 >= amount THEN NOW() ELSE paid_at END
-        WHERE id = $2 AND user_id = $3
-      `, [amount, invoice_id, userId]);
-    } else {
-      // Pagar facturas en orden de vencimiento
-      const invoices = await client.query(`
-        SELECT id, amount, amount_paid FROM credit_invoices 
-        WHERE user_id = $1 AND status != 'paid'
-        ORDER BY due_date ASC
-      `, [userId]);
-
-      let remaining = amount;
-      for (const inv of invoices.rows) {
-        if (remaining <= 0) break;
-        
-        const pending = parseFloat(inv.amount) - parseFloat(inv.amount_paid);
-        const toPay = Math.min(remaining, pending);
-        
-        await client.query(`
-          UPDATE credit_invoices 
+  // Facturas de crédito: la indicada, o las más viejas primero.
+  if (invoiceId) {
+    await cx.query(
+      `UPDATE credit_invoices
           SET amount_paid = amount_paid + $1,
               status = CASE WHEN amount_paid + $1 >= amount THEN 'paid' ELSE 'partial' END,
               paid_at = CASE WHEN amount_paid + $1 >= amount THEN NOW() ELSE paid_at END
-          WHERE id = $2
-        `, [toPay, inv.id]);
-
-        remaining -= toPay;
-      }
+        WHERE id = $2 AND user_id = $3`,
+      [amount, invoiceId, userId]);
+  } else {
+    const invoices = await cx.query(
+      `SELECT id, amount, amount_paid FROM credit_invoices
+        WHERE user_id = $1 AND status != 'paid' ORDER BY due_date ASC`, [userId]);
+    let remaining = amount;
+    for (const inv of invoices.rows) {
+      if (remaining <= 0) break;
+      const pending = parseFloat(inv.amount) - parseFloat(inv.amount_paid);
+      const toPay = Math.min(remaining, pending);
+      await cx.query(
+        `UPDATE credit_invoices
+            SET amount_paid = amount_paid + $1,
+                status = CASE WHEN amount_paid + $1 >= amount THEN 'paid' ELSE 'partial' END,
+                paid_at = CASE WHEN amount_paid + $1 >= amount THEN NOW() ELSE paid_at END
+          WHERE id = $2`, [toPay, inv.id]);
+      remaining -= toPay;
     }
+  }
 
-    // 💧 Liberar comisiones "en crédito" cubiertas por este abono (FIFO), dentro de la txn.
-    await releaseCreditHeldCommissions(client, userId as number, amount);
+  // Libera las comisiones retenidas que este abono cubre (FIFO). Es lo que
+  // esperaban los asesores de esas operaciones.
+  await releaseCreditHeldCommissions(cx, userId, amount);
 
+  return {
+    servicio,
+    new_balance: newBalance,
+    new_credit_used: newUsedCredit,
+    message: `Pago de $${amount.toFixed(2)} MXN aplicado a la línea de ${servicio}`,
+  };
+}
+
+export const payCredit = async (req: AuthRequest, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const userId = req.user?.userId;
+    const { amount, invoice_id, service } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+    await client.query('BEGIN');
+    const r = await aplicarPagoDeCredito(client, Number(userId), Number(amount), service, invoice_id);
     await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: `Pago de $${amount.toFixed(2)} MXN aplicado a tu línea de crédito`,
-      new_balance: newBalance,
-      new_credit_used: newUsedCredit
-    });
-
+    res.json({ success: true, ...r });
   } catch (error: any) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error paying credit:', error);
     res.status(400).json({ error: error.message });
   } finally {

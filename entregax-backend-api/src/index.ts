@@ -612,6 +612,7 @@ import {
   getAdvisorCommissions,
   getRepackChildren,
   getClientWallet,
+  payClientCredit,
   getAdvisorTeam,
   getAdvisorClientTickets,
   getAdvisorTicketDetail,
@@ -7489,6 +7490,10 @@ app.get('/api/advisor/rates', authenticateToken, async (req: Request, res: Respo
 
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
+// El asesor liquida credito de SU cliente con el saldo a favor de este. El
+// efectivo se recibe en ventanilla y se abona al monedero desde aca; esperar a
+// que el cliente entre a su app a liquidarlo no ocurre (tarea 468).
+app.post('/api/advisor/clients/:clientId/pay-credit', authenticateToken, payClientCredit);
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
 app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAdvisorClientAddress);
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);

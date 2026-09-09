@@ -1541,6 +1541,24 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
     
     const totalPendiente = saldoPobox + saldoAereo + saldoMaritimo + saldoDhl + saldoContenedores;
 
+    // Credito por servicio: es donde vive de verdad.
+    const cred = await pool.query(
+      `SELECT service, COALESCE(credit_limit,0)::numeric AS limite,
+              COALESCE(used_credit,0)::numeric AS usado, COALESCE(is_blocked,false) AS bloqueado
+         FROM user_service_credits WHERE user_id = $1 AND COALESCE(credit_limit,0) > 0
+         ORDER BY used_credit DESC`,
+      [clientId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const creditoPorServicio = cred.rows.map((c: any) => ({
+      servicio: String(c.service),
+      limite: Number(c.limite),
+      usado: Number(c.usado),
+      disponible: Math.max(0, Number(c.limite) - Number(c.usado)),
+      bloqueado: !!c.bloqueado,
+    }));
+    const creditoUsado = creditoPorServicio.reduce((n: number, c: any) => n + c.usado, 0);
+    const creditoLimite = creditoPorServicio.reduce((n: number, c: any) => n + c.limite, 0);
+
     res.json({
       cliente: {
         id: client.id,
@@ -1563,9 +1581,14 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
           total: cotizacionesTotal,
         },
         saldo_favor: parseFloat(client.wallet_balance) || 0,
-        credito_disponible: client.has_credit 
-          ? (parseFloat(client.credit_limit) - parseFloat(client.used_credit)) 
-          : 0,
+        // Credito REAL, de user_service_credits. Antes salia de users.credit_limit
+        // y users.used_credit —el global, que casi siempre esta en 0— asi que el
+        // asesor veia "credito usado: $0.00" de una clienta con $356,010
+        // consumidos de su linea DHL (tarea 468).
+        credito_por_servicio: creditoPorServicio,
+        credito_usado: creditoUsado,
+        credito_limite: creditoLimite,
+        credito_disponible: Math.max(0, creditoLimite - creditoUsado),
       }
     });
   } catch (error) {
@@ -2949,5 +2972,65 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
   } catch (error) {
     console.error('Error getAdvisorShipmentDetail:', error);
     res.status(500).json({ error: 'Error al obtener detalle del paquete' });
+  }
+};
+
+// ============================================================
+// POST /api/advisor/clients/:clientId/pay-credit
+// El asesor liquida crédito de SU cliente usando el saldo a favor de éste.
+// ============================================================
+/**
+ * Por qué hace falta.
+ *
+ * El único camino que existía era el botón "Pagar Saldo de Crédito" de la app
+ * del propio cliente. Pero el efectivo se recibe en ventanilla —Monterrey, GDL
+ * y CDMX— y se abona al monedero desde acá; esperar a que el cliente entre a su
+ * app a liquidar un depósito que hizo en caja no ocurre. El dinero se quedaba
+ * parado: Nancy Robledo con $211,227 en el monedero y su línea DHL al 89%
+ * (tarea 468).
+ *
+ * Reutiliza la misma lógica de pago del cliente, así que aplica el abono, marca
+ * las operaciones como liquidadas y libera las comisiones retenidas — que es
+ * justo lo que no estaba pasando.
+ */
+export const payClientCredit = async (req: Request, res: Response): Promise<any> => {
+  const cx = await pool.connect();
+  try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const clientId = parseInt(String(req.params.clientId), 10);
+    const monto = Number(req.body?.amount);
+    const servicio = String(req.body?.service || '').trim();
+    if (!Number.isFinite(clientId)) return res.status(400).json({ error: 'Cliente inválido' });
+    if (!Number.isFinite(monto) || monto <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+    // El cliente tiene que ser suyo. Sin esto un asesor movería el dinero de
+    // cualquiera con solo cambiar el id de la URL.
+    const dueno = await cx.query(
+      `SELECT id, full_name, box_id FROM users
+        WHERE id = $1 AND role = 'client' AND (advisor_id = $2 OR referred_by_id = $2)`,
+      [clientId, advisorId]);
+    if (dueno.rows.length === 0) {
+      return res.status(403).json({ error: 'Ese cliente no es tuyo' });
+    }
+
+    await cx.query('BEGIN');
+    const { aplicarPagoDeCredito } = await import('./financeController');
+    const r = await aplicarPagoDeCredito(cx, clientId, monto, servicio || null);
+    await cx.query('COMMIT');
+
+    console.log(
+      `[credito] asesor ${advisorId} liquidó $${monto.toFixed(2)} de ${r.servicio} ` +
+      `para ${dueno.rows[0].box_id} ${dueno.rows[0].full_name}`
+    );
+    return res.json({ success: true, cliente: dueno.rows[0].full_name, ...r });
+  } catch (e: any) {
+    await cx.query('ROLLBACK').catch(() => {});
+    console.error('[credito] payClientCredit:', e?.message);
+    return res.status(400).json({ error: e?.message || 'No se pudo aplicar el pago' });
+  } finally {
+    cx.release();
   }
 };
