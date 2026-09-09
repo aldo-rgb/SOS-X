@@ -64,7 +64,16 @@ export interface EntangledClienteFinalV2 {
   email?: string | undefined;
   regimen_fiscal?: string | undefined;
   cp?: string | undefined;
-  uso_cfdi?: string | undefined;
+  // uso_cfdi YA NO VA AQUÍ. Va en la raíz del payload.
+  //
+  // Adentro de cliente_final el campo significaba dos cosas a la vez —el uso
+  // habitual del cliente y el de ESTE pedido— y al recibirlo ENTANGLED pisaba
+  // el default que tienen guardado. El siguiente pedido que llegara sin el
+  // campo heredaba la elección del anterior. Les costó una factura cancelada:
+  // llegó D03 (gastos funerales) en una compra de sistemas de inyección de
+  // combustible, porque era lo último que ese cliente había usado.
+  //
+  // regimen_fiscal SÍ se queda: ese es del cliente y no cambia entre compras.
   // Constancia de Situación Fiscal (CSF) del cliente final — URL firmada al PDF.
   // ENTANGLED la lee AQUÍ, dentro de cliente_final (no en el nivel raíz).
   constancia_url?: string | undefined;
@@ -89,6 +98,9 @@ export interface EntangledSolicitudPayloadV2 {
   monto_usd: number;
   divisa: EntangledDivisa;
   cliente_final: EntangledClienteFinalV2;
+  // Uso de CFDI de ESTA orden. A nivel raíz, no dentro de cliente_final: es un
+  // dato de la operación, no del cliente. Obligatorio en pago_con_factura.
+  uso_cfdi?: string | undefined;
   conceptos?: EntangledConceptoV2[] | undefined;
   // Total exacto en MXN cobrado al cliente final — es el mismo con el que
   // ENTANGLED emite la factura. Sin él lo reconstruyen de monto/tc/% y cuando
@@ -752,9 +764,10 @@ export interface EntangledAsignacionPayload {
     razon_social: string;
     regimen_fiscal?: string;
     cp?: string;
-    uso_cfdi?: string;
     email?: string;
   };
+  // Uso de CFDI de la orden — mismo motivo que arriba: fuera de cliente_final.
+  uso_cfdi?: string;
 }
 
 export interface EntangledAsignacionResult {

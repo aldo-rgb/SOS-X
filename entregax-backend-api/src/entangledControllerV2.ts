@@ -777,9 +777,16 @@ export const createPaymentRequestV2 = async (
             email: clienteFinal.email,
             regimen_fiscal: clienteFinal.regimen_fiscal,
             cp: String(clienteFinal.cp || ''),
-            uso_cfdi: clienteFinal.uso_cfdi,
           }
         : { razon_social: clienteFinal.razon_social },
+    // Uso de CFDI de ESTA orden, en la raíz. Dentro de cliente_final le pisaba
+    // a ENTANGLED el default guardado del cliente, y el siguiente pedido que
+    // llegara sin el campo heredaba esta elección. Les costó una factura
+    // cancelada: D03 (gastos funerales) en una compra de inyección de
+    // combustible, porque era lo último que ese cliente había usado.
+    ...(servicio === 'pago_con_factura' && clienteFinal.uso_cfdi
+      ? { uso_cfdi: String(clienteFinal.uso_cfdi) }
+      : {}),
     // País del banco destino, en la raíz: es el campo que ENTANGLED usa para
     // rutear y clasificar. Antes solo iba dentro de notas.proveedor_envio.
     pais_destino: paisDestino,
@@ -1359,9 +1366,13 @@ export async function sendPendingRequestToEntangled(
             email: reqRow.cf_email,
             regimen_fiscal: reqRow.cf_regimen_fiscal,
             cp: String(reqRow.cf_cp || ''),
-            uso_cfdi: reqRow.cf_uso_cfdi,
           }
         : { razon_social: reqRow.cf_razon_social },
+    // El uso de CFDI de la orden va en la raíz (ver la nota de arriba). Sale de
+    // lo que se guardó al crearla, que es el que eligió el cliente ese día.
+    ...(servicio === 'pago_con_factura' && reqRow.cf_uso_cfdi
+      ? { uso_cfdi: String(reqRow.cf_uso_cfdi) }
+      : {}),
     referencia_xpay: reqRow.referencia_pago,
     pais_destino: paisDestino,
     // Total cobrado al cliente: el persistido al crear la solicitud. Para las
@@ -1909,9 +1920,13 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   }
   // Para pago_sin_factura: payload mínimo — sin campos financieros que Entangled
   // podría no esperar para este servicio (no requiere factura/SAT).
+  // El uso de CFDI sale de cliente_final y viaja en la raíz: es de la ORDEN, no
+  // del cliente. Dentro de cliente_final le pisaba a ENTANGLED el default
+  // guardado y el siguiente pedido sin el campo heredaba esta elección.
+  const { uso_cfdi: usoCfdiDeLaOrden, ...clienteFinalSinUso } = (cliente_final || {}) as any;
   const clienteFinalSanitizado = servicio === 'pago_sin_factura'
     ? { razon_social: 'SIN' }
-    : { ...cliente_final, razon_social: String(cliente_final?.razon_social || '').slice(0, 13) };
+    : { ...clienteFinalSinUso, razon_social: String(cliente_final?.razon_social || '').slice(0, 13) };
 
   // Valores numéricos con precisión fija para evitar floats largos (VARCHAR overflow en Entangled)
   const tcFixed = parseFloat(tcNum.toFixed(4));
@@ -1939,6 +1954,9 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     ...(subservicio ? { subservicio } : {}),
     ...(concepto ? { concepto } : {}),
     cliente_final: clienteFinalSanitizado,
+    ...(servicio === 'pago_con_factura' && usoCfdiDeLaOrden
+      ? { uso_cfdi: String(usoCfdiDeLaOrden) }
+      : {}),
     monto_destino: montoNum,
     divisa_destino,
     pais_destino: paisDestino,
