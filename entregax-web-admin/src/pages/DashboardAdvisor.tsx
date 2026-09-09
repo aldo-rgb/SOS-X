@@ -122,6 +122,7 @@ import {
   Add as AddIcon,
   AddCircle as ExtraChargeIcon,
   Archive as ArchiveIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
@@ -343,6 +344,8 @@ interface ClientWallet {
       total: number;
     };
     saldo_favor: number;
+    /** Referencia SAF- para fondear la cartera. Solo si esta habilitada. */
+    referencia_saf?: string | null;
     credito_disponible: number;
     // Credito REAL, por servicio. Los campos globales de `users` casi siempre
     // estan en 0 y el asesor veia "credito usado: $0.00" de clientes con
@@ -7681,6 +7684,30 @@ export default function DashboardAdvisor() {
                   <Typography variant="h6" fontWeight={700} color="warning.dark">
                     ${walletData.cartera.cotizaciones_pendientes.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Typography>
+                </Paper>
+              )}
+
+              {/* Referencia para que el cliente fondee su cartera. El asesor es
+                  quien se la pasa, y hasta ahora tenía que pedirla a mostrador
+                  porque no la veía en ninguna pantalla. */}
+              {!!walletData.cartera.referencia_saf && (
+                <Paper
+                  onClick={() => {
+                    navigator.clipboard?.writeText(walletData.cartera.referencia_saf as string);
+                    setSnackbar({ open: true, severity: 'success', message: `Copiada: ${walletData.cartera.referencia_saf}` });
+                  }}
+                  sx={{ mx: 2, mb: 2, p: 1.5, borderRadius: 2, cursor: 'pointer',
+                        border: '1px solid #BBDEFB', bgcolor: '#EEF6FF',
+                        display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ContentCopyIcon sx={{ fontSize: 18, color: '#1976d2' }} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={800} sx={{ color: '#1976d2' }}>
+                      {walletData.cartera.referencia_saf}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Referencia para fondear su cartera · toca para copiar
+                    </Typography>
+                  </Box>
                 </Paper>
               )}
 

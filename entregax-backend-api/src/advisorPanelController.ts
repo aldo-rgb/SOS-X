@@ -345,6 +345,13 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     const clientsRes = await pool.query(`
       SELECT 
         u.id, u.full_name, u.email, u.phone, u.box_id,
+        -- Referencia SAF- para fondear la cartera del cliente. El asesor es
+        -- quien le pasa el dato cuando el cliente quiere abonar, y hasta ahora
+        -- tenia que pedirla a mostrador porque no la veia en ninguna pantalla.
+        -- Solo la habilitada: una deshabilitada ya no recibe depositos y
+        -- pasarla seria mandar dinero a un numero muerto.
+        (SELECT w.reference FROM wallet_funding_references w
+          WHERE w.user_id = u.id AND w.habilitada = TRUE LIMIT 1) AS referencia_saf,
         (u.is_verified = true OR LOWER(u.verification_status) IN ('verified', 'approved')) as is_verified,
         u.verification_status,
         u.created_at, u.recovery_status,
@@ -1541,6 +1548,13 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
     
     const totalPendiente = saldoPobox + saldoAereo + saldoMaritimo + saldoDhl + saldoContenedores;
 
+    // Referencia SAF- del cliente, para que el asesor se la pueda pasar.
+    const saf = await pool.query(
+      `SELECT reference FROM wallet_funding_references
+        WHERE user_id = $1 AND habilitada = TRUE LIMIT 1`, [clientId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const referenciaSaf: string | null = saf.rows[0]?.reference || null;
+
     // Credito por servicio: es donde vive de verdad.
     const cred = await pool.query(
       `SELECT service, COALESCE(credit_limit,0)::numeric AS limite,
@@ -1580,6 +1594,7 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
           count: cotizacionesCount,
           total: cotizacionesTotal,
         },
+        referencia_saf: referenciaSaf,
         saldo_favor: parseFloat(client.wallet_balance) || 0,
         // Credito REAL, de user_service_credits. Antes salia de users.credit_limit
         // y users.used_credit —el global, que casi siempre esta en 0— asi que el

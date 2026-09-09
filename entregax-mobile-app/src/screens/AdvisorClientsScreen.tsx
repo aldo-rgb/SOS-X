@@ -31,6 +31,8 @@ interface Client {
   email: string;
   phone: string;
   box_id: string;
+  /** Referencia para fondear su cartera (SAF-XXXXXXXX). Solo si esta habilitada. */
+  referencia_saf?: string | null;
   is_verified: boolean;
   verification_status: string;
   created_at: string;
@@ -624,6 +626,26 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             <Text style={[styles.statLabel, { fontSize: 10 }]}>Último envío</Text>
           </View>
         </View>
+
+        {/* Referencia para fondear su cartera. El asesor es quien se la pasa al
+            cliente cuando quiere abonar, y hasta ahora tenia que pedirla a
+            mostrador porque no la veia en ninguna pantalla. Se toca y se copia. */}
+        {!!item.referencia_saf && (
+          <TouchableOpacity
+            onPress={() => {
+              Clipboard.setString(item.referencia_saf as string);
+              Alert.alert('Copiada', `${item.referencia_saf}\n\nEs la referencia para que ${item.full_name.split(' ')[0]} abone a su cartera.`);
+            }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+              marginTop: 8, paddingHorizontal: 10, paddingVertical: 6,
+              borderRadius: 8, backgroundColor: '#EEF6FF', borderWidth: 1, borderColor: '#BBDEFB',
+            }}>
+            <Ionicons name="copy-outline" size={14} color="#1976d2" />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#1976d2' }}>{item.referencia_saf}</Text>
+            <Text style={{ fontSize: 10, color: '#5A7EA6' }}>· fondeo de cartera</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={styles.clientActions}>
           <TouchableOpacity style={styles.actionButton} onPress={() => item.phone && Linking.openURL(`tel:${item.phone}`)}>
