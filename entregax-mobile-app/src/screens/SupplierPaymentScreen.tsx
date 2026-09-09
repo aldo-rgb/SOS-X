@@ -54,6 +54,26 @@ const REGIMENES = [
   { code: '626', name: 'Régimen Simplificado de Confianza' },
 ];
 
+/**
+ * Países a los que XPAY puede mandar.
+ *
+ * Antes eran tres —China, USA y México— y eso rompía cualquier otro destino:
+ * para mandar a Taiwán había que escoger uno de los tres, se elegía USA, y el
+ * sistema respondía "Estados Unidos no está habilitado" nombrando un país que
+ * sí opera. El destino real nunca se veía.
+ *
+ * El código debe coincidir con las letras 5 y 6 del SWIFT, que es de donde el
+ * backend saca el país de verdad cuando se contradicen.
+ */
+const PAISES_DESTINO = [
+  { code: 'CN', nombre: 'China',          label: '🇨🇳 China' },
+  { code: 'US', nombre: 'Estados Unidos', label: '🇺🇸 USA' },
+  { code: 'MX', nombre: 'México',         label: '🇲🇽 México' },
+  { code: 'TW', nombre: 'Taiwán',         label: '🇹🇼 Taiwán' },
+  { code: 'SG', nombre: 'Singapur',       label: '🇸🇬 Singapur' },
+] as const;
+type DestCode = typeof PAISES_DESTINO[number]['code'];
+
 const USOS_CFDI = [
   { code: 'G01', name: 'Adquisición de mercancías' },
   { code: 'G03', name: 'Gastos en general' },
@@ -207,14 +227,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [divisa, setDivisa] = useState<'USD' | 'RMB' | 'MXN'>('USD');
   // País de destino (igual que la web). Determina la divisa: China→USD/RMB,
   // Estados Unidos→USD, México→MXN (pesos, sin conversión).
-  const [destCountry, setDestCountry] = useState<'CN' | 'US' | 'MX'>('CN');
+  const [destCountry, setDestCountry] = useState<DestCode>('CN');
   // País del banco destino que ENTANGLED necesita para rutear la operación.
   // Se toma del país capturado del beneficiario y, si no hay, del selector
   // "País de Destino". NUNCA se deriva de la divisa: se puede mandar USD a China.
   const paisDestinoNombre = (): string => {
     const delBenef = String(benefBankAddress || '').trim();
     if (/china/i.test(delBenef)) return 'China';
-    return destCountry === 'CN' ? 'China' : destCountry === 'US' ? 'Estados Unidos' : 'México';
+    return PAISES_DESTINO.find(p => p.code === destCountry)?.nombre || 'China';
   };
   const [savedSuppliers, setSavedSuppliers] = useState<any[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | 'new'>('new');
@@ -330,11 +350,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [calcMonto, setCalcMonto] = useState('');
   const [calcDivisa, setCalcDivisa] = useState<'USD' | 'RMB' | 'MXN'>('USD');
   // Cambiar país destino ajusta la divisa de la calculadora.
-  const onSelectDestCountry = (code: 'CN' | 'US' | 'MX') => {
+  const onSelectDestCountry = (code: DestCode) => {
     setDestCountry(code);
+    // México cobra en pesos; el resto en dólares. China ademas permite RMB.
     if (code === 'MX') setCalcDivisa('MXN');
-    else if (code === 'US') setCalcDivisa('USD');
-    else if (calcDivisa === 'MXN') setCalcDivisa('USD'); // China: default USD, permite RMB
+    else if (calcDivisa === 'MXN') setCalcDivisa('USD');
   };
   const [chartTab, setChartTab] = useState<'usd' | 'rmb'>('usd');
   const [rateHistory] = useState<Array<{ t: number; usd: number; rmb: number }>>(seedRateHistory);
@@ -1877,19 +1897,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <Text style={{ color: '#C0392B', fontSize: 12, marginBottom: 10 }}>{providersError}</Text>
         )}
 
-        {/* País de Destino (igual que la web): China / USA / México */}
+        {/* País de Destino. Ya no caben en fila fija: van con scroll. */}
         <Text style={styles.label}>País de Destino</Text>
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-          {([['CN', '🇨🇳 China'], ['US', '🇺🇸 USA'], ['MX', '🇲🇽 México']] as const).map(([code, label]) => (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          {PAISES_DESTINO.map(({ code, label }) => (
             <TouchableOpacity
               key={code}
-              style={[styles.amountSuffixBadge, { flex: 1, paddingVertical: 9 }, destCountry === code && { backgroundColor: ORANGE, borderColor: ORANGE }]}
+              style={[styles.amountSuffixBadge, { paddingVertical: 9, paddingHorizontal: 12, marginRight: 6 }, destCountry === code && { backgroundColor: ORANGE, borderColor: ORANGE }]}
               onPress={() => onSelectDestCountry(code)}
             >
               <Text style={[styles.amountSuffixText, { fontSize: 11 }, destCountry === code && { color: '#fff' }]}>{label}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
         <Text style={styles.label}>Monto a Enviar{destCountry === 'MX' ? ' (MXN)' : ''}</Text>
         <View style={styles.amountRow}>

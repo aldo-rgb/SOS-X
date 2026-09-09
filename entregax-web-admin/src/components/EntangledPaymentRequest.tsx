@@ -153,13 +153,29 @@ const USOS_CFDI = [
 ];
 
 const DIVISAS = ['USD', 'RMB', 'MXN'];
+/**
+ * Países a los que XPAY puede mandar.
+ *
+ * Eran tres, y eso rompía cualquier otro destino: para mandar a Taiwán había
+ * que escoger uno de los tres, se elegía USA, y el sistema respondía "Estados
+ * Unidos no está habilitado" nombrando un país que sí opera. El destino real
+ * nunca se veía.
+ *
+ * El código coincide con las letras 5 y 6 del SWIFT: de ahí saca el backend el
+ * país de verdad cuando el banco y la selección se contradicen.
+ */
 const DESTINATION_COUNTRIES = [
   { code: 'CN', label: 'China', flag: '🇨🇳' },
   { code: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
   { code: 'MX', label: 'México', flag: '🇲🇽' },
+  { code: 'TW', label: 'Taiwán', flag: '🇹🇼' },
+  { code: 'SG', label: 'Singapur', flag: '🇸🇬' },
 ];
-// Divisa por país de destino. México se envía en pesos (MXN, 1:1, sin conversión).
-const CURRENCY_BY_COUNTRY: Record<string, string> = { CN: 'USD', US: 'USD', MX: 'MXN' };
+const nombrePaisDestino = (code: string): string =>
+  DESTINATION_COUNTRIES.find(c => c.code === code)?.label || '';
+// Divisa por país de destino. México se envía en pesos (MXN, 1:1, sin
+// conversión); el resto en dólares.
+const CURRENCY_BY_COUNTRY: Record<string, string> = { CN: 'USD', US: 'USD', MX: 'MXN', TW: 'USD', SG: 'USD' };
 const formatTimeLabel = (ts: number | null | undefined) => {
   if (!ts) return '—';
   return new Intl.DateTimeFormat('es-MX', {
@@ -835,9 +851,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   // NUNCA se deriva de la divisa (se puede enviar USD a China).
   const paisDestinoNombre = (): string =>
     (supplierForm.pais_beneficiario || '').trim()
-    || (widgetDestinationCountry === 'CN' ? 'China'
-        : widgetDestinationCountry === 'US' ? 'Estados Unidos'
-        : widgetDestinationCountry === 'MX' ? 'México' : '');
+    || nombrePaisDestino(widgetDestinationCountry);
 
   const widgetEstimate = useMemo(() => {
     const amount = Number(widgetAmountUsd);
@@ -2056,9 +2070,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         // seleccionó el usuario en "País de Destino" (widget CN/US). NUNCA se
         // deriva de la divisa (se puede enviar USD a China).
         pais: (supplierForm.pais_beneficiario || '').trim()
-          || (widgetDestinationCountry === 'CN' ? 'China'
-              : widgetDestinationCountry === 'US' ? 'Estados Unidos'
-              : ''),
+          || nombrePaisDestino(widgetDestinationCountry),
         cuenta: supplierForm.numero_cuenta,
         iban: supplierForm.iban,
         banco: supplierForm.banco_nombre,

@@ -202,18 +202,41 @@ const PAIS_POR_SWIFT: Record<string, string> = {
   DE: 'Alemania', ES: 'España', IT: 'Italia', TR: 'Turquía',
   IN: 'India', VN: 'Vietnam', TW: 'Taiwán', TH: 'Tailandia', ID: 'Indonesia',
 };
+/**
+ * De qué país es el banco destino.
+ *
+ * Orden: SWIFT → lo declarado → la divisa.
+ *
+ * El SWIFT va PRIMERO, incluso por encima de lo que eligió la persona, y esa
+ * es la parte que importa. El selector de la app solo ofrecía China, USA y
+ * México: para mandar a Taiwán había que escoger una de las tres, y quien lo
+ * intentó eligió USA. El sistema le creyó al menú en vez de al banco, y le
+ * respondió "Estados Unidos no está habilitado" — un país que SÍ opera (tres
+ * transferencias completadas: Wells Fargo, JPMorgan y Texas Capital). El
+ * asesor quedó mandado a levantar un ticket inútil mientras el destino real,
+ * Taiwán, seguía sin darse de alta.
+ *
+ * El SWIFT es del banco y no se puede escoger mal; la selección es un menú que
+ * puede estar incompleto. Cuando se contradicen, gana el banco.
+ */
 export const resolverPaisDestino = (
   o: { declarado?: any; swift?: any; divisa?: any }
 ): string => {
   const declarado = String(o.declarado || '').trim();
-  if (declarado) return declarado;
   // El SWIFT guardado a veces trae espacios (' CHASHKHH'), por eso el trim.
   const swift = String(o.swift || '').trim().toUpperCase();
   const cc = swift.length >= 6 ? swift.slice(4, 6) : '';
-  if (PAIS_POR_SWIFT[cc]) {
-    console.warn(`[XPAY] país destino no declarado; deducido del SWIFT ${swift} → ${PAIS_POR_SWIFT[cc]}`);
-    return PAIS_POR_SWIFT[cc] as string;
+  const porSwift = PAIS_POR_SWIFT[cc];
+  if (porSwift) {
+    if (declarado && declarado.toLowerCase() !== porSwift.toLowerCase()) {
+      console.warn(
+        `[XPAY] el país declarado ("${declarado}") NO coincide con el del banco: ` +
+        `SWIFT ${swift} es de ${porSwift}. Se usa el del banco.`
+      );
+    }
+    return porSwift;
   }
+  if (declarado) return declarado;
   const divisa = String(o.divisa || '').toUpperCase();
   const porDivisa = divisa === 'RMB' ? 'China' : divisa === 'MXN' ? 'México' : 'Estados Unidos';
   console.warn(`[XPAY] país destino no declarado y SWIFT sin país ("${swift}"); derivado de la divisa ${divisa} → ${porDivisa}. Puede rutear mal.`);
@@ -1940,8 +1963,14 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   // ya usa la creación de la solicitud (RMB→China, MXN→México, resto→EUA).
   const divisaUp = String(divisa_destino).toUpperCase();
   const paisDestinoFront = String(req.body?.pais_destino || '').trim();
-  const paisDestino = paisDestinoFront
-    || (divisaUp === 'RMB' ? 'China' : divisaUp === 'MXN' ? 'México' : 'Estados Unidos');
+  // Este camino ni siquiera miraba el SWIFT: se quedaba con lo que mandara el
+  // front y, si no venía, lo derivaba de la divisa. Ahora usa la misma regla
+  // que el resto — el banco manda.
+  const paisDestino = resolverPaisDestino({
+    declarado: paisDestinoFront,
+    swift: (cliente_final as any)?.swift ?? req.body?.swift ?? req.body?.sup_swift_bic,
+    divisa: divisaUp,
+  });
   if (!paisDestinoFront) {
     // ⚠️ El país derivado de la divisa puede ser INCORRECTO (se puede pagar en
     // USD a China) y ENTANGLED rutea la operación por él. Solo evita el 409
