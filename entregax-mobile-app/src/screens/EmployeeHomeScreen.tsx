@@ -2040,10 +2040,13 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 {(altasData?.advisors || []).length === 0 ? (
                   <Text style={{ textAlign: 'center', color: '#888', paddingVertical: 24 }}>Sin altas en este periodo.</Text>
                 ) : (altasData!.advisors).map((a: any, idx: number) => {
+                  // "Sin asesor" no compite por el podio: no lleva medalla ni
+                  // color de asesor. Es un pendiente, no un lugar del ranking.
+                  const huerfano = !!a.sin_asesor;
                   const max = Number(altasData!.advisors[0]?.count || 1);
                   const pct = Math.max(4, Math.round((Number(a.count) / max) * 100));
-                  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`;
-                  const ini = (a.full_name || '?').split(' ').map((x: string) => x[0]).slice(0, 2).join('').toUpperCase();
+                  const medal = huerfano ? '⚠️' : idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`;
+                  const ini = huerfano ? '—' : (a.full_name || '?').split(' ').map((x: string) => x[0]).slice(0, 2).join('').toUpperCase();
                   return (
                     <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' }}>
                       <Text style={{ width: 24, textAlign: 'center', fontSize: idx < 3 ? 16 : 12, color: '#888' }}>{medal}</Text>

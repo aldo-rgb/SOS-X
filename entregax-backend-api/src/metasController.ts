@@ -181,21 +181,48 @@ export const getAltasPorAsesor = async (req: AuthRequest, res: Response): Promis
       label = mr.label;
     }
 
+    // LEFT JOIN a proposito: las altas SIN asesor tambien cuentan. Antes se
+    // caian del listado y del total, asi que el numero de arriba no era el de
+    // altas del mes sino el de altas atendidas — y las que nadie tomo no se
+    // veian en ninguna parte. En agosto fueron 39 de 113.
+    //
+    // El LEFT JOIN ademas rescata un caso que el JOIN se tragaba callado: un
+    // cliente con advisor_id apuntando a un usuario que ya no existe. Tenia
+    // asesor en el papel y desaparecia igual.
     const rows = (await pool.query(
       `SELECT a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url,
               (a.role IN ('asesor_lider','advisor')) AS is_leader,
               l.full_name AS leader_name,
               COUNT(*)::int AS count
          FROM users u
-         JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
+         LEFT JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
          LEFT JOIN users l ON l.id = a.referred_by_id
         WHERE u.role='client'
           AND ${where}
-          AND COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         GROUP BY a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url, is_leader, l.full_name
         ORDER BY count DESC, a.full_name`, params)).rows;
-    const total = rows.reduce((s: number, r: any) => s + Number(r.count), 0);
-    res.json({ period_label: label, total, advisors: rows, from: porRango ? from : null, to: porRango ? to : null });
+
+    // Las filas sin asesor salen con a.id NULL. Se juntan en una sola entrada
+    // que va SIEMPRE al final: no compite por el podio, es un pendiente.
+    const conAsesor = rows.filter((r: any) => r.id != null);
+    const sinAsesor = rows
+      .filter((r: any) => r.id == null)
+      .reduce((n: number, r: any) => n + Number(r.count), 0);
+
+    const advisors: any[] = [...conAsesor];
+    if (sinAsesor > 0) {
+      advisors.push({
+        id: 0, full_name: 'Sin asesor asignado', role: null, referral_code: null,
+        profile_photo_url: null, is_leader: false, leader_name: null,
+        count: sinAsesor, sin_asesor: true,
+      });
+    }
+    const total = conAsesor.reduce((s: number, r: any) => s + Number(r.count), 0) + sinAsesor;
+    res.json({
+      period_label: label, total, advisors,
+      sin_asesor: sinAsesor,
+      from: porRango ? from : null, to: porRango ? to : null,
+    });
   } catch (e: any) {
     console.error('[metas] getAltasPorAsesor:', e); res.status(500).json({ error: 'Error al obtener altas por asesor' });
   }
