@@ -69,16 +69,36 @@ export const getWalletStatus = async (req: AuthRequest, res: Response): Promise<
     // se aprovisione una CLABE real, devolvemos null y el frontend oculta el bloque.
     const virtualClabe: string | null = user.virtual_clabe || null;
 
+    // Crédito por SERVICIO: es donde vive de verdad. Los campos globales de
+    // `users` casi siempre están en 0, y el monedero mostraba "deuda: $0.00" a
+    // clientes con cientos de miles consumidos (tarea 468).
+    const credRes = await pool.query(
+      `SELECT service, COALESCE(credit_limit,0)::numeric AS limite,
+              COALESCE(used_credit,0)::numeric AS usado, COALESCE(is_blocked,false) AS bloqueado
+         FROM user_service_credits
+        WHERE user_id = $1 AND COALESCE(credit_limit,0) > 0
+        ORDER BY used_credit DESC`, [userId]);
+    const creditoPorServicio = credRes.rows.map((c: any) => ({
+      servicio: String(c.service),
+      limite: Number(c.limite),
+      usado: Number(c.usado),
+      disponible: Math.max(0, Number(c.limite) - Number(c.usado)),
+      bloqueado: !!c.bloqueado,
+    }));
+    const usadoReal = creditoPorServicio.reduce((n: number, c: any) => n + c.usado, 0);
+    const limiteReal = creditoPorServicio.reduce((n: number, c: any) => n + c.limite, 0);
+
     const walletInfo: WalletInfo = {
       wallet_balance: parseFloat(user.wallet_balance) || 0,
       virtual_clabe: virtualClabe,
-      has_credit: user.has_credit || false,
-      credit_limit: parseFloat(user.credit_limit) || 0,
-      used_credit: parseFloat(user.used_credit) || 0,
-      available_credit: (parseFloat(user.credit_limit) || 0) - (parseFloat(user.used_credit) || 0),
+      has_credit: user.has_credit || limiteReal > 0,
+      credit_limit: limiteReal || (parseFloat(user.credit_limit) || 0),
+      used_credit: usadoReal || (parseFloat(user.used_credit) || 0),
+      available_credit: Math.max(0, (limiteReal || (parseFloat(user.credit_limit) || 0)) - (usadoReal || (parseFloat(user.used_credit) || 0))),
       credit_days: user.credit_days || 0,
       is_credit_blocked: user.is_credit_blocked || false,
-    };
+      credito_por_servicio: creditoPorServicio,
+    } as any;
 
     // Obtener facturas pendientes de crédito
     const pendingInvoices = await pool.query(`

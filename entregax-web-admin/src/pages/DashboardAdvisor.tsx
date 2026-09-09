@@ -344,6 +344,10 @@ interface ClientWallet {
     };
     saldo_favor: number;
     credito_disponible: number;
+    // Credito REAL, por servicio. Los campos globales de `users` casi siempre
+    // estan en 0 y el asesor veia "credito usado: $0.00" de clientes con
+    // cientos de miles consumidos (tarea 468).
+    credito_por_servicio?: { servicio: string; limite: number; usado: number; disponible: number; bloqueado: boolean }[];
   };
 }
 
@@ -391,6 +395,15 @@ const paqIncluidaEnFlete = (st?: string): boolean =>
   ['AIR_CHN_MX', 'TDI_EXPRESS', 'AA_DHL'].includes(String(st || '').toUpperCase());
 
 // ─── Component ───
+
+/** Nombre del servicio de crédito como lo entiende una persona. */
+const NOMBRE_SERVICIO_CREDITO: Record<string, string> = {
+  dhl_liberacion: 'Liberación DHL',
+  po_box: 'PO Box USA',
+  aereo: 'Aéreo China',
+  maritimo: 'Marítimo',
+  tdi_express: 'TDI Express',
+};
 
 export default function DashboardAdvisor() {
   const { t } = useTranslation();
@@ -1683,6 +1696,29 @@ export default function DashboardAdvisor() {
     } catch (err) {
       setSnackbar({ open: true, message: t('advisor.noteError'), severity: 'error' });
     }
+  };
+
+  // Abono al crédito del cliente desde su saldo a favor.
+  const [pagoCreditoServicio, setPagoCreditoServicio] = useState('');
+  const [pagoCreditoMonto, setPagoCreditoMonto] = useState('');
+  const [pagandoCredito, setPagandoCredito] = useState(false);
+
+  const aplicarPagoCredito = async (clientId: number) => {
+    const monto = Number(pagoCreditoMonto);
+    if (!pagoCreditoServicio) { setSnackbar({ open: true, severity: 'warning', message: 'Elige a qué línea abonar' }); return; }
+    if (!Number.isFinite(monto) || monto <= 0) { setSnackbar({ open: true, severity: 'warning', message: 'Escribe un monto válido' }); return; }
+    setPagandoCredito(true);
+    try {
+      const r = await api.post(`/advisor/clients/${clientId}/pay-credit`, { amount: monto, service: pagoCreditoServicio });
+      setSnackbar({ open: true, severity: 'success', message: r.data?.message || 'Abono aplicado' });
+      setPagoCreditoMonto(''); setPagoCreditoServicio('');
+      handleViewWallet(clientId);
+    } catch (e: any) {
+      // El error del backend dice exactamente qué pasó (saldo insuficiente,
+      // monto mayor a la deuda, servicio equivocado): se muestra tal cual en
+      // vez de un genérico que obligue a adivinar.
+      setSnackbar({ open: true, severity: 'error', message: e?.response?.data?.error || 'No se pudo aplicar el abono' });
+    } finally { setPagandoCredito(false); }
   };
 
   const handleViewWallet = async (clientId: number) => {
@@ -7675,6 +7711,59 @@ export default function DashboardAdvisor() {
                   </Typography>
                 </Paper>
               </Box>
+
+              {/* Abonar al crédito con el saldo a favor del cliente.
+                  El efectivo se recibe en ventanilla —MTY, GDL y CDMX— y se
+                  abona al monedero desde acá; esperar a que el cliente entre a
+                  su app a liquidarlo no ocurre, y mientras tanto su línea sigue
+                  ocupada y las comisiones de esas operaciones sin liberarse
+                  (tarea 468). */}
+              {(walletData.cartera.credito_por_servicio || []).some((c: any) => Number(c.usado) > 0)
+                && walletData.cartera.saldo_favor > 0 && (
+                <Paper sx={{ p: 2, mx: 2, mb: 2, borderRadius: 2, border: '1px solid #90CAF9', bgcolor: '#F5FAFF' }}>
+                  <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>
+                    Abonar al crédito con su saldo a favor
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                    {(walletData.cartera.credito_por_servicio || [])
+                      .filter((c: any) => Number(c.usado) > 0)
+                      .map((c: any) => (
+                        <Chip
+                          key={c.servicio}
+                          size="small"
+                          label={`${NOMBRE_SERVICIO_CREDITO[c.servicio] || c.servicio}: $${Number(c.usado).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                          color={pagoCreditoServicio === c.servicio ? 'primary' : 'default'}
+                          variant={pagoCreditoServicio === c.servicio ? 'filled' : 'outlined'}
+                          onClick={() => { setPagoCreditoServicio(c.servicio); setPagoCreditoMonto(''); }}
+                        />
+                      ))}
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small" label="Monto a abonar" value={pagoCreditoMonto}
+                      onChange={(e) => setPagoCreditoMonto(e.target.value.replace(/[^0-9.]/g, ''))}
+                      sx={{ flex: 1 }}
+                    />
+                    <Button
+                      size="small" variant="outlined"
+                      onClick={() => {
+                        const linea = (walletData.cartera.credito_por_servicio || [])
+                          .find((c: any) => c.servicio === pagoCreditoServicio);
+                        if (!linea) { setSnackbar({ open: true, severity: 'warning', message: 'Elige a qué línea abonar' }); return; }
+                        // El tope es lo que haya en el monedero: ofrecer más solo lleva a un error.
+                        setPagoCreditoMonto(String(Math.min(walletData.cartera.saldo_favor, Number(linea.usado)).toFixed(2)));
+                      }}
+                    >Máximo</Button>
+                    <Button
+                      size="small" variant="contained" disabled={pagandoCredito}
+                      onClick={() => aplicarPagoCredito(walletData.cliente.id)}
+                    >{pagandoCredito ? 'Aplicando…' : 'Abonar'}</Button>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Sale de su saldo a favor (${walletData.cartera.saldo_favor.toLocaleString('en-US', { minimumFractionDigits: 2 })}) y libera el crédito y las comisiones de esas operaciones.
+                  </Typography>
+                </Paper>
+              )}
             </>
           ) : (
             <Box sx={{ p: 4, textAlign: 'center' }}>

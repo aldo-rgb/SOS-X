@@ -64,6 +64,17 @@ interface Transaction {
   created_at: string;
 }
 
+/** El nombre del servicio como lo entiende una persona, no como se guarda. */
+const NOMBRES_SERVICIO: Record<string, string> = {
+  dhl_liberacion: 'Liberación DHL',
+  po_box: 'PO Box USA',
+  aereo: 'Aéreo China',
+  maritimo: 'Marítimo',
+  tdi_express: 'TDI Express',
+};
+const nombreServicio = (s?: string | null): string =>
+  (s && (NOMBRES_SERVICIO[s] || s)) || 'crédito';
+
 export default function WalletScreen({ navigation }: any) {
   const { t, i18n } = useTranslation();
   const wLang = i18n.language;
@@ -86,6 +97,10 @@ export default function WalletScreen({ navigation }: any) {
   const [wallet, setWallet] = useState<WalletStatus | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [showPayModal, setShowPayModal] = useState(false);
+  // A que linea se abona. El credito vive POR SERVICIO: un cliente puede deber
+  // en DHL y en PO Box a la vez, y hay que decir a cual va el pago — repartirlo
+  // solos seria decidir con dinero ajeno.
+  const [servicioPago, setServicioPago] = useState<string>('');
   const [payAmount, setPayAmount] = useState('');
   const [paying, setPaying] = useState(false);
 
@@ -152,8 +167,20 @@ export default function WalletScreen({ navigation }: any) {
       return;
     }
 
-    if (amount > wallet.used_credit) {
-      Alert.alert('Error', 'El monto excede tu deuda actual');
+    const lineas: any[] = (wallet as any)?.credito_por_servicio || [];
+    const conDeuda = lineas.filter(l => Number(l.usado) > 0);
+    let servicio = servicioPago;
+    if (!servicio) {
+      if (conDeuda.length === 1) servicio = conDeuda[0].servicio;
+      else if (conDeuda.length > 1) {
+        Alert.alert('¿A cuál línea?', 'Elige a qué servicio quieres abonar.');
+        return;
+      }
+    }
+    const linea = conDeuda.find(l => l.servicio === servicio);
+    const deudaDelServicio = linea ? Number(linea.usado) : Number(wallet.used_credit || 0);
+    if (amount > deudaDelServicio) {
+      Alert.alert('Error', `El monto excede tu deuda de ${nombreServicio(servicio)}: ${formatCurrency(deudaDelServicio)}`);
       return;
     }
 
@@ -166,7 +193,7 @@ export default function WalletScreen({ navigation }: any) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, service: servicio || undefined }),
       });
 
       const data = await response.json();
@@ -423,12 +450,42 @@ export default function WalletScreen({ navigation }: any) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Pagar Línea de Crédito</Text>
-            <Text style={styles.modalSubtitle}>
-              Deuda actual: {formatCurrency(wallet?.used_credit || 0)}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              Saldo monedero: {formatCurrency(wallet?.wallet_balance || 0)}
-            </Text>
+            {(() => {
+              const lineas: any[] = ((wallet as any)?.credito_por_servicio || []).filter((l: any) => Number(l.usado) > 0);
+              const sel = servicioPago || (lineas.length === 1 ? lineas[0].servicio : '');
+              const deuda = lineas.find((l: any) => l.servicio === sel);
+              return (
+                <>
+                  {lineas.length > 1 && (
+                    <>
+                      <Text style={styles.modalSubtitle}>¿A qué línea abonas?</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {lineas.map((l: any) => (
+                          <TouchableOpacity
+                            key={l.servicio}
+                            onPress={() => { setServicioPago(l.servicio); setPayAmount(''); }}
+                            style={{
+                              paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5,
+                              borderColor: sel === l.servicio ? '#F05A28' : '#DDD',
+                              backgroundColor: sel === l.servicio ? '#F05A28' : '#FFF',
+                            }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: sel === l.servicio ? '#FFF' : '#555' }}>
+                              {nombreServicio(l.servicio)} · {formatCurrency(Number(l.usado))}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                  <Text style={styles.modalSubtitle}>
+                    Deuda{sel ? ` de ${nombreServicio(sel)}` : ''}: {formatCurrency(deuda ? Number(deuda.usado) : (wallet?.used_credit || 0))}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    Saldo monedero: {formatCurrency(wallet?.wallet_balance || 0)}
+                  </Text>
+                </>
+              );
+            })()}
 
             <TextInput
               style={styles.modalInput}
@@ -440,9 +497,19 @@ export default function WalletScreen({ navigation }: any) {
 
             <TouchableOpacity
               style={styles.quickAmountBtn}
-              onPress={() => setPayAmount(String(wallet?.used_credit || 0))}
+              onPress={() => {
+                const lineas: any[] = ((wallet as any)?.credito_por_servicio || []).filter((l: any) => Number(l.usado) > 0);
+                const sel = servicioPago || (lineas.length === 1 ? lineas[0].servicio : '');
+                const deuda = lineas.find((l: any) => l.servicio === sel);
+                // Lo maximo que se puede abonar es lo que haya en el monedero:
+                // ofrecer "pagar todo" por mas de lo disponible solo lleva a un error.
+                const tope = Math.min(Number(wallet?.wallet_balance || 0), deuda ? Number(deuda.usado) : Number(wallet?.used_credit || 0));
+                setPayAmount(String(tope.toFixed(2)));
+              }}
             >
-              <Text style={styles.quickAmountText}>Pagar todo ({formatCurrency(wallet?.used_credit || 0)})</Text>
+              <Text style={styles.quickAmountText}>
+                Abonar el máximo ({formatCurrency(Math.min(Number(wallet?.wallet_balance || 0), Number((((wallet as any)?.credito_por_servicio || []).find((l: any) => l.servicio === (servicioPago || ''))?.usado) ?? wallet?.used_credit ?? 0)))})
+              </Text>
             </TouchableOpacity>
 
             <View style={styles.modalButtons}>
