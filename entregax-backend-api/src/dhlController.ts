@@ -1892,7 +1892,35 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
   const tk = tracking ? String(tracking).trim() : '';
   if (!tk) return 0;
   const def = await getDhlImportTaxMxn();
-  const perBox = noteAmount / Math.max(1, pieces);
+
+  // Las piezas de la nota NO se creen a ciegas. El UPDATE de abajo escribe el
+  // monto en TODAS las cajas de la guía, así que repartir entre menos cajas de
+  // las que se van a cobrar multiplica la nota. Quien captura en Caja Chica deja
+  // `pieces` en 1 por default, y una guía de 3 bultos terminaba cobrando la nota
+  // tres veces: la 4164740403 (nota $917.14) salió en $2,751.42 y el cliente la
+  // pagó (TKT-2026-2620, tarea 542). Van 13 guías así.
+  //
+  // Se reparte entre las cajas REALES cuando son más que las declaradas. Al
+  // revés no: si la nota dice más piezas de las que hay registradas todavía,
+  // se respeta —las que faltan van a llegar y les toca su parte—. Con esto la
+  // suma cobrada en la guía nunca puede pasar del monto de la nota.
+  let piezas = Math.max(1, pieces);
+  try {
+    const c = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM dhl_shipments
+        WHERE inbound_tracking = $1 OR secondary_tracking = $1`, [tk]);
+    const reales = Number(c.rows[0]?.n || 0);
+    if (reales > piezas) {
+      console.warn(
+        `[crossDhlTaxNote] la nota de ${tk} declara ${piezas} pieza(s) y la guía ` +
+        `tiene ${reales} caja(s); se reparte entre ${reales} para no multiplicar la nota.`);
+      piezas = reales;
+    }
+  } catch (e: any) {
+    console.warn('[crossDhlTaxNote] no pude contar las cajas de la guía:', e?.message);
+  }
+
+  const perBox = noteAmount / piezas;
   const effective = perBox >= def ? Math.round(perBox * 100) / 100 : def;
   // import_cost_mxn = servicio (usd×TC) + impuesto; total = servicio + impuesto + nacional.
   // Se recalcula desde usd×TC para que actualizar el impuesto no lo duplique.
