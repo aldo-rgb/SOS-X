@@ -291,10 +291,16 @@ function friendlyEntangledError(code?: string | null, respuesta?: any, ctx?: { s
     // el pais: primera vez que se mandaba a Taiwan, y esa ruta no esta dada de
     // alta. El mensaje real se arma abajo con el pais y que hacer.
     costo_operacion_no_configurado: '',
+    // Mismo caso, ya con su nombre real. El proveedor reconocio que
+    // `costo_operacion_no_configurado` apuntaba al lugar equivocado: el costo si
+    // estaba configurado y lo que fallaba era que no habia comercializadora para
+    // ese destino. Los dos codigos significan lo mismo de cara al asesor —esa
+    // ruta no esta dada de alta— asi que se traducen igual.
+    sin_comercializadora: '',
   };
   // Destino no habilitado: se nombra el PAIS y se dice el siguiente paso, en vez
   // de dejar al asesor reintentando algo que nunca va a pasar.
-  if (key === 'costo_operacion_no_configurado') {
+  if (key === 'costo_operacion_no_configurado' || key === 'sin_comercializadora') {
     const pais = resolverPaisDestino({
       declarado: ctx?.paisDeclarado, swift: ctx?.swift, divisa: ctx?.divisa,
     });
