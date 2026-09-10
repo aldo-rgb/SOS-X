@@ -14,6 +14,7 @@ import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from '
 // Resolvedor autoritativo del servicio de una orden (ver orderService.ts).
 import { resolveOrderService } from './orderService';
 import { nombreServicio } from './saldoFavorServicio';
+import { anotarMovimientoCredito } from './creditoBitacora';
 
 /** Nombre legible de la LÍNEA DE CRÉDITO (otras llaves que las del servicio). */
 const NOMBRE_CREDITO: Record<string, string> = {
@@ -652,6 +653,12 @@ export async function acreditarSobranteOrden(
       `[VOUCHER] Sobrante abonado a deuda: $${abonadoADeuda.toFixed(2)} al crédito ${servicioDeuda} ` +
       `de user ${order.user_id} (orden ${order.payment_reference})`
     );
+    await anotarMovimientoCredito(db, {
+      userId: order.user_id, servicio: servicioDeuda, monto: -abonadoADeuda,
+      movimiento: 'excedente', ordenRef: order.payment_reference, ordenId: orderId,
+      actorId: adminId ?? null,
+      concepto: 'Pagó de más y el sobrante bajó su deuda',
+    });
     await anotarEnMonedero(
       'credit_settlement', -abonadoADeuda,
       `Pagaste de más en la orden ${order.payment_reference}: $${abonadoADeuda.toFixed(2)} ` +

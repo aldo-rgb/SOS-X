@@ -16,6 +16,7 @@ import {
 import { createInvoice } from './fiscalController';
 import { generateCommissionsForPackages } from './commissionService';
 import { ensureCargoExtraSchema } from './customerServiceController';
+import { anotarMovimientoCredito } from './creditoBitacora';
 
 // ============================================
 // POBOX PAYMENT CONTROLLER - MULTISUCURSAL
@@ -2234,6 +2235,11 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
                     [creditApplied, userId, order.credit_service]
                 );
                 console.log(`↩️ Crédito reintegrado: $${creditApplied} al servicio ${order.credit_service} (usuario ${userId})`);
+                await anotarMovimientoCredito(pool, {
+                    userId, servicio: order.credit_service, monto: -creditApplied,
+                    movimiento: 'reverso', ordenRef: order.payment_reference, ordenId: order.id,
+                    concepto: 'Se canceló la orden: se devuelve el crédito que se le había aplicado',
+                });
             } catch (e) {
                 console.warn('No se pudo reintegrar crédito al cancelar:', e);
             }
@@ -2505,6 +2511,11 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     `UPDATE user_service_credits SET used_credit = COALESCE(used_credit,0) + $1, updated_at = NOW() WHERE id = $2`,
                     [amount, serviceRow.id]
                 );
+                await anotarMovimientoCredito(client, {
+                    userId, servicio: serviceRow.service, monto: amount,
+                    movimiento: 'consumo_orden', ordenRef: order.payment_reference, ordenId: order.id,
+                    concepto: 'Orden pagada a crédito',
+                });
             } else if (!service) {
                 await client.query(
                     `UPDATE users SET used_credit = COALESCE(used_credit, 0) + $1 WHERE id = $2`,
@@ -2765,6 +2776,11 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
 
         // Actualizar orden
         const newAmount = Math.max(0, orderAmount - applied);
+        await anotarMovimientoCredito(client, {
+            userId, servicio: service, monto: applied,
+            movimiento: 'credito_aplicado', ordenRef: order.payment_reference, ordenId: orderId,
+            concepto: `Crédito aplicado a la orden: de $${orderAmount.toFixed(2)} baja a $${newAmount.toFixed(2)}`,
+        });
         await client.query(
             `UPDATE pobox_payments SET
                 amount = $1,
@@ -2895,6 +2911,11 @@ export const revertCreditFromPoboxOrder = async (req: AuthRequest, res: Response
                  WHERE user_id = $2 AND service = $3`,
                 [creditApplied, userId, service]
             );
+            await anotarMovimientoCredito(client, {
+                userId, servicio: service, monto: -creditApplied,
+                movimiento: 'reverso', ordenRef: order.payment_reference, ordenId: orderId,
+                concepto: 'Se revirtió el crédito aplicado a la orden',
+            });
         }
 
         const updRes = await client.query(

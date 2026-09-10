@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { releaseCreditHeldCommissions } from './commissionService';
+import { anotarMovimientoCredito } from './creditoBitacora';
 
 // ============================================
 // INTERFACES
@@ -525,6 +526,10 @@ export async function aplicarPagoDeCredito(
             updated_at = NOW()
       WHERE user_id = $2::int AND service = $3::text`,
     [newUsedCredit, userId, servicio]);
+  await anotarMovimientoCredito(cx, {
+    userId, servicio, monto: -amount, movimiento: 'liquidacion',
+    concepto: `Abono a la línea desde el monedero`,
+  });
 
   await cx.query(
     `INSERT INTO financial_transactions

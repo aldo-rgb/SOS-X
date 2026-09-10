@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { normalizeServiceForCredit } from './poboxPaymentController';
+import { anotarMovimientoCredito } from './creditoBitacora';
 
 /**
  * Restauración del crédito por servicio al liquidar una orden pagada a crédito.
@@ -94,7 +95,15 @@ export const restoreServiceCredit = async (
               WHERE user_id = $2 AND service = $3`,
             [amount, userId, service]
         );
-        if ((r.rowCount || 0) > 0) return { restored: true, service };
+        if ((r.rowCount || 0) > 0) {
+            await anotarMovimientoCredito(db, {
+                userId, servicio: service, monto: -amount,
+                movimiento: 'restauracion',
+                ordenRef: orderRef == null ? null : String(orderRef),
+                concepto: 'La orden se liquidó: se le devuelve el cupo',
+            });
+            return { restored: true, service };
+        }
     }
 
     // Sin fila por servicio: usar el crédito global solo si el cliente NO opera

@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 import { ServiceType } from './services/openpayConfig';
+import { anotarMovimientoCredito } from './creditoBitacora';
 
 // ============================================
 // ENSURE TABLE EXISTS
@@ -733,6 +734,12 @@ export const useServiceCredit = async (req: AuthRequest, res: Response): Promise
       SET used_credit = used_credit + $1, updated_at = NOW()
       WHERE user_id = $2 AND service = $3
     `, [amount, userId, service]);
+
+    await anotarMovimientoCredito(pool, {
+      userId: Number(userId), servicio: String(service), monto: Number(amount),
+      movimiento: 'compra_credito', ordenRef: invoiceNumber,
+      concepto: concept ? `Compra a crédito: ${concept}` : 'Compra a crédito',
+    });
 
     res.json({
       success: true,

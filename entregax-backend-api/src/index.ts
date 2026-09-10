@@ -8902,6 +8902,23 @@ app.put('/api/admin/service-credits/:userId/:service', authenticateToken, requir
 // Admin: Actualizar todos los créditos de un cliente
 app.put('/api/admin/service-credits/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateAllServiceCredits);
 
+// Admin: Estado de cuenta de una línea de crédito — cada movimiento con su
+// concepto, su orden y quién lo hizo. Va bajo otro prefijo a propósito: colgarlo
+// de /service-credits/ lo haría chocar con la ruta de :userId de arriba.
+app.get('/api/admin/credito/:userId/:service/movimientos',
+  authenticateToken, requireMinLevel(ROLES.ADMIN),
+  async (req: Request, res: Response) => {
+    try {
+      const { estadoDeCuentaCredito } = await import('./creditoBitacora');
+      const data = await estadoDeCuentaCredito(
+        parseInt(String(req.params.userId), 10), String(req.params.service));
+      res.json({ success: true, ...data });
+    } catch (e: any) {
+      console.error('[CREDITO] estado de cuenta:', e?.message);
+      res.status(500).json({ error: 'No se pudo cargar el estado de cuenta del crédito' });
+    }
+  });
+
 // Cliente: Ver mis créditos por servicio
 app.get('/api/my/service-credits', authenticateToken, getUserServiceCredits);
 
