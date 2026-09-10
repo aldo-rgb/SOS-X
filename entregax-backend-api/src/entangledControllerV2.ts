@@ -466,8 +466,10 @@ export const createPaymentRequestV2 = async (
   // clave a mano en vez de elegirla del catálogo, el front la manda sin
   // descripción y el PDF se quedaba con el número. Se completa aquí, una sola
   // vez, contra el historial local y si no contra el catálogo SAT.
-  // Nunca bloquea el alta: si no se puede resolver, se sigue sin descripción.
-  const completarDescripciones = async () => {
+  // Que falte la DESCRIPCIÓN nunca bloquea el alta: si no se puede resolver, se
+  // sigue sin ella. Que la CLAVE no sea una clave sí — devuelve el motivo y el
+  // handler corta.
+  const completarDescripciones = async (): Promise<string | null> => {
     // Normalizar primero: el front manda las claves como "clave|descripcion" y
     // a veces el pipe se cuela sin separar ("60141001|", "25171500|Limpia...").
     // Así se guardaba y así se le mandaba a ENTANGLED, con la clave malformada.
@@ -480,10 +482,42 @@ export const createPaymentRequestV2 = async (
       if (desc && !String(c?.descripcion || '').trim()) c.descripcion = desc;
       console.warn(`[XPAY] clave SAT malformada "${crudo}" → "${c.clave_prodserv}"${desc ? ` (descripción "${desc}")` : ''}`);
     });
+    // Lo que llega como NOMBRE del producto en vez de clave. La captura de la
+    // web es un textarea libre y toma la primera palabra como clave, asi que
+    // "Pilas recargables" viajaba tal cual hasta el proveedor, que contestaba
+    // "no hay comercializadora que pueda facturar el concepto Pilas" — un error
+    // que se leyo como problema del pais y costo cuatro rondas (solicitudes
+    // 235, 237, 248, 249 y 250). Desde mayo van 11 operaciones tumbadas asi.
+    //
+    // Se resuelve contra el catalogo SAT y solo cuando NO hay ambiguedad: una
+    // sola coincidencia y que su descripcion contenga el texto tecleado. La
+    // clave define como se factura, asi que ante la duda se para aqui en vez de
+    // adivinar.
+    for (const c of conceptos) {
+      const clave = String(c?.clave_prodserv || '').trim();
+      if (!clave || /^\d{8}$/.test(clave)) continue;
+      const cat = await searchConceptos(clave, 5);
+      const coincidencias = (cat.results || []).filter((x: any) =>
+        String(x?.descripcion || '').toLowerCase().includes(clave.toLowerCase())
+      );
+      if (coincidencias.length === 1) {
+        const unica: any = coincidencias[0];
+        if (!String(c?.descripcion || '').trim()) c.descripcion = clave;
+        c.clave_prodserv = String(unica.clave_prodserv).trim();
+        console.warn(`[XPAY] "${clave}" no es clave SAT; resuelta sin ambigüedad a ${c.clave_prodserv}`);
+        continue;
+      }
+      // Se devuelve el motivo; quien responde es el handler (esta función corre
+      // dentro de un await y un res.json() aquí no cortaría el alta).
+      return (
+        `"${clave}" no es una clave del catálogo SAT, es el nombre del producto. ` +
+        `Búscalo en el catálogo y elige la clave (son 8 dígitos) antes de enviar.`
+      );
+    }
     const faltantes = conceptos.filter(
       (c) => String(c?.clave_prodserv || '').trim() && !String(c?.descripcion || '').trim()
     );
-    if (faltantes.length === 0) return;
+    if (faltantes.length === 0) return null;
     for (const c of faltantes) {
       const clave = String(c.clave_prodserv).trim();
       try {
@@ -505,6 +539,7 @@ export const createPaymentRequestV2 = async (
         console.warn(`[XPAY] no se pudo resolver la descripción de ${clave}:`, e?.message);
       }
     }
+    return null;
   };
   // Snapshot de la UI (provider + beneficiario + operation + quote) para
   // poder regenerar el PDF de instrucciones idéntico al original.
@@ -664,7 +699,13 @@ export const createPaymentRequestV2 = async (
     );
   }
 
-  if (servicio === 'pago_con_factura') await completarDescripciones();
+  if (servicio === 'pago_con_factura') {
+    const claveInvalida = await completarDescripciones();
+    if (claveInvalida) {
+      console.warn(`[XPAY] alta detenida: ${claveInvalida}`);
+      return res.status(400).json({ error: claveInvalida, error_code: 'clave_sat_invalida' });
+    }
+  }
 
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
