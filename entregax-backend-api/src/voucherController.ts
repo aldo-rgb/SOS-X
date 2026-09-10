@@ -13,6 +13,15 @@ import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
 // Resolvedor autoritativo del servicio de una orden (ver orderService.ts).
 import { resolveOrderService } from './orderService';
+import { nombreServicio } from './saldoFavorServicio';
+
+/** Nombre legible de la LÍNEA DE CRÉDITO (otras llaves que las del servicio). */
+const NOMBRE_CREDITO: Record<string, string> = {
+  dhl_liberacion: 'DHL',
+  po_box: 'PO Box USA',
+  aereo: 'Aéreo',
+  maritimo: 'Marítimo',
+};
 
 interface AuthRequest extends Request {
   user?: { userId: number; email: string; role?: string; level?: number };
@@ -597,6 +606,34 @@ export async function acreditarSobranteOrden(
     ? [{ service: servicioDeuda, used_credit: String(deudaRes.rows[0].used_credit) }]
     : [];
 
+  // Deja el movimiento en el monedero, que es donde el cliente y Servicio a
+  // Cliente miran. Hasta ahora el excedente solo dejaba rastro en la consola
+  // (cuando abonaba a la deuda) o en `billetera_servicio_transacciones`, que el
+  // historial del monedero ni siquiera lee: los $512.95 de la orden UW-528767C4
+  // se aplicaron bien y aun así se levantó la tarea 522 porque no se veían por
+  // ningún lado.
+  //
+  // Es un ASIENTO, no un movimiento de dinero: `balance_after` va con el saldo
+  // tal cual está, sin tocarlo. Nada deriva el saldo sumando esta tabla —
+  // `users.wallet_balance` es la fuente de verdad—, así que anotar aquí no
+  // descuadra nada. Nunca tumba el abono: si falla, solo se pierde el renglón.
+  const anotarEnMonedero = async (
+    tipo: 'credit_settlement' | 'refund', monto: number, texto: string
+  ) => {
+    try {
+      const w = await db.query('SELECT wallet_balance FROM users WHERE id = $1', [order.user_id]);
+      await db.query(
+        `INSERT INTO financial_transactions
+           (user_id, type, amount, balance_after, description, reference_type, reference_id)
+         VALUES ($1, $2::tx_type, $3, $4, $5, 'excedente_orden', $6)`,
+        [order.user_id, tipo, monto, Number(w.rows[0]?.wallet_balance ?? 0), texto,
+         String(order.payment_reference || orderId)]
+      );
+    } catch (e: any) {
+      console.error(`[VOUCHER] no pude anotar el excedente en el monedero (orden ${order.payment_reference}):`, e?.message);
+    }
+  };
+
   let abonadoADeuda = 0;
   if (servicioDeuda) {
     const deuda = Number(deudas.find((d) => d.service === servicioDeuda)?.used_credit || 0);
@@ -614,6 +651,12 @@ export async function acreditarSobranteOrden(
     console.log(
       `[VOUCHER] Sobrante abonado a deuda: $${abonadoADeuda.toFixed(2)} al crédito ${servicioDeuda} ` +
       `de user ${order.user_id} (orden ${order.payment_reference})`
+    );
+    await anotarEnMonedero(
+      'credit_settlement', -abonadoADeuda,
+      `Pagaste de más en la orden ${order.payment_reference}: $${abonadoADeuda.toFixed(2)} ` +
+      `se aplicaron a tu línea de crédito de ${NOMBRE_CREDITO[servicioDeuda] || servicioDeuda}. ` +
+      `No pasó por tu saldo a favor.`
     );
     // Y marcar QUÉ órdenes acaba de pagar ese abono. Sin esto la deuda bajaba
     // pero las órdenes seguían diciendo "CRÉDITO" para siempre.
@@ -657,6 +700,12 @@ export async function acreditarSobranteOrden(
   await db.query(
     `UPDATE pobox_payments SET surplus_amount = $1, surplus_credited = TRUE WHERE id = $2`,
     [surplus, orderId]
+  );
+  await anotarEnMonedero(
+    'refund', paraMonedero,
+    `Pagaste de más en la orden ${order.payment_reference}: $${paraMonedero.toFixed(2)} ` +
+    `quedaron a tu favor en ${nombreServicio(serviceType)}` +
+    (abonadoADeuda > 0 ? `, después de abonar $${abonadoADeuda.toFixed(2)} a tu crédito.` : '.')
   );
   console.log(`[VOUCHER] Saldo a favor acreditado: $${surplus.toFixed(2)} orden ${order.payment_reference} (user ${order.user_id})`);
   return surplus;
