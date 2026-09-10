@@ -220,8 +220,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [conceptos, setConceptos] = useState('');
   // 🧾 Cantidad (piezas) y precio unitario manual por clave SAT. La ÚLTIMA clave
   // autobalancea su precio para que la suma cuadre con el total en MXN.
-  const [conceptoQty, setConceptoQty] = useState<Record<string, number>>({});
-  const [conceptoPrice, setConceptoPrice] = useState<Record<string, number>>({});
+  //
+  // Se guardan como TEXTO, no como número. Guardándolos como número el campo no
+  // se podía editar: al borrar el "1" quedaba "" → 0 → volvía a "1" en el mismo
+  // teclazo, así que para poner 25 había que dejarlo en 125. El precio tenía lo
+  // mismo con el punto: al teclear "19425." se reconstruía "19425" y el decimal
+  // no entraba nunca. El número se saca al leerlos, no al escribirlos.
+  const [conceptoQty, setConceptoQty] = useState<Record<string, string>>({});
+  const [conceptoPrice, setConceptoPrice] = useState<Record<string, string>>({});
+  // Cantidad y precio efectivos de una clave (lo que se manda a facturar).
+  const qtyDe = (clave: string) => Math.max(1, parseInt(conceptoQty[clave] || '', 10) || 1);
+  const precioDe = (clave: string) => Math.max(0, parseFloat(conceptoPrice[clave] || '') || 0);
   const [claveHistory, setClaveHistory] = useState<Array<{ clave: string; descripcion?: string | null; uses_count: number }>>([]);
   const [monto, setMonto] = useState('');
   const [divisa, setDivisa] = useState<'USD' | 'RMB' | 'MXN'>('USD');
@@ -520,7 +529,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   }));
   // Partidas de la factura: cantidad × precio; la ÚLTIMA clave autobalancea.
   const computeMobileLineItems = (claves: { clave: string; descripcion: string }[], totalMxn: number) => {
-    const items = claves.map(c => ({ ...c, cantidad: conceptoQty[c.clave] || 1, precioUnitario: conceptoPrice[c.clave] || 0 }));
+    const items = claves.map(c => ({ ...c, cantidad: qtyDe(c.clave), precioUnitario: precioDe(c.clave) }));
     const n = items.length;
     if (n === 0) return items;
     const othersSubtotal = items.slice(0, n - 1).reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
@@ -534,7 +543,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (claves.length === 0) return;
     const items = computeMobileLineItems(claves, quote?.monto_mxn_total || 0);
     const last = items[items.length - 1];
-    setConceptoPrice(prev => ({ ...prev, [last.clave]: last.precioUnitario }));
+    setConceptoPrice(prev => ({ ...prev, [last.clave]: last.precioUnitario.toFixed(2) }));
   };
 
   const appendClaveFromHistory = (h: { clave: string; descripcion?: string | null }) => {
@@ -2866,8 +2875,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               <View style={{ flex: 1 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>Cantidad</Text>
                                 <TextInput
-                                  value={String(s.cantidad)}
-                                  onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.clave]: Math.max(1, parseInt(t.replace(/[^0-9]/g, ''), 10) || 1) }))}
+                                  value={conceptoQty[s.clave] ?? '1'}
+                                  // Se acepta el campo vacío mientras se escribe; si se
+                                  // deja así, al salir vuelve a 1 (que es lo que se factura).
+                                  onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.clave]: t.replace(/[^0-9]/g, '') }))}
+                                  onBlur={() => setConceptoQty(prev => (
+                                    prev[s.clave] ? prev : { ...prev, [s.clave]: '1' }
+                                  ))}
+                                  selectTextOnFocus
                                   keyboardType="number-pad"
                                   style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: '#111' }}
                                 />
@@ -2876,8 +2891,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               <View style={{ flex: 1.3 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>{isLast ? 'P. unitario (auto)' : 'P. unitario'}</Text>
                                 <TextInput
-                                  value={isLast ? s.precioUnitario.toFixed(2) : String(conceptoPrice[s.clave] ?? '')}
-                                  onChangeText={(t) => { if (!isLast) setConceptoPrice(prev => ({ ...prev, [s.clave]: Math.max(0, parseFloat(t.replace(/[^0-9.]/g, '')) || 0) })); }}
+                                  value={isLast ? s.precioUnitario.toFixed(2) : (conceptoPrice[s.clave] ?? '')}
+                                  // Se deja el punto decimal a medio escribir ("19425.") y
+                                  // solo se descarta un segundo punto; el número se saca al leer.
+                                  onChangeText={(t) => {
+                                    if (isLast) return;
+                                    const limpio = t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+                                    setConceptoPrice(prev => ({ ...prev, [s.clave]: limpio }));
+                                  }}
+                                  selectTextOnFocus
                                   editable={!isLast}
                                   keyboardType="decimal-pad"
                                   placeholder="0.00"
