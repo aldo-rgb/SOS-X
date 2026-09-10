@@ -1031,7 +1031,14 @@ export const createPaymentRequestV2 = async (
               raw_response = $2::jsonb,
               updated_at = NOW()
         WHERE id = $3`,
-      [remote.error || 'Sin transaccion_id', JSON.stringify(remote.raw || {}), requestId]
+      // El código HTTP va junto al cuerpo: solo estaba en la consola, y cuando el
+      // proveedor pidió "el cuerpo tal cual con su código de estado" para saber
+      // si el rechazo era suyo, el cuerpo lo teníamos y el código no.
+      [
+        remote.error || 'Sin transaccion_id',
+        JSON.stringify({ ...(remote.raw || {}), _http_status: remote.status ?? null }),
+        requestId,
+      ]
     );
     // 409 de ENTANGLED = proveedor sin cuenta / TC vencido / sin disponibilidad
     // → propagar el código y traducir el mensaje a algo claro para el usuario.
@@ -1526,7 +1533,14 @@ export async function sendPendingRequestToEntangled(
               raw_response = $2::jsonb,
               updated_at = NOW()
         WHERE id = $3`,
-      [remote.error || 'Sin transaccion_id', JSON.stringify(remote.raw || {}), requestId]
+      // El código HTTP va junto al cuerpo: solo estaba en la consola, y cuando el
+      // proveedor pidió "el cuerpo tal cual con su código de estado" para saber
+      // si el rechazo era suyo, el cuerpo lo teníamos y el código no.
+      [
+        remote.error || 'Sin transaccion_id',
+        JSON.stringify({ ...(remote.raw || {}), _http_status: remote.status ?? null }),
+        requestId,
+      ]
     );
     return {
       ok: false,
