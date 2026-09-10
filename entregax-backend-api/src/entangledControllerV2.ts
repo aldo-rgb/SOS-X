@@ -279,34 +279,37 @@ function friendlyEntangledError(code?: string | null, respuesta?: any, ctx?: { s
     // (que falta `pais_destino`, que no hay tarifa de operación en RMB) se
     // queda en el log y en error_code.
     destino_pais_faltante: 'Falta país destino, habla con tu asesor.',
-    // Este codigo significa DESTINO NO HABILITADO, no un problema de divisa.
+    // Estos dos codigos son el MISMO caso y significan: no hay comercializadora
+    // que pueda facturar el CONCEPTO. No es el destino, ni el monto, ni la
+    // divisa.
     //
-    // El texto anterior decia "No hay TC-RMB disponible, prueba con USD" y era
-    // doblemente falso: la solicitud 235 iba en USD por 1,000 y a Taiwan. Jesus
-    // Campos giro en circulos siguiendo un consejo que ya estaba aplicando
-    // (tarea 488, TKT-2026-2555).
+    // Costo cuatro rondas de diagnostico creerlo. El proveedor primero mandaba
+    // `costo_operacion_no_configurado` ("el proveedor asignado no tiene costo de
+    // operacion para USD"), que apuntaba al lugar equivocado; ellos mismos lo
+    // reconocieron y lo renombraron a `sin_comercializadora` con la causa real
+    // adentro. En medio, dos mensajes nuestros mandaron a Jesus Campos a
+    // perseguir fantasmas: primero "prueba con USD" cuando ya iba en USD, luego
+    // "levanta un ticket para dar de alta Taiwan" cuando Taiwan nunca fue el
+    // problema (tarea 488, TKT-2026-2555, solicitudes 235/237/248/249/250).
     //
-    // El monto no tiene nada que ver —hay operaciones de 1,000 USD completadas—
-    // ni la divisa: ese mismo dia paso una de 28,000 USD. Lo unico distinto era
-    // el pais: primera vez que se mandaba a Taiwan, y esa ruta no esta dada de
-    // alta. El mensaje real se arma abajo con el pais y que hacer.
+    // Las cinco mandaron `clave_prodserv: "Pilas recargables"` — el NOMBRE del
+    // producto, no la clave SAT. La misma operacion con la clave 26111701 pasa
+    // la asignacion sin una queja. El destino resolvia bien desde el principio.
     costo_operacion_no_configurado: '',
-    // Mismo caso, ya con su nombre real. El proveedor reconocio que
-    // `costo_operacion_no_configurado` apuntaba al lugar equivocado: el costo si
-    // estaba configurado y lo que fallaba era que no habia comercializadora para
-    // ese destino. Los dos codigos significan lo mismo de cara al asesor —esa
-    // ruta no esta dada de alta— asi que se traducen igual.
     sin_comercializadora: '',
   };
-  // Destino no habilitado: se nombra el PAIS y se dice el siguiente paso, en vez
-  // de dejar al asesor reintentando algo que nunca va a pasar.
+  // Se nombra la partida que no se puede facturar y que hacer con ella. El
+  // proveedor manda el concepto dentro de su mensaje; si cambia el texto y no
+  // se puede sacar, se cae a decir lo mismo sin nombrarla.
   if (key === 'costo_operacion_no_configurado' || key === 'sin_comercializadora') {
-    const pais = resolverPaisDestino({
-      declarado: ctx?.paisDeclarado, swift: ctx?.swift, divisa: ctx?.divisa,
-    });
-    return `XPAY todavía no está habilitado para enviar a ${pais}. ` +
-      `No es un problema del monto ni de la divisa: esa ruta aún no está dada de alta. ` +
-      `Levanta un ticket solicitando el alta de ${pais} y te avisamos en cuanto quede.`;
+    const detalle = String(respuesta?.mensaje || respuesta?.detalle || '');
+    const concepto = detalle.match(/facturar el concepto\s+(.+?)\s*(?:\.|$)/i)?.[1]?.trim();
+    return concepto
+      ? `No hay quién facture "${concepto}". Casi siempre es porque esa partida ` +
+        `se capturó con el nombre del producto en vez de su clave SAT: búscalo en ` +
+        `el catálogo, elige la clave y vuelve a enviar.`
+      : `Una de las partidas no se puede facturar. Revisa que cada producto lleve ` +
+        `su clave SAT del catálogo —no el nombre escrito a mano— y vuelve a enviar.`;
   }
   if (MAP[key]) return MAP[key];
   // ⚠️ NUNCA devolver el texto crudo del proveedor: son mensajes escritos para
