@@ -30,7 +30,9 @@ export type MovimientoCredito =
   /** La orden se liquidó y se le devuelve el cupo. */
   | 'restauracion'
   /** Se canceló la orden o se revirtió el crédito aplicado. */
-  | 'reverso';
+  | 'reverso'
+  /** Corrección autorizada a mano. Siempre con el motivo en el concepto. */
+  | 'ajuste';
 
 let listaTabla = false;
 
