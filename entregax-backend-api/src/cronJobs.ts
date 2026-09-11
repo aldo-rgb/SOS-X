@@ -601,6 +601,31 @@ export const startCarteraVencidaCron = () => {
  * - Sincroniza órdenes activas de los últimos 30 días
  * - Actualiza tracking, ETA, ETD
  */
+/**
+ * CRON JOB: guías DHL pagadas que no se marcaron
+ * Se ejecuta todos los días a las 05:30, antes de que abra la operación.
+ *
+ * La comisión del asesor nace cuando la guía se marca pagada. Si esa marca falla
+ * al cobrar, hoy nada la reintenta y el asesor se queda sin comisión hasta que
+ * algo la destrabe de rebote — a una le tomó 93 días (tarea 529).
+ */
+export const startDhlPagoRezagadoCron = () => {
+  cron.schedule('30 5 * * *', async () => {
+    try {
+      const { destrabarPagosRezagados } = await import('./dhlPagoRezagado');
+      const r = await destrabarPagosRezagados();
+      if (r.destrabadas.length > 0) {
+        console.warn(`🔧 [CRON] Guías DHL rezagadas destrabadas: ${r.destrabadas.length} ` +
+          `(${r.destrabadas.map(x => x.orden).join(', ')})`);
+      }
+    } catch (error) {
+      console.error('❌ [CRON] Error destrabando guías DHL rezagadas:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Revisión de guías DHL pagadas sin marcar programada a las 05:30 hrs');
+};
+
 export const startMJCustomerSyncCron = () => {
   // Ejecutar cada 6 horas (a las 0:00, 6:00, 12:00, 18:00)
   cron.schedule('0 */6 * * *', async () => {
@@ -2217,6 +2242,7 @@ export const initCronJobs = () => {
   startDriverLicenseCheckCron();
   startExchangeRateCheckCron();
   startCarteraVencidaCron();
+  startDhlPagoRezagadoCron();
   startMJCustomerSyncCron();
   startMJCustomerFclSyncCron();
   startFacturapiSyncCron();
