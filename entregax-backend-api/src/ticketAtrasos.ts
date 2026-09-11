@@ -50,26 +50,43 @@ export interface TicketAtrasado {
   cliente: string | null; escalado: boolean;
 }
 
-/** Tickets abiertos con más de `minDias` días hábiles desde que se crearon. */
+/**
+ * Tickets que le toca atender al equipo con más de `minDias` días hábiles.
+ *
+ * Los que están en "Esperando cliente" NO cuentan: esperar al cliente no es un
+ * retraso nuestro (Aldo, 11-sep-2026). Y los días se cuentan desde que la
+ * pelota volvió al equipo —el primer mensaje del cliente después de la última
+ * respuesta de una persona—, no desde que se abrió: si no, un ticket que
+ * esperó al cliente diez días amanecería "atrasado" en cuanto contestara. Los
+ * "¿ya?" que manda el cliente mientras espera no reinician la cuenta.
+ */
 export async function ticketsAtrasados(minDias: number): Promise<TicketAtrasado[]> {
   await ensureSchema();
   const r = await pool.query(`
-    SELECT t.id, t.ticket_folio, t.subject, t.created_at, t.department_id,
+    SELECT t.id, t.ticket_folio, t.subject, t.department_id,
            COALESCE(d.name, 'Sin departamento') AS dept,
            u.full_name AS cliente,
-           t.retraso_notified_at
+           t.retraso_notified_at,
+           COALESCE(
+             (SELECT MIN(m.created_at) FROM ticket_messages m
+               WHERE m.ticket_id = t.id AND m.sender_type IN ('client', 'user') AND m.deleted_at IS NULL
+                 AND m.created_at > (SELECT MAX(a.created_at) FROM ticket_messages a
+                                      WHERE a.ticket_id = t.id AND a.sender_type = 'agent'
+                                        AND COALESCE(a.is_internal, FALSE) = FALSE AND a.deleted_at IS NULL)),
+             t.created_at
+           ) AS desde
       FROM support_tickets t
       LEFT JOIN support_departments d ON d.id = t.department_id
       LEFT JOIN users u ON u.id = t.user_id
      WHERE t.archived_at IS NULL
-       AND t.status <> 'resolved'
+       AND t.status NOT IN ('resolved', 'waiting_client')
        AND COALESCE(t.ticket_status, 'nuevo') <> 'finalizado'`);
   return r.rows
     .map((x: any) => ({
       id: Number(x.id),
       folio: x.ticket_folio || `#${x.id}`,
       asunto: String(x.subject || '').replace(/\s+/g, ' ').trim().slice(0, 120),
-      dias: diasHabilesDesde(x.created_at),
+      dias: diasHabilesDesde(x.desde),
       departamento: x.dept,
       department_id: x.department_id != null ? Number(x.department_id) : null,
       cliente: x.cliente || null,
