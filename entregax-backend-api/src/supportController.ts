@@ -85,6 +85,21 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 3. Sé breve y casual, pero profesional. Como si escribieras por WhatsApp. Máximo 2-3 líneas por mensaje.
 4. No uses listas con viñetas largas ni saludos robóticos. Nada de "Seleccione una opción".
 5. Responde en el idioma del cliente (español de México por defecto).
+7. 🚫 CONDICIONES COMERCIALES DE UN SERVICIO: NO LAS CONTESTAS. NUNCA. Esta regla le gana a la 6.
+   Si el cliente pregunta cómo funciona comercialmente un servicio —X-Pay muy en especial, pero
+   también marítimo, aéreo, GEX o cualquier otro— NO expliques ni supongas nada sobre:
+     · si le damos factura (CFDI) de la MERCANCÍA, o si es deducible;
+     · a nombre de quién se importa, quién es el importador, si necesita padrón;
+     · si somos o no comercializadora, si le vendemos la mercancía;
+     · comisiones, porcentajes, costos de operación, contratos, términos de entrega (puerto/bodega/domicilio);
+     · nada que el cliente vaya a usar para DECIDIR si contrata.
+   En ese caso contestas exactamente en este espíritu, en dos líneas y sin adornos:
+     "Eso te lo tiene que dar un asesor por escrito para que lo tengas en firme. Ya lo estoy pasando."
+   y agregas "[ESCALAR]" al final. Aquí SÍ escalas sin preguntar: es la única excepción a la regla 6.
+   Por qué: en TKT-2026-2658 contestaste solo que X-Pay no emite factura de la mercancía y que se
+   contrata desde la app. Las dos cosas estaban mal, y el cliente canceló ahí mismo: "con eso ya sé
+   que no me funciona". Un dato comercial equivocado no se corrige después: pierde al cliente en
+   ese mensaje. Si no lo sabes de cierto, no lo digas; pásalo.
 6. ESCALAMIENTO (MUY IMPORTANTE): Nunca escales sin que el cliente lo CONFIRME. Si el cliente pide un humano, está frustrado, o no puedes resolver algo, PRIMERO pregunta si quiere que lo pases a NUESTRO EQUIPO DE ATENCIÓN AL CLIENTE, ofreciendo el selector: "¿Quieres que lo escale a nuestro equipo de atención al cliente?" [OPCIONES: Sí | No]. SOLO cuando el cliente responda que SÍ, incluye el marcador "[ESCALAR]" al final de tu mensaje. Di SIEMPRE "nuestro equipo de atención al cliente", NUNCA "un asesor" (los asesores son comerciales, no soporte). Si el cliente dice que no, sigue ayudándolo tú.
 
 📊 USA LOS DATOS REALES DEL CLIENTE:
@@ -100,7 +115,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 - Aéreo USA / PO Box → México: 5-8 días hábiles. Se cobra por peso volumétrico.
 - Envío nacional en México (última milla): lo mueve Paquete Express desde nuestro CEDIS en Monterrey hasta el domicilio del cliente, típicamente 2-4 días hábiles. ⚠️ NO existe ningún "límite de guías mensuales" ni un tope de peso inventado; NO menciones límites que no te consten. Para el COSTO del envío nacional usa SIEMPRE la herramienta cotizar_envio_nacional (necesitas el CP destino de 5 dígitos y el peso; si falta el CP, pídeselo). NUNCA inventes tarifas por kg, precios ni límites para el envío nacional.
 - Garantía Extendida (GEX): seguro opcional (~5% del valor) para proteger la carga.
-- X-Pay: servicio para pagar a proveedores en China desde la app. En el contexto tienes el TIPO DE CAMBIO y la comisión vigentes de X-Pay: si preguntan "¿cuál es el TC de X-Pay?" o "¿cuánto pago por X USD?", RESPONDE con el tipo de cambio real y calcula el estimado con la fórmula del contexto. NO digas que no tienes acceso al tipo de cambio.
+- X-Pay: servicio para pagar a proveedores en China. Lo ÚNICO que contestas de X-Pay es el TIPO DE CAMBIO y el estimado en pesos, porque vienen como dato real en el contexto: si preguntan "¿cuál es el TC de X-Pay?" o "¿cuánto pago por X USD?", responde con el tipo de cambio real y calcula con la fórmula del contexto; no digas que no tienes acceso. TODO lo demás de X-Pay —facturación de la mercancía, quién importa, comisión, esquema de comercializadora, cómo se contrata— cae en la regla 7: no lo contestas, lo pasas.
 - Facturación: se solicita en la app, sección Mi Perfil > Datos Fiscales.
 - Instrucciones de entrega: el cliente las asigna en su paquete para la última milla.
 
@@ -970,6 +985,49 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
         "UPDATE support_tickets SET updated_at = NOW() WHERE id = $1",
         [currentTicketId]
       );
+      return res.json({
+        status: 'waiting_agent',
+        ticketId: currentTicketId,
+        ticketFolio: ticketCheck.rows[0].ticket_folio,
+        message: 'Tu mensaje fue enviado. Un agente te responderá pronto.'
+      });
+    }
+
+    // C-bis. UNA PERSONA YA LE HABLÓ AL CLIENTE EN ESTE HILO → LA IA SE CALLA.
+    //
+    // El estado no alcanzaba para evitarlo: cuando un agente le responde al
+    // cliente, el ticket queda en 'waiting_client', no en 'escalated_human'
+    // (ver replyToTicket), así que el siguiente mensaje del cliente caía
+    // derechito en la IA y contestaba ENCIMA del humano. Pasó en 26 tickets,
+    // 50 mensajes. El peor: TKT-2026-2658, donde Atención a Clientes se
+    // disculpó por escrito a las 04:38 por una respuesta equivocada de la IA
+    // y la IA volvió a contestar sola a las 04:42, sobre el mensaje en el que
+    // el cliente pedía justamente hablar con una persona.
+    //
+    // Se pregunta por el hilo y no por el estado a propósito: el estado se
+    // mueve en seis lugares distintos y basta que uno se equivoque para
+    // reabrir el hueco. Que un humano haya hablado es un hecho, no un estado.
+    const huboHumano = await pool.query(
+      `SELECT 1 FROM ticket_messages
+        WHERE ticket_id = $1 AND sender_type = 'agent' AND COALESCE(is_internal, false) = false
+        LIMIT 1`,
+      [currentTicketId]
+    );
+    if ((huboHumano.rowCount || 0) > 0) {
+      await pool.query(
+        `UPDATE support_tickets
+            SET status = 'escalated_human', resolved_by_ai = FALSE,
+                ticket_status = CASE WHEN ticket_status IN ('nuevo','finalizado') OR ticket_status IS NULL
+                                     THEN 'en_progreso' ELSE ticket_status END,
+                resolved_at = NULL, archived_at = NULL, updated_at = NOW()
+          WHERE id = $1`,
+        [currentTicketId]
+      );
+      // El ticket decía 'waiting_client' y el cliente ya contestó: si nadie
+      // avisa, el mensaje se queda mudo en la bandeja. Por eso el aviso
+      // directo a quien lo venía atendiendo.
+      await avisarAgenteTicketReabierto(
+        Number(currentTicketId), ticketCheck.rows[0].ticket_folio, message);
       return res.json({
         status: 'waiting_agent',
         ticketId: currentTicketId,
