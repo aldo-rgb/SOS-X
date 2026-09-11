@@ -18,7 +18,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import SendIcon from '@mui/icons-material/Send';
 import AlternateEmailIcon from '@mui/icons-material/AlternateEmail';
 import ChecklistIcon from '@mui/icons-material/Checklist';
@@ -1517,8 +1516,6 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   // Bandera específica del envío de comentario: deshabilita el botón y muestra spinner
   // mientras la petición POST está en curso para evitar envíos múltiples.
   const [sendingComment, setSendingComment] = useState(false);
-  const [startOpen, setStartOpen] = useState(false);
-  const [commitDate, setCommitDate] = useState('');
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
   const [editInvolved, setEditInvolved] = useState<number[]>([]);
@@ -1528,7 +1525,6 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [frequent, setFrequent] = useState<number[]>([]);
   const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
-  const [procConfirm, setProcConfirm] = useState<{ title: string } | null>(null); // confirmar dejar otra pendiente
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false); // pregunta doble: completar en espera sin revisión
 
   const reload = useCallback(async () => {
@@ -1724,22 +1720,6 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     try { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
     } catch { return ''; }
-  };
-  const openStart = () => { setCommitDate(toLocalInput(t?.commitment_date || t?.due_at)); setStartOpen(true); };
-  const start = async (force = false) => {
-    setBusy(true);
-    try {
-      await axios.post(`${API_URL}/tasks/${id}/start`, { commitment_date: commitDate || null, force }, H());
-      setStartOpen(false); notify('Tarea en proceso'); reload(); onChanged();
-    } catch (e: any) {
-      // Regla de 1 en proceso: el backend pide confirmar dejar la otra pendiente.
-      if (e?.response?.status === 409 && e?.response?.data?.needs_confirm) {
-        setProcConfirm({ title: e.response.data.current?.title || '' });
-      } else {
-        notify(e?.response?.data?.error || 'No se pudo iniciar', 'error');
-      }
-    }
-    finally { setBusy(false); }
   };
   const durTxt = (a?: string, b?: string) => {
     if (!a || !b) return null;
@@ -2230,7 +2210,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
           </DialogContent>
           <DialogActions>
             {/* Sensación de guardado: al cambiar algo (que ya se guarda solo), el
-                botón "Poner en proceso" se convierte en "Guardar". */}
+                botón de terminar se convierte en "Guardar". */}
             {dirty && t.status !== 'completed' && (
               <Button variant="contained" startIcon={<CheckCircleIcon />} disabled={busy}
                 onClick={() => { setDirty(false); notify('✓ Cambios guardados'); }}
@@ -2238,13 +2218,11 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 Guardar
               </Button>
             )}
-            {!dirty && t.status !== 'completed' && !t.started_at && (
-              <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={openStart} disabled={busy}
-                sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
-                Poner en proceso
-              </Button>
-            )}
-            {t.status !== 'completed' && t.started_at && (() => {
+            {/* Ya no hay paso de "Poner en proceso": se termina directo. El
+                botón solo aparecía con la tarea iniciada, y por eso todos la
+                iniciaban y la terminaban en el mismo momento —la mediana entre
+                una cosa y otra era de 6 segundos—. Era un trámite, no un dato. */}
+            {!dirty && t.status !== 'completed' && (() => {
               // ── Doble confirmación ──
               // Si el creador y el responsable son distintos, el responsable
               // manda la tarea a "Esperando confirmación" y solo el creador
@@ -2316,48 +2294,6 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             )}
             <Button onClick={onClose}>Cerrar</Button>
           </DialogActions>
-
-          {/* Poner en proceso: fecha compromiso (default = fecha deseada) */}
-          <Dialog open={startOpen} onClose={() => setStartOpen(false)} maxWidth="xs" fullWidth>
-            <DialogTitle sx={{ fontWeight: 800 }}>Poner en proceso</DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Indica la <b>fecha compromiso</b> para terminar la tarea. Viene precargada con la fecha deseada; puedes cambiarla.
-              </Typography>
-              <TextField fullWidth size="small" type="datetime-local" label="Fecha compromiso" InputLabelProps={{ shrink: true }}
-                value={commitDate} onChange={e => setCommitDate(e.target.value)} />
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setStartOpen(false)}>Cancelar</Button>
-              <Button variant="contained" onClick={() => start()} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
-                Iniciar
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          {/* Consejo (no bloqueo): ya hay una tarea en proceso. Puede iniciar igual. */}
-          <Dialog open={procConfirm != null} onClose={() => setProcConfirm(null)} maxWidth="xs" fullWidth>
-            <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <PlayArrowIcon sx={{ color: '#B07206' }} /> Ya tienes una tarea en proceso
-            </DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" color="text.secondary">
-                Para mejorar tu efectividad, lo ideal es <b>no iniciar una tarea nueva hasta terminar</b> «<b>{procConfirm?.title}</b>».
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                Dejar en proceso una tarea que ya terminaste <b>afecta tu puntuación</b>. Termina tus tareas 💪
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                Aun así puedes iniciar esta y trabajar ambas a la vez.
-              </Typography>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setProcConfirm(null)}>Cancelar</Button>
-              <Button variant="contained" onClick={() => { setProcConfirm(null); start(true); }} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
-                Iniciar de todos modos
-              </Button>
-            </DialogActions>
-          </Dialog>
 
           {/* Pregunta doble: completar una tarea en espera sin la revisión de quien la asignó */}
           <Dialog open={forceConfirmOpen} onClose={() => setForceConfirmOpen(false)} maxWidth="xs" fullWidth
