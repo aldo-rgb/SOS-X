@@ -72,6 +72,10 @@ export default function CajitoFab({ user, token }: Props) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const convIdRef = useRef<number | null>(null);
+  // El hilo se repinta UNA sola vez. El efecto depende del token —que puede
+  // llegar después del primer render— y sin esta guarda se volvería a pintar
+  // encima, duplicando las burbujas.
+  const hiloCargadoRef = useRef(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
   // Tracking
@@ -83,8 +87,43 @@ export default function CajitoFab({ user, token }: Props) {
   // Avatar configurado (slot cajito_avatar) — se sirve en /api/system/payment-status
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
+  // Al abrir la app se recupera el hilo guardado Y sus mensajes.
+  //
+  // Antes solo se recuperaba el id: el hilo seguía vivo del lado del servidor
+  // —Cajito no perdía el contexto— pero la pantalla arrancaba en blanco con el
+  // saludo, y parecía que la conversación se había borrado. Se pierde el hilo
+  // de lo que uno venía platicando aunque él sí lo recuerde.
+  //
+  // Los mensajes de tipo 'tool' no se pintan como burbuja: son las herramientas
+  // que usó, y ya se muestran como la etiqueta gris debajo de su respuesta.
   useEffect(() => {
-    AsyncStorage.getItem(CONV_KEY).then((v) => { if (v) convIdRef.current = Number(v) || null; }).catch(() => {});
+    AsyncStorage.getItem(CONV_KEY).then(async (v) => {
+      const id = Number(v) || null;
+      if (!id) return;
+      convIdRef.current = id;
+      if (!token || hiloCargadoRef.current) return;
+      try {
+        const r = await fetch(`${API_URL}/api/cajito/conversations/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;                       // hilo borrado o de otro usuario: se empieza limpio
+        const d = await r.json().catch(() => null);
+        const filas: any[] = Array.isArray(d?.messages) ? d.messages : [];
+        const previos: ChatMsg[] = [];
+        let herramientas: string[] = [];
+        for (const m of filas) {
+          if (m.role === 'tool') { if (m.tool_name) herramientas.push(m.tool_name); continue; }
+          const texto = String(m.content || '').trim();
+          if (!texto) continue;
+          if (m.role === 'user') { previos.push({ role: 'user', text: texto }); herramientas = []; }
+          else { previos.push({ role: 'cajito', text: texto, tools: herramientas }); herramientas = []; }
+        }
+        // Solo las últimas: el hilo puede traer meses de conversación y no hay
+        // por qué pintarlo entero en un panel de teléfono.
+        hiloCargadoRef.current = true;
+        if (previos.length > 0) setMessages(previos.slice(-40));
+      } catch { /* sin red: se empieza limpio, el hilo sigue vivo en el servidor */ }
+    }).catch(() => {});
     fetch(`${API_URL}/api/system/payment-status`)
       .then((r) => r.json())
       .then((d) => {
@@ -94,7 +133,7 @@ export default function CajitoFab({ user, token }: Props) {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [token]);
 
   const avatarSource = avatarUri ? { uri: avatarUri } : CAJITO_AVATAR;
 
