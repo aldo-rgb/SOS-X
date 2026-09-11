@@ -7093,12 +7093,24 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
  * se pagó o ya está en una orden de pago, deshacer sería mentir sobre algo
  * físico: se rechaza diciendo por qué.
  */
-export const undoRepack = async (req: Request, res: Response): Promise<void> => {
+/**
+ * El deshacer de verdad, sin req/res. Vive aparte para que la ruta HTTP y la
+ * herramienta de Cajito corran EXACTAMENTE el mismo código: si Cajito tuviera
+ * su propia copia, tarde o temprano una de las dos se quedaría sin un candado.
+ *
+ * Devuelve { ok } o { ok:false, status, error } para que cada quien lo traduzca
+ * a lo suyo — un 409 en HTTP, una frase en el chat.
+ */
+export const deshacerReempaqueCore = async (
+    repackId: number,
+    actorId: number | null,
+    origen: 'pantalla' | 'cajito' = 'pantalla',
+    motivo?: string | null
+): Promise<any> => {
     const client = await pool.connect();
     try {
-        const repackId = parseInt(String(req.params.id), 10);
-        if (!Number.isFinite(repackId)) { res.status(400).json({ error: 'Id de reempaque inválido' }); return; }
-        const userId = (req as any).user?.userId;
+        if (!Number.isFinite(repackId)) return { ok: false, status: 400, error: 'Id de reempaque inválido' };
+        const userId = actorId;
 
         await client.query('BEGIN');
         const m = await client.query(
@@ -7106,10 +7118,10 @@ export const undoRepack = async (req: Request, res: Response): Promise<void> => 
                     dispatched_at, client_paid, payment_status, pobox_payment_id
                FROM packages WHERE id = $1 FOR UPDATE`, [repackId]);
         const master = m.rows[0];
-        if (!master) { await client.query('ROLLBACK'); res.status(404).json({ error: 'No encontré ese reempaque' }); return; }
+        if (!master) { await client.query('ROLLBACK'); return { ok: false, status: 404, error: 'No encontré ese reempaque' }; }
         if (!String(master.tracking_internal || '').toUpperCase().startsWith('US-REPACK-')) {
             await client.query('ROLLBACK');
-            res.status(400).json({ error: 'Ese paquete no es un reempaque' }); return;
+            return { ok: false, status: 400, error: 'Ese paquete no es un reempaque' };
         }
 
         // ── Lo que ya no se puede deshacer ───────────────────────────────────
@@ -7127,12 +7139,11 @@ export const undoRepack = async (req: Request, res: Response): Promise<void> => 
         if (enOrden.rows.length > 0) bloqueos.push(`está en la orden ${enOrden.rows[0].payment_reference}`);
         if (bloqueos.length > 0) {
             await client.query('ROLLBACK');
-            res.status(409).json({
+            return {
+                ok: false, status: 409, motivos: bloqueos,
                 error: `No se puede deshacer ${master.tracking_internal}: ${bloqueos.join(' y ')}. ` +
                        `Deshacerlo dejaría el sistema diciendo algo distinto a lo que pasó físicamente.`,
-                motivos: bloqueos,
-            });
-            return;
+            };
         }
 
         // ── Las hijas vuelven a ser paquetes sueltos ─────────────────────────
@@ -7170,28 +7181,56 @@ export const undoRepack = async (req: Request, res: Response): Promise<void> => 
                   WHERE id = $1`, [a.id, n.rows[0]?.n || 1]);
         }
 
+        // Quién lo deshizo y por qué, en la guía. Sin esto, dentro de un mes
+        // nadie puede saber si la caja se desarmó por petición del cliente o
+        // por error — y menos si lo pidió una persona o se lo pidieron a Cajito.
+        try {
+            const quien = actorId
+                ? (await client.query(`SELECT full_name FROM users WHERE id = $1`, [actorId])).rows[0]?.full_name
+                : null;
+            const nota = `↩️ Se deshizo ${master.tracking_internal}` +
+                (quien ? ` a petición de ${quien}` : '') +
+                (origen === 'cajito' ? ' (por Cajito)' : '') +
+                (motivo ? `: ${String(motivo).trim().slice(0, 200)}` : '');
+            await client.query(
+                `UPDATE packages SET notes = TRIM(BOTH E'\n' FROM COALESCE(notes,'') || E'\n' || $2)
+                  WHERE id = ANY($1::int[])`,
+                [hijas.rows.map((h: any) => h.id), nota]);
+        } catch (e: any) { console.warn('[REPACK] no pude anotar el motivo:', e?.message); }
+
         // ── Se borra la caja de reempaque ────────────────────────────────────
         // La creó el reempaque y ya no la referencia nadie: dejarla viva la
         // convierte en un bulto fantasma en la lista del cliente.
         await client.query(`DELETE FROM packages WHERE id = $1`, [repackId]);
         await client.query('COMMIT');
 
-        console.warn(`[REPACK] ${master.tracking_internal} deshecho por el usuario ${userId}: ` +
-            `${hijas.rowCount} guía(s) liberadas, ${absorbidos.rows.length} master(s) restaurado(s).`);
-        res.json({
+        console.warn(`[REPACK] ${master.tracking_internal} deshecho por el usuario ${userId} ` +
+            `(${origen}): ${hijas.rowCount} guía(s) liberadas, ${absorbidos.rows.length} master(s) restaurado(s).`);
+        return {
             ok: true,
             reempaque: master.tracking_internal,
             guias_liberadas: hijas.rows.map((h: any) => h.tracking_internal),
             masters_restaurados: absorbidos.rows.length,
             mensaje: `${master.tracking_internal} deshecho. ${hijas.rowCount} guía(s) volvieron a bodega y ya se pueden seleccionar para un nuevo reempaque.`,
-        });
+        };
     } catch (e: any) {
         await client.query('ROLLBACK');
-        console.error('[REPACK] undoRepack:', e?.message || e);
-        res.status(500).json({ error: 'No se pudo deshacer el reempaque', message: e?.message });
+        console.error('[REPACK] deshacerReempaque:', e?.message || e);
+        return { ok: false, status: 500, error: 'No se pudo deshacer el reempaque', message: e?.message };
     } finally {
         client.release();
     }
+};
+
+/** POST /api/packages/repack/:id/undo — el mismo core, envuelto para HTTP. */
+export const undoRepack = async (req: Request, res: Response): Promise<void> => {
+    const r = await deshacerReempaqueCore(
+        parseInt(String(req.params.id), 10),
+        (req as any).user?.userId ?? null,
+        'pantalla'
+    );
+    if (r.ok) { res.json(r); return; }
+    res.status(r.status || 500).json(r);
 };
 
 
