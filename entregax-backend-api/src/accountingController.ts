@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Pool } from 'pg';
 import { FacturamaClient, FacturamaError } from './facturamaClient';
 import { fetchFacturapiCfdiXml } from './facturapiController';
+import { urlPublicaFactura, sqlUrlFactura } from './facturaArchivo';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -295,7 +296,7 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
         const r = await pool.query(`
             SELECT f.id, f.facturama_id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
                    f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
-                   f.pdf_url, f.xml_url, f.created_at,
+                   ${sqlUrlFactura('f','pdf')} AS pdf_url, ${sqlUrlFactura('f','xml')} AS xml_url, f.created_at,
                    f.user_id AS cliente_id,
                    u.box_id AS cliente_box_id,
                    u.full_name AS cliente_nombre, u.email AS cliente_email,
@@ -308,7 +309,7 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
         `, params).catch(() => pool.query(`
             SELECT f.id, f.facturama_id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
                    f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
-                   f.pdf_url, f.xml_url, f.created_at,
+                   ${sqlUrlFactura('f','pdf')} AS pdf_url, ${sqlUrlFactura('f','xml')} AS xml_url, f.created_at,
                    f.user_id AS cliente_id,
                    u.box_id AS cliente_box_id,
                    u.full_name AS cliente_nombre, u.email AS cliente_email,
@@ -820,7 +821,7 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
             [payment_id, uuidSat]
         );
 
-        return res.json({ success: true, invoice_id: facturamaId, uuid: uuidSat, pdf_url: invoice.pdf_url });
+        return res.json({ success: true, invoice_id: facturamaId, uuid: uuidSat, pdf_url: urlPublicaFactura(uuidSat, 'pdf') });
 
     } catch (e: any) {
         const errMsg = e instanceof FacturamaError
@@ -1167,8 +1168,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                             uuid: row.uuid_sat,
                             folio: row.folio,
                             total: row.total,
-                            pdf_url: row.pdf_url,
-                            xml_url: row.xml_url,
+                            pdf_url: urlPublicaFactura(row.uuid_sat, 'pdf'),
+                            xml_url: urlPublicaFactura(row.uuid_sat, 'xml'),
                         });
                     }
                 }
@@ -1273,8 +1274,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             uuid: uuidSat,
             folio: invoice.folio_number,
             total: invoice.total,
-            pdf_url: invoice.pdf_url,
-            xml_url: invoice.xml_url,
+            pdf_url: urlPublicaFactura(uuidSat, 'pdf'),
+            xml_url: urlPublicaFactura(uuidSat, 'xml'),
             db_id: insertedInvoiceId,
         });
     } catch (e: any) {

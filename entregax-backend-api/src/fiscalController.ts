@@ -494,11 +494,17 @@ export const createInvoice = async (
 
     console.log(`✅ Factura creada: ${factura.uuid} por ${emitter.alias} (emitterId=${emitter.id})`);
 
-    return { 
-      success: true, 
+    // Hacia afuera va NUESTRO enlace, no el del API de Facturama: ese responde
+    // 401 y el navegador abre la ventana de usuario y contraseña
+    // (TKT-2026-2639). El de Facturama se queda guardado en la fila para uso
+    // interno. Si por lo que sea no hay UUID todavía, se manda null en vez de
+    // un enlace que no abre.
+    const { urlPublicaFactura } = await import('./facturaArchivo');
+    return {
+      success: true,
       uuid: factura.uuid,
-      pdfUrl: factura.pdf_url,
-      xmlUrl: factura.xml_url,
+      pdfUrl: urlPublicaFactura(factura.uuid, 'pdf') || undefined,
+      xmlUrl: urlPublicaFactura(factura.uuid, 'xml') || undefined,
       emitterId: emitter.id,
     };
 

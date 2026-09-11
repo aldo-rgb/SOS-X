@@ -7526,6 +7526,20 @@ app.post('/api/advisor/payment-orders/:orderId/proof', authenticateToken, adviso
 app.post('/api/advisor/payment-orders/:id/share-pdf', authenticateToken, advisorProofUpload.single('pdf'), shareAdvisorPaymentOrderPdf);
 // Enlace corto PÚBLICO para descargar la cotización PDF (compartido por WhatsApp).
 app.get('/api/ctz/:code', getSharedQuotePdf);
+
+// PDF y XML de una factura, servidos por nosotros. PÚBLICO a propósito: la
+// persona los abre desde WhatsApp o el correo, donde no hay sesión, y la llave
+// es el UUID del SAT, que no se adivina. Reemplaza el enlace directo al API de
+// Facturama, que respondía 401 y hacía que el navegador pidiera contraseña
+// (TKT-2026-2639).
+import('./facturaArchivo').then(({ servirArchivoFactura }) => {
+  app.get('/api/facturas/:clave/:tipo(pdf|xml)', servirArchivoFactura);
+  // Enlace bonito en el dominio web: /factura/<uuid>.pdf
+  app.get('/factura/:clave', (req, res) => {
+    (req.params as any).tipo = String(req.params.clave || '').toLowerCase().endsWith('.xml') ? 'xml' : 'pdf';
+    return servirArchivoFactura(req, res);
+  });
+}).catch((e) => console.error('[factura-archivo] no se pudo montar la ruta:', e?.message));
 app.delete('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, deleteAdvisorPaymentProof);
 app.patch('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, updateAdvisorProofAmount);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);

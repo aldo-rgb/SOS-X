@@ -7,6 +7,8 @@ import { FacturamaClient } from './facturamaClient';
 import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffer } from './s3Service';
 
 // Dominio web público para enmascarar el enlace del PDF (entregax.app/orden-de-pago/…)
+import { urlPublicaFactura } from './facturaArchivo';
+
 const webBaseUrl = (): string => (process.env.FRONTEND_URL || 'https://entregax.app').replace(/\/$/, '');
 
 // Nombre de archivo/clave S3 determinístico para la cotización de una orden.
@@ -1229,8 +1231,14 @@ export const getAdvisorOrderInvoiceInfo = async (req: Request, res: Response): P
         uso_cfdi: f.fiscal_uso_cfdi || 'G03',
       },
       hasCompleteData: !!(f.fiscal_razon_social && f.fiscal_rfc && f.fiscal_codigo_postal && f.fiscal_regimen_fiscal),
+      // El enlace que sale hacia afuera es el nuestro: el guardado apunta al API
+      // de Facturama y el navegador pide contraseña (TKT-2026-2639).
       alreadyInvoiced: facRes.rows[0]
-        ? { uuid: facRes.rows[0].uuid_sat, pdf: facRes.rows[0].pdf_url, xml: facRes.rows[0].xml_url }
+        ? {
+            uuid: facRes.rows[0].uuid_sat,
+            pdf: urlPublicaFactura(facRes.rows[0].uuid_sat, 'pdf'),
+            xml: urlPublicaFactura(facRes.rows[0].uuid_sat, 'xml'),
+          }
         : null,
     });
   } catch (e: any) {
