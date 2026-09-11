@@ -158,6 +158,7 @@ interface PaymentRequest {
   // Nombre del beneficiario final + tipo de cambio que se aplicó —
   // se usan en la card para mostrar a quién se envió y monto MXN
   op_beneficiario_nombre?: string | null;
+  referencia_proveedor?: string | null;
   tc_cliente_final?: number | string | null;
   estatus_global: string;
   estatus_factura: string;
@@ -250,6 +251,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [saveSupplier, setSaveSupplier] = useState(true);
   const [benefName, setBenefName] = useState('');
   const [benefNameZh, setBenefNameZh] = useState('');
+  // Referencia que pide el proveedor para ESTE pago (TKT-2026-2515). Es de la
+  // operación: el mismo proveedor puede pedir una distinta cada vez.
+  const [refProveedor, setRefProveedor] = useState('');
   const [benefAddress, setBenefAddress] = useState('');
   const [benefAccount, setBenefAccount] = useState('');
   const [benefIban, setBenefIban] = useState('');
@@ -1132,6 +1136,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (benefName) {
         fd.append('beneficiario_nombre', benefName);
       }
+      if (refProveedor.trim()) {
+        fd.append('referencia_proveedor', refProveedor.trim());
+      }
       // tc_cliente_final = tipo de cambio que XPAY cobra al cliente
       // final (cotización congelada). El backend ENTANGLED lo exige
       // para guardar la transacción — sin este campo regresa 400
@@ -1190,6 +1197,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           swift:          benefSwift || '',
           aba:            benefAba || '',
           direccion:      benefAddress || '',
+          referencia:     refProveedor.trim() || undefined,
         },
         operationSnapshot: {
           divisa,
@@ -1246,7 +1254,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           sinFacturaCuentaSnap: !requiereFactura ? (sinFacturaCuenta?.cuenta || null) : null,
         });
         setSuccessModalVisible(true);
-        setMonto(''); setConceptos('');
+        setMonto(''); setConceptos(''); setRefProveedor('');
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
         setBenefAccount(''); setBenefIban(''); setBenefBankName('');
         setBenefBankAddress(''); setBenefSwift(''); setBenefAba(''); setBenefAlias('');
@@ -2126,6 +2134,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     {r.op_beneficiario_nombre}
                   </Text>
                 )}
+                {!!r.referencia_proveedor && (
+                  <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700', marginTop: 2 }} numberOfLines={1}>
+                    <Text style={{ color: TEXT_MUTED, fontWeight: '500' }}>Ref. proveedor: </Text>
+                    {r.referencia_proveedor}
+                  </Text>
+                )}
 
                 {/* Deadline OR chronometer */}
                 {isActive && !r.comprobante_subido_at && (
@@ -2657,6 +2671,22 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 )}
               </>
             )}
+
+            {/* Referencia para el proveedor: de ESTA operación, fuera del
+                formulario del proveedor para que salga también con uno guardado. */}
+            <Text style={[styles.label, { marginTop: 14 }]}>Referencia para el proveedor (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              value={refProveedor}
+              onChangeText={setRefProveedor}
+              placeholder="Ej. INV-2026-0419"
+              placeholderTextColor={TEXT_MUTED}
+              autoCapitalize="characters"
+              maxLength={divisa === 'MXN' ? 40 : 140}
+            />
+            <Text style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+              Si tu proveedor te pidió un folio o número de factura para este pago, escríbelo aquí. Solo aplica a esta operación. {refProveedor.length}/{divisa === 'MXN' ? 40 : 140}
+            </Text>
           </>
         )}
 

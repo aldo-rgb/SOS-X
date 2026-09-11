@@ -518,6 +518,9 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
       void notifyCancelledRequestIds(autoCancel.rows.map((r) => r.id), 'expiro_24h');
     }
 
+    // La columna tiene que existir antes de la primera lectura, o esta lista
+    // truena para todos los clientes hasta que alguien cree una operación.
+    await (await import('./entangledControllerV2')).asegurarReferenciaProveedor();
     const r = await pool.query(
       `SELECT id,
               COALESCE(referencia_pago, 'XP' || LPAD(id::text, 6, '0')) AS referencia_pago,
@@ -532,6 +535,7 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               -- de cambio aplicado — el mobile los muestra en cada
               -- card de "Últimos envíos" (monto MXN + nombre).
               op_beneficiario_nombre,
+              referencia_proveedor,
               tc_cliente_final,
               estatus_global, estatus_factura, estatus_proveedor,
               factura_url, factura_emitida_at,

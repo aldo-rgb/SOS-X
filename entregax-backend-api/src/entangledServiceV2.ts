@@ -112,6 +112,9 @@ export interface EntangledSolicitudPayloadV2 {
   pais_destino?: string | undefined;
   // Metadatos opcionales sólo informativos para ENTANGLED
   referencia_xpay?: string | undefined;
+  // Referencia que el proveedor pide para ESTE pago (su folio de factura).
+  // Debe ir en el concepto/remittance de la transferencia. ≤140 (≤40 en MXN).
+  referencia_proveedor?: string | undefined;
   notas?: string | undefined;
   // Cuando seguimos el contrato JSON (sin multipart) ENTANGLED espera el
   // link público al PDF/imagen del comprobante en este campo.

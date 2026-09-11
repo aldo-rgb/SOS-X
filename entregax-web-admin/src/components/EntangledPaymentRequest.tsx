@@ -98,6 +98,7 @@ const buildSparklinePath = (values: number[], width = 240, height = 44, pad = 4)
 interface EntangledRequest {
   id: number;
   referencia_pago?: string;
+  referencia_proveedor?: string | null;
   entangled_transaccion_id: string | null;
   cf_rfc: string;
   cf_razon_social: string;
@@ -503,7 +504,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null;
     providerSnapshot?: { name?: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
     operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
-    beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; pais?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
+    beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; pais?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string; referencia?: string } | null;
     empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
     sinFacturaCuenta?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string } | null;
     entangled_transaccion_id?: string;
@@ -535,6 +536,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     divisa_destino: 'USD',
     conceptos: '',
     comprobante_cliente_url: '',
+    // Referencia que pide el proveedor para ESTE pago (TKT-2026-2515). Es de la
+    // operación, no del proveedor guardado: el mismo proveedor puede pedir una
+    // distinta cada vez.
+    referencia_proveedor: '',
   });
   // Bandera: el usuario tocó el campo de uso_cfdi. Si es true, el
   // loadFiscalProfile (async) NO puede pisar la selección manual. XPay
@@ -1782,6 +1787,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         if (benefSnap.iban) panelRow('IBAN', benefSnap.iban, { mono: true });
         if (benefSnap.swift) panelRow('SWIFT/BIC', benefSnap.swift, { mono: true });
         if (benefSnap.aba) panelRow('ABA', benefSnap.aba, { mono: true });
+        if (benefSnap.referencia) panelRow('Referencia para el proveedor', benefSnap.referencia, { mono: true, emphasize: true });
       });
     }
 
@@ -1995,6 +2001,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (supplierForm.nombre_beneficiario) {
         fd.append('beneficiario_nombre', supplierForm.nombre_beneficiario);
       }
+      if (form.referencia_proveedor.trim()) {
+        fd.append('referencia_proveedor', form.referencia_proveedor.trim());
+      }
       // Para pago_sin_factura: enviar cuenta de depósito (obtenida de /asignacion en step 4)
       if (!requiereFactura && asignacion?.cuenta_bancaria) {
         fd.append('cuenta_bancaria_sin_factura', JSON.stringify(asignacion.cuenta_bancaria));
@@ -2078,6 +2087,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         swift: supplierForm.swift_bic,
         aba: supplierForm.aba_routing,
         direccion: supplierForm.direccion_beneficiario,
+        // Va en el snapshot para que el PDF de instrucciones la muestre igual
+        // cada vez que se regenere.
+        referencia: form.referencia_proveedor.trim() || undefined,
       };
       fd.append('instructions_snapshot', JSON.stringify({
         providerSnapshot,
@@ -2111,6 +2123,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         divisa_destino: 'USD',
         conceptos: '',
         comprobante_cliente_url: '',
+        referencia_proveedor: '',
       });
       setSupplierForm(EMPTY_SUPPLIER);
       setSelectedSupplierId('new');
@@ -2625,6 +2638,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                               </Typography>
                             </Box>
                           </Tooltip>
+                          {r.referencia_proveedor && (
+                            <Typography sx={{ fontSize: '0.66rem', color: C.textSecondary, fontFamily: 'monospace', mt: 0.4 }} title="Referencia para el proveedor">
+                              Ref. proveedor: {r.referencia_proveedor}
+                            </Typography>
+                          )}
                         </TableCell>
                         {/* Monto — número naranja + divisa */}
                         <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
@@ -3973,6 +3991,34 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 label={t('entangled.suppliers.saveForLater', 'Guardar este proveedor para próximas solicitudes')}
               />
             )}
+
+            {/* Referencia para el proveedor — de ESTA operación, no del proveedor
+                guardado. "Notas internas" no sirve para esto: se queda en nuestro
+                sistema y nunca llega a la transferencia. */}
+            <TextField
+              fullWidth
+              size="small"
+              label="Referencia para el proveedor (opcional)"
+              placeholder="Ej. INV-2026-0419"
+              value={form.referencia_proveedor}
+              onChange={(e) => setForm({ ...form, referencia_proveedor: e.target.value })}
+              inputProps={{ maxLength: form.divisa_destino === 'MXN' ? 40 : 140 }}
+              helperText={`Si tu proveedor te pidió un folio o número de factura para este pago, escríbelo aquí. Solo aplica a esta operación. ${form.referencia_proveedor.length}/${form.divisa_destino === 'MXN' ? 40 : 140}`}
+              sx={{
+                mt: 2,
+                '& .MuiOutlinedInput-root': {
+                  color: C.textPrimary,
+                  backgroundColor: C.inputBg,
+                  '& fieldset': { borderColor: C.border },
+                  '&:hover fieldset': { borderColor: C.borderStrong },
+                  '&.Mui-focused fieldset': { borderColor: ORANGE },
+                },
+                '& .MuiInputLabel-root': { color: C.textMuted },
+                '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                '& .MuiOutlinedInput-input': { color: C.textPrimary },
+                '& .MuiFormHelperText-root': { color: C.textMuted },
+              }}
+            />
           </Paper>
           )}
 
@@ -3985,6 +4031,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             <Stack spacing={0.9}>
               <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: C.textPrimary }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: C.textPrimary }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
+              {form.referencia_proveedor.trim() && (
+                <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Referencia para el proveedor: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{form.referencia_proveedor.trim()}</strong></Typography>
+              )}
               {asignacion?.loading ? (
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: `1px solid ${C.border}`, borderRadius: 1.5 }}>
                   <Typography sx={{ color: C.textMuted, fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>

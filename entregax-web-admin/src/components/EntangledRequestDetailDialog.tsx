@@ -16,6 +16,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 export interface EntangledRequestDetail {
   id: number;
   referencia_pago?: string | null;
+  referencia_proveedor?: string | null;
   entangled_transaccion_id?: string | null;
   servicio?: 'pago_con_factura' | 'pago_sin_factura' | null;
   user_name?: string | null;
@@ -186,6 +187,14 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                     {fmtMoney(monto)} {row.op_divisa_destino}
                   </Typography>
                 </Box>
+                {row.referencia_proveedor && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Referencia para el proveedor</Typography>
+                    <Typography fontWeight={700} fontSize={18} sx={{ fontFamily: 'monospace' }}>
+                      {row.referencia_proveedor}
+                    </Typography>
+                  </Box>
+                )}
                 <Box>
                   <Typography variant="caption" color="text.secondary">% Cliente final</Typography>
                   <Typography fontWeight={700} fontSize={18}>

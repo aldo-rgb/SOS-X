@@ -78,6 +78,48 @@ async function fetchConstanciaUrl(userId: number | null | undefined): Promise<st
   }
 }
 
+// ── Referencia para el proveedor ───────────────────────────────────────────
+// TKT-2026-2515: un cliente le paga al MISMO proveedor varias veces y cada pago
+// lleva una referencia distinta que el proveedor le pide (su folio de factura).
+// No había dónde ponerla: "Notas internas" es del proveedor guardado y nunca
+// salía del sistema, y el motivo viajaba enterrado como texto en `notas`, que
+// ENTANGLED trata como informativo. Ahora es un dato de la OPERACIÓN.
+//
+// Las reglas son las del canal por donde sale el dinero, no gusto nuestro: una
+// transferencia internacional (SWIFT MT103, campo 70) admite 140 caracteres y
+// un juego de caracteres corto; SPEI admite 40 en el concepto. Un carácter que
+// el banco no acepta no da error: se cambia o se corta, y el proveedor recibe
+// una referencia que no reconoce. Por eso se rechaza aquí, diciendo cuál.
+let referenciaProveedorLista: Promise<void> | null = null;
+export const asegurarReferenciaProveedor = (): Promise<void> => {
+  // Una vez por proceso: un ALTER en cada consulta toma un candado de la tabla.
+  if (!referenciaProveedorLista) {
+    referenciaProveedorLista = pool
+      .query(`ALTER TABLE entangled_payment_requests ADD COLUMN IF NOT EXISTS referencia_proveedor VARCHAR(140)`)
+      .then(() => undefined)
+      .catch((e) => { referenciaProveedorLista = null; console.error('[XPAY] columna referencia_proveedor:', e?.message); });
+  }
+  return referenciaProveedorLista;
+};
+
+export const normalizarReferenciaProveedor = (
+  raw: any, divisa: string
+): { ok: true; valor: string | null } | { ok: false; error: string } => {
+  const v = String(raw ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // "Fáctura" → "Factura"
+    .replace(/\s+/g, ' ').trim();
+  if (!v) return { ok: true, valor: null };
+  const max = String(divisa).toUpperCase() === 'MXN' ? 40 : 140;
+  if (v.length > max) {
+    return { ok: false, error: `La referencia para el proveedor admite hasta ${max} caracteres${max === 40 ? ' en pagos en pesos' : ''} y tiene ${v.length}.` };
+  }
+  const invalidos = Array.from(new Set(v.replace(/[A-Za-z0-9 /\-?:().,'+]/g, '').split('')));
+  if (invalidos.length) {
+    return { ok: false, error: `La referencia para el proveedor no puede llevar ${invalidos.map((c) => `"${c}"`).join(' ')}. Usa letras, números, espacios y / - ? : ( ) . , ' +` };
+  }
+  return { ok: true, valor: v };
+};
+
 // Columnas que necesita el correo de "operación solicitada".
 export const XPAY_SOLICITADA_EMAIL_SELECT = `
   er.referencia_pago, er.op_monto, er.op_divisa_destino,
@@ -85,6 +127,7 @@ export const XPAY_SOLICITADA_EMAIL_SELECT = `
   er.comision_cliente_final_porcentaje, er.tc_cliente_final,
   er.cf_razon_social, er.cf_rfc,
   er.op_beneficiario_nombre, er.sup_nombre_beneficiario, er.sup_nombre_chino,
+  er.referencia_proveedor,
   er.sup_banco_nombre, er.sup_numero_cuenta, er.sup_swift_bic, er.sup_iban,
   er.sup_aba_routing, er.sup_banco_intermediario_nombre, er.sup_banco_intermediario_swift,
   er.sup_banco_direccion, er.sup_direccion,
@@ -115,6 +158,7 @@ export const buildXpaySolicitadaEmail = (r0: any): { subject: string; html: stri
         <div style="font-size:12px;font-weight:700;color:#C1272D;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px">Operation details</div>
         <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
           ${row('Reference', `<span style="font-weight:700">${ref}</span>`)}
+          ${row('Supplier reference (include it in the transfer)', r0.referencia_proveedor ? `<span style="font-weight:700;font-family:monospace">${r0.referencia_proveedor}</span>` : '')}
           ${row(`Amount (${divisa})`, money(usd, divisa))}
           ${mxn > 0 ? row('Amount MXN', money(mxn, 'MXN')) : ''}
         </table>
@@ -438,6 +482,9 @@ export const createPaymentRequestV2 = async (
     return res.status(400).json({ error: 'monto_usd debe ser > 0' });
   }
   const divisa = String(body.divisa || 'USD').toUpperCase() as EntangledDivisa;
+  const refProv = normalizarReferenciaProveedor(body.referencia_proveedor, divisa);
+  if (!refProv.ok) return res.status(400).json({ error: refProv.error, error_code: 'referencia_proveedor_invalida' });
+  const referenciaProveedor = refProv.valor;
   if (!['USD', 'RMB', 'MXN'].includes(divisa)) {
     return res.status(400).json({ error: 'divisa debe ser USD, RMB o MXN' });
   }
@@ -723,6 +770,7 @@ export const createPaymentRequestV2 = async (
          ADD COLUMN IF NOT EXISTS es_hibrida BOOLEAN,
          ADD COLUMN IF NOT EXISTS es_pesos BOOLEAN`
     ).catch(() => {});
+    await asegurarReferenciaProveedor();
     // Nombre del beneficiario (proveedor final al que se le envía
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
     // Mobile lo manda como FormData; web también puede pasarlo en
@@ -742,7 +790,7 @@ export const createPaymentRequestV2 = async (
          comision_cobrada_porcentaje, comision_entregax, comision_asesor,
          instructions_snapshot,
          op_beneficiario_nombre,
-         monto_mxn_base, monto_mxn_total,
+         monto_mxn_base, monto_mxn_total, referencia_proveedor,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -754,7 +802,7 @@ export const createPaymentRequestV2 = async (
          $20, $21, $22,
          $17::jsonb,
          $18,
-         $23, $24,
+         $23, $24, $25,
          'pendiente', $19, 'pendiente'
        ) RETURNING id`,
       [
@@ -782,6 +830,7 @@ export const createPaymentRequestV2 = async (
         pctAsesorIns,
         baseMxn,
         totalMxnFactura,
+        referenciaProveedor,
       ]
     );
     requestId = ins.rows[0].id;
@@ -864,6 +913,9 @@ export const createPaymentRequestV2 = async (
     // rutear y clasificar. Antes solo iba dentro de notas.proveedor_envio.
     pais_destino: paisDestino,
     referencia_xpay: referenciaPago,
+    // Referencia que pide el proveedor para ESTE pago. Campo propio en la raíz:
+    // dentro de `notas` es texto informativo y no llega a la transferencia.
+    ...(referenciaProveedor ? { referencia_proveedor: referenciaProveedor } : {}),
     // Total exacto cobrado al cliente final: es el mismo con el que ENTANGLED
     // emite su factura. Sin este campo ellos lo reconstruían de monto/tc/% y
     // el número no siempre cuadraba, dejando la factura sin asignar.
@@ -903,6 +955,8 @@ export const createPaymentRequestV2 = async (
         swift_bic: benefSnap?.swift || '',
         aba_routing: benefSnap?.aba || '',
         direccion_beneficiario: benefSnap?.direccion || '',
+        // Copia para compatibilidad mientras ENTANGLED lee el campo de la raíz.
+        ...(referenciaProveedor ? { referencia: referenciaProveedor } : {}),
       },
     };
     if (body.notas) notasObj.nota_cliente = String(body.notas);
@@ -1429,6 +1483,7 @@ export async function sendPendingRequestToEntangled(
       direccion_beneficiario: benefSnap.direccion || '',
     };
   }
+  if (reqRow.referencia_proveedor) notasObj.proveedor_envio.referencia = String(reqRow.referencia_proveedor);
 
   const payload: EntangledSolicitudPayloadV2 = {
     servicio,
@@ -1454,6 +1509,7 @@ export async function sendPendingRequestToEntangled(
       ? { uso_cfdi: String(reqRow.cf_uso_cfdi) }
       : {}),
     referencia_xpay: reqRow.referencia_pago,
+    ...(reqRow.referencia_proveedor ? { referencia_proveedor: String(reqRow.referencia_proveedor) } : {}),
     pais_destino: paisDestino,
     // Total cobrado al cliente: el persistido al crear la solicitud. Para las
     // solicitudes viejas (creadas antes de que se guardara) se recupera del
@@ -2532,6 +2588,7 @@ export const webhookPagoProveedorV2 = async (
       // HÍBRIDA entra en "solicitada" (una sola vez, dedup por columna).
       try {
         await pool.query(`ALTER TABLE entangled_payment_requests ADD COLUMN IF NOT EXISTS solicitada_notified_at TIMESTAMPTZ`).catch(() => {});
+        await asegurarReferenciaProveedor();
         const info = await pool.query(
           `SELECT er.es_hibrida, er.solicitada_notified_at, ${XPAY_SOLICITADA_EMAIL_SELECT}
              FROM entangled_payment_requests er
@@ -3226,12 +3283,13 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
       params = [advisorId];
       where = `r.advisor_id = $1`;
     }
+    await asegurarReferenciaProveedor();
     const r = await pool.query(
       `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
               -- Conceptos con descripción, para que el PDF muestre el concepto
               -- y no la clave SAT.
               r.op_conceptos,
-              r.op_beneficiario_nombre, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
+              r.op_beneficiario_nombre, r.referencia_proveedor, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
               -- Estatus para MOSTRAR. Pasadas las 24 h la orden se ve cancelada
               -- aunque siga viva: es la salida que nos deja no comprometernos si
               -- el TC se movió una barbaridad. El estatus real no se toca, si no
