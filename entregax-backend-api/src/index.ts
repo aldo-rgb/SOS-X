@@ -17107,6 +17107,12 @@ const CAJITO_CAPABILITIES: {
   // borrador no sale hasta que alguien lo autoriza a mano.
   { key: 'cajito.avisos',               label: 'Redactar comunicados',               description: 'Leer los cambios del sistema y PROPONER comunicados en borrador. No los envía: el envío lo autoriza un super admin y queda margen para cancelar.', category: 'write',     risk: 'high' },
   { key: 'cajito.read.tasks',           label: 'Ver mis tareas',                     description: 'Cuántas tareas tiene el usuario, cuáles están vencidas o vencen hoy, y cómo se reparten en la matriz. Solo las suyas.', category: 'read',      risk: 'low' },
+  // Escritura por rutas que una persona también sigue, con los mismos candados.
+  // Las herramientas ya las pedían y el catálogo no las tenía: no había forma de
+  // darlas desde Permisos, y guardar los permisos de alguien las borraba (tarea 568).
+  { key: 'cajito.write.reportar',      label: 'Reportar errores y mejoras',         description: 'Cuando la persona le dice "repórtalo", Cajito levanta la tarea al equipo técnico. Es lo mismo que el botón "Reportar un error". Solo Admin y Super Admin.', category: 'write',     risk: 'low' },
+  { key: 'cajito.write.tareas',        label: 'Cerrar tareas',                      description: 'Cajito marca como terminada una tarea, con las mismas reglas del botón "Completar" y solo con el sí de la persona.', category: 'write',     risk: 'low' },
+  { key: 'cajito.write.reempaque',     label: 'Deshacer reempaques',                description: 'Cajito deshace un reempaque que todavía se puede deshacer, solo cuando la persona lo autoriza.', category: 'write',     risk: 'medium' },
   // Financiero (medio/alto)
   { key: 'cajito.read.invoices',        label: 'Consultar facturas',                 description: 'Ver folios, montos y emisores. Datos fiscales sensibles.', category: 'read',      risk: 'high' },
   { key: 'cajito.read.payments',        label: 'Ver historial de pagos',             description: 'Consultar pagos recibidos y métodos.', category: 'read',      risk: 'medium' },
