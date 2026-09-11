@@ -125,6 +125,19 @@ interface SupportTicket {
   ticket_status?: 'nuevo' | 'en_progreso' | 'finalizado' | null;
   first_response_at?: string | null;
   resolution_time_minutes?: number | null;
+  /** Lo que dejó Cajito al revisar el ticket solo, al crearse. */
+  metadata?: {
+    cajito?: {
+      conclusion?: string;
+      reclamo?: string;
+      explicacion?: string;
+      para_el_cliente?: string;
+      hallazgos?: { dato?: string; valor?: string; cuadra?: boolean; nota?: string }[];
+      folios?: string[];
+      revisado_at?: string;
+      automatico?: boolean;
+    };
+  } | null;
 }
 
 interface TicketMessage {
@@ -488,6 +501,11 @@ export default function SupportBoardPage() {
   const isOperaciones = ['operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole);
   const isBranchManager = ['branch_manager', 'Branch Manager'].includes(currentUserRole);
   const isSoporteTecnico = currentUserRole === 'soporte_tecnico';
+  // El veredicto de Cajito es para quien ATIENDE el ticket. El asesor que lo
+  // levantó no lo necesita —él ya sabe lo que reportó— y mostrarlo de más
+  // invita a que se le reenvíe al cliente el texto interno.
+  const puedeVerVeredictoCajito = ['customer_service', 'soporte_tecnico', 'admin', 'super_admin']
+    .includes(currentUserRole);
   const canArchive = ['super_admin', 'admin', 'service_a_cliente', 'atencion_cliente', 'counter_staff', 'soporte_tecnico', 'customer_service'].includes(currentUserRole);
 
   // Reglas de visibilidad por nombre de departamento
@@ -1701,6 +1719,81 @@ export default function SupportBoardPage() {
                 })}
                 <div ref={messagesEndRef} />
               </Box>
+
+              <Divider />
+
+              {/* Lo que encontró Cajito al revisar el ticket solo, al crearse.
+                  Va ARRIBA de la caja de respuesta y antes de los videos porque
+                  es lo primero que necesita quien va a contestarle al cliente:
+                  el renglón grande es literalmente lo que le va a decir.
+                  Solo para quien atiende —Servicio a Cliente y Soporte—; al
+                  asesor no le sirve y al cliente menos. */}
+              {(() => {
+                const c = selectedTicket.metadata?.cajito;
+                if (!c?.conclusion) return null;
+                if (!puedeVerVeredictoCajito) return null;
+                const esNuestro = ['ERROR_SISTEMA', 'CAPTURA'].includes(String(c.conclusion));
+                const etiqueta: Record<string, string> = {
+                  ERROR_SISTEMA: 'Falla nuestra · ya reportada',
+                  CAPTURA: 'Un dato quedó mal · ya reportado',
+                  ACOMPANAR: 'No hay nada roto: hay que acompañar al cliente',
+                  CORRECTO: 'El sistema está bien · hay que explicárselo',
+                  NO_PUDE: 'Cajito no alcanzó a determinarlo',
+                };
+                return (
+                  <Box sx={{
+                    mx: 2, my: 1.5, p: 1.5, borderRadius: 2,
+                    border: '1px solid', borderColor: esNuestro ? '#fecaca' : '#e5e7eb',
+                    bgcolor: esNuestro ? '#fff5f5' : '#fafafa',
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 800, color: '#6b7280' }}>
+                        LO QUE ENCONTRÓ CAJITO
+                      </Typography>
+                      <Chip size="small" label={etiqueta[String(c.conclusion)] || c.conclusion}
+                            color={esNuestro ? 'error' : 'default'} variant={esNuestro ? 'filled' : 'outlined'} />
+                    </Box>
+
+                    {c.para_el_cliente ? (
+                      <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: '#fff', border: '1px dashed #d1d5db', mb: 1 }}>
+                        <Typography variant="caption" sx={{ color: '#6b7280', fontWeight: 700 }}>
+                          QUÉ DECIRLE AL CLIENTE
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5, lineHeight: 1.5 }}>
+                          {c.para_el_cliente}
+                        </Typography>
+                        <Button size="small" sx={{ mt: 0.5, px: 0 }}
+                          onClick={() => {
+                            navigator.clipboard?.writeText(String(c.para_el_cliente || ''));
+                            setReportSnack({ msg: 'Copiado, ya lo puedes pegar.', sev: 'success' });
+                          }}>
+                          Copiar
+                        </Button>
+                      </Box>
+                    ) : null}
+
+                    {c.explicacion ? (
+                      <Typography variant="body2" sx={{ color: '#374151', mb: 0.5 }}>
+                        {c.explicacion}
+                      </Typography>
+                    ) : null}
+
+                    {(c.hallazgos || []).length > 0 && (
+                      <Box sx={{ mt: 0.5 }}>
+                        {(c.hallazgos || []).map((h, i) => (
+                          <Typography key={i} variant="caption" display="block" sx={{ color: '#4b5563' }}>
+                            · {h.dato}: <b>{h.valor}</b>{h.nota ? ` — ${h.nota}` : ''}
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
+
+                    <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.75 }}>
+                      Lo revisó solo al llegar el ticket. Si algo no cuadra, aprieta Investigar para que lo vuelva a ver.
+                    </Typography>
+                  </Box>
+                );
+              })()}
 
               <Divider />
 
