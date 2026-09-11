@@ -97,7 +97,16 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // El endpoint ya devuelve SOLO tareas donde estás involucrado (responsable,
   // participante, o creador esperando confirmación), así que basta con no
   // recortarlas aquí.
-  const isMine = (_t: TaskT) => true;
+  // "Solo mis tareas": soy el responsable, hay comentarios sin leer, o está
+  // esperando MI confirmación porque yo la asigné. Es la misma regla que usa la
+  // web, y la razón de que los números no cuadraran entre las dos: aquí esto
+  // devolvía `true` para todo, así que el botón de la persona no filtraba nada
+  // y la matriz contaba como urgentes tareas de otros donde Aldo solo está de
+  // involucrado — 47 en la app contra 13 en la web.
+  const isMine = (t: TaskT) =>
+    Number((t as any).assignee_id) === Number(myId)
+    || Number((t as any).unread_count || 0) > 0
+    || ((t as any).status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId));
   // Buscando NO se aplica el filtro de "mías": el servidor ya definió el alcance
   // —las propias para todos, todas las del equipo para el super admin— y
   // recortarlo aquí volvería a esconder justo lo que se está buscando.

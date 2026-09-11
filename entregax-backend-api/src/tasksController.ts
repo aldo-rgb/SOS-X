@@ -2083,6 +2083,34 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     await ensureCitasComentario();
     const citaComentario = Number(b.reply_to_comment_id) > 0 ? Number(b.reply_to_comment_id) : null;
     const citaArchivo = Number(b.reply_to_attachment_id) > 0 ? Number(b.reply_to_attachment_id) : null;
+
+    // ── Doble envío ──────────────────────────────────────────────────────────
+    // Un toque repetido en enviar —o una conexión que reintenta— publicaba el
+    // mismo comentario dos veces. Van 24 pares repetidos, 20 de ellos en menos
+    // de 5 segundos; a la tarea 128 le cayeron siete copias del mismo texto.
+    //
+    // Nadie escribe y manda el MISMO texto dos veces en medio minuto: si llega
+    // repetido, es la pantalla, no la persona. Se devuelve el que ya existe y el
+    // front sigue igual, sin ver un error.
+    //
+    // Solo aplica al texto: un comentario con archivo puede repetir texto vacío
+    // legítimamente (dos fotos seguidas), y ahí el adjunto los distingue.
+    const textoComentario = String(b.body || '').trim();
+    if (textoComentario && !adjunto) {
+      const repetido = await pool.query(
+        `SELECT * FROM task_comments
+          WHERE task_id = $1 AND author_id = $2
+            AND TRIM(COALESCE(body, '')) = $3
+            AND created_at > NOW() - INTERVAL '30 seconds'
+          ORDER BY id DESC LIMIT 1`,
+        [taskId, uid, textoComentario]
+      );
+      if (repetido.rows.length > 0) {
+        console.warn(`[tasks] comentario duplicado frenado en la tarea ${taskId} (usuario ${uid}).`);
+        return res.json({ comment: repetido.rows[0], reopened: false, duplicadoEvitado: true });
+      }
+    }
+
     const r = await pool.query(
       `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url, reply_to_comment_id, reply_to_attachment_id)
        VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7) RETURNING *`,
