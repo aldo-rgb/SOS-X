@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 /**
  * EntregaX Support Desk Controller
  * Sistema de soporte con IA (OpenAI) + escalamiento humano
@@ -712,6 +713,55 @@ async function getAIResponse(userMessage: string, chatHistory: any[], clientCont
  * Enviar mensaje al chat de soporte (cliente)
  * Soporta multipart/form-data para adjuntar imágenes
  */
+// Tabla propia y pequeña para el candado: no se toca support_tickets, que es
+// caliente, y así un arranque no puede quedarse esperando su candado (11-sep).
+let candadoTicketsListo: Promise<void> | null = null;
+const asegurarCandadoTickets = (): Promise<void> => {
+  if (!candadoTicketsListo) {
+    candadoTicketsListo = pool.query(`
+      CREATE TABLE IF NOT EXISTS support_ticket_candados (
+        clave TEXT PRIMARY KEY,
+        ticket_id INTEGER,
+        creado_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`).then(() => undefined).catch((e) => { candadoTicketsListo = null; throw e; });
+  }
+  return candadoTicketsListo;
+};
+
+/**
+ * Reclama el derecho a crear el ticket de esta clave. Devuelve null si le toca
+ * crearlo; si otro envío idéntico ya lo reclamó en los últimos 10 minutos,
+ * devuelve ese ticket (esperando unos segundos a que exista, si llegaron juntos).
+ * El INSERT ... ON CONFLICT es atómico: de N envíos simultáneos solo uno gana.
+ */
+async function reclamarCandadoTicket(clave: string): Promise<{ id: number; ticket_folio: string; status: string } | null> {
+  try {
+    await asegurarCandadoTickets();
+    const gano = await pool.query(`
+      INSERT INTO support_ticket_candados (clave, ticket_id, creado_at) VALUES ($1, NULL, NOW())
+      ON CONFLICT (clave) DO UPDATE SET ticket_id = NULL, creado_at = NOW()
+        WHERE support_ticket_candados.creado_at < NOW() - INTERVAL '10 minutes'
+      RETURNING clave`, [clave]);
+    if (gano.rows.length > 0) return null;
+    for (let i = 0; i < 20; i++) {
+      const r = await pool.query(`
+        SELECT t.id, t.ticket_folio, t.status FROM support_ticket_candados c
+          JOIN support_tickets t ON t.id = c.ticket_id WHERE c.clave = $1`, [clave]);
+      if (r.rows[0]) return r.rows[0];
+      await new Promise((ok) => setTimeout(ok, 250));
+    }
+    // El primero no terminó en 5 s: mejor un duplicado posible que perder el mensaje.
+    return null;
+  } catch (e: any) {
+    console.error('[SUPPORT] candado de tickets:', e?.message);
+    return null; // el candado nunca debe impedir crear un ticket
+  }
+}
+
+async function amarrarCandadoTicket(clave: string, ticketId: number): Promise<void> {
+  await pool.query(`UPDATE support_ticket_candados SET ticket_id = $2 WHERE clave = $1`, [clave, ticketId]).catch(() => {});
+}
+
 export const handleSupportMessage = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureDepartmentsSchema();
@@ -802,6 +852,29 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     }
 
     // A. CREAR NUEVO TICKET SI NO EXISTE
+    // ── Candado contra tickets duplicados ────────────────────────────────────
+    // La misma petición del mismo usuario en 10 minutos es UNA sola. El 11-sep
+    // Jesús Campos mandó la de Genaro cuatro veces durante la caída; cada intento
+    // quedó esperando en la base y, al destrabarse, los cuatro entraron en 11 ms
+    // (TKT-2026-2671 a 2674). En 60 días hubo 11 casos así, 26 copias, casi
+    // todos clics repetidos mientras el envío tardaba. Se ignora el "[fecha]"
+    // que la pantalla del asesor antepone: cambia en cada intento.
+    let claveCandado: string | null = null;
+    if (!currentTicketId) {
+      const cuerpo = String(message).replace(/^\s*\[[^\]]*\]\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      claveCandado = `${userId}:${crypto.createHash('sha1').update(cuerpo).digest('hex')}`;
+      const existente = await reclamarCandadoTicket(claveCandado);
+      if (existente) {
+        console.warn(`[SUPPORT] Duplicado evitado: user ${userId} reenvió el mismo mensaje → ${existente.ticket_folio}`);
+        return res.json({
+          status: existente.status === 'escalated_human' ? 'escalated' : 'waiting_agent',
+          ticketId: existente.id,
+          ticketFolio: existente.ticket_folio,
+          message: `✅ Ya teníamos este mensaje en el ticket ${existente.ticket_folio}. No se creó otro.`,
+          duplicado_evitado: true,
+        });
+      }
+    }
     if (!currentTicketId) {
       const folio = await generateTicketFolio();
       ticketFolio = folio;
@@ -817,6 +890,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       );
       currentTicketId = newTicket.rows[0].id;
       ticketFolio = newTicket.rows[0].ticket_folio;
+      if (claveCandado) await amarrarCandadoTicket(claveCandado, Number(currentTicketId));
       console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})${imageUrls.length > 0 ? ` con ${imageUrls.length} imágenes` : ''}`);
 
       // 🧑‍⚖️ Cajito lo revisa solo. En segundo plano A PROPÓSITO: crear el ticket
