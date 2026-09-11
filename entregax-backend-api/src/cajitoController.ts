@@ -1134,13 +1134,26 @@ export const TOOLS: ToolDef[] = [
         SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
                t.due_at, t.created_at, t.completed_at,
                t.assignee_id, t.created_by,
+               (t.status = 'awaiting_confirmation' AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> $1
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at))) AS espera_tu_respuesta,
                c.full_name AS creada_por,
                (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'completed') AS vencida,
                (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
           FROM tasks t
           LEFT JOIN users c ON c.id = t.created_by
          -- Soy responsable, o la asigné yo y ya está esperando MI confirmación.
-         WHERE (t.assignee_id = $1 OR (t.status = 'awaiting_confirmation' AND t.created_by = $1)) ${soloAbiertas}
+         WHERE (t.assignee_id = $1
+                OR (t.status = 'awaiting_confirmation' AND t.created_by = $1)
+                OR (t.status = 'awaiting_confirmation'
+                    AND EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $1)
+                    AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> $1
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at)))) ${soloAbiertas}
          ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC
          LIMIT 100`, [ctx.userId]);
 
@@ -1153,7 +1166,7 @@ export const TOOLS: ToolDef[] = [
       // que esperaban a Angel, Yliana o Ricardo.
       const yo = Number(ctx.userId);
       const meToca = (t: any) =>
-        t.status === 'awaiting_confirmation' ? Number(t.created_by) === yo
+        t.status === 'awaiting_confirmation' ? (Number(t.created_by) === yo || t.espera_tu_respuesta === true)
         : t.status === 'open' ? Number(t.assignee_id) === yo
         : false;
       return {

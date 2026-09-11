@@ -30,6 +30,11 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  // "Ver en espera": con "Solo mis tareas" se ocultan las que esperan
+  // confirmación de OTRA persona —ya las hiciste, no te toca nada—. Las que
+  // esperan TU confirmación se siguen viendo, y también las que traen
+  // comentarios sin leer, para no perder una respuesta.
+  const [showEspera, setShowEspera] = useState(false);
   // Global = todas donde estoy involucrado; !global = solo mis tareas (responsable,
   // sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
@@ -106,12 +111,20 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const isMine = (t: TaskT) =>
     Number((t as any).assignee_id) === Number(myId)
     || Number((t as any).unread_count || 0) > 0
-    || ((t as any).status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId));
+    || ((t as any).status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId))
+    || (t as any).espera_tu_respuesta === true;
   // Buscando NO se aplica el filtro de "mías": el servidor ya definió el alcance
   // —las propias para todos, todas las del equipo para el super admin— y
   // recortarlo aquí volvería a esconder justo lo que se está buscando.
   const hayBusqueda = searchText.trim().length > 0;
-  const mineTasks = (globalView || hayBusqueda) ? catTasks : catTasks.filter(isMine);
+  const esperaAOtro = (t: TaskT) =>
+    (t as any).status === 'awaiting_confirmation'
+    && Number((t as any).created_by) !== Number(myId)
+    && Number((t as any).unread_count || 0) === 0
+    && (t as any).espera_tu_respuesta !== true;
+  const mineTasks = (globalView || hayBusqueda)
+    ? catTasks
+    : catTasks.filter(t => isMine(t) && (showEspera || !esperaAOtro(t)));
   // Filtro de búsqueda: normaliza sin acentos y compara contra título,
   // descripción, categoría, responsable, involucrados e ID.
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -142,7 +155,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           <Text style={styles.hTitle}>Mis Tareas</Text>
           {/* Cuenta lo que espera algo de MI: lo asignado a mi, mas lo que yo
               asigne y ya esta esperando que YO lo confirme. */}
-          <Text style={styles.hSub}>{tasks.filter(t => esPendienteDeMi(t, myId)).length} pendiente(s){showDone ? ' · con terminadas' : ''}</Text>
+          <Text style={styles.hSub}>{tasks.filter(t => esPendienteDeMi(t, myId)).length} pendiente(s){showDone ? ' · con terminadas' : ''}{showEspera ? ' · con en espera' : ''}</Text>
         </View>
         <TouchableOpacity onPress={() => { setRefreshing(true); load(); }} style={styles.hBtn} hitSlop={10}><Ionicons name="refresh" size={22} color="#fff" /></TouchableOpacity>
       </View>
@@ -171,6 +184,10 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           {/* Ver completadas (incluye terminadas) */}
           <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
             <Ionicons name="checkmark-done" size={18} color={showDone ? '#fff' : '#2E7D46'} />
+          </TouchableOpacity>
+          {/* Ver en espera (las que esperan confirmación de otra persona) */}
+          <TouchableOpacity onPress={() => setShowEspera(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#C77800' }, showEspera && { backgroundColor: '#C77800' }]} hitSlop={8} accessibilityLabel="Ver en espera">
+            <Ionicons name="hourglass-outline" size={18} color={showEspera ? '#fff' : '#C77800'} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtnOutline} onPress={() => setSchedOpen(true)} hitSlop={8}>
             <Ionicons name="calendar-outline" size={20} color="#B07206" />

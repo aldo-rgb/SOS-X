@@ -51,8 +51,10 @@ const esperaMiConfirmacion = (t: any): boolean =>
 // misma regla de la app (esPendienteDeMi). Los números de la matriz contaban
 // cada tarjeta del cuadrante, y así las que esperan confirmación de otra
 // persona sumaban como urgentes de quien ya las terminó: 9 donde tocaban 2.
+// En espera también te toca si te contestaron y no has respondido
+// (espera_tu_respuesta, calculado en /tasks/mine).
 const esPendienteDeMi = (t: any): boolean =>
-  t?.status === 'awaiting_confirmation' ? Number(t?.created_by) === MY_ID
+  t?.status === 'awaiting_confirmation' ? (Number(t?.created_by) === MY_ID || t?.espera_tu_respuesta === true)
   : t?.status === 'open' ? Number(t?.assignee_id) === MY_ID
   : false;
 const etiquetaEspera = (t: any, larga = false): string =>
@@ -382,6 +384,11 @@ export default function MisTareasPage() {
   // (responsable, con comentarios sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  // "Ver en espera": con "Solo mis tareas" se ocultan las que esperan
+  // confirmación de OTRA persona —ya las hiciste, no te toca nada—. Las que
+  // esperan TU confirmación se siguen viendo, y también las que traen
+  // comentarios sin leer, para no perder una respuesta.
+  const [showEspera, setShowEspera] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
   const [showPersonal, setShowPersonal] = useState(false);
@@ -818,8 +825,18 @@ export default function MisTareasPage() {
   // que /tasks/mine devuelve (donde estoy involucrado).
   const isMine = (t: Task) => Number(t.assignee_id) === MY_ID
     || (t.unread_count || 0) > 0
-    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID);
-  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
+    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID)
+    || (t as any).espera_tu_respuesta === true;
+  const esperaAOtro = (t: Task) =>
+    t.status === 'awaiting_confirmation'
+    && Number((t as any).created_by) !== MY_ID
+    && (t.unread_count || 0) === 0
+    && (t as any).espera_tu_respuesta !== true;
+  // Buscando no se oculta nada: igual que con las completadas, la búsqueda
+  // tiene que encontrar todo.
+  const mineTasks = globalView
+    ? catTasks
+    : catTasks.filter(t => isMine(t) && (showEspera || q.length >= 2 || !esperaAOtro(t)));
   const matchesSearch = (t: Task) => {
     if (!q) return true;
     const parts: string[] = [
@@ -905,6 +922,17 @@ export default function MisTareasPage() {
             : { borderColor: '#2E7D46', color: '#2E7D46' }) }}
         >
           Ver completadas
+        </Button>
+        <Button
+          size="small"
+          variant={showEspera ? 'contained' : 'outlined'}
+          onClick={() => setShowEspera(v => !v)}
+          startIcon={<span>⏳</span>}
+          sx={{ textTransform: 'none', ...(showEspera
+            ? { bgcolor: '#C77800', '&:hover': { bgcolor: '#A86500' } }
+            : { borderColor: '#C77800', color: '#C77800' }) }}
+        >
+          Ver en espera
         </Button>
         {isWorkHours && (
           <Button
@@ -1116,7 +1144,8 @@ export default function MisTareasPage() {
             const rank = (t: Task) => {
               if ((t.unread_count || 0) > 0) return 0;
               const iAssigned = Number((t as any).created_by) === MY_ID;
-              if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
+              // Si te contestaron, te está esperando: sube junto a las que confirmas.
+              if (t.status === 'awaiting_confirmation') return (iAssigned || (t as any).espera_tu_respuesta) ? 1 : 3;
               return 2;
             };
             // Orden del cuadrante:

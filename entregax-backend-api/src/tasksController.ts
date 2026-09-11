@@ -1117,6 +1117,16 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT json_agg(json_build_object('name', u2.full_name, 'photo', u2.profile_photo_url) ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_avatars,
              -- Último comentario y actividad efectiva (MAX de comentarios y updated_at).
              (SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id) AS last_comment_at,
+             -- ¿Te contestaron y te toca responder? En espera, alguien más comentó
+             -- DESPUÉS de que pasó a espera, y tú no has contestado después. Eso ya
+             -- no es "esperar a otro": te está esperando a ti. No basta con "el
+             -- último comentario es de otro": las "Error localizado" traen el
+             -- comentario de quien las levantó desde el inicio, y se colarían todas.
+             (t.status = 'awaiting_confirmation' AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> $1
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at))) AS espera_tu_respuesta,
              GREATEST(
                t.updated_at,
                t.created_at,

@@ -443,7 +443,7 @@ export default function DashboardAdvisor() {
         const me = (() => { try { return Number(JSON.parse(localStorage.getItem('user') || '{}')?.id) || 0; } catch { return 0; } })();
         const tareas: any[] = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
         setPendingTasks(tareas.filter((t) =>
-          t?.status === 'awaiting_confirmation' ? Number(t?.created_by) === me
+          t?.status === 'awaiting_confirmation' ? (Number(t?.created_by) === me || t?.espera_tu_respuesta === true)
           : t?.status === 'open' ? Number(t?.assignee_id) === me
           : false).length);
       })

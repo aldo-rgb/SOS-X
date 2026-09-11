@@ -1933,6 +1933,17 @@ export const startTaskRemindersCron = () => {
           UNION ALL
           SELECT t.created_by AS uid FROM tasks t
            WHERE t.status = 'awaiting_confirmation' AND t.created_by IS NOT NULL ${urgentCond}
+          UNION ALL
+          -- Y al responsable, si le contestaron después de mandarla a espera y
+          -- no ha respondido: la tarea lo está esperando a él.
+          SELECT t.assignee_id AS uid FROM tasks t
+           WHERE t.status = 'awaiting_confirmation' AND t.assignee_id IS NOT NULL
+             AND t.assignee_id <> t.created_by ${urgentCond}
+             AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> t.assignee_id
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = t.assignee_id AND c2.created_at > cc.created_at))
         ) x
          GROUP BY uid HAVING COUNT(*) > 0
       `)).rows;

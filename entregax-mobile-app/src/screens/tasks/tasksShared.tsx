@@ -1054,7 +1054,9 @@ export interface TaskT {
  */
 export function esPendienteDeMi(t: any, myId?: number | null): boolean {
   if (!myId || !t || t.status === 'completed') return false;
-  if (t.status === 'awaiting_confirmation') return Number(t.created_by) === Number(myId);
+  // En espera te toca si la asignaste tú, o si te contestaron y no has
+  // respondido (espera_tu_respuesta, calculado en /tasks/mine).
+  if (t.status === 'awaiting_confirmation') return Number(t.created_by) === Number(myId) || t.espera_tu_respuesta === true;
   return Number(t.assignee_id) === Number(myId);
 }
 
@@ -2348,7 +2350,7 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
   const rank = (t: TaskT) => {
     if ((t.unread_count || 0) > 0) return 0;
     const iAssigned = myId != null && Number((t as any).created_by) === Number(myId);
-    if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
+    if (t.status === 'awaiting_confirmation') return (iAssigned || (t as any).espera_tu_respuesta) ? 1 : 3;
     return 2;
   };
   // De lo que RESPONDES TÚ va siempre arriba. En el cuadrante se mezclaban las
