@@ -992,6 +992,7 @@ import {
   chat as cajitoChat,
   getMyConversations as cajitoGetMyConversations,
   getConversation as cajitoGetConversation,
+  reportarError as cajitoReportarError,
   getAudit as cajitoGetAudit,
   getHealth as cajitoGetHealth,
   getMyAccess as cajitoGetMyAccess,
@@ -17235,6 +17236,9 @@ app.post('/api/cajito/chat', authenticateToken, cajitoChat);
 app.post('/api/cajito/investigar-ticket/:id', authenticateToken, cajitoInvestigarTicket);
 app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations);
 app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
+// Reportar desde el chat lo que Cajito acaba de encontrar (solo admin/super_admin;
+// el propio handler valida el rol y explica por qué si no).
+app.post('/api/cajito/reportar-error', authenticateToken, cajitoReportarError);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
 app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
 

@@ -61,6 +61,9 @@ interface Props {
 export default function CajitoFab({ user, token }: Props) {
   const role = String(user?.role || '').toLowerCase();
   const isSuperAdmin = role === 'super_admin';
+  // Reportar un error levanta una tarea y le suena el teléfono a quien la
+  // atiende: no es algo que deba poder disparar cualquiera desde el chat.
+  const puedeReportar = role === 'super_admin' || role === 'admin';
   const isTrackOnly = TRACK_ONLY_ROLES.includes(role);
   const canUse = isSuperAdmin || isTrackOnly;
 
@@ -76,6 +79,10 @@ export default function CajitoFab({ user, token }: Props) {
   // llegar después del primer render— y sin esta guarda se volvería a pintar
   // encima, duplicando las burbujas.
   const hiloCargadoRef = useRef(false);
+  // Índice de la burbuja que se está reportando, y las ya reportadas (para no
+  // mandar la misma dos veces y que se note que ya salió).
+  const [reportando, setReportando] = useState<number | null>(null);
+  const [reportadas, setReportadas] = useState<Record<number, string>>({});
   const chatScrollRef = useRef<ScrollView>(null);
 
   // Tracking
@@ -169,6 +176,29 @@ export default function CajitoFab({ user, token }: Props) {
     }
     setSending(false);
     setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  // Manda a la tarea la pregunta y la respuesta tal cual las dio Cajito. No se
+  // edita nada: lo valioso es justo el detalle con el que lo dedujo.
+  const reportarError = async (i: number) => {
+    if (reportando !== null || reportadas[i]) return;
+    const respuesta = messages[i]?.text || '';
+    const pregunta = [...messages.slice(0, i)].reverse().find((m) => m.role === 'user')?.text || '';
+    if (!respuesta) return;
+    setReportando(i);
+    try {
+      const r = await fetch(`${API_URL}/api/cajito/reportar-error`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: convIdRef.current, pregunta, respuesta }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setReportadas((p) => ({ ...p, [i]: `Reportado · tarea ${d.task_id}` }));
+      else setMessages((m) => [...m, { role: 'cajito', text: `⚠️ ${d.error || 'No se pudo reportar.'}` }]);
+    } catch {
+      setMessages((m) => [...m, { role: 'cajito', text: '⚠️ Error de red al reportar.' }]);
+    }
+    setReportando(null);
   };
 
   const doTrack = async () => {
@@ -397,6 +427,25 @@ export default function CajitoFab({ user, token }: Props) {
             <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.cajitoBubble]}>
               <Text style={m.role === 'user' ? styles.userText : styles.cajitoText}>{m.text}</Text>
               {m.tools && m.tools.length > 0 ? <Text style={styles.toolNote}>🔧 {m.tools.join(', ')}</Text> : null}
+              {m.role === 'cajito' && puedeReportar && !m.text.startsWith('⚠️') ? (
+                reportadas[i] ? (
+                  <Text style={styles.reportadoNota}>✅ {reportadas[i]}</Text>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => reportarError(i)}
+                    disabled={reportando !== null}
+                    style={styles.reportarBtn}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    {reportando === i
+                      ? <ActivityIndicator size="small" color="#dc2626" />
+                      : <Ionicons name="bug-outline" size={13} color="#dc2626" />}
+                    <Text style={styles.reportarTxt}>
+                      {reportando === i ? 'Reportando…' : 'Reportar un error'}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              ) : null}
             </View>
           </View>
         ))}
@@ -509,6 +558,13 @@ const styles = StyleSheet.create({
   userText: { color: '#fff', fontSize: 14, lineHeight: 20 },
   cajitoText: { color: '#3a2a20', fontSize: 14, lineHeight: 20 },
   toolNote: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
+  reportarBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+    marginTop: 8, paddingVertical: 5, paddingHorizontal: 9,
+    borderWidth: 1, borderColor: '#fecaca', borderRadius: 14, backgroundColor: '#fff5f5',
+  },
+  reportarTxt: { fontSize: 11, color: '#dc2626', fontWeight: '600' },
+  reportadoNota: { fontSize: 11, color: '#16a34a', fontWeight: '600', marginTop: 8 },
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff' },
   input: { flex: 1, maxHeight: 100, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: '#111' },
   sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },

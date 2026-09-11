@@ -1629,6 +1629,19 @@ function buildSystemPrompt(
     'Prefiere tres cosas bien explicadas a diez enumeradas. Si después de filtrar no queda nada que de verdad le sirva a una audiencia, DILO y no propongas comunicado para ella.',
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
     '',
+    'CÓMO INVESTIGAR. Cuando te pidan revisar una tarea, un ticket o un caso, no lo resumas: investígalo.',
+    '  - Una consulta no es una investigación. Abre la tarea (lookup_task), lee el ticket que la originó, los comentarios y quién dijo qué. El detalle casi siempre está en el ticket, no en el título.',
+    '  - Verifica cada afirmación contra los datos antes de darla por buena, incluida la de quien reportó. Si alguien dice "se cobró de más", saca el monto real y compáralo.',
+    '  - Da el detalle COMPLETO: los folios, los montos al centavo, las fechas y los nombres con los que lo dedujiste. Quien lo vaya a arreglar necesita poder seguir tus pasos sin volver a investigar. Un resumen sin datos obliga a repetir todo el trabajo.',
+    '  - Di también lo que NO pudiste comprobar. "No encontré esa guía en el sistema" es un hallazgo; suponer que existe, no.',
+    '  - Si los números no cuadran, dilo con la resta enfrente en vez de redondear la conclusión.',
+    '  - Cierra con lo que encontraste, no con una pregunta. Si ya tienes el ticket a la mano, revísalo y cuéntalo: no ofrezcas hacer algo que puedes hacer en ese mismo momento. Preguntar está bien solo cuando de verdad necesitas que la persona decida.',
+    '  - No propongas corregir datos ni ofrezcas arreglarlo: tú reportas, nosotros lo corregimos.',
+    '',
+    'REPORTAR UN ERROR. Debajo de cada respuesta tuya, Admin y Super Admin tienen un botón "Reportar un error" que levanta una tarea con tu texto tal cual y le avisa al equipo.',
+    '  - Por eso tu respuesta tiene que sostenerse sola: la va a leer alguien que no vio esta conversación.',
+    '  - Si concluyes que hay un error del sistema, dilo claro y recuérdale en una línea que puede reportarlo con ese botón. No lo reportas tú: el botón es de la persona.',
+    '',
     'FLETE NACIONAL: antes de decir que un cobro es indebido, mira QUIÉN puso la guía.',
     '  - Si la guía la generamos nosotros ("ENTREGAX"), la pagamos: el cobro al cliente es CORRECTO, aunque la guía sea de Paquete Express o de otra paquetería.',
     '  - Solo es indebido si el cliente subió su propia guía ("EL CLIENTE").',
@@ -2348,6 +2361,118 @@ export const getConversation = async (req: AuthRequest, res: Response): Promise<
 
 // GET /api/admin/cajito/audit — auditoría completa (solo super_admin)
 //   Filtros opcionales: ?userId=&since=&until=&limit=
+/**
+ * POST /api/cajito/reportar-error
+ *
+ * Reportar desde el chat lo que Cajito acaba de encontrar. Levanta la misma
+ * tarea que el botón del Centro de Soporte, pero con la conversación adentro:
+ * la pregunta que se le hizo y la respuesta completa que dio.
+ *
+ * Antes, cuando Cajito encontraba algo raro investigando una tarea, el hallazgo
+ * se quedaba en el chat. Había que copiarlo a mano, y casi nunca se copiaba
+ * entero: se perdían los datos con los que lo dedujo, que es justo lo que evita
+ * que quien lo arregle vuelva a investigar desde cero.
+ *
+ * Solo admin y super_admin. No es una decisión de captura: crea trabajo para el
+ * equipo técnico y le suena el teléfono a quien lo tiene que atender.
+ */
+export const reportarError = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const uid = req.user?.userId;
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!uid) { res.status(401).json({ error: 'No autenticado' }); return; }
+    if (role !== 'super_admin' && role !== 'admin') {
+      res.status(403).json({ error: 'Solo Admin y Super Admin pueden reportar un error.' }); return;
+    }
+
+    const conversationId = parseInt(String(req.body?.conversationId || ''), 10);
+    const tituloManual = String(req.body?.titulo || '').trim();
+    let pregunta = String(req.body?.pregunta || '').trim();
+    let respuesta = String(req.body?.respuesta || '').trim();
+
+    // Si no viene el texto, se toma el último intercambio del hilo. Así el botón
+    // funciona mandando solo el id, sin que el front tenga que cargar nada.
+    if ((!pregunta || !respuesta) && Number.isFinite(conversationId)) {
+      const due = await pool.query(
+        `SELECT user_id FROM cajito_conversations WHERE id = $1`, [conversationId]);
+      if (!due.rows.length) { res.status(404).json({ error: 'No encontré esa conversación.' }); return; }
+      if (due.rows[0].user_id !== uid && role !== 'super_admin') {
+        res.status(403).json({ error: 'Esa conversación no es tuya.' }); return;
+      }
+      const ult = await pool.query(
+        `SELECT role, content FROM cajito_messages
+          WHERE conversation_id = $1 AND role IN ('user','assistant') AND COALESCE(content,'') <> ''
+          ORDER BY created_at DESC LIMIT 6`, [conversationId]);
+      const filas = ult.rows;
+      if (!respuesta) respuesta = filas.find((m: any) => m.role === 'assistant')?.content || '';
+      if (!pregunta)  pregunta  = filas.find((m: any) => m.role === 'user')?.content || '';
+    }
+    if (!respuesta) { res.status(400).json({ error: 'No hay nada que reportar todavía.' }); return; }
+
+    // Si Cajito venía hablando de una tarea o un ticket, el folio se hereda: sin
+    // esto el reporte nace huérfano y nadie sabe de qué caso salió.
+    const texto = `${pregunta}\n${respuesta}`;
+    const folioTicket = (texto.match(/\b(TKT-\d{4}-\d+)\b/i) || [])[1];
+    const idTarea = (texto.match(/\btareas?\s*#?\s*(\d{1,6})\b/i) || [])[1];
+    const referencia = folioTicket ? folioTicket.toUpperCase() : (idTarea ? `tarea ${idTarea}` : null);
+
+    const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid]))
+      .rows[0]?.full_name || 'Alguien';
+    const title = tituloManual
+      || (referencia ? `Error reportado desde Cajito · ${referencia}` : `Error reportado desde Cajito · ${quien}`);
+
+    const desc = [
+      `🐛 ${quien} reportó esto desde el chat de Cajito${referencia ? ` (sobre ${referencia})` : ''}.`,
+      pregunta ? `\n📩 Lo que se le preguntó:\n${pregunta}` : '',
+      `\n🔎 Lo que contestó Cajito:\n${respuesta}`,
+      `\n(Reportado con un clic desde el chat; el texto es el de Cajito, sin editar.)`,
+    ].filter(Boolean).join('\n').trim();
+
+    // Mismo destino que el botón del Centro de Soporte: tablero de errores y un
+    // super admin CON dispositivo, para que el aviso llegue de verdad.
+    const board = await pool.query(
+      `SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
+    const sa = await pool.query(
+      `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS con_equipo
+         FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) = true
+        ORDER BY con_equipo DESC, u.id`);
+    if (!sa.rows.length) { res.status(400).json({ error: 'No hay un Super Admin activo para asignarle el reporte.' }); return; }
+    const superAdminIds = sa.rows.map((r: any) => Number(r.id));
+    const responsable = superAdminIds[0]!;
+
+    const { createAssignedTaskInternal } = await import('./tasksController');
+    const taskId = await createAssignedTaskInternal({
+      creatorId: Number(uid), assigneeId: responsable, title, description: desc,
+      eisenhower: 'fuego', notifyAssignee: false, boardId: board.rows[0]?.id || undefined,
+    });
+    if (!taskId) { res.status(500).json({ error: 'No se pudo crear la tarea' }); return; }
+
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      for (const id of superAdminIds) {
+        await createCustomNotification(id, `🐛 Error reportado desde Cajito`,
+          `${quien}: ${trimText(respuesta.replace(/\s+/g, ' '), 110)}`,
+          'task', 'checkbox', { task_id: taskId }, '/tareas');
+      }
+      const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
+      const conPush = await filterRecipientsForPush(superAdminIds, true);
+      if (conPush.length) {
+        await sendPushToUsers(conPush, {
+          title: '🐛 Error reportado desde Cajito',
+          body: `${quien} reportó un hallazgo. Revísalo en Mis Tareas.`,
+          data: { screen: 'MyTasks', task_id: String(taskId) },
+        });
+      }
+    } catch (e) { console.error('[cajito] aviso de error reportado:', e); }
+
+    res.json({ ok: true, task_id: taskId, titulo: title });
+  } catch (e: any) {
+    console.error('[cajito] reportarError:', e);
+    res.status(500).json({ error: e?.message || 'No se pudo reportar el error' });
+  }
+};
+
 export const getAudit = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await ensureChatTables();
