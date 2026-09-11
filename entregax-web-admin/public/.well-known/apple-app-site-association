@@ -9,6 +9,8 @@
           "/instrucciones/*",
           "/pagar",
           "/pagar/*",
+          "/tarea",
+          "/tarea/*",
           "/xpay",
           "/cotizar",
           "/register",
