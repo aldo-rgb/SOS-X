@@ -953,6 +953,54 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     }
 
     await client.query(`ALTER TABLE petty_cash_movements ADD COLUMN IF NOT EXISTS pieces INTEGER DEFAULT 1`).catch(() => {});
+
+    // ── La misma nota de impuestos, capturada dos veces ──────────────────────
+    // El concepto de una nota DHL es el número de guía, y una guía tiene una
+    // sola nota de aduana. Aun así hay 36 capturadas dos veces: el mismo recibo
+    // fotografiado de nuevo días después —mismo folio DHL, mismo pedimento,
+    // mismo monto—, así que el archivo de evidencia cambia y a simple vista no
+    // se nota. Son $10,632.26 de gasto contado doble en la caja de Monterrey.
+    //
+    // Solo aplica a `impuestos_dhl`: en las demás categorías repetir concepto y
+    // monto es normal (dos cargas de gasolina del mismo importe, por ejemplo).
+    //
+    // Si de verdad hubiera dos notas idénticas para una guía, se manda
+    // `permitir_duplicado` y pasa — pero queda escrito quién lo forzó.
+    const conceptoLimpio = concept ? String(concept).trim() : '';
+    if (category === 'impuestos_dhl' && conceptoLimpio) {
+      const previa = await client.query(
+        `SELECT id, amount_mxn, created_at, status
+           FROM petty_cash_movements
+          WHERE category = 'impuestos_dhl'
+            AND TRIM(concept) = $1
+            AND amount_mxn = $2::numeric
+            AND status <> 'rejected'
+          ORDER BY id LIMIT 1`,
+        [conceptoLimpio, amount]
+      );
+      if (previa.rows.length > 0 && !req.body?.permitir_duplicado) {
+        const p = previa.rows[0];
+        const cuando = new Date(p.created_at).toLocaleDateString('es-MX', {
+          day: 'numeric', month: 'long', year: 'numeric',
+        });
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error:
+            `La nota de la guía ${conceptoLimpio} por $${amount.toFixed(2)} ya se capturó ` +
+            `el ${cuando}. Una guía lleva una sola nota de aduana; si de verdad son dos ` +
+            `notas distintas, avísale a tu supervisor para registrarla.`,
+          error_code: 'nota_duplicada',
+          movimiento_previo: { id: p.id, fecha: p.created_at, estatus: p.status },
+        });
+      }
+      if (previa.rows.length > 0) {
+        console.warn(
+          `[CAJA-CHICA] nota duplicada FORZADA: guía ${conceptoLimpio} por $${amount.toFixed(2)}; ` +
+          `ya existía el movimiento ${previa.rows[0].id}. La captura el usuario ${userId}.`
+        );
+      }
+    }
+
     const m = await client.query(`
       INSERT INTO petty_cash_movements (
         wallet_id, movement_type, category, amount_mxn, status, concept,
