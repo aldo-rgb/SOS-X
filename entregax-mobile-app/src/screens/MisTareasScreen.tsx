@@ -11,6 +11,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { API_URL } from '../services/api';
 import { ORANGE, BG, TaskCard, TaskDetailModal, ViewToggle, MatrixView, CreateTaskModal, ScheduleTaskModal, TaskT, esPendienteDeMi } from './tasks/tasksShared';
+import CajitoFab from '../components/CajitoFab';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyTasks'>;
 
@@ -291,6 +292,11 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           </View>
         </ScrollView>
       )}
+
+      {/* Cajito, aquí también: es donde se lee una tarea y donde da más ganas de
+          preguntarle por ella o reportar lo que encuentre, sin salirse de la
+          pantalla. El propio componente decide si se muestra según el rol. */}
+      <CajitoFab user={user} token={token} />
 
       <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false} myId={myId}
         onClose={() => setOpenId(null)} onChanged={load} />

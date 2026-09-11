@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { API_URL } from '../services/api';
+import CajitoFab from '../components/CajitoFab';
 import { ORANGE, BG, EIS, TaskCard, TaskDetailModal, ViewToggle, MatrixView, TaskT } from './tasks/tasksShared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TareasAdmin'>;
@@ -346,6 +347,9 @@ export default function TareasScreen({ navigation, route }: Props) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Cajito también en el tablero: mismo motivo que en Mis Tareas. */}
+      <CajitoFab user={user} token={token} />
     </SafeAreaView>
   );
 }
