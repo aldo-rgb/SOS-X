@@ -603,6 +603,23 @@ export function esRespuestaDeEspera(texto: string): boolean {
   return sinFrase.length < 60;
 }
 
+/**
+ * ¿La IA le PREGUNTÓ algo al cliente? Entonces no resolvió nada: está
+ * esperando un dato (peso, medidas, una guía). Las frases de cortesía con las
+ * que cierra ("¿Hay algo más en lo que te pueda ayudar?") no cuentan: no son
+ * algo que el cliente tenga que contestar.
+ */
+const CORTESIA_RE = /¿\s*(hay\s+)?(algo|alguna\s+otra\s+cosa|otra\s+cosa)[^?]{0,40}(ayudar|apoyar|servir)[^?]*\?|¿\s*(te|le)\s+(puedo|podemos)\s+(ayudar|apoyar)\s+(con|en)\s+(algo|alguna)[^?]*\?|¿\s*necesitas?\s+algo\s+m[aá]s[^?]*\?/gi;
+export function preguntaAlCliente(texto: string): boolean {
+  return /\?/.test(String(texto || '').replace(CORTESIA_RE, ' '));
+}
+
+/** El cliente pide una cotización: eso lo atiende Servicio a Cliente (tarea 570). */
+const PIDE_COTIZACION_RE = /\b(cotiz\w*|precios?|tarifas?|cu[aá]nto\s+(me\s+)?(cuesta|cuestan|sale|saldr[ií]a|cobra|cobran|costar[ií]a|vale))\b/i;
+export function pideCotizacion(texto: string): boolean {
+  return PIDE_COTIZACION_RE.test(String(texto || ''));
+}
+
 async function getAIResponse(userMessage: string, chatHistory: any[], clientContext: string = ''): Promise<{ response: string; shouldEscalate: boolean }> {
   // Si no hay API key, usar respuesta de fallback
   if (!OPENAI_API_KEY) {
@@ -1132,7 +1149,18 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     );
 
     // G. MANEJAR ESCALAMIENTO
-    if (shouldEscalate) {
+    // Una cotización se queda con Servicio a Cliente (Aldo: "si solo es
+    // cotización se queda en servicio a cliente"). La IA ya contestó —le pide
+    // peso y medidas—, pero el ticket no se cierra: pasa a una persona. Antes se
+    // cerraba y nadie lo veía (tarea 570, TKT-2026-2664).
+    const esCotizacion = !shouldEscalate && pideCotizacion(message);
+    if (esCotizacion) {
+      await pool.query(
+        `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+        [currentTicketId, '💬 El cliente pidió cotizar → pasa directo a Servicio a Cliente.']
+      ).catch(() => {});
+    }
+    if (shouldEscalate || esCotizacion) {
       await pool.query(
         "UPDATE support_tickets SET status = 'escalated_human', resolved_by_ai = FALSE, updated_at = NOW() WHERE id = $1",
         [currentTicketId]
@@ -1148,10 +1176,31 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       });
     }
 
-    // H. RESPUESTA NORMAL DE LA IA — Cajito resolvió → se CIERRA el ticket (no se
-    // deja abierto ocupando la bandeja). Si el cliente vuelve a escribir, se
-    // reabre en modo IA (arriba). Solo los tickets escalados (arriba) quedan
-    // abiertos para el equipo de atención al cliente.
+    // H. RESPUESTA NORMAL DE LA IA.
+    // Si le preguntó algo al cliente, no resolvió nada: el ticket queda en
+    // "Esperando cliente", visible en el panel. Si el cliente contesta, lo sigue
+    // atendiendo la IA (nadie humano ha hablado). Antes se cerraba igual y se
+    // perdía (tarea 570, TKT-2026-2664).
+    if (preguntaAlCliente(aiResponse)) {
+      await pool.query(
+        `UPDATE support_tickets
+            SET status = 'waiting_client', resolved_by_ai = FALSE, resolved_at = NULL,
+                ticket_status = CASE WHEN ticket_status IN ('nuevo','finalizado') OR ticket_status IS NULL
+                                     THEN 'en_progreso' ELSE ticket_status END,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [currentTicketId]
+      );
+      return res.json({
+        status: 'ai_replied',
+        ticketId: currentTicketId,
+        ticketFolio: ticketCheck.rows[0].ticket_folio,
+        response: aiResponse
+      });
+    }
+
+    // Cajito resolvió → se CIERRA el ticket (no se deja abierto ocupando la
+    // bandeja). Si el cliente vuelve a escribir, se reabre en modo IA (arriba).
     await pool.query(
       "UPDATE support_tickets SET status = 'resolved', ticket_status = 'finalizado', resolved_by_ai = TRUE, resolved_at = COALESCE(resolved_at, NOW()), updated_at = NOW() WHERE id = $1",
       [currentTicketId]
