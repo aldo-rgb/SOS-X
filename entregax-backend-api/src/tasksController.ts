@@ -224,6 +224,8 @@ async function involvesGrupoRino(userIds: Array<number | null | undefined>): Pro
 // convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
 export async function createAssignedTaskInternal(opts: {
   creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string; notifyAssignee?: boolean; boardId?: number;
+  // Título del aviso al responsable. Por default el de metas.
+  notifyTitle?: string;
 }): Promise<number | null> {
   try {
     // Tablero destino: el indicado (ej. "Error de Sistema") o el personal por default.
@@ -247,7 +249,7 @@ export async function createAssignedTaskInternal(opts: {
     for (const p of parts) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, p]);
     await logActivity(taskId, opts.creatorId, 'created', { title: opts.title, from: 'meta' });
     if (opts.notifyAssignee !== false && Number(opts.assigneeId) !== Number(opts.creatorId)) {
-      await notify(opts.assigneeId, '🎯 Meta / tarea asignada', String(opts.title), { task_id: taskId }, 'task_new');
+      await notify(opts.assigneeId, opts.notifyTitle || '🎯 Meta / tarea asignada', String(opts.title), { task_id: taskId }, 'task_new');
     }
     return taskId;
   } catch (e: any) { console.warn('[tasks] createAssignedTaskInternal:', e?.message); return null; }

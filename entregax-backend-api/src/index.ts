@@ -17111,7 +17111,7 @@ const CAJITO_CAPABILITIES: {
   // Las herramientas ya las pedían y el catálogo no las tenía: no había forma de
   // darlas desde Permisos, y guardar los permisos de alguien las borraba (tarea 568).
   { key: 'cajito.write.reportar',      label: 'Reportar errores y mejoras',         description: 'Cuando la persona le dice "repórtalo", Cajito levanta la tarea al equipo técnico. Es lo mismo que el botón "Reportar un error". Solo Admin y Super Admin.', category: 'write',     risk: 'low' },
-  { key: 'cajito.write.tareas',        label: 'Cerrar tareas',                      description: 'Cajito marca como terminada una tarea, con las mismas reglas del botón "Completar" y solo con el sí de la persona.', category: 'write',     risk: 'low' },
+  { key: 'cajito.write.tareas',        label: 'Levantar y cerrar tareas',           description: 'Cajito levanta una tarea a alguien del equipo, con las fotos o PDF que le mandaron, o marca una como terminada con las reglas del botón "Completar". Siempre con el sí de la persona.', category: 'write',     risk: 'low' },
   { key: 'cajito.write.reempaque',     label: 'Deshacer reempaques',                description: 'Cajito deshace un reempaque que todavía se puede deshacer, solo cuando la persona lo autoriza.', category: 'write',     risk: 'medium' },
   // Financiero (medio/alto)
   { key: 'cajito.read.invoices',        label: 'Consultar facturas',                 description: 'Ver folios, montos y emisores. Datos fiscales sensibles.', category: 'read',      risk: 'high' },

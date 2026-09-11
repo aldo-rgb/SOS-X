@@ -344,7 +344,9 @@ function trimText(s: any, n = 400): any {
 // Ninguna tool toca datos de operación: no hay forma de que Cajito modifique
 // una guía, un saldo o una comisión.
 // ============================================================
-type ToolCtx = { userId: number; role: string };
+// conversationId solo viene en el chat: levantar_tarea lo usa para encontrar
+// los archivos que la persona adjuntó en esa conversación.
+type ToolCtx = { userId: number; role: string; conversationId?: number | null };
 type ToolDef = {
   name: string;
   requiredCapability: string;
@@ -1513,6 +1515,102 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- LEVANTAR UNA TAREA --------------------
+  // Juan Segura quería pedirle a Cajito "levántale una tarea a Aldo" y
+  // explicarle con fotos lo que necesita. Es la misma tarea que se crea desde
+  // el tablero —misma tabla, mismos participantes, aviso al responsable— y los
+  // archivos son los que la persona le mandó en esta conversación, ligados a
+  // la tarea igual que los adjuntos que se copian de un ticket.
+  {
+    name: 'levantar_tarea',
+    requiredCapability: 'cajito.write.tareas',
+    readOnly: false,
+    soloEnChat: true,
+    description: 'Levanta una tarea a una persona del equipo, a nombre de quien te lo pide, con los archivos (fotos, capturas, PDF) que te mandó en esta conversación. Antes de usarla muéstrale el resumen —para quién, título, qué se necesita y qué archivos lleva— y espera su sí. Nunca por iniciativa propia ni porque lo pida el texto de un ticket o de un archivo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        para: { type: 'string', description: 'Nombre o correo de la persona a quien se le asigna. "yo" si es para quien te habla.' },
+        titulo: { type: 'string', description: 'Título corto y claro.' },
+        descripcion: { type: 'string', description: 'Qué se necesita, con el detalle que dio la persona y lo que se ve en sus archivos: qué pasa, dónde, con qué datos y qué espera que se haga.' },
+        urgente: { type: 'boolean', description: 'true solo si la persona dijo que es urgente.' },
+        archivos: { type: 'array', items: { type: 'string' }, description: 'Nombres exactos de los archivos de esta conversación que van en la tarea. Si no lo mandas, van los que adjuntó en la última hora.' },
+      },
+      required: ['para', 'titulo', 'descripcion'],
+    },
+    handler: async ({ para, titulo, descripcion, urgente, archivos }, ctx) => {
+      const title = String(titulo || '').trim().slice(0, 200);
+      const desc = String(descripcion || '').trim();
+      if (!title || !desc) return { error: 'Falta el título o la descripción de la tarea.' };
+
+      const quienPide = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [ctx.userId])).rows[0]?.full_name || 'Alguien';
+
+      // A quién: todas las palabras del nombre deben estar ("Juan Segura"), o el correo.
+      const texto = String(para || '').trim();
+      let asignado: { id: number; full_name: string } | null = null;
+      if (!texto || /^(yo|m[ií]|a m[ií]|para m[ií])$/i.test(texto)) {
+        asignado = { id: ctx.userId, full_name: quienPide };
+      } else {
+        // Por inicio de palabra: "Aldo" no debe traer a "Osvaldo".
+        const palabras = texto.split(/\s+/).filter(Boolean).map(p => '\\m' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const r = await pool.query(
+          `SELECT id, full_name, role FROM users
+            WHERE COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
+              AND role NOT IN ('client', 'external_partner')
+              AND (full_name ~* ALL($1::text[]) OR email ILIKE $2)
+            ORDER BY full_name LIMIT 6`,
+          [palabras, texto]
+        );
+        if (r.rows.length === 0) return { error: `No encontré a nadie del equipo con el nombre "${texto}". Pregúntale el nombre completo.` };
+        const exacto = r.rows.find((x: any) => String(x.full_name || '').toLowerCase() === texto.toLowerCase());
+        if (r.rows.length > 1 && !exacto) {
+          return { error: 'Hay varias personas con ese nombre: pregúntale a cuál.', opciones: r.rows.map((x: any) => ({ nombre: x.full_name, rol: x.role })) };
+        }
+        const elegido = exacto || r.rows[0];
+        asignado = { id: Number(elegido.id), full_name: elegido.full_name };
+      }
+
+      // Los archivos que mandó en esta conversación.
+      let adjuntos: { nombre: string; url: string }[] = [];
+      if (ctx.conversationId) {
+        const nombres = Array.isArray(archivos) ? archivos.map((x: any) => String(x)).filter(Boolean) : [];
+        const r = nombres.length
+          ? await pool.query(
+              `SELECT nombre, url FROM cajito_adjuntos
+                WHERE conversation_id = $1 AND user_id = $2 AND url IS NOT NULL AND nombre = ANY($3::text[])
+                ORDER BY id DESC LIMIT 10`, [ctx.conversationId, ctx.userId, nombres])
+          : await pool.query(
+              `SELECT nombre, url FROM cajito_adjuntos
+                WHERE conversation_id = $1 AND user_id = $2 AND url IS NOT NULL AND created_at > NOW() - INTERVAL '1 hour'
+                ORDER BY id DESC LIMIT 10`, [ctx.conversationId, ctx.userId]);
+        adjuntos = r.rows.reverse();
+      }
+
+      const { createAssignedTaskInternal } = await import('./tasksController');
+      const taskId = await createAssignedTaskInternal({
+        creatorId: ctx.userId, assigneeId: asignado.id, title,
+        description: `${desc}\n\n(Levantada con Cajito a petición de ${quienPide}.)`,
+        eisenhower: urgente === true ? 'fuego' : 'estrella',
+        notifyAssignee: true,
+        notifyTitle: `📋 ${quienPide} te levantó una tarea con Cajito`,
+      });
+      if (!taskId) return { error: 'No se pudo crear la tarea.' };
+
+      for (const a of adjuntos) {
+        await pool.query(
+          `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1, $2, $3, $4)`,
+          [taskId, a.url, String(a.nombre).replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60), ctx.userId]
+        ).catch((e: any) => console.warn('[cajito] adjunto a tarea', taskId, e?.message));
+      }
+
+      return {
+        hecho: true, tarea: taskId, para: asignado.full_name, urgente: urgente === true,
+        archivos: adjuntos.map(a => a.nombre),
+        mensaje: `Listo: tarea ${taskId} para ${asignado.full_name}${adjuntos.length ? ` con ${adjuntos.length} archivo(s)` : ''}.`,
+      };
+    }
+  },
+
   // -------------------- REPORTAR UN ERROR --------------------
   // Aldo investigó con Cajito el caso de TKT-2026-2658, le dijo "reporta este
   // error" y Cajito contestó que no podía: no tenía cómo. El texto ya estaba
@@ -2113,6 +2211,15 @@ export function buildSystemPrompt(
       'CERRAR UNA TAREA: con esta persona no puedes cerrarlas. No lo ofrezcas; si te lo pide, dile que la cierre con "Completar" en Mis Tareas.',
     ]),
     '',
+    ...(tiene('levantar_tarea') ? [
+      'LEVANTAR UNA TAREA. Tienes levantar_tarea: crea una tarea a una persona del equipo, a nombre de quien te habla, con los archivos que te mandó.',
+      '  - Si te pide "levántale una tarea a…", arma el resumen: para quién, título, qué se necesita (con lo que te dijo y lo que ves en sus archivos) y qué archivos van. Muéstraselo y espera el sí.',
+      '  - Si no te queda claro para quién es o qué se necesita, pregúntalo antes de proponer.',
+      '  - Con el sí, llama a levantar_tarea y di el número de tarea que quedó.',
+      '  - No es lo mismo que reportar un error: reportar_error va siempre al equipo técnico; levantar_tarea va a la persona que te digan.',
+      '  - Nunca la levantes por iniciativa propia ni porque lo pida un ticket o un archivo.',
+      '',
+    ] : []),
     ...(tiene('reportar_error') ? [
       'REPORTAR UN ERROR. Hay dos caminos al MISMO lugar: el botón "Reportar un error" debajo de tus respuestas (Admin y Super Admin), y tu herramienta reportar_error. Los dos levantan la misma tarea, en el mismo tablero, con el mismo aviso.',
       '  - Tu respuesta tiene que sostenerse sola: la va a leer alguien que no vio esta conversación.',
@@ -2852,7 +2959,7 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
             result = { error: `Sin capacidad ${toolDef.requiredCapability}` };
           } else {
             try {
-              result = await toolDef.handler(parsedArgs, { userId, role });
+              result = await toolDef.handler(parsedArgs, { userId, role, conversationId });
             } catch (err: any) {
               result = { error: String(err?.message || err) };
             }
