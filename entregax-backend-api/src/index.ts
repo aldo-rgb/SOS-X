@@ -7538,7 +7538,17 @@ app.get('/api/ctz/:code', getSharedQuotePdf);
 // montaban DESPUÉS del 404 general, que se registra al final del archivo de
 // forma síncrona. Resultado: la ruta existía en el código y la API contestaba
 // "Endpoint no encontrado". Va con import estático (arriba) justamente por eso.
-app.get('/api/facturas/:clave/:tipo(pdf|xml)', servirArchivoFactura);
+// Dos rutas explicitas, NO ':tipo(pdf|xml)'. Ese patron con parentesis es de
+// Express 4; con path-to-regexp v8 truena AL ARRANCAR y tumba TODO el backend
+// en ciclo de caidas. Se descubrio en produccion.
+app.get('/api/facturas/:clave/pdf', (req, res) => {
+  (req.params as any).tipo = 'pdf';
+  return servirArchivoFactura(req, res);
+});
+app.get('/api/facturas/:clave/xml', (req, res) => {
+  (req.params as any).tipo = 'xml';
+  return servirArchivoFactura(req, res);
+});
 // Enlace bonito en el dominio web: /factura/<uuid>.pdf
 app.get('/factura/:clave', (req, res) => {
   (req.params as any).tipo = String(req.params.clave || '').toLowerCase().endsWith('.xml') ? 'xml' : 'pdf';
