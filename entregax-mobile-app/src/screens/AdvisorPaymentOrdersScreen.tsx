@@ -80,6 +80,10 @@ interface OrderDetailItem {
   venta_usd?: number;
   venta_mxn?: number;
   exchange_rate?: number;
+  // DHL: de qué se compone el monto de la guía (tarea 282).
+  import_cost_usd?: number;
+  import_tax_mxn?: number;
+  national_cost_mxn?: number;
   cbm?: number;
   children?: Array<{
     id: number;
@@ -96,7 +100,12 @@ interface OrderDetailItem {
   }>;
 }
 
-interface CostBreakdown { pobox?: number; paqueteria?: number; gex?: number; extra?: number; }
+interface CostBreakdown {
+  pobox?: number; paqueteria?: number; gex?: number; extra?: number;
+  cargos_extra?: number; descuento?: number;
+  dhl_importacion?: number; dhl_impuesto?: number; dhl_paqueteria?: number;
+  dhl_total_guias?: number; dhl_ajuste?: number; dhl_tc?: number;
+}
 
 const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBreakdown?: CostBreakdown, destino?: string): string => {
   const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -108,6 +117,11 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   const isDhlOp = items.some((it: any) => String(it.service_type || '').toUpperCase() === 'AA_DHL')
     || String((order as any).service_type_cfg || '').toUpperCase() === 'AA_DHL';
   const svcLabel = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aerea';
+
+  // Sub-renglon informativo de una guia DHL (mismo estilo que el PDF de la web).
+  const subRow = (etiqueta: string, valor: number): string => Number(valor) > 0
+    ? `<tr style="background:#FFF8F0"><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td colspan="4" style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#555">&nbsp;↳ ${etiqueta}</td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#555">${fmt(valor)}</td></tr>`
+    : '';
 
   let pkgRows = '';
   if (items.length > 0) {
@@ -123,6 +137,15 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${tipo}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(monto)}</td>
       </tr>`;
+      if (String(it.service_type || '').toUpperCase() === 'AA_DHL') {
+        // El monto de la guia junta importacion, impuesto y paqueteria: se abre
+        // para que el cliente vea de que se compone (tarea 282).
+        const tc = Number(it.exchange_rate) || 0;
+        const impo = (Number(it.import_cost_usd) || 0) * tc;
+        pkgRows += subRow(`Importacion${Number(it.import_cost_usd) > 0 && tc > 0 ? ` (${Number(it.import_cost_usd).toFixed(2)} USD x TC $${tc.toFixed(2)})` : ''}`, impo);
+        pkgRows += subRow('Impuestos de importacion', Number(it.import_tax_mxn) || 0);
+        pkgRows += subRow(`Paqueteria nacional${it.tipo && it.tipo !== 'DHL' ? ` - ${it.tipo}` : ''}`, Number(it.national_cost_mxn) || 0);
+      }
       (it.children || []).forEach((c, ci) => {
         const cdims = (c.lengthCm || 0) > 0 || (c.widthCm || 0) > 0 || (c.heightCm || 0) > 0
           ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
@@ -149,9 +172,19 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   // cliente. PO Box queda implícito en las filas por guía.
   const bd = costBreakdown || {};
   const brkRow = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'}">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'}">${fmt(val)}</td></tr>` : '';
-  const breakdownRows = brkRow('Paqueteria (Envio Nacional)', Number(bd.paqueteria) || 0)
-    + brkRow('GEX - Garantia Extendida', Number(bd.gex) || 0, '#2E7D32')
-    + brkRow('Cargos Extra', Number(bd.extra) || 0, '#C2410C');
+  const ajusteDhl = Number(bd.dhl_ajuste) || 0;
+  const breakdownRows = isDhlOp
+    // DHL: las guias ya vienen abiertas arriba; aqui la suma y el ajuste.
+    ? (items.length > 1 ? brkRow('Suma de guias', Number(bd.dhl_total_guias) || 0) : '')
+      + brkRow(ajusteDhl < 0 ? 'Descuento aplicado' : 'Ajuste', ajusteDhl, ajusteDhl < 0 ? '#2E7D32' : '#C2410C')
+    : brkRow('Paqueteria (Envio Nacional)', Number(bd.paqueteria) || 0)
+      + brkRow('GEX - Garantia Extendida', Number(bd.gex) || 0, '#2E7D32')
+      // Cargos y descuentos separados: un descuento bajo "Cargos Extra" se leia
+      // como un cobro (tarea 282). Cae al neto si el servidor no los manda abiertos.
+      + (bd.cargos_extra != null || bd.descuento != null
+          ? brkRow('Cargos Extra', Number(bd.cargos_extra) || 0, '#C2410C')
+            + brkRow('Descuento aplicado', Number(bd.descuento) || 0, '#2E7D32')
+          : brkRow('Cargos Extra', Number(bd.extra) || 0, '#C2410C'));
   const CSS = `@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#000;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo-text{font-size:26px;font-weight:900;color:#FF6B00;letter-spacing:1px;line-height:1}.logo-sub{font-size:11px;color:#000;margin-top:3px}.company-info{text-align:right;font-size:10px;color:#000}.company-info strong{color:#000;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#000;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px;color:#000}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#000;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00;background:#FFF8F0}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#000;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#000}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.important-box{background:#D32F2F;color:#fff;padding:14px 18px;margin-top:12px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.3px}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#000}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#000;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#000;line-height:1.6}.terms strong{color:#000}`;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>

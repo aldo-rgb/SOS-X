@@ -2195,7 +2195,22 @@ export default function DashboardClient() {
     // Servicio real de la cotización (era fijo "PO Box USA - Carga Aérea" incluso para DHL).
     const isDhlQuote = pkgs.some((p: any) => /DHL/i.test(String(p.service_type || p.servicio || p.shipment_type || '')) ) || String((order as any).service_type || '').toUpperCase() === 'AA_DHL';
     const svcLabel = isDhlQuote ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
-    const pkgRows = pkgs.map((pkg: any, i: number) => { const dims = (pkg.length_cm>0||pkg.width_cm>0||pkg.height_cm>0)?`${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`:'—'; const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : ''; return `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">${pkg.tracking_internal||'-'}${intTrk}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.weight ? Number(pkg.weight).toFixed(1)+' kg' : '—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${dims}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${carrierLabel(pkg.national_carrier)}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600;">${fmtCur(Number(pkg.pobox_service_cost||pkg.saldo_pendiente||pkg.assigned_cost_mxn||0))}</td></tr>`; }).join('');
+    // Monto real de la guía. En DHL el costo de PO Box no existe y
+    // saldo_pendiente queda en 0 al pagarse: por eso salían en $0.00 (tarea 282).
+    const montoGuia = (pkg: any) => Number(pkg.venta_mxn ?? (pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
+    // Sub-renglón informativo de una guía DHL (mismo estilo que el PDF del asesor).
+    const subRow = (etiqueta: string, valor: number) => Number(valor) > 0 ? `<tr style="background:#FFF8F0"><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td colspan="4" style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#555">&nbsp;↳ ${etiqueta}</td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#555">${fmtCur(Number(valor))}</td></tr>` : '';
+    const pkgRows = pkgs.map((pkg: any, i: number) => { const dims = (pkg.length_cm>0||pkg.width_cm>0||pkg.height_cm>0)?`${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`:'—'; const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : ''; const fila = `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">${pkg.tracking_internal||'-'}${intTrk}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.weight ? Number(pkg.weight).toFixed(1)+' kg' : '—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${dims}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${carrierLabel(pkg.national_carrier)}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600;">${fmtCur(montoGuia(pkg))}</td></tr>`;
+      if (!isDhlQuote) return fila;
+      // DHL: el monto de la guía junta importación, impuesto y paquetería. Se abre
+      // para que el cliente vea de qué se compone (tarea 282).
+      const tc = Number(pkg.exchange_rate) || 0;
+      const impo = (Number(pkg.import_cost_usd) || 0) * tc;
+      return fila
+        + subRow(`Importación${Number(pkg.import_cost_usd) > 0 && tc > 0 ? ` (${Number(pkg.import_cost_usd).toFixed(2)} USD × TC $${tc.toFixed(2)})` : ''}`, impo)
+        + subRow('Impuestos de importación', Number(pkg.import_tax_mxn) || 0)
+        + subRow(`Paquetería nacional${carrierLabel(pkg.national_carrier) !== '—' ? ` — ${carrierLabel(pkg.national_carrier)}` : ''}`, Number(pkg.national_cost_mxn) || 0);
+    }).join('');
     const bd = order.cost_breakdown || {};
     // Destino real de la entrega. El PDF lo tenía fijo en "Monterrey, N.L." y
     // mostraba esa ciudad aunque el paquete fuera a otro estado (TKT-2026-2266).
@@ -2209,9 +2224,21 @@ export default function DashboardClient() {
     const fmtBrk = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color||'#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color||'#000'};">${fmtCur(Number(val))}</td></tr>` : '';
     const gexVal = Number(bd.gex) || 0;
     const extraVal = Number(bd.extra) || 0;
-    const basesSum = pkgs.reduce((s: number, p: any) => s + Number(p.pobox_service_cost||p.saldo_pendiente||p.assigned_cost_mxn||0), 0);
-    const paqVal = Number(bd.paqueteria) > 0 ? Number(bd.paqueteria) : Math.max(0, Number(order.amount) - basesSum - gexVal - extraVal);
-    const breakdownRows = fmtBrk('🚚 Paquetería (Envío Nacional)', paqVal) + fmtBrk('🛡️ GEX — Garantía Extendida', gexVal, '#2E7D32') + fmtBrk('➕ Cargos Extra', extraVal, '#C2410C');
+    const basesSum = pkgs.reduce((s: number, p: any) => s + montoGuia(p), 0);
+    // En DHL cada guía ya trae su desglose: aquí solo va la suma y, si el cobro no
+    // cuadra con las guías, el ajuste o descuento. Antes el remanente se rotulaba
+    // como "Paquetería" aunque fuera importación e impuestos (tarea 282).
+    const ajusteDhl = Number(bd.dhl_ajuste) || 0;
+    const breakdownRows = isDhlQuote
+      ? (pkgs.length > 1 ? fmtBrk('Suma de guías', Number(bd.dhl_total_guias) || basesSum) : '')
+        + fmtBrk(ajusteDhl < 0 ? '🏷️ Descuento aplicado' : '➕ Ajuste', ajusteDhl, ajusteDhl < 0 ? '#2E7D32' : '#C2410C')
+      : fmtBrk('🚚 Paquetería (Envío Nacional)', Number(bd.paqueteria) > 0 ? Number(bd.paqueteria) : Math.max(0, Number(order.amount) - basesSum - gexVal - extraVal))
+        + fmtBrk('🛡️ GEX — Garantía Extendida', gexVal, '#2E7D32')
+        // Cargos y descuentos en renglones separados; si el servidor todavía no los
+        // manda abiertos, se cae al neto.
+        + (bd.cargos_extra != null || bd.descuento != null
+            ? fmtBrk('➕ Cargos Extra', Number(bd.cargos_extra) || 0, '#C2410C') + fmtBrk('🏷️ Descuento aplicado', Number(bd.descuento) || 0, '#2E7D32')
+            : fmtBrk('➕ Cargos Extra', extraVal, '#C2410C'));
     // El navegador toma el <title> como nombre por defecto al "Guardar como
     // PDF". Sin él salía "about:blank.pdf" y el cliente tenía que renombrarlo a
     // mano para poder mandarlo o rastrearlo (tarea 293).

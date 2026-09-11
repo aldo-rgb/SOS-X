@@ -48,6 +48,13 @@ interface PaymentPDFData {
     width_cm?: number;
     height_cm?: number;
     description?: string;
+    service_type?: string;
+    // DHL: monto de la guía y de qué se compone (tarea 282).
+    venta_mxn?: number;
+    import_cost_usd?: number;
+    exchange_rate?: number;
+    import_tax_mxn?: number;
+    national_cost_mxn?: number;
   }>;
   cost_breakdown?: {
     pobox?: number;
@@ -56,6 +63,12 @@ interface PaymentPDFData {
     extra?: number;
     cargos_extra?: number;
     descuento?: number;
+    dhl_importacion?: number;
+    dhl_impuesto?: number;
+    dhl_paqueteria?: number;
+    dhl_total_guias?: number;
+    dhl_ajuste?: number;
+    dhl_tc?: number;
     paqueteria_collect?: boolean;
     paqueteria_carrier?: string;
   };
@@ -105,6 +118,10 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   // Servicio real (era fijo "PO Box USA - Carga Aérea" incluso para DHL).
   const isDhlQuote = (data.packages || []).some((p: any) => /DHL/i.test(String(p.service_type || p.servicio || p.shipment_type || '')) ) || String((data as any).service_type || '').toUpperCase() === 'AA_DHL';
   const svcLabel = isDhlQuote ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
+  // Sub-renglón informativo de una guía DHL (mismo estilo que el PDF del asesor).
+  const subRow = (etiqueta: string, valor: number): string => Number(valor) > 0
+    ? `<tr style="background:#FFF8F0"><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td colspan="4" style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#555">&nbsp;↳ ${etiqueta}</td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#555">${formatCurrency(Number(valor))}</td></tr>`
+    : '';
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
@@ -114,8 +131,10 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
         : '—';
       const carrier = carrierLabel(pkg.national_carrier);
-      const cost = formatCurrency(Number(pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
-      return `
+      // En DHL el costo de PO Box no existe y saldo_pendiente queda en 0 al
+      // pagarse: por eso las guías salían en $0.00 (tarea 282).
+      const cost = formatCurrency(Number(pkg.venta_mxn ?? (pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0)));
+      const fila = `
         <tr>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}${intTrk}</td>
@@ -124,6 +143,15 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${carrier}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: right; font-weight: 600;">${cost}</td>
         </tr>`;
+      if (!isDhlQuote) return fila;
+      // DHL: el monto de la guía junta importación, impuesto y paquetería. Se abre
+      // para que el cliente vea de qué se compone (tarea 282).
+      const tc = Number(pkg.exchange_rate) || 0;
+      const impo = (Number(pkg.import_cost_usd) || 0) * tc;
+      return fila
+        + subRow(`Importación${Number(pkg.import_cost_usd) > 0 && tc > 0 ? ` (${Number(pkg.import_cost_usd).toFixed(2)} USD × TC $${tc.toFixed(2)})` : ''}`, impo)
+        + subRow('Impuestos de importación', Number(pkg.import_tax_mxn) || 0)
+        + subRow(`Paquetería nacional${carrier !== '—' ? ` — ${carrier}` : ''}`, Number(pkg.national_cost_mxn) || 0);
     }).join('');
   }
 
@@ -134,7 +162,14 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     Number(val) !== 0
       ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'};">${formatCurrency(Number(val))}</td></tr>`
       : '';
-  const breakdownRows =
+  // DHL: cada guía ya trae su desglose arriba; aquí solo la suma y, si el cobro
+  // no cuadra con las guías, el ajuste o descuento. Antes el remanente se
+  // rotulaba como "Paquetería" aunque fuera importación e impuestos (tarea 282).
+  const ajusteDhl = Number(bd.dhl_ajuste) || 0;
+  const breakdownRows = isDhlQuote
+    ? (pkgCount > 1 ? breakdownRow('Suma de guías', Number(bd.dhl_total_guias) || 0) : '')
+      + breakdownRow(ajusteDhl < 0 ? '🏷️ Descuento aplicado' : '➕ Ajuste', ajusteDhl, ajusteDhl < 0 ? '#2E7D32' : '#C2410C')
+    :
     breakdownRow('🚚 Paquetería (Envío Nacional)', Number(bd.paqueteria) || 0) +
     breakdownRow('🛡️ GEX — Garantía Extendida', Number(bd.gex) || 0, '#2E7D32') +
     // Separados, no netos: un descuento bajo la etiqueta "Cargos Extra" y en

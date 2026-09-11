@@ -1818,6 +1818,22 @@ export const getPoboxPendingPayments = async (req: Request, res: Response): Prom
 // 9. HISTORIAL DE PAGOS POBOX (CLIENTE)
 // Para la app móvil
 // ============================================
+/**
+ * Lo que se le cobra por una guía DHL: importación (que ya trae el impuesto de
+ * aduana) más la paquetería nacional. Mismo criterio que el detalle del asesor.
+ * `total_cost_mxn` no sirve como cobro: en unas guías incluye la paquetería y
+ * en otras no, y `saldo_pendiente` queda en 0 cuando ya se pagó — por eso el
+ * PDF del cliente imprimía las guías en $0.00 (tarea 282).
+ */
+const montoGuiaDhl = (d: any): number => {
+    const imp = Number(d?.import_cost_mxn) || 0;
+    const usdTc = (Number(d?.import_cost_usd) || 0) * (Number(d?.exchange_rate) || 0);
+    const base = imp > 0
+        ? imp
+        : (usdTc > 0 ? usdTc + (Number(d?.import_tax_mxn) || 0) : (Number(d?.total_cost_mxn) || Number(d?.saldo_pendiente) || 0));
+    return Math.round((base + (Number(d?.national_cost_mxn) || 0)) * 100) / 100;
+};
+
 export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
         const userId = req.user?.userId || req.user?.id;
@@ -1963,7 +1979,9 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
         const allRelevantTrks = new Set<string>();
         for (const p of topPkgsRes.rows) if (p.tracking_internal) allRelevantTrks.add(String(p.tracking_internal));
         for (const c of childRes.rows) if (c.tracking_internal) allRelevantTrks.add(String(c.tracking_internal));
-        const ajustesByTracking = new Map<string, number>(); // tracking -> sum
+        const ajustesByTracking = new Map<string, number>();    // tracking -> neto
+        const cargosByTracking = new Map<string, number>();     // tracking -> cargos
+        const descuentosByTracking = new Map<string, number>(); // tracking -> descuentos (negativo)
         if (allRelevantTrks.size > 0) {
             const ajRes = await pool.query(
                 `SELECT guia_tracking, tipo, monto FROM guias_ajustes_financieros
@@ -1972,9 +1990,13 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             ).catch(() => ({ rows: [] as any[] }));
             for (const a of ajRes.rows) {
                 const t = String(a.guia_tracking);
+                const monto = Number(a.monto) || 0;
                 const sign = a.tipo === 'descuento' ? -1 : 1;
-                const cur = ajustesByTracking.get(t) || 0;
-                ajustesByTracking.set(t, cur + sign * (Number(a.monto) || 0));
+                ajustesByTracking.set(t, (ajustesByTracking.get(t) || 0) + sign * monto);
+                // Separados además del neto: un descuento impreso bajo la etiqueta
+                // "Cargos Extra" se lee como un cobro (tarea 282).
+                if (a.tipo === 'descuento') descuentosByTracking.set(t, (descuentosByTracking.get(t) || 0) - monto);
+                else cargosByTracking.set(t, (cargosByTracking.get(t) || 0) + monto);
             }
         }
 
@@ -2008,7 +2030,8 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         inbound_tracking, national_tracking, national_carrier,
                         weight_kg, description, status,
                         COALESCE(length_cm, 0) AS length_cm, COALESCE(width_cm, 0) AS width_cm, COALESCE(height_cm, 0) AS height_cm,
-                        total_cost_mxn, saldo_pendiente, import_tax_mxn, national_cost_mxn
+                        total_cost_mxn, saldo_pendiente, import_tax_mxn, national_cost_mxn,
+                        import_cost_usd, exchange_rate, import_cost_mxn
                    FROM dhl_shipments WHERE id = ANY($1)`,
                 [Array.from(dhlIdSet)]
             ).catch(() => ({ rows: [] as any[] }));
@@ -2044,6 +2067,13 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         status: d.status,
                         saldo_pendiente: d.saldo_pendiente ?? d.total_cost_mxn,
                         assigned_cost_mxn: d.total_cost_mxn,
+                        // Monto de la guía y de qué se compone, para que el PDF del
+                        // cliente lo abra igual que el del asesor (tarea 282).
+                        venta_mxn: montoGuiaDhl(d),
+                        import_cost_usd: Number(d.import_cost_usd) || 0,
+                        exchange_rate: Number(d.exchange_rate) || 0,
+                        import_tax_mxn: Number(d.import_tax_mxn) || 0,
+                        national_cost_mxn: Number(d.national_cost_mxn) || 0,
                         is_master: false,
                     });
                 }
@@ -2084,13 +2114,36 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
 
             // 3) cost_breakdown. DHL: el total ya es todo-incluido; se desglosa
             //    con los campos del embarque (nacional + impuestos DHL).
-            const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
+            const cost_breakdown: any = {
+                pobox: 0, paqueteria: 0, gex: 0, extra: 0,
+                cargos_extra: 0, descuento: 0,
+                dhl_importacion: 0, dhl_impuesto: 0, dhl_paqueteria: 0,
+                dhl_total_guias: 0, dhl_ajuste: 0, dhl_tc: 0,
+            };
             if (isDhlOrder) {
-                const firstId = pkgIds[0];
-                const d = firstId != null ? dhlById.get(firstId) : undefined;
-                cost_breakdown.paqueteria = Number(d?.national_cost_mxn) || 0;
-                cost_breakdown.extra = Number(d?.import_tax_mxn) || 0;
-                cost_breakdown.pobox = Math.max(0, (Number(row.amount) || 0) - cost_breakdown.paqueteria - cost_breakdown.extra);
+                // Se suman TODAS las guías. Antes se tomaba solo la primera y su
+                // impuesto salía rotulado como "cargo extra", con el resto del
+                // cobro amontonado en "Paquetería" (tarea 282, UW-8779E04B).
+                for (const id of pkgIds) {
+                    const d = dhlById.get(id);
+                    if (!d) continue;
+                    cost_breakdown.dhl_importacion += (Number(d.import_cost_usd) || 0) * (Number(d.exchange_rate) || 0);
+                    cost_breakdown.dhl_impuesto += Number(d.import_tax_mxn) || 0;
+                    cost_breakdown.dhl_paqueteria += Number(d.national_cost_mxn) || 0;
+                    cost_breakdown.dhl_total_guias += montoGuiaDhl(d);
+                    if (!cost_breakdown.dhl_tc) cost_breakdown.dhl_tc = Number(d.exchange_rate) || 0;
+                }
+                const redondear = (n: number) => Math.round(n * 100) / 100;
+                cost_breakdown.dhl_importacion = redondear(cost_breakdown.dhl_importacion);
+                cost_breakdown.dhl_total_guias = redondear(cost_breakdown.dhl_total_guias);
+                // Lo que falte o sobre contra el total cobrado: un descuento pactado
+                // o un ajuste manual. Se imprime en vez de dejar que el cliente
+                // adivine por qué el renglón no cuadra con el total.
+                cost_breakdown.dhl_ajuste = redondear((Number(row.amount) || 0) - cost_breakdown.dhl_total_guias);
+                // Compatibilidad con versiones viejas de la app: la paquetería es la
+                // suma real y el impuesto NUNCA es un cargo extra.
+                cost_breakdown.paqueteria = redondear(cost_breakdown.dhl_paqueteria);
+                cost_breakdown.extra = 0;
             } else try {
                 if (pkgIds.length > 0) {
                     for (const id of pkgIds) {
@@ -2109,6 +2162,8 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     }
                     for (const t of trks) {
                         cost_breakdown.extra += ajustesByTracking.get(t) || 0;
+                        cost_breakdown.cargos_extra += cargosByTracking.get(t) || 0;
+                        cost_breakdown.descuento += descuentosByTracking.get(t) || 0;
                     }
                     cost_breakdown.pobox = (Number(row.amount) || 0)
                         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;

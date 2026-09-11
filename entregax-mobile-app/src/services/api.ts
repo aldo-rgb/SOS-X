@@ -465,12 +465,26 @@ export interface PaymentOrder {
     national_carrier: string;
     status: string;
     service_type?: string;
+    // DHL: monto de la guía y de qué se compone (tarea 282).
+    venta_mxn?: number;
+    import_cost_usd?: number;
+    exchange_rate?: number;
+    import_tax_mxn?: number;
+    national_cost_mxn?: number;
   }[];
   cost_breakdown?: {
     pobox?: number;
     paqueteria?: number;
     gex?: number;
     extra?: number;
+    cargos_extra?: number;
+    descuento?: number;
+    dhl_importacion?: number;
+    dhl_impuesto?: number;
+    dhl_paqueteria?: number;
+    dhl_total_guias?: number;
+    dhl_ajuste?: number;
+    dhl_tc?: number;
   };
 }
 
