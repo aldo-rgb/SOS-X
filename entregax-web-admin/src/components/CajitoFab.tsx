@@ -1300,11 +1300,25 @@ export default function CajitoFab() {
   const historialCargado = useRef(false);
 
   const cargarHistorial = useCallback(async () => {
-    if (!conversationId || historialCargado.current) return;
+    if (historialCargado.current) return;
     historialCargado.current = true;
     setCargandoHistorial(true);
     try {
-      const r = await api.get(`/cajito/conversations/${conversationId}`);
+      // El hilo sigue a la PERSONA, no al aparato. El id se guardaba solo en
+      // este navegador, así que quien venía platicando desde el teléfono abría
+      // la web y veía el saludo, como si Cajito lo hubiera olvidado —y no: la
+      // conversación estaba viva del otro lado—. Si aquí no hay id guardado, se
+      // pide el hilo más reciente de la persona y se sigue ahí mismo.
+      let id = conversationId;
+      if (!id) {
+        const lista = await api.get('/cajito/conversations');
+        const reciente = (lista.data?.conversations || [])[0];
+        if (!reciente?.id) { setCargandoHistorial(false); historialCargado.current = false; return; }
+        id = Number(reciente.id);
+        setConversationId(id);
+        localStorage.setItem(convKey(), String(id));
+      }
+      const r = await api.get(`/cajito/conversations/${id}`);
       const filas: any[] = r.data?.messages || [];
       const previos: ChatMsg[] = filas
         // Las filas de herramienta son ruido al releer: interesa la conversación.
@@ -1365,7 +1379,10 @@ export default function CajitoFab() {
   // el saludo — si no, cada recarga volvía a saludar como si fuera la primera
   // vez y se perdía de vista lo que se venía hablando.
   useEffect(() => {
-    if (open && mode === 'chat' && conversationId && !historialCargado.current) {
+    // Ya NO se exige conversationId: cuando no hay, cargarHistorial pide el hilo
+    // más reciente de la persona. Con la condición vieja, quien abría la web sin
+    // id guardado no cargaba nada y arrancaba en blanco.
+    if (open && mode === 'chat' && !historialCargado.current) {
       cargarHistorial();
     }
   }, [open, mode, conversationId, cargarHistorial]);

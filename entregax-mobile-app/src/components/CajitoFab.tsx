@@ -105,11 +105,26 @@ export default function CajitoFab({ user, token }: Props) {
   // que usó, y ya se muestran como la etiqueta gris debajo de su respuesta.
   useEffect(() => {
     AsyncStorage.getItem(CONV_KEY).then(async (v) => {
-      const id = Number(v) || null;
-      if (!id) return;
-      convIdRef.current = id;
+      let id = Number(v) || null;
+      if (id) convIdRef.current = id;
       if (!token || hiloCargadoRef.current) return;
       try {
+        // El hilo sigue a la PERSONA, no al aparato. El id se guardaba solo en
+        // este teléfono, así que quien venía platicando desde la web abría la
+        // app y veía el saludo. Sin id guardado, se pide el hilo más reciente y
+        // se sigue ahí: la conversación es una sola en los dos lados.
+        if (!id) {
+          const l = await fetch(`${API_URL}/api/cajito/conversations`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!l.ok) return;
+          const ld = await l.json().catch(() => null);
+          const reciente = (ld?.conversations || [])[0];
+          if (!reciente?.id) return;
+          id = Number(reciente.id);
+          convIdRef.current = id;
+          AsyncStorage.setItem(CONV_KEY, String(id)).catch(() => {});
+        }
         const r = await fetch(`${API_URL}/api/cajito/conversations/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
