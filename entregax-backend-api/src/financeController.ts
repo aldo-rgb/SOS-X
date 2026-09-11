@@ -537,16 +537,27 @@ export async function aplicarPagoDeCredito(
      VALUES ($1, 'credit_settlement', $2, $3, $4, 'credit_payment')`,
     [userId, -amount, newBalance, `Pago de línea de crédito (${servicio})`]);
 
-  // Marcar operaciones como liquidadas, con cuidado.
+  // Marcar como pagadas las órdenes que este abono cubre.
   //
-  // Casi ningún pago trae credit_service (221 de 222 lo tienen en NULL), así
-  // que "las de este servicio" no se puede saber por el dato. Si se diera por
-  // hecho, liquidar PO Box marcaría también las de DHL como saldadas teniendo
-  // $360,106 pendientes.
+  // Casi ningún pago trae credit_service (221 de 222 en NULL), y la regla de
+  // antes solo marcaba esas cuando el cliente ya no debía NADA en ningún
+  // servicio. En la práctica no pasaba nunca: Nancy (S96) abonó $211,227 a DHL
+  // y ninguna de sus 33 órdenes cambió de "Crédito" a "Crédito Pagado", aunque
+  // la deuda sí bajó y las comisiones sí se liberaron (tarea 468).
   //
-  // Entonces: las que SÍ dicen su servicio se marcan al saldarse ese servicio;
-  // las que no lo dicen, solo cuando el cliente ya no debe NADA en ningún
-  // servicio — ahí no hay ambigüedad posible.
+  // Se usa la misma función que el sobrante de una orden: saca el servicio de
+  // cada orden de su log de cobro, que es el autoritativo, y marca de la más
+  // vieja a la más nueva solo las que el abono cubre completas. Sin soltar
+  // comisiones: de eso se encarga releaseCreditHeldCommissions abajo, y hacerlo
+  // en los dos lados las liberaría dos veces.
+  const { marcarOrdenesLiquidadasPorAbono } = await import('./voucherController');
+  await marcarOrdenesLiquidadasPorAbono(cx, {
+    userId, servicioCredito: servicio, monto: amount,
+    referencia: 'abono desde el monedero', soltarComisiones: false,
+  });
+
+  // Respaldo: si con esto ya no debe nada en ningún servicio, no queda ninguna
+  // orden a crédito por pagar, tenga o no su servicio anotado.
   const restante = (await deudaPorServicio(cx, userId)).reduce((n, d) => n + d.debe, 0);
   await cx.query(
     `UPDATE pobox_payments SET credit_settled = true, credit_settled_at = NOW()

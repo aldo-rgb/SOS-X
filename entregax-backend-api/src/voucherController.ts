@@ -473,11 +473,19 @@ export async function abonarBilleteraServicio(
  * No toca el credito: ya lo redujo quien llamo a esta funcion. Aqui solo se
  * pone el estatus y se sueltan las comisiones.
  */
-async function marcarOrdenesLiquidadasPorAbono(
+export async function marcarOrdenesLiquidadasPorAbono(
   db: any,
-  opts: { userId: number; servicioCredito: string; monto: number; excluirOrdenId?: number; referencia?: string | null }
+  opts: {
+    userId: number; servicioCredito: string; monto: number;
+    excluirOrdenId?: number | undefined; referencia?: string | null | undefined;
+    // false cuando quien llama ya libera las comisiones por su cuenta (el abono
+    // desde el monedero lo hace con releaseCreditHeldCommissions). Soltarlas
+    // aquí también las liberaría dos veces con el mismo dinero.
+    soltarComisiones?: boolean | undefined;
+  }
 ): Promise<number> {
   const { userId, servicioCredito, excluirOrdenId } = opts;
+  const soltarComisiones = opts.soltarComisiones !== false;
   let restante = +Number(opts.monto || 0).toFixed(2);
   if (!(restante > 0) || !userId || !servicioCredito) return 0;
 
@@ -515,16 +523,23 @@ async function marcarOrdenesLiquidadasPorAbono(
     restante = +(restante - monto).toFixed(2);
     marcadas++;
 
+    if (!soltarComisiones) continue;
     try {
       const raw = typeof o.package_ids === 'string' ? JSON.parse(o.package_ids) : o.package_ids;
       const ids = (Array.isArray(raw) ? raw : []).map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, ''))).filter(Boolean);
       if (ids.length > 0) {
+        // Los ids de envío se repiten entre tablas: en una orden de DHL apuntan
+        // a dhl_shipments y chocan con los de packages. Buscar solo por id
+        // soltaba también la comisión de OTRO envío con el mismo número. Se
+        // amarra al cliente y al tipo de envío del crédito que se abonó.
         await db.query(
           `UPDATE advisor_commissions
               SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
             WHERE shipment_id = ANY($1::int[])
+              AND client_id = $2
+              AND (shipment_type = 'DHL') = $3::boolean
               AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
-          [ids]
+          [ids, userId, servicioCredito === 'dhl_liberacion']
         );
       }
     } catch { /* el estatus ya quedo; las comisiones se pueden reintentar */ }
