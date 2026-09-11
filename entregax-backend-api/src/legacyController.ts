@@ -937,6 +937,21 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         await client.query('COMMIT');
 
+        // 7.1 Enlazar lo que llegó ANTES de que reclamara su casillero.
+        // Arriba se reclaman packages y marítimo, pero NO las guías DHL: por eso
+        // Jaime Ortiz (S155) reclamó su casillero y sus 3 guías siguieron "Sin
+        // alta", invisibles para él y para su asesor (tarea 571). El
+        // reconciliador cubre DHL, aéreo, marítimo y packages de una vez, y es
+        // idempotente. Fuera de la transacción y sin bloquear la respuesta.
+        try {
+            const { reconcileOrphanShipments } = await import('./boxLinkReconcile');
+            const enlazados = await reconcileOrphanShipments(boxId.toUpperCase().trim());
+            const total = Object.values(enlazados).reduce((a, b) => a + b, 0);
+            if (total > 0) console.log(`[LEGACY-CLAIM] ✅ ${total} envíos enlazados a ${boxId.toUpperCase()}:`, enlazados);
+        } catch (e) {
+            console.warn('[LEGACY-CLAIM] reconcile:', (e as Error).message);
+        }
+
         // 7.5 Mensaje de bienvenida por WhatsApp (no bloqueante)
         if (phone) {
             sendWelcomeWhatsapp({

@@ -2153,14 +2153,13 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         // packages con ese box_id y user_id=NULL pasan a pertenecer a este usuario.
         if (box_id !== undefined && box_id) {
           try {
-            const claim = await pool.query(
-              `UPDATE packages SET user_id = $1, updated_at = NOW()
-               WHERE user_id IS NULL AND UPPER(TRIM(box_id)) = UPPER(TRIM($2))
-               RETURNING id`,
-              [id, box_id]
-            );
-            if (claim.rowCount && claim.rowCount > 0) {
-              console.log(`[updateUser] Reclamados ${claim.rowCount} paquetes huérfanos para user ${id} (box_id=${box_id})`);
+            // Reclama TODO lo que traiga ese casillero, no solo packages: las
+            // guías DHL quedaban fuera y el cliente no las veía (tarea 571).
+            const { reconcileOrphanShipments } = await import('./boxLinkReconcile');
+            const enlazados = await reconcileOrphanShipments(box_id);
+            const total = Object.values(enlazados).reduce((a, b) => a + b, 0);
+            if (total > 0) {
+              console.log(`[updateUser] Enlazados ${total} envíos huérfanos para user ${id} (box_id=${box_id}):`, enlazados);
             }
           } catch (claimErr) {
             console.error('[updateUser] Error reclamando paquetes huérfanos:', claimErr);
