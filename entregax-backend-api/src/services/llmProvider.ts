@@ -34,10 +34,25 @@ export interface LlmToolResultContent {
   tool_use_id: string;
   content: string; // JSON o texto plano
 }
+// Archivos que la persona adjunta en el chat (tarea 569). `data` va en base64
+// sin el prefijo data-URL.
+export interface LlmImageContent {
+  type: 'image';
+  mediaType: string; // image/jpeg | image/png | image/gif | image/webp
+  data: string;
+}
+export interface LlmDocumentContent {
+  type: 'document';
+  mediaType: 'application/pdf';
+  data: string;
+  name?: string;
+}
 export type LlmContentBlock =
   | LlmTextContent
   | LlmToolUseContent
-  | LlmToolResultContent;
+  | LlmToolResultContent
+  | LlmImageContent
+  | LlmDocumentContent;
 
 export interface LlmMessage {
   role: LlmRole;
@@ -153,8 +168,15 @@ class OpenAiProvider implements LlmProvider {
             });
           }
         } else {
-          const textParts = m.content.filter((b) => b.type === 'text') as LlmTextContent[];
-          oaiMessages.push({ role: 'user', content: textParts.map((p) => p.text).join('\n') });
+          const partes: any[] = [];
+          for (const b of m.content) {
+            if (b.type === 'text') partes.push({ type: 'text', text: b.text });
+            else if (b.type === 'image') partes.push({ type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } });
+            // Los modelos de OpenAI que usamos no leen PDF: se le avisa en texto.
+            else if (b.type === 'document') partes.push({ type: 'text', text: `[Adjuntó el PDF "${b.name || 'documento'}", pero este modelo no puede leer PDF.]` });
+          }
+          const soloTexto = partes.every((p) => p.type === 'text');
+          oaiMessages.push({ role: 'user', content: soloTexto ? partes.map((p) => p.text).join('\n') : partes });
         }
       }
     }
@@ -243,6 +265,10 @@ class AnthropicProvider implements LlmProvider {
       const blocks: any[] = m.content.map((b) => {
         if (b.type === 'text') return { type: 'text', text: b.text };
         if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+        if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.mediaType, data: b.data } };
+        if (b.type === 'document') {
+          return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b.data }, ...(b.name ? { title: b.name } : {}) };
+        }
         // tool_result
         return { type: 'tool_result', tool_use_id: b.tool_use_id, content: b.content };
       });

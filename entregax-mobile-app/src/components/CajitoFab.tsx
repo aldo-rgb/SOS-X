@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet, Modal, ScrollView,
-  ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking,
+  ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -51,7 +54,9 @@ const Chip = ({ label, bg = '#f3f4f6', fg = '#374151' }: { label: string; bg?: s
   <View style={[styles.chip, { backgroundColor: bg }]}><Text style={[styles.chipText, { color: fg }]}>{label}</Text></View>
 );
 
-interface ChatMsg { role: 'user' | 'cajito'; text: string; tools?: string[]; }
+interface ChatMsg { role: 'user' | 'cajito'; text: string; tools?: string[]; adjuntos?: { nombre: string; mime: string; uri?: string }[]; }
+interface AdjuntoPorMandar { nombre: string; mime: string; uri: string; base64: string; }
+const LIMITE_ADJUNTOS = 3;
 
 interface Props {
   user: { role?: string; name?: string; full_name?: string };
@@ -83,6 +88,8 @@ export default function CajitoFab({ user, token }: Props) {
   // mandar la misma dos veces y que se note que ya salió).
   const [reportando, setReportando] = useState<number | null>(null);
   const [reportadas, setReportadas] = useState<Record<number, string>>({});
+  // Fotos y PDF por mandar (tarea 569).
+  const [adjuntos, setAdjuntos] = useState<AdjuntoPorMandar[]>([]);
   const chatScrollRef = useRef<ScrollView>(null);
 
   // Tracking
@@ -163,17 +170,58 @@ export default function CajitoFab({ user, token }: Props) {
 
   const roleLabel = isSuperAdmin ? 'Super Admin' : (role === 'customer_service' ? 'Servicio a cliente' : 'Mis clientes');
 
+  const agregarAdjunto = (a: AdjuntoPorMandar) =>
+    setAdjuntos((prev) => (prev.length >= LIMITE_ADJUNTOS ? prev : [...prev, a]));
+
+  const elegirFoto = async () => {
+    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permiso.granted) { Alert.alert('Permiso', 'Necesito acceso a tus fotos para adjuntarlas.'); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images', quality: 0.7, base64: true,
+      allowsMultipleSelection: true, selectionLimit: Math.max(LIMITE_ADJUNTOS - adjuntos.length, 1),
+    });
+    if (r.canceled) return;
+    for (const a of r.assets || []) {
+      if (!a.base64) continue;
+      agregarAdjunto({ nombre: a.fileName || `foto-${Date.now()}.jpg`, mime: a.mimeType || 'image/jpeg', uri: a.uri, base64: a.base64 });
+    }
+  };
+
+  const elegirPdf = async () => {
+    const r = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true, multiple: false });
+    if (r.canceled || !r.assets?.[0]) return;
+    const a = r.assets[0];
+    if (a.size && a.size > 10 * 1024 * 1024) { Alert.alert('Archivo muy grande', 'El PDF puede pesar hasta 10 MB.'); return; }
+    const base64 = await FileSystem.readAsStringAsync(a.uri, { encoding: FileSystem.EncodingType.Base64 });
+    agregarAdjunto({ nombre: a.name || 'documento.pdf', mime: 'application/pdf', uri: a.uri, base64 });
+  };
+
+  const adjuntar = () => {
+    if (adjuntos.length >= LIMITE_ADJUNTOS) { Alert.alert('Adjuntos', `Puedes adjuntar hasta ${LIMITE_ADJUNTOS} archivos por mensaje.`); return; }
+    Alert.alert('Adjuntar', '¿Qué le quieres mandar a Cajito?', [
+      { text: 'Foto o captura', onPress: () => { elegirFoto().catch(() => Alert.alert('Error', 'No se pudieron abrir tus fotos.')); } },
+      { text: 'PDF', onPress: () => { elegirPdf().catch(() => Alert.alert('Error', 'No se pudo leer el PDF.')); } },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
+
   const sendChat = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && adjuntos.length === 0) || sending) return;
+    const enviados = adjuntos;
     setInput('');
-    setMessages((m) => [...m, { role: 'user', text }]);
+    setAdjuntos([]);
+    setMessages((m) => [...m, { role: 'user', text, adjuntos: enviados.map((a) => ({ nombre: a.nombre, mime: a.mime, uri: a.uri })) }]);
     setSending(true);
     try {
       const res = await fetch(`${API_URL}/api/cajito/chat`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, conversationId: convIdRef.current }),
+        body: JSON.stringify({
+          message: text,
+          conversationId: convIdRef.current,
+          ...(enviados.length ? { adjuntos: enviados.map((a) => ({ nombre: a.nombre, dataUrl: `data:${a.mime};base64,${a.base64}` })) } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -440,7 +488,14 @@ export default function CajitoFab({ user, token }: Props) {
         {messages.map((m, i) => (
           <View key={i} style={[styles.msgWrap, m.role === 'user' ? styles.msgRight : styles.msgLeft]}>
             <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.cajitoBubble]}>
-              <Text style={m.role === 'user' ? styles.userText : styles.cajitoText}>{m.text}</Text>
+              {m.text ? <Text style={m.role === 'user' ? styles.userText : styles.cajitoText}>{m.text}</Text> : null}
+              {m.adjuntos && m.adjuntos.length > 0 ? (
+                <View style={styles.adjuntosFila}>
+                  {m.adjuntos.map((a, j) => (a.mime.startsWith('image/') && a.uri
+                    ? <Image key={j} source={{ uri: a.uri }} style={styles.adjuntoMini} />
+                    : <Text key={j} style={m.role === 'user' ? styles.userText : styles.cajitoText}>📄 {a.nombre}</Text>))}
+                </View>
+              ) : null}
               {m.tools && m.tools.length > 0 ? <Text style={styles.toolNote}>🔧 {m.tools.join(', ')}</Text> : null}
               {m.role === 'cajito' && puedeReportar && !m.text.startsWith('⚠️') ? (
                 reportadas[i] ? (
@@ -466,7 +521,23 @@ export default function CajitoFab({ user, token }: Props) {
         ))}
         {sending ? <ActivityIndicator size="small" color={ORANGE} style={{ marginTop: 8 }} /> : null}
       </ScrollView>
+      {adjuntos.length > 0 ? (
+        <View style={styles.pendientesFila}>
+          {adjuntos.map((a, j) => (
+            <View key={j} style={styles.pendiente}>
+              <Ionicons name={a.mime === 'application/pdf' ? 'document-text-outline' : 'image-outline'} size={14} color={DARK} />
+              <Text style={styles.pendienteTxt} numberOfLines={1}>{a.nombre}</Text>
+              <TouchableOpacity onPress={() => setAdjuntos((prev) => prev.filter((_, k) => k !== j))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={16} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={styles.inputBar}>
+        <TouchableOpacity style={styles.adjuntarBtn} onPress={adjuntar} disabled={sending} accessibilityLabel="Adjuntar archivo">
+          <Ionicons name="attach" size={22} color={ORANGE} />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={input}
@@ -476,7 +547,7 @@ export default function CajitoFab({ user, token }: Props) {
           multiline
           onSubmitEditing={sendChat}
         />
-        <TouchableOpacity style={[styles.sendBtn, (!input.trim() || sending) && styles.disabled]} onPress={sendChat} disabled={!input.trim() || sending}>
+        <TouchableOpacity style={[styles.sendBtn, ((!input.trim() && adjuntos.length === 0) || sending) && styles.disabled]} onPress={sendChat} disabled={(!input.trim() && adjuntos.length === 0) || sending}>
           <Ionicons name="send" size={18} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -584,6 +655,12 @@ const styles = StyleSheet.create({
   input: { flex: 1, maxHeight: 100, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: '#111' },
   sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.5 },
+  adjuntarBtn: { width: 34, height: 40, alignItems: 'center', justifyContent: 'center' },
+  pendientesFila: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff' },
+  pendiente: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF3E0', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, maxWidth: 200 },
+  pendienteTxt: { fontSize: 12, color: DARK, flexShrink: 1 },
+  adjuntosFila: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  adjuntoMini: { width: 120, height: 90, borderRadius: 8, backgroundColor: '#eee' },
   // track
   searchBar: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   searchInput: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#111' },

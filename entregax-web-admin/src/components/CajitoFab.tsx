@@ -40,6 +40,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
 import SendIcon from '@mui/icons-material/Send';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import BuildIcon from '@mui/icons-material/Build';
 import SearchIcon from '@mui/icons-material/Search';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -74,13 +76,23 @@ const resolveUrl = (url: string | null | undefined): string | null => {
   return `${API_BASE}/${url}`;
 };
 
+interface AdjuntoChat {
+  nombre: string;
+  mime: string;
+  url?: string | null;
+}
+
 interface ChatMsg {
   id: number;
   role: 'user' | 'cajito' | 'tool';
   text: string;
   ts: number;
   toolName?: string;
+  adjuntos?: AdjuntoChat[];
 }
+
+const LIMITE_ADJUNTOS = 3;
+const IMAGEN_QUE_SE_VE = /^image\/(jpeg|png|gif|webp)$/;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PackageData = Record<string, any>;
@@ -1287,6 +1299,10 @@ export default function CajitoFab() {
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Cajito está pensando…');
+  // Fotos, capturas y PDF por mandar (tarea 569).
+  const [adjuntos, setAdjuntos] = useState<{ nombre: string; mime: string; dataUrl: string }[]>([]);
+  const [avisoAdjunto, setAvisoAdjunto] = useState('');
+  const archivoRef = useRef<HTMLInputElement | null>(null);
   const [conversationId, setConversationId] = useState<number | null>(() => {
     const raw = localStorage.getItem(convKey());
     const n = raw ? parseInt(raw, 10) : NaN;
@@ -1327,8 +1343,12 @@ export default function CajitoFab() {
         .map((m, i) => ({
           id: Number(m.id) || i,
           role: (m.role === 'user' ? 'user' : 'cajito') as ChatMsg['role'],
-          text: String(m.content || ''),
+          // Con los adjuntos a la mano, la línea "📎 nombres" del texto sobra.
+          text: Array.isArray(m.adjuntos) && m.adjuntos.length
+            ? String(m.content || '').replace(/\n*📎 [^\n]*$/, '')
+            : String(m.content || ''),
           ts: new Date(m.created_at).getTime() || Date.now(),
+          adjuntos: Array.isArray(m.adjuntos) ? m.adjuntos : undefined,
         }))
         .filter((m) => m.text.trim().length > 0);
       if (previos.length > 0) setMessages(previos);
@@ -1521,16 +1541,50 @@ export default function CajitoFab() {
     setReportando(null);
   };
 
+  // Adjuntar desde el botón o pegando una captura. Los límites se revisan aquí
+  // para avisar antes de mandar; el servidor los vuelve a revisar.
+  const agregarArchivos = (files: FileList | File[] | null) => {
+    const lista = Array.from(files || []);
+    if (!lista.length) return;
+    const libres = LIMITE_ADJUNTOS - adjuntos.length;
+    setAvisoAdjunto(lista.length > libres ? `Puedes adjuntar hasta ${LIMITE_ADJUNTOS} archivos por mensaje.` : '');
+    lista.slice(0, Math.max(libres, 0)).forEach((f) => {
+      const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      const esImagen = f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name);
+      if (!esPdf && !esImagen) { setAvisoAdjunto(`"${f.name}": solo fotos, capturas o PDF.`); return; }
+      const maxMb = esPdf ? 10 : 15;
+      if (f.size > maxMb * 1024 * 1024) { setAvisoAdjunto(`"${f.name}" pesa más de ${maxMb} MB.`); return; }
+      const lector = new FileReader();
+      lector.onload = () => {
+        const dataUrl = String(lector.result || '');
+        const nombre = f.name || (esPdf ? 'documento.pdf' : 'captura.png');
+        const mime = esPdf ? 'application/pdf' : (f.type || 'image/heic');
+        setAdjuntos((prev) => (prev.length >= LIMITE_ADJUNTOS ? prev : [...prev, { nombre, mime, dataUrl }]));
+      };
+      lector.readAsDataURL(f);
+    });
+  };
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || thinking) return;
-    const userMsg: ChatMsg = { id: Date.now(), role: 'user', text, ts: Date.now() };
+    if ((!text && adjuntos.length === 0) || thinking) return;
+    const enviados = adjuntos;
+    const userMsg: ChatMsg = {
+      id: Date.now(), role: 'user', text, ts: Date.now(),
+      adjuntos: enviados.map((a) => ({ nombre: a.nombre, mime: a.mime, url: IMAGEN_QUE_SE_VE.test(a.mime) ? a.dataUrl : null })),
+    };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+    setAdjuntos([]);
+    setAvisoAdjunto('');
     setThinking(true);
     setThinkingLabel('Cajito está pensando…');
     try {
-      const res = await api.post('/cajito/chat', { message: text, conversationId: conversationId || undefined });
+      const res = await api.post('/cajito/chat', {
+        message: text,
+        conversationId: conversationId || undefined,
+        ...(enviados.length ? { adjuntos: enviados.map((a) => ({ nombre: a.nombre, dataUrl: a.dataUrl })) } : {}),
+      });
       const data = res.data || {};
       const newConvId: number | null = data.conversationId || null;
       if (newConvId && newConvId !== conversationId) {
@@ -1796,6 +1850,28 @@ export default function CajitoFab() {
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                         {conFoliosClicables(m.text || '')}
                       </Typography>
+                      {m.adjuntos && m.adjuntos.length > 0 && (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: m.text ? 0.75 : 0 }}>
+                          {m.adjuntos.map((a, j) => {
+                            const liga = a.url && /^https?:\/\//i.test(a.url) ? a.url : undefined;
+                            if (a.url && IMAGEN_QUE_SE_VE.test(a.mime)) {
+                              return (
+                                <Box key={j} component={liga ? 'a' : 'div'} href={liga} target="_blank" rel="noreferrer" title={a.nombre}
+                                  sx={{ display: 'block', borderRadius: 1, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.12)', bgcolor: 'white' }}>
+                                  <Box component="img" src={a.url} alt={a.nombre} sx={{ display: 'block', maxWidth: 180, maxHeight: 130, objectFit: 'cover' }} />
+                                </Box>
+                              );
+                            }
+                            return (
+                              <Box key={j} component={liga ? 'a' : 'span'} href={liga} target="_blank" rel="noreferrer"
+                                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 10, fontSize: 12, bgcolor: m.role === 'user' ? 'rgba(255,255,255,0.22)' : '#FFF3E0', color: 'inherit', textDecoration: 'none' }}>
+                                {a.mime === 'application/pdf' ? <PictureAsPdfIcon sx={{ fontSize: 14 }} /> : <AttachFileIcon sx={{ fontSize: 14 }} />}
+                                {a.nombre}
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      )}
                       {puedeReportar && m.role === 'cajito' && (m.text || '').trim().length > 0 && !(m.text || '').startsWith('⚠️') && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
                           {reportadas[mi] ? (
@@ -1834,12 +1910,41 @@ export default function CajitoFab() {
                   </Box>
                 )}
               </Box>
-              <Box sx={{ borderTop: '1px solid #FFE0B2', p: 1, display: 'flex', gap: 1, alignItems: 'flex-end', bgcolor: 'white' }}>
-                <TextField fullWidth size="small" multiline maxRows={4} placeholder="Escribe a Cajito…" value={input}
+              {(adjuntos.length > 0 || avisoAdjunto) && (
+                <Box sx={{ borderTop: '1px solid #FFE0B2', px: 1, pt: 0.75, bgcolor: 'white', display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
+                  {adjuntos.map((a, j) => (
+                    <Box key={j} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, pl: 1, pr: 0.25, py: 0.25, borderRadius: 10, fontSize: 12, bgcolor: '#FFF3E0', maxWidth: 220 }}>
+                      {a.mime === 'application/pdf' ? <PictureAsPdfIcon sx={{ fontSize: 14, color: '#C62828' }} /> : <AttachFileIcon sx={{ fontSize: 14 }} />}
+                      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</Box>
+                      <IconButton size="small" aria-label={`Quitar ${a.nombre}`} sx={{ p: 0.25 }}
+                        onClick={() => setAdjuntos((prev) => prev.filter((_, k) => k !== j))}>
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
+                  ))}
+                  {avisoAdjunto && <Typography variant="caption" color="error">{avisoAdjunto}</Typography>}
+                </Box>
+              )}
+              <Box sx={{ borderTop: adjuntos.length > 0 || avisoAdjunto ? 'none' : '1px solid #FFE0B2', p: 1, display: 'flex', gap: 1, alignItems: 'flex-end', bgcolor: 'white' }}>
+                <input ref={archivoRef} type="file" hidden multiple accept="image/*,.heic,.heif,application/pdf"
+                  onChange={(e) => { agregarArchivos(e.target.files); e.target.value = ''; }} />
+                <Tooltip title="Adjuntar foto, captura o PDF">
+                  <span>
+                    <IconButton aria-label="Adjuntar archivo" onClick={() => archivoRef.current?.click()}
+                      disabled={thinking || adjuntos.length >= LIMITE_ADJUNTOS}>
+                      <AttachFileIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <TextField fullWidth size="small" multiline maxRows={4} placeholder="Escribe a Cajito… (puedes pegar una captura)" value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  onPaste={(e) => {
+                    const pegados = Array.from(e.clipboardData?.files || []);
+                    if (pegados.length) { e.preventDefault(); agregarArchivos(pegados); }
+                  }}
                 />
-                <IconButton onClick={handleSend} disabled={!input.trim() || thinking}
+                <IconButton onClick={handleSend} disabled={(!input.trim() && adjuntos.length === 0) || thinking}
                   sx={{ background: CAJITO_GRADIENT, color: 'white', '&:hover': { background: CAJITO_GRADIENT, filter: 'brightness(1.05)' }, '&.Mui-disabled': { background: '#FFD7B5', color: 'white' } }}>
                   <SendIcon fontSize="small" />
                 </IconButton>
