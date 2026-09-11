@@ -7069,6 +7069,132 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
     }
 };
 
+/**
+ * POST /api/packages/repack/:id/undo — DESHACER un reempaque.
+ *
+ * No existía. Se podía crear un reempaque pero no revertirlo, y eso dejó un
+ * caso abierto ocho días: el cliente S3447 pidió quitar el reempaque
+ * US-REPACK-5417 para esperar más mercancía, CEDIS contestó el 9-sep
+ * "reempaque deshecho", y en la base las dos guías seguían colgadas del master
+ * con status 'reempacado'. Nadie mintió: no había forma de hacerlo. El cliente
+ * volvió a escribir "aún no me permite seleccionar individualmente los
+ * paquetes" y se terminó saliendo por un descuento manual (TKT-2026-2499,
+ * tarea 539).
+ *
+ * Deshacer es exactamente lo inverso de crear:
+ *   · las hijas se sueltan (master_id = NULL) y vuelven a bodega;
+ *   · se les devuelve el costo, que al reempacar se pasó al master y se les
+ *     puso en cero — se recupera de pobox_service_cost, que no se tocó;
+ *   · los masters viejos que quedaron "absorbidos" vuelven a ser masters;
+ *   · la fila del reempaque se borra: la creó el reempaque y no la referencia
+ *     nadie más.
+ *
+ * Solo se puede deshacer lo que TODAVÍA está en bodega. Si la caja ya viajó, ya
+ * se pagó o ya está en una orden de pago, deshacer sería mentir sobre algo
+ * físico: se rechaza diciendo por qué.
+ */
+export const undoRepack = async (req: Request, res: Response): Promise<void> => {
+    const client = await pool.connect();
+    try {
+        const repackId = parseInt(String(req.params.id), 10);
+        if (!Number.isFinite(repackId)) { res.status(400).json({ error: 'Id de reempaque inválido' }); return; }
+        const userId = (req as any).user?.userId;
+
+        await client.query('BEGIN');
+        const m = await client.query(
+            `SELECT id, tracking_internal, user_id, status, is_master, consolidation_id,
+                    dispatched_at, client_paid, payment_status, pobox_payment_id
+               FROM packages WHERE id = $1 FOR UPDATE`, [repackId]);
+        const master = m.rows[0];
+        if (!master) { await client.query('ROLLBACK'); res.status(404).json({ error: 'No encontré ese reempaque' }); return; }
+        if (!String(master.tracking_internal || '').toUpperCase().startsWith('US-REPACK-')) {
+            await client.query('ROLLBACK');
+            res.status(400).json({ error: 'Ese paquete no es un reempaque' }); return;
+        }
+
+        // ── Lo que ya no se puede deshacer ───────────────────────────────────
+        const bloqueos: string[] = [];
+        if (master.consolidation_id) bloqueos.push('ya va en un embarque');
+        if (master.dispatched_at) bloqueos.push('ya salió de bodega');
+        if (['shipped', 'in_transit', 'delivered', 'out_for_delivery'].includes(String(master.status))) {
+            bloqueos.push(`ya está ${String(master.status)}`);
+        }
+        if (master.client_paid === true || String(master.payment_status) === 'paid') bloqueos.push('el cliente ya lo pagó');
+        const enOrden = await client.query(
+            `SELECT payment_reference FROM pobox_payments
+              WHERE status NOT IN ('cancelled','expired') AND package_ids @> to_jsonb($1::int) LIMIT 1`,
+            [repackId]);
+        if (enOrden.rows.length > 0) bloqueos.push(`está en la orden ${enOrden.rows[0].payment_reference}`);
+        if (bloqueos.length > 0) {
+            await client.query('ROLLBACK');
+            res.status(409).json({
+                error: `No se puede deshacer ${master.tracking_internal}: ${bloqueos.join(' y ')}. ` +
+                       `Deshacerlo dejaría el sistema diciendo algo distinto a lo que pasó físicamente.`,
+                motivos: bloqueos,
+            });
+            return;
+        }
+
+        // ── Las hijas vuelven a ser paquetes sueltos ─────────────────────────
+        // El costo se recupera de pobox_service_cost: al reempacar se pasó al
+        // master y se les dejó en cero, pero ese campo nunca se tocó.
+        const hijas = await client.query(
+            `UPDATE packages
+                SET master_id = NULL,
+                    status = 'received',
+                    box_number = 1,
+                    total_boxes = 1,
+                    needs_instructions = TRUE,
+                    assigned_cost_mxn = COALESCE(NULLIF(assigned_cost_mxn, 0), pobox_service_cost, 0),
+                    saldo_pendiente  = COALESCE(NULLIF(saldo_pendiente, 0), pobox_service_cost, 0),
+                    notes = TRIM(BOTH E'\n' FROM REGEXP_REPLACE(
+                              COALESCE(notes, ''), E'\n?📦 Consolidado en [^\n]*', '', 'g')),
+                    updated_at = CURRENT_TIMESTAMP
+              WHERE master_id = $1 AND COALESCE(total_boxes, 1) > 0
+              RETURNING id, tracking_internal, assigned_cost_mxn`,
+            [repackId]);
+
+        // ── Los masters viejos que se habían "absorbido" vuelven ─────────────
+        const absorbidos = await client.query(
+            `SELECT id FROM packages WHERE master_id = $1 AND COALESCE(total_boxes, 1) = 0`, [repackId]);
+        for (const a of absorbidos.rows) {
+            const n = await client.query(`SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`, [a.id]);
+            await client.query(
+                `UPDATE packages
+                    SET master_id = NULL, is_master = TRUE,
+                        total_boxes = GREATEST($2::int, 1),
+                        needs_instructions = TRUE,
+                        notes = TRIM(BOTH E'\n' FROM REGEXP_REPLACE(
+                                  COALESCE(notes, ''), E'\n?🔀 Absorbido en [^\n]*', '', 'g')),
+                        updated_at = CURRENT_TIMESTAMP
+                  WHERE id = $1`, [a.id, n.rows[0]?.n || 1]);
+        }
+
+        // ── Se borra la caja de reempaque ────────────────────────────────────
+        // La creó el reempaque y ya no la referencia nadie: dejarla viva la
+        // convierte en un bulto fantasma en la lista del cliente.
+        await client.query(`DELETE FROM packages WHERE id = $1`, [repackId]);
+        await client.query('COMMIT');
+
+        console.warn(`[REPACK] ${master.tracking_internal} deshecho por el usuario ${userId}: ` +
+            `${hijas.rowCount} guía(s) liberadas, ${absorbidos.rows.length} master(s) restaurado(s).`);
+        res.json({
+            ok: true,
+            reempaque: master.tracking_internal,
+            guias_liberadas: hijas.rows.map((h: any) => h.tracking_internal),
+            masters_restaurados: absorbidos.rows.length,
+            mensaje: `${master.tracking_internal} deshecho. ${hijas.rowCount} guía(s) volvieron a bodega y ya se pueden seleccionar para un nuevo reempaque.`,
+        });
+    } catch (e: any) {
+        await client.query('ROLLBACK');
+        console.error('[REPACK] undoRepack:', e?.message || e);
+        res.status(500).json({ error: 'No se pudo deshacer el reempaque', message: e?.message });
+    } finally {
+        client.release();
+    }
+};
+
+
 // ============================================
 // ENDPOINT: OBTENER PAQUETES LISTOS PARA SALIDA (PO BOX USA)
 // ============================================

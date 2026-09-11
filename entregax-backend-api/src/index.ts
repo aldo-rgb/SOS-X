@@ -141,6 +141,7 @@ import {
   getSavedConstancia,
   getPackageById,
   requestRepack,
+  undoRepack,
   getOutboundReadyPackages,
   createOutboundConsolidation,
   getRepackInstructions,
@@ -5487,6 +5488,10 @@ app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, validateBody(requestRepackSchema), requestRepack);
+// Deshacer un reempaque que todavía está en bodega. No existía: se podía armar
+// la caja pero no revertirla, y un cliente esperó ocho días por eso
+// (TKT-2026-2499). Mismo nivel que el resto de la operación de bodega.
+app.post('/api/packages/repack/:id/undo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), undoRepack);
 
 // 🔍 Rastreo de paquete por tracking
 app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request, res: Response) => {
