@@ -1156,6 +1156,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       "UPDATE support_tickets SET status = 'resolved', ticket_status = 'finalizado', resolved_by_ai = TRUE, resolved_at = COALESCE(resolved_at, NOW()), updated_at = NOW() WHERE id = $1",
       [currentTicketId]
     );
+    await cerrarTareaDeRetraso(ticketCheck.rows[0].ticket_folio, null);
 
     return res.json({
       status: 'ai_replied',
@@ -1934,6 +1935,45 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
 };
 
 /**
+ * Al concluir un ticket se cierra su tarea "Retraso {folio}".
+ *
+ * Esa tarea se le levanta a Juan Segura cuando el ticket pasa de 4 días hábiles
+ * sin resolverse, para que apoye. Concluido el ticket ya no hay nada que apoyar.
+ * Antes pasaba a "esperando confirmación", y como Juan es creador y responsable
+ * a la vez, se le quedaban abiertas con el ticket ya cerrado (lo reportó Juan
+ * el 11-sep-2026).
+ */
+async function cerrarTareaDeRetraso(folio: string, actorId: number | null): Promise<void> {
+  if (!folio) return;
+  try {
+    const r = await pool.query(
+      `UPDATE tasks
+          SET status = 'completed',
+              completed_at = COALESCE(completed_at, NOW()),
+              updated_at = NOW(),
+              column_id = COALESCE(
+                (SELECT id FROM task_columns tc
+                  WHERE tc.board_id = tasks.board_id AND tc.is_done = TRUE
+                  ORDER BY sort_order LIMIT 1),
+                column_id
+              )
+        WHERE title = $1
+          AND status NOT IN ('completed', 'cancelled')
+        RETURNING id`,
+      [`Retraso ${folio}`]
+    );
+    for (const t of r.rows) {
+      await pool.query(
+        `INSERT INTO task_activity (task_id, actor_id, action, meta) VALUES ($1, $2, 'completed', $3::jsonb)`,
+        [t.id, actorId, JSON.stringify({ via: 'ticket_resuelto', folio })]
+      ).catch(() => {});
+    }
+  } catch (e: any) {
+    console.error('[support] Cerrar la tarea de retraso', folio, e?.message);
+  }
+}
+
+/**
  * PUT /api/admin/support/ticket/:id/resolve
  * Marcar ticket como resuelto
  */
@@ -1992,41 +2032,7 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
         console.error('[support] Auto-cerrar tarea vinculada al ticket', folio, e?.message);
       }
 
-      // 🔗 Tarea de retraso "Retraso {folio}".
-      //
-      // Esta NO se cierra sola: pasa a ESPERANDO CONFIRMACIÓN. Que soporte
-      // marque el ticket como resuelto no significa que el retraso quedó
-      // atendido; el administrador que la tiene a su nombre es quien cierra.
-      // Antes se quedaba abierta para siempre aunque el ticket ya estuviera
-      // resuelto, y por eso se acumulaban.
-      try {
-        const r = await pool.query(
-          `UPDATE tasks
-              SET status = 'awaiting_confirmation', updated_at = NOW()
-            WHERE title = $1
-              AND status NOT IN ('completed', 'cancelled', 'awaiting_confirmation')
-            RETURNING id, assignee_id`,
-          [`Retraso ${folio}`]
-        );
-        for (const t of r.rows) {
-          await pool.query(
-            `INSERT INTO task_activity (task_id, actor_id, action, meta)
-             VALUES ($1, $2, 'awaiting_confirmation', $3::jsonb)`,
-            [t.id, (req as any).user?.userId || null, JSON.stringify({ reason: 'ticket_resuelto', folio })]
-          ).catch(() => {});
-          if (t.assignee_id) {
-            const { createCustomNotification } = await import('./notificationController');
-            await createCustomNotification(
-              Number(t.assignee_id),
-              '⏳ Retraso resuelto · confirma el cierre',
-              `El ticket ${folio} quedó resuelto. Revisa la tarea y ciérrala si procede.`,
-              'task', 'clock-outline', { task_id: t.id }, '/tareas'
-            ).catch(() => {});
-          }
-        }
-      } catch (e: any) {
-        console.error('[support] Pasar a confirmación la tarea de retraso', folio, e?.message);
-      }
+      await cerrarTareaDeRetraso(folio, (req as any).user?.userId || null);
     }
 
     res.json({ success: true, message: 'Ticket resuelto' });
