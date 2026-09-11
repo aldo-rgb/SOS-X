@@ -2237,6 +2237,7 @@ export const investigarTicketCore = async (
       '   (c) ACOMPANAR — no hay nada roto que reparar: el caso está en curso o depende de un tercero (aduana, la paquetería, el proveedor) y lo que hace falta es que Servicio a Cliente CONTENGA al cliente: hablarle, explicarle en qué va y darle seguimiento. Una guía detenida en aduana desde hace semanas es esto, no un error de código.',
       '   (d) CORRECTO — el sistema está bien y sólo hay que explicárselo.',
       '   (e) NO_PUDE — no alcanzo a determinarlo.',
+      '   (f) DECISION — no hay nada que investigar en el sistema: piden algo que tiene que decidir una persona con autoridad. Un precio o descuento a futuro, una excepción a una regla, un trato especial para un cliente. Ni lo concedas ni lo niegues: Servicio a Cliente decide si lo resuelve o lo escala a Juan Carlos.',
       'No confundas (a) con (c). La prueba es UNA: ¿hay algo que un programador tendría que reparar para que esto no vuelva a pasar?',
       '  - SÍ lo hay → es (a) ERROR_SISTEMA, aunque el caso ya esté en curso, aunque alguien ya lo esté atendiendo a mano, y aunque al cliente le vayan a resolver por otra vía. Que se esté resolviendo NO quiere decir que no esté roto.',
       '  - NO lo hay → es (c). Una guía detenida en aduana, un proveedor que no contesta, una entrega que se atrasó: ahí no hay nada que reparar en el software.',
@@ -2257,7 +2258,7 @@ export const investigarTicketCore = async (
       '  "reclamo": "una línea: qué se está reclamando",',
       '  "folios": ["RO-65105F71", "US-1563322842", "S20"],',
       '  "hallazgos": [{"dato": "Flete nacional cobrado", "valor": "$2,675.00", "cuadra": false, "nota": "las 5 cajas traen guía del cliente"}],',
-      '  "conclusion": "ERROR_SISTEMA|CAPTURA|ACOMPANAR|CORRECTO|NO_PUDE",',
+      '  "conclusion": "ERROR_SISTEMA|CAPTURA|ACOMPANAR|CORRECTO|NO_PUDE|DECISION",',
       '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
       '  "para_el_cliente": "lo que Servicio a Cliente le va a decir al cliente, en dos líneas",',
       '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó"',
@@ -2271,6 +2272,7 @@ export const investigarTicketCore = async (
       '  - Si es ACOMPANAR: di en qué va lo suyo con el dato concreto que encontraste —dónde está la caja, desde cuándo, qué falta— y qué sigue.',
       '  - Si es CORRECTO: explícale por qué lo que ve está bien, con su cifra, sin sonar a que se equivocó.',
       '  - Si es NO_PUDE: no inventes. Deja este campo vacío.',
+      '  - Si es DECISION: no des precio ni prometas nada. Di que su solicitud la está revisando el área que lo autoriza y que se le confirma.',
       '  - Ejemplo bueno: "Su factura sí se generó correctamente. El problema es al abrir el archivo, ya está reportado con el equipo y le avisamos hoy mismo en cuanto quede."',
       '  - Ejemplo malo: "El pdf_url apunta al API de Facturama que responde 401 y por eso el navegador pide credenciales."',
       'En "hallazgos" pon SOLO lo que verificaste contra el sistema, con su cifra. `cuadra` es true si el dato coincide con lo que dice el ticket y false si no.',
@@ -2388,7 +2390,14 @@ export const investigarTicketCore = async (
     // número, "quedó registrado" suena a promesa vacía y nadie puede darle
     // seguimiento.
     let folioDuda: string | null = null;
-    if (!pudo) {
+    // Solo cuando una PERSONA pidió la investigación. El juez automático corre
+    // sobre cada ticket nuevo, y cuando no llegaba a conclusión abría una duda
+    // y una tarea urgente para Aldo: CJD-2026-0016, 0017 y 0018 salieron así en
+    // una tarde, las tres con "La hizo: Aldo Campos" sin que nadie apretara
+    // nada. Un ticket que Cajito no resuelve —una negociación de precio, una
+    // foto que hay que tomar en bodega— requiere análisis de una persona y ya
+    // está en su departamento: ahí se queda. No es algo que "enseñarle" a Cajito.
+    if (!pudo && origen === 'boton') {
       const hueco = await registrarHueco({
         conversationId: null, userId: Number(userId) || 0,
         pregunta: `Investigar ticket ${tk.ticket_folio}`,
@@ -2414,6 +2423,7 @@ export const investigarTicketCore = async (
       conclusion,
       pudo,
       es_error_sistema: conclusion === 'ERROR_SISTEMA',
+      requiere_decision: conclusion === 'DECISION',
       reclamo: datos?.reclamo || '',
       folios: Array.isArray(datos?.folios) ? datos.folios : [],
       hallazgos: Array.isArray(datos?.hallazgos) ? datos.hallazgos : [],

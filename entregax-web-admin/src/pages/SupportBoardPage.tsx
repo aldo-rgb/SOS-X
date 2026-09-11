@@ -853,6 +853,7 @@ export default function SupportBoardPage() {
   // Reportar error → crea tarea a Super Admin con los archivos del ticket.
   // Disponible en cualquier categoría de ticket.
   const [reporting, setReporting] = useState(false);
+  const [escalando, setEscalando] = useState(false);
   // 🔎 Investigación de Cajito. Sigue el mismo proceso que una persona: lee el
   // hilo, saca los folios, los busca y compara contra los datos. NO corrige
   // nada — si concluye que es error nuestro, ofrece armar el reporte.
@@ -924,6 +925,32 @@ export default function SupportBoardPage() {
 
   // Reporta el error llevándose lo que Cajito ya investigó, para que quien abra
   // la tarea no empiece de cero.
+  // Escalar a Juan Carlos: lo decide quien atiende el ticket. Cajito solo lo
+  // sugiere (nota interna en el chat); aquí se crea la tarea urgente.
+  const handleEscalarJuanCarlos = async () => {
+    if (!selectedTicket || escalando) return;
+    const nota = window.prompt(
+      'Se crea una tarea URGENTE para Juan Carlos con esta consulta.\n\n¿Quieres agregarle una nota? (opcional)', '');
+    if (nota === null) return; // canceló
+    setEscalando(true);
+    try {
+      const r = await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/escalar-direccion`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nota }),
+      });
+      const d = await r.json().catch(() => ({}));
+      setReportSnack({
+        msg: r.ok
+          ? (d.already ? `Ya estaba escalado a Juan Carlos (tarea #${d.task_id}).` : `Escalado a Juan Carlos: tarea #${d.task_id} urgente.`)
+          : (d.error || 'No se pudo escalar'),
+        sev: r.ok ? 'success' : 'error',
+      });
+      if (r.ok) { setInvOpen(false); await loadTickets(); }
+    } catch { setReportSnack({ msg: 'Error de red al escalar', sev: 'error' }); }
+    finally { setEscalando(false); }
+  };
+
   const handleReportarConHallazgo = async () => {
     if (!selectedTicket) return;
     setReporting(true);
@@ -1753,6 +1780,7 @@ export default function SupportBoardPage() {
                   CAPTURA: 'Un dato quedó mal · ya reportado',
                   ACOMPANAR: 'No hay nada roto: hay que acompañar al cliente',
                   CORRECTO: 'El sistema está bien · hay que explicárselo',
+                  DECISION: 'Requiere decisión de Juan Carlos',
                   NO_PUDE: 'Cajito no alcanzó a determinarlo',
                 };
                 return (
@@ -1803,6 +1831,17 @@ export default function SupportBoardPage() {
                       </Box>
                     )}
 
+                    {['DECISION', 'NO_PUDE'].includes(String(c.conclusion)) && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mb: 0.5 }}>
+                          Ustedes deciden: si lo pueden resolver, respondan al cliente; si no, escálenlo.
+                        </Typography>
+                        <Button size="small" variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
+                          sx={{ textTransform: 'none', borderColor: '#7C3AED', color: '#6D28D9' }}>
+                          {escalando ? 'Escalando…' : '⬆️ Escalar a Juan Carlos'}
+                        </Button>
+                      </Box>
+                    )}
                     <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.75 }}>
                       {c.origen === 'boton' ? 'Lo investigó Cajito la primera vez que alguien apretó Investigar.' : 'Lo investigó Cajito solo, al llegar el ticket.'}
                       {' '}Es una sola investigación por ticket: Investigar muestra esta misma.
@@ -2191,7 +2230,16 @@ export default function SupportBoardPage() {
           {/* Un dato mal capturado TAMBIÉN lo corregimos nosotros, así que se
               escala igual que un error de código. Solo "CORRECTO" no genera
               trabajo nuestro. */}
-          {!invLoading && inv && inv.pudo && (
+          {!invLoading && inv && inv.conclusion === 'DECISION' && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <strong>No hay nada roto: lo que piden lo tiene que decidir una persona.</strong>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
+                Un precio, un descuento o una excepción. Si lo pueden resolver, respondan al cliente; si no, escálenlo a Juan Carlos.
+              </Typography>
+            </Alert>
+          )}
+
+          {!invLoading && inv && inv.pudo && inv.conclusion !== 'DECISION' && (
             <Alert
               severity={['CORRECTO'].includes(inv.conclusion) ? 'success'
                 : inv.conclusion === 'ACOMPANAR' ? 'info' : 'error'}
@@ -2293,7 +2341,13 @@ export default function SupportBoardPage() {
           {/* Un solo clic. Antes habia un segundo boton de confirmacion sobre
               una vista previa: quien llega hasta aqui ya leyo el hallazgo
               completo arriba, asi que volver a preguntarle sobra. */}
-          {!invLoading && inv?.pudo && !['CORRECTO', 'ACOMPANAR'].includes(inv.conclusion) && (
+          {!invLoading && inv && ['DECISION', 'NO_PUDE'].includes(inv.conclusion) && (
+            <Button variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
+              sx={{ borderColor: '#7C3AED', color: '#6D28D9' }}>
+              {escalando ? 'Escalando…' : '⬆️ Escalar a Juan Carlos'}
+            </Button>
+          )}
+          {!invLoading && inv?.pudo && !['CORRECTO', 'ACOMPANAR', 'DECISION'].includes(inv.conclusion) && (
             <Button variant="contained" color="error" disabled={reporting} onClick={handleReportarConHallazgo}>
               {reporting ? 'Enviando…' : 'Sí, reportar error'}
             </Button>

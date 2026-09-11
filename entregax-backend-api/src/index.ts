@@ -778,6 +778,7 @@ import {
   getSupportAgents,
   transferTicket,
   reportTicketError,
+  escalarTicketADireccion,
   getAdminTicketMessages,
   ensureDepartmentsSchema,
   signSupportImage,
@@ -8061,6 +8062,7 @@ app.get('/api/admin/support/agents', authenticateToken, requireMinLevel(ROLES.AC
 app.post('/api/admin/support/ticket/:id/transfer', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), transferTicket);
 // Reportar error (tickets Error Sistema) → crea tarea a Super Admin con los archivos del ticket.
 app.post('/api/admin/support/ticket/:id/report-error', authenticateToken, reportTicketError);
+app.post('/api/admin/support/ticket/:id/escalar-direccion', authenticateToken, escalarTicketADireccion);
 
 // 🆘 Público: Reclamación de número de cliente (sin auth)
 app.post('/api/support/public/claim-box-id', uploadBoxIdClaimFiles, submitBoxIdClaim);

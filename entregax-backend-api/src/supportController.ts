@@ -2563,6 +2563,78 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
   return res.status(r?.status || 500).json({ error: r?.error || 'Error al reportar el error' });
 };
 
+// Juan Carlos Segura. Es su cuenta de admin (id 62), la que usa para tareas:
+// 54 asignadas en el último mes y la app instalada. La de asesor (id 15) no
+// tiene actividad desde agosto.
+const JUAN_CARLOS_ID = 62;
+const ROLES_QUE_ESCALAN = ['customer_service', 'soporte_tecnico', 'admin', 'super_admin', 'director'];
+
+/**
+ * Escalar a Juan Carlos lo que Servicio a Cliente no puede resolver solo: un
+ * precio, un descuento, una excepción. Lo decide la persona que atiende el
+ * ticket —Cajito solo lo sugiere—, y crea una tarea urgente con la consulta
+ * completa para que Juan Carlos no tenga que abrir el ticket para entenderla.
+ */
+export const escalarADireccion = async (ticketId: number, uid: number, role: string, nota?: string | null): Promise<any> => {
+  if (!uid) return { error: 'No autenticado', status: 401 };
+  if (!ROLES_QUE_ESCALAN.includes(String(role || '').toLowerCase())) {
+    return { error: 'Solo Servicio a Cliente, Soporte o administración pueden escalar un ticket.', status: 403 };
+  }
+  const tRes = await pool.query(
+    `SELECT t.id, t.ticket_folio, t.subject, t.metadata->'cajito' AS cajito,
+            u.full_name AS cliente, u.box_id
+       FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId]);
+  const t = tRes.rows[0];
+  if (!t) return { error: 'Ticket no encontrado', status: 404 };
+  const folio = t.ticket_folio || `#${ticketId}`;
+  const title = `Consulta a Juan Carlos ${folio}`;
+
+  const ya = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+  if (ya.rows.length) return { ok: true, task_id: ya.rows[0].id, already: true };
+
+  const primerMsg = (await pool.query(
+    `SELECT message FROM ticket_messages WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent' ORDER BY id LIMIT 1`,
+    [ticketId])).rows[0]?.message;
+  const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Servicio a Cliente';
+  const c = t.cajito || {};
+  const desc = [
+    `⬆️ ${quien} escaló el ticket ${folio}${t.cliente ? ` · ${t.cliente}${t.box_id ? ` (${t.box_id})` : ''}` : ''}. Necesita tu decisión.`,
+    String(nota || '').trim() ? `\n📝 Nota de Servicio a Cliente:\n${String(nota).trim()}` : '',
+    c.reclamo ? `\n🔎 Lo que se pide (según Cajito):\n${c.reclamo}` : '',
+    primerMsg ? `\n📩 El mensaje original:\n${String(primerMsg).trim()}` : '',
+  ].filter(Boolean).join('\n').trim();
+
+  const board = await pool.query(`SELECT id FROM task_boards WHERE name = 'Ventas' AND is_active = TRUE ORDER BY id LIMIT 1`);
+  const { createAssignedTaskInternal } = await import('./tasksController');
+  const taskId = await createAssignedTaskInternal({
+    creatorId: Number(uid), assigneeId: JUAN_CARLOS_ID, title, description: desc,
+    eisenhower: 'fuego', notifyAssignee: true, boardId: board.rows[0]?.id || undefined,
+  });
+  if (!taskId) return { error: 'No se pudo crear la tarea', status: 500 };
+
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+    [ticketId, `⬆️ Escalado a Juan Carlos por ${quien} → tarea #${taskId} (urgente).`]).catch(() => {});
+  await pool.query(`UPDATE support_tickets SET updated_at = NOW() WHERE id = $1`, [ticketId]).catch(() => {});
+  return { ok: true, task_id: taskId };
+};
+
+export const escalarTicketADireccion = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const r = await escalarADireccion(
+      parseInt(String(req.params.id), 10),
+      (req as any).user?.userId || (req as any).user?.id,
+      String((req as any).user?.role || ''),
+      (req.body || {}).nota,
+    );
+    if (r?.ok) return res.json(r);
+    return res.status(r?.status || 500).json({ error: r?.error || 'No se pudo escalar' });
+  } catch (e: any) {
+    console.error('[support] escalarTicketADireccion:', e);
+    return res.status(500).json({ error: 'No se pudo escalar' });
+  }
+};
+
 export const transferTicket = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;

@@ -34,6 +34,28 @@ const superAdminParaJuez = async (): Promise<{ id: number; role: string } | null
   return r.rows[0] ? { id: Number(r.rows[0].id), role: 'super_admin' } : null;
 };
 
+const PREFIJO_SUGERENCIA = '🤖 Cajito sugiere';
+
+/** Nota interna con la duda y las dos salidas. Una sola por ticket. */
+const sugerirEnTicket = async (ticketId: number, v: any): Promise<void> => {
+  const ya = await pool.query(
+    `SELECT 1 FROM ticket_messages WHERE ticket_id = $1 AND is_internal = TRUE AND message LIKE $2 LIMIT 1`,
+    [ticketId, `${PREFIJO_SUGERENCIA}%`]);
+  if (ya.rows.length) return;
+  const entendi = String(v.reclamo || '').trim();
+  const motivo = v.conclusion === 'DECISION'
+    ? 'esto no se resuelve en el sistema: lo tiene que decidir una persona (precio, descuento o una excepción).'
+    : `no alcancé a resolverlo${v.falto ? ` — ${String(v.falto).trim()}` : '.'}`;
+  const texto = [
+    `${PREFIJO_SUGERENCIA}: ${motivo}`,
+    entendi ? `Lo que entendí: ${entendi}` : '',
+    'Ustedes deciden: si lo pueden resolver aquí, respondan al cliente; si no, usen «Escalar a Juan Carlos» en este ticket.',
+  ].filter(Boolean).join('\n\n');
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+    [ticketId, texto]);
+};
+
 /** Guarda el veredicto en el ticket para que la pantalla lo pueda mostrar. */
 const guardarVeredicto = async (ticketId: number, v: any): Promise<void> => {
   await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS metadata JSONB`).catch(() => {});
@@ -98,6 +120,16 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
 
     await guardarVeredicto(ticketId, v);
     console.log(`[JUEZ] ${v.folio}: ${v.conclusion} (${origen})`);
+
+    // Cuando tiene DUDA —no pudo, o lo que piden lo decide una persona— no se
+    // abre nada para Cajito ni para Aldo: se sugiere en el chat del ticket, como
+    // nota interna, y Servicio a Cliente decide si lo resuelve o lo escala a
+    // Juan Carlos con el botón del ticket (Aldo, 11-sep-2026, a raíz del
+    // TKT-2026-2673: una negociación de precio que Cajito "no pudo" y terminó
+    // como tarea urgente de Aldo).
+    if (['NO_PUDE', 'DECISION'].includes(String(v.conclusion))) {
+      await sugerirEnTicket(ticketId, v).catch((e) => console.error('[JUEZ] sugerencia:', e?.message));
+    }
 
     // Se reporta lo que es NUESTRO y hay que reparar: ERROR_SISTEMA y también
     // CAPTURA. Lo segundo lo manda el propio proceso del juez —"un dato mal
