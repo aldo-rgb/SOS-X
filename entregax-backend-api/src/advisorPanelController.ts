@@ -502,7 +502,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           NULL AS client_phone,
           false AS has_instructions,
           COALESCE(p.is_master, false) AS is_master,
-          (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int AS children_count,
+          (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id AND c.duplicado_de IS NULL)::int AS children_count,
           COALESCE(p.weight, 0) AS weight,
           COALESCE(p.pkg_length, 0) AS length_cm,
           COALESCE(p.pkg_width, 0) AS width_cm,
@@ -663,8 +663,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         p.created_at,
         u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
         CASE WHEN p.assigned_address_id IS NOT NULL OR (p.destination_address IS NOT NULL AND p.destination_address != 'Pendiente de asignar') OR p.needs_instructions = FALSE THEN true ELSE false END as has_instructions,
-        (COALESCE(p.is_master, false) OR (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) > 0) as is_master,
-        (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int as children_count,
+        (COALESCE(p.is_master, false) OR (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id AND c.duplicado_de IS NULL) > 0) as is_master,
+        (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id AND c.duplicado_de IS NULL)::int as children_count,
         COALESCE(p.has_gex, false) as has_gex,
         COALESCE(p.gex_total_cost, 0) as gex_cost,
         COALESCE(p.weight, 0) as weight,
@@ -692,7 +692,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_city,
         (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_recipient,
         (CASE WHEN COALESCE(p.is_master, false)
-              THEN (SELECT array_agg(c.tracking_internal ORDER BY c.id) FROM packages c WHERE c.master_id = p.id)
+              THEN (SELECT array_agg(c.tracking_internal ORDER BY c.id) FROM packages c WHERE c.master_id = p.id AND c.duplicado_de IS NULL)
               ELSE NULL END)::text[] as child_trackings,
         COALESCE(
           (SELECT COALESCE(apo.payment_reference, apo.folio) FROM advisor_payment_orders apo
