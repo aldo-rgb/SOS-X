@@ -804,6 +804,20 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       ticketFolio = newTicket.rows[0].ticket_folio;
       console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})${imageUrls.length > 0 ? ` con ${imageUrls.length} imágenes` : ''}`);
 
+      // 🧑‍⚖️ Cajito lo revisa solo. En segundo plano A PROPÓSITO: crear el ticket
+      // no puede quedarse esperando una investigación, y si el juez truena el
+      // ticket ya existe y no pasa nada. Si concluye que es error nuestro, lo
+      // reporta sin que nadie apriete el botón; si no, deja escrito en el ticket
+      // qué decirle al cliente, que es lo que hace falta nueve de cada diez
+      // veces. Se espera un poco: el primer mensaje todavía se está guardando y
+      // sin él no hay nada que investigar.
+      const idParaJuez = currentTicketId;
+      setTimeout(() => {
+        import('./cajitoJuez')
+          .then(({ revisarTicketAlNacer }) => revisarTicketAlNacer(Number(idParaJuez)))
+          .catch((e) => console.error('[JUEZ] no se pudo arrancar:', e?.message));
+      }, 4000);
+
       // 🚩 Categoría "Queja": contabiliza una queja al asesor asignado del cliente.
       if (category === 'complaint' && userId) {
         try {
@@ -2369,17 +2383,23 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
 //  · responsable (assignee) = Super Admin · asignada por = usuario de soporte (creador)
 //  · soporte queda involucrado (participante) · título "Error localizado {folio}"
 //  · copia TODOS los archivos del ticket a la tarea.
-export const reportTicketError = async (req: Request, res: Response): Promise<any> => {
+/**
+ * El reporte de verdad, sin req/res. Lo usan el botón "Reportar error" y el juez
+ * automático, para que la tarea salga idéntica venga de donde venga.
+ */
+export const reportarErrorDeTicket = async (
+  ticketId: number,
+  uid: number,
+  hallazgoCajito?: string | null
+): Promise<any> => {
   try {
-    const uid = (req as any).user?.userId || (req as any).user?.id;
-    const ticketId = parseInt(String(req.params.id), 10);
-    if (!uid) return res.status(401).json({ error: 'No autenticado' });
-    if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
+    if (!uid) return { error: 'No autenticado', status: 401 };
+    if (!ticketId) return { error: 'Ticket inválido', status: 400 };
 
     const tRes = await pool.query(
       `SELECT t.id, t.ticket_folio, t.subject, t.category, t.user_id, u.full_name AS client_name
          FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId]);
-    if (tRes.rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+    if (tRes.rows.length === 0) return { error: 'Ticket no encontrado', status: 404 };
     const ticket = tRes.rows[0];
     const folio = ticket.ticket_folio || `#${ticketId}`;
     const title = `Error localizado ${folio}`;
@@ -2387,7 +2407,7 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
     // Evitar duplicados: si ya hay una tarea para este ticket, devolverla.
     const existing = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
     if (existing.rows.length > 0) {
-      return res.json({ ok: true, task_id: existing.rows[0].id, already: true, message: 'Ya existe una tarea para este error.' });
+      return { ok: true, task_id: existing.rows[0].id, already: true, message: 'Ya existe una tarea para este error.' };
     }
 
     // Super Admins activos. El responsable se prefiere UNO CON DISPOSITIVO (token push
@@ -2396,7 +2416,7 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS has_device
          FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) = true
         ORDER BY has_device DESC, u.id`);
-    if (saRes.rows.length === 0) return res.status(400).json({ error: 'No hay un Super Admin activo para asignar la tarea.' });
+    if (saRes.rows.length === 0) return { error: 'No hay un Super Admin activo para asignar la tarea.', status: 400 };
     const superAdminIds = saRes.rows.map((r: any) => Number(r.id));
     const superAdminId = superAdminIds[0]!; // responsable (prefiere con dispositivo)
 
@@ -2412,7 +2432,7 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
     // Si Cajito ya investigó el ticket, su hallazgo viaja en la tarea. Sin esto
     // quien la abre empieza de cero y repite la misma investigación que ya se
     // hizo hace un minuto.
-    const hallazgo = String((req.body || {}).hallazgo_cajito || '').trim();
+    const hallazgo = String(hallazgoCajito || '').trim();
     const desc = [
       `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.`,
       cuerpo,
@@ -2427,7 +2447,7 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');
     const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false, boardId: errorBoardId });
-    if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea' });
+    if (!taskId) return { error: 'No se pudo crear la tarea', status: 500 };
 
     // Notificar a TODOS los super admin: in-app siempre + push solo en horario laboral.
     try {
@@ -2467,10 +2487,22 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       [ticketId, `🐛 Error reportado → tarea "${title}" creada para el equipo. Ticket en espera.`]
     ).catch(() => {});
 
-    return res.json({ ok: true, task_id: taskId, attachments_copied: copied, moved_to: 'waiting_client' });
+    return { ok: true, task_id: taskId, attachments_copied: copied, moved_to: 'waiting_client' };
   } catch (e: any) {
-    console.error('[support] reportTicketError:', e); res.status(500).json({ error: 'Error al reportar el error' });
+    console.error('[support] reportarErrorDeTicket:', e);
+    return { error: 'Error al reportar el error', status: 500 };
   }
+};
+
+/** POST /api/admin/support/ticket/:id/report-error — el botón, envuelto. */
+export const reportTicketError = async (req: Request, res: Response): Promise<any> => {
+  const r = await reportarErrorDeTicket(
+    parseInt(String(req.params.id), 10),
+    (req as any).user?.userId || (req as any).user?.id,
+    (req.body || {}).hallazgo_cajito
+  );
+  if (r?.ok) return res.json(r);
+  return res.status(r?.status || 500).json({ error: r?.error || 'Error al reportar el error' });
 };
 
 export const transferTicket = async (req: Request, res: Response): Promise<any> => {

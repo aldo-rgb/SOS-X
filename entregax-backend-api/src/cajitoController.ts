@@ -1858,14 +1858,22 @@ async function saveMessage(conversationId: number, opts: {
  * Si no supo investigarlo, se registra como duda para enseñarle y se le dice al
  * usuario que vuelva en 24 horas — es la misma promesa que ya hace el chat.
  */
-export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+/**
+ * El juez, sin req/res, para que lo pueda llamar tanto el botón Investigar como
+ * la revisión automática al crear un ticket. Devuelve el veredicto o un error
+ * con su código; nunca lanza.
+ */
+export const investigarTicketCore = async (
+  ticketId: number,
+  userId: number,
+  role: string,
+  origen: 'boton' | 'automatico' = 'boton'
+): Promise<any> => {
   try {
-    const ticketId = Number(req.params.id);
-    const userId = req.user?.userId || (req.user as any)?.id;
-    if (!Number.isFinite(ticketId)) { res.status(400).json({ error: 'ticket inválido' }); return; }
+    if (!Number.isFinite(ticketId)) return { ok: false, status: 400, error: 'ticket inválido' };
 
-    const caps = await getUserCapabilities(userId, String(req.user?.role || ''));
-    if (!hasCap(caps, 'cajito.access')) { res.status(403).json({ error: 'Sin acceso a Cajito' }); return; }
+    const caps = await getUserCapabilities(userId, String(role || ''));
+    if (!hasCap(caps, 'cajito.access')) return { ok: false, status: 403, error: 'Sin acceso a Cajito' };
 
     const t = await pool.query(
       `SELECT t.id, t.ticket_folio, t.status, t.category, t.subject, t.creator_type,
@@ -1873,7 +1881,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
          FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id
         WHERE t.id = $1`, [ticketId]);
     const tk = t.rows[0];
-    if (!tk) { res.status(404).json({ error: 'Ticket no encontrado' }); return; }
+    if (!tk) return { ok: false, status: 404, error: 'Ticket no encontrado' };
 
     const msgs = await pool.query(
       `SELECT sender_type, message, created_at, attachments, attachment_url FROM ticket_messages
@@ -1911,7 +1919,10 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '   (c) ACOMPANAR — no hay nada roto que reparar: el caso está en curso o depende de un tercero (aduana, la paquetería, el proveedor) y lo que hace falta es que Servicio a Cliente CONTENGA al cliente: hablarle, explicarle en qué va y darle seguimiento. Una guía detenida en aduana desde hace semanas es esto, no un error de código.',
       '   (d) CORRECTO — el sistema está bien y sólo hay que explicárselo.',
       '   (e) NO_PUDE — no alcanzo a determinarlo.',
-      'No confundas (a) con (c): que algo lleve semanas sin resolverse NO lo vuelve un error del sistema. Pregúntate si hay algo que reparar en el software; si no lo hay, es acompañamiento.',
+      'No confundas (a) con (c). La prueba es UNA: ¿hay algo que un programador tendría que reparar para que esto no vuelva a pasar?',
+      '  - SÍ lo hay → es (a) ERROR_SISTEMA, aunque el caso ya esté en curso, aunque alguien ya lo esté atendiendo a mano, y aunque al cliente le vayan a resolver por otra vía. Que se esté resolviendo NO quiere decir que no esté roto.',
+      '  - NO lo hay → es (c). Una guía detenida en aduana, un proveedor que no contesta, una entrega que se atrasó: ahí no hay nada que reparar en el software.',
+      'OJO, aquí se equivoca seguido: si en el hilo alguien describe que una pantalla no deja hacer algo, que un botón no aparece, que un dato se ve mal o que el sistema cobró de más, eso es (a) aunque el resto del hilo hable de la gestión con el cliente. Al medirlo contra casos reales, tres de cada cuatro errores nuestros se marcaron como (c) o (b) y se quedaron sin reportar.',
       'Cuando concluyas ACOMPANAR, di en la explicación QUÉ debería decirle Servicio a Cliente al cliente, en dos o tres líneas, con los datos que encontraste.',
       'OJO con (b): SIEMPRE que haga falta corregir un dato hay que levantarlo con nosotros. No es "culpa de quien capturó" ni algo que se arregla y ya: si el dato quedó mal, hay que revisar CÓMO permitió el sistema que quedara así y repararlo de raíz. Un dato mal capturado casi siempre es una validación que falta.',
       'Por eso, cuando concluyas (b), incluye en la explicación qué habría que revisar para que no vuelva a pasar — qué pantalla o qué paso lo dejó entrar.',
@@ -1930,8 +1941,20 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       '  "hallazgos": [{"dato": "Flete nacional cobrado", "valor": "$2,675.00", "cuadra": false, "nota": "las 5 cajas traen guía del cliente"}],',
       '  "conclusion": "ERROR_SISTEMA|CAPTURA|ACOMPANAR|CORRECTO|NO_PUDE",',
       '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
+      '  "para_el_cliente": "lo que Servicio a Cliente le va a decir al cliente, en dos líneas",',
       '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó"',
       '}',
+      '',
+      'SOBRE "para_el_cliente" — es el campo que más se va a usar, así que léelo dos veces:',
+      '  - Lo va a leer Servicio a Cliente EN VOZ ALTA para contenerlo, o se lo va a copiar tal cual por WhatsApp. Escríbelo como se lo dirías al cliente, no como nos lo dirías a nosotros.',
+      '  - DOS LÍNEAS. Qué pasa con LO SUYO y qué sigue. Nada más.',
+      '  - CERO tecnicismos: ni pantallas, ni reempaques, ni estados, ni por qué falló por dentro. Al cliente no le sirve saber que un enlace apunta al proveedor equivocado; le sirve saber que su factura sí existe y cuándo la va a poder abrir.',
+      '  - Si es ERROR_SISTEMA: reconoce el problema sin echarle la culpa a nadie, di que ya está reportado y que se le avisa en cuanto quede. No prometas fecha si no la sabes.',
+      '  - Si es ACOMPANAR: di en qué va lo suyo con el dato concreto que encontraste —dónde está la caja, desde cuándo, qué falta— y qué sigue.',
+      '  - Si es CORRECTO: explícale por qué lo que ve está bien, con su cifra, sin sonar a que se equivocó.',
+      '  - Si es NO_PUDE: no inventes. Deja este campo vacío.',
+      '  - Ejemplo bueno: "Su factura sí se generó correctamente. El problema es al abrir el archivo, ya está reportado con el equipo y le avisamos hoy mismo en cuanto quede."',
+      '  - Ejemplo malo: "El pdf_url apunta al API de Facturama que responde 401 y por eso el navegador pide credenciales."',
       'En "hallazgos" pon SOLO lo que verificaste contra el sistema, con su cifra. `cuadra` es true si el dato coincide con lo que dice el ticket y false si no.',
       'Sé BREVE: la pantalla ya le da formato. Nada de introducciones ni de repetir lo que ya dijiste.',
       '',
@@ -2006,7 +2029,7 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
           let r: any;
           try {
             r = def && hasCap(caps, def.requiredCapability)
-              ? await def.handler(tc.input || {}, { userId: Number(userId) || 0, role: String(req.user?.role || '') })
+              ? await def.handler(tc.input || {}, { userId: Number(userId) || 0, role: String(role || '') })
               : { error: 'Sin permiso o herramienta desconocida' };
           } catch (e: any) { r = { error: e?.message || 'falló la consulta' }; }
           results.push({ type: 'tool_result', tool_use_id: tc.id, content: JSON.stringify(r).slice(0, 6000) });
@@ -2066,8 +2089,9 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       }
     }
 
-    res.json({
+    return {
       ok: true,
+      ticket_id: ticketId,
       folio: tk.ticket_folio,
       conclusion,
       pudo,
@@ -2076,14 +2100,31 @@ export const investigarTicket = async (req: AuthRequest, res: Response): Promise
       folios: Array.isArray(datos?.folios) ? datos.folios : [],
       hallazgos: Array.isArray(datos?.hallazgos) ? datos.hallazgos : [],
       explicacion: datos?.explicacion || '',
+      // Lo que Servicio a Cliente le dice al cliente. Va aparte de `explicacion`
+      // a propósito: esa es para nosotros y trae cifras y folios; esta es para
+      // leerse en voz alta por teléfono.
+      para_el_cliente: String(datos?.para_el_cliente || '').trim(),
       falto: datos?.falto || '',
       folio_duda: folioDuda,
       hallazgo,   // sólo si el modelo no devolvió JSON
-    });
+      origen,
+    };
   } catch (e: any) {
-    console.error('[cajito] investigarTicket:', e);
-    res.status(500).json({ error: 'No se pudo investigar el ticket' });
+    console.error('[cajito] investigarTicketCore:', e);
+    return { ok: false, status: 500, error: 'No se pudo investigar el ticket' };
   }
+};
+
+/** POST /api/cajito/investigar-ticket/:id — el botón Investigar. */
+export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+  const r = await investigarTicketCore(
+    Number(req.params.id),
+    Number(req.user?.userId || (req.user as any)?.id || 0),
+    String(req.user?.role || ''),
+    'boton'
+  );
+  if (r.ok) { res.json(r); return; }
+  res.status(r.status || 500).json({ error: r.error });
 };
 
 export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
