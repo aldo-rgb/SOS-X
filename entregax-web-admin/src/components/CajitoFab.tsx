@@ -32,6 +32,7 @@ import {
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
+import BugReportIcon from '@mui/icons-material/BugReport';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
@@ -1362,6 +1363,9 @@ export default function CajitoFab() {
 
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
+  // Mismo criterio que en la app: reportar un error levanta una tarea y le suena
+  // el teléfono a quien la recibe, así que solo administración.
+  const puedeReportar = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
   const _role = String(user?.role || '').toLowerCase();
   // Asesores: acceso por default solo a "Rastrear guía" (acotado a sus clientes).
   const isAdvisor = ['advisor', 'sub_advisor'].includes(_role);
@@ -1483,6 +1487,34 @@ export default function CajitoFab() {
   };
   const deleteKb = async (id: number) => {
     try { await api.delete(`/cajito/knowledge/${id}`); loadKb(); } catch { /* */ }
+  };
+
+
+  // ── Reportar un error de Cajito ────────────────────────────────────────────
+  // El mismo botón que ya existía en la app y que en web nunca se puso: Aldo lo
+  // pidió estando en esta pantalla, con el caso ya investigado enfrente, y no
+  // tenía cómo levantarlo. Manda a la tarea la pregunta y la respuesta tal cual
+  // las dio Cajito —sin editar— porque lo valioso es el detalle con el que las
+  // dedujo.
+  const [reportando, setReportando] = useState<number | null>(null);
+  const [reportadas, setReportadas] = useState<Record<number, string>>({});
+
+  const reportarError = async (i: number) => {
+    if (reportando !== null || reportadas[i]) return;
+    const respuesta = messages[i]?.text || '';
+    const pregunta = [...messages.slice(0, i)].reverse().find((m) => m.role === 'user')?.text || '';
+    if (!respuesta) return;
+    setReportando(i);
+    try {
+      const r = await api.post('/cajito/reportar-error', {
+        conversationId: conversationId || undefined, pregunta, respuesta,
+      });
+      setReportadas((p) => ({ ...p, [i]: `Reportado · tarea ${r.data?.task_id}` }));
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || 'No se pudo reportar.';
+      setMessages((m) => [...m, { id: Date.now(), role: 'cajito', text: `⚠️ ${msg}`, ts: Date.now() }]);
+    }
+    setReportando(null);
   };
 
   const handleSend = async () => {
@@ -1746,7 +1778,7 @@ export default function CajitoFab() {
           {mode === 'chat' && (
             <>
               <Box ref={listRef} sx={{ flex: 1, overflowY: 'auto', bgcolor: '#FFF8F2', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {messages.map((m) => {
+                {messages.map((m, mi) => {
                   if (m.role === 'tool') {
                     return (
                       <Box key={m.id} sx={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', bgcolor: '#FFF3E0', border: '1px dashed #FFB74D', borderRadius: 2, px: 1, py: 0.25 }}>
@@ -1760,13 +1792,32 @@ export default function CajitoFab() {
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                         {conFoliosClicables(m.text || '')}
                       </Typography>
-                      {isSuperAdmin && m.role === 'cajito' && (m.text || '').trim().length > 0 && (
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-                          <Tooltip title="Guardar como conocimiento (revisa/edita antes)">
-                            <IconButton size="small" onClick={() => openKbFromMessage(m.text || '')} sx={{ color: CAJITO_RING, p: 0.25 }}>
-                              <BookmarkAddIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
+                      {puedeReportar && m.role === 'cajito' && (m.text || '').trim().length > 0 && !(m.text || '').startsWith('⚠️') && (
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                          {reportadas[mi] ? (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ {reportadas[mi]}
+                            </Typography>
+                          ) : (
+                            <Tooltip title="Reportar un error: levanta la tarea con esta respuesta">
+                              <span>
+                                <IconButton size="small" disabled={reportando !== null}
+                                  onClick={() => reportarError(mi)}
+                                  sx={{ color: '#D32F2F', p: 0.25 }}>
+                                  {reportando === mi
+                                    ? <CircularProgress size={14} sx={{ color: '#D32F2F' }} />
+                                    : <BugReportIcon sx={{ fontSize: 16 }} />}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          )}
+                          {isSuperAdmin && (
+                            <Tooltip title="Guardar como conocimiento (revisa/edita antes)">
+                              <IconButton size="small" onClick={() => openKbFromMessage(m.text || '')} sx={{ color: CAJITO_RING, p: 0.25 }}>
+                                <BookmarkAddIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </Box>
                       )}
                     </Box>
