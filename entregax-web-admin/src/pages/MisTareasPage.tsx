@@ -47,6 +47,14 @@ const MY_ID = Number(ME?.id) || 0;
 // La etiqueta lo dice para que no se lea como "ya no es mía".
 const esperaMiConfirmacion = (t: any): boolean =>
   t?.status === 'awaiting_confirmation' && Number(t?.created_by) === MY_ID;
+// ¿Me toca a MÍ? Abierta y soy responsable, o en espera y la asigné yo. Es la
+// misma regla de la app (esPendienteDeMi). Los números de la matriz contaban
+// cada tarjeta del cuadrante, y así las que esperan confirmación de otra
+// persona sumaban como urgentes de quien ya las terminó: 9 donde tocaban 2.
+const esPendienteDeMi = (t: any): boolean =>
+  t?.status === 'awaiting_confirmation' ? Number(t?.created_by) === MY_ID
+  : t?.status === 'open' ? Number(t?.assignee_id) === MY_ID
+  : false;
 const etiquetaEspera = (t: any, larga = false): string =>
   esperaMiConfirmacion(t)
     ? (larga ? '⏳ Esperando TU confirmación' : '⏳ Esperando tu confirmación')
@@ -1144,7 +1152,9 @@ export default function MisTareasPage() {
                   outline: over ? `2px dashed ${q.color}` : 'none', outlineOffset: -2, transition: 'outline .12s' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, flexShrink: 0 }}>
                   <Typography fontWeight={800} fontSize={12.5} sx={{ flex: 1, color: q.color, lineHeight: 1.1 }} noWrap>{q.title}</Typography>
-                  <Chip label={qt.length} size="small" sx={{ height: 18, fontSize: 11 }} />
+                  {/* Cuenta lo que TE TOCA; las tarjetas en espera de otra persona se
+                      siguen viendo abajo, pero no suman. */}
+                  <Chip label={qt.filter(esPendienteDeMi).length} size="small" sx={{ height: 18, fontSize: 11 }} />
                 </Box>
                 <Box sx={{ flex: 1, overflowY: 'auto', px: 0.75, pb: 0.75, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                   {qt.length === 0 ? <Typography fontSize={11} color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>—</Typography> : qt.map(renderMatrixCard)}

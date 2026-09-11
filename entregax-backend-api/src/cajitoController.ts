@@ -1133,36 +1133,53 @@ export const TOOLS: ToolDef[] = [
       const r = await pool.query(`
         SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
                t.due_at, t.created_at, t.completed_at,
+               t.assignee_id, t.created_by,
                c.full_name AS creada_por,
                (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'completed') AS vencida,
                (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
           FROM tasks t
           LEFT JOIN users c ON c.id = t.created_by
-         WHERE t.assignee_id = $1 ${soloAbiertas}
+         -- Soy responsable, o la asigné yo y ya está esperando MI confirmación.
+         WHERE (t.assignee_id = $1 OR (t.status = 'awaiting_confirmation' AND t.created_by = $1)) ${soloAbiertas}
          ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC
          LIMIT 100`, [ctx.userId]);
 
       const filas = r.rows;
       const cuenta = (f: (x: any) => boolean) => filas.filter(f).length;
       const terminada = (t: any) => t.status === 'completed';
+      // ¿Le toca a ESTA persona? Una tarea en espera ya la hizo el responsable:
+      // ahora le toca a quien la asignó. Contarla también al responsable inflaba
+      // los urgentes — a Aldo le decía 9 cuando le tocaban 2, porque sumaba siete
+      // que esperaban a Angel, Yliana o Ricardo.
+      const yo = Number(ctx.userId);
+      const meToca = (t: any) =>
+        t.status === 'awaiting_confirmation' ? Number(t.created_by) === yo
+        : t.status === 'open' ? Number(t.assignee_id) === yo
+        : false;
       return {
         resumen: {
           total: filas.length,
+          te_tocan: cuenta(meToca),
           abiertas: cuenta((t) => !terminada(t)),
           vencidas: cuenta((t) => t.vencida === true),
           vencen_hoy: cuenta((t) => t.vence_hoy === true),
           sin_fecha: cuenta((t) => !t.due_at && !terminada(t)),
-          esperando_confirmacion: cuenta((t) => t.status === 'awaiting_confirmation'),
+          esperan_tu_confirmacion: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) === yo),
+          esperan_a_otra_persona: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) !== yo),
           completadas: cuenta(terminada),
         },
+        // Solo lo que LE TOCA: las que esperan confirmación de otra persona no
+        // cuentan como urgentes suyas (siguen en `tareas`, marcadas).
         por_matriz: {
-          fuego: cuenta((t) => t.eisenhower === 'fuego' && !terminada(t)),
-          estrella: cuenta((t) => t.eisenhower === 'estrella' && !terminada(t)),
-          delegar: cuenta((t) => t.eisenhower === 'delegar' && !terminada(t)),
-          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && !terminada(t)),
+          fuego: cuenta((t) => t.eisenhower === 'fuego' && meToca(t)),
+          estrella: cuenta((t) => t.eisenhower === 'estrella' && meToca(t)),
+          delegar: cuenta((t) => t.eisenhower === 'delegar' && meToca(t)),
+          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && meToca(t)),
         },
+        nota: 'Cuando digas cuántas tareas o urgentes tiene, usa por_matriz y te_tocan: solo cuentan las que le toca hacer o confirmar a esta persona. Las que esperan confirmación de alguien más no son suyas; si las mencionas, di a quién esperan.',
         tareas: filas.map((t: any) => ({
           id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
+          le_toca: meToca(t) ? 'a ti' : (t.status === 'awaiting_confirmation' ? `esperando a ${t.creada_por || 'quien la asignó'}` : 'a otra persona'),
           vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
           creada_por: t.creada_por,
         })),

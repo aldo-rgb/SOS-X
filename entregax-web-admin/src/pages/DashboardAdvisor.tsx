@@ -435,7 +435,18 @@ export default function DashboardAdvisor() {
   useEffect(() => {
     let alive = true;
     api.get('/tasks/mine')
-      .then(r => { if (alive) setPendingTasks(Array.isArray(r.data?.tasks) ? r.data.tasks.length : 0); })
+      .then(r => {
+        if (!alive) return;
+        // Solo lo que TE TOCA: abierta y eres responsable, o en espera y la
+        // asignaste tú. Contaba todo lo que devuelve /tasks/mine, incluidas las
+        // que esperan confirmación de otra persona.
+        const me = (() => { try { return Number(JSON.parse(localStorage.getItem('user') || '{}')?.id) || 0; } catch { return 0; } })();
+        const tareas: any[] = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
+        setPendingTasks(tareas.filter((t) =>
+          t?.status === 'awaiting_confirmation' ? Number(t?.created_by) === me
+          : t?.status === 'open' ? Number(t?.assignee_id) === me
+          : false).length);
+      })
       .catch(() => { if (alive) setPendingTasks(0); });
     return () => { alive = false; };
   }, []);

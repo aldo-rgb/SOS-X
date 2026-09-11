@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { esPendienteDeMi } from './tasks/tasksShared';
 import CajitoFab from '../components/CajitoFab';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -239,7 +240,9 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (tasksRes.status === 'fulfilled' && tasksRes.value.ok) {
-        try { const td = await tasksRes.value.json(); setMyTaskCount(Array.isArray(td.tasks) ? td.tasks.length : 0); } catch { /* */ }
+        // Solo lo que TE TOCA (esPendienteDeMi): las que esperan confirmación de
+        // otra persona ya no suman a tus pendientes.
+        try { const td = await tasksRes.value.json(); setMyTaskCount(Array.isArray(td.tasks) ? td.tasks.filter((t: any) => esPendienteDeMi(t, Number(user?.id ?? user?.userId))).length : 0); } catch { /* */ }
       }
       if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
         const dashData = await dashRes.value.json();

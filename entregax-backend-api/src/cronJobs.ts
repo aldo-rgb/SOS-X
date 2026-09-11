@@ -1922,13 +1922,19 @@ export const startTaskRemindersCron = () => {
       // responsable, así que recordársela solo mete ruido — de la tarea ya se
       // entera por los avisos de comentario y de cambio de estado.
       //
-      // 'open' deja fuera las que están en espera de confirmación: esas ya se
-      // hicieron y no son pendiente de nadie.
+      // Una tarea en espera de confirmación ya la hizo el responsable: le toca
+      // a QUIEN LA ASIGNÓ revisarla y cerrarla. Cuenta para el creador y no para
+      // el responsable. Antes no contaba para nadie, así que a quien tenía que
+      // confirmar nunca se le recordaba.
       const rows = (await pool.query(`
-        SELECT t.assignee_id AS uid, COUNT(*)::int AS n
-          FROM tasks t
-         WHERE t.status = 'open' AND t.assignee_id IS NOT NULL ${urgentCond}
-         GROUP BY t.assignee_id HAVING COUNT(*) > 0
+        SELECT uid, COUNT(*)::int AS n FROM (
+          SELECT t.assignee_id AS uid FROM tasks t
+           WHERE t.status = 'open' AND t.assignee_id IS NOT NULL ${urgentCond}
+          UNION ALL
+          SELECT t.created_by AS uid FROM tasks t
+           WHERE t.status = 'awaiting_confirmation' AND t.created_by IS NOT NULL ${urgentCond}
+        ) x
+         GROUP BY uid HAVING COUNT(*) > 0
       `)).rows;
       if (rows.length === 0) return;
       const { createCustomNotification } = await import('./notificationController');

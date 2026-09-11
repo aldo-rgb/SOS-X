@@ -2487,7 +2487,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
                 && { borderWidth: 2, borderColor: q.color }]}>
       <View style={styles.mxHead}>
         <Text style={[styles.mxTitle, { color: q.color }]} numberOfLines={2}>{q.title}</Text>
-        <View style={styles.mxCount}><Text style={styles.mxCountTxt}>{qt.length}</Text></View>
+        {/* Cuenta lo que TE TOCA (esPendienteDeMi); las tarjetas en espera de
+            otra persona se siguen viendo, pero no suman como urgentes tuyas. */}
+        <View style={styles.mxCount}><Text style={styles.mxCountTxt}>{myId ? qt.filter(t => esPendienteDeMi(t, myId)).length : qt.length}</Text></View>
       </View>
       {/* El scroll se apaga mientras se arrastra.
           En Android el ScrollView nativo se queda con el gesto en cuanto el dedo
