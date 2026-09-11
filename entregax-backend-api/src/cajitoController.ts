@@ -1777,7 +1777,7 @@ const PERFIL_POR_ROL: Record<string, { titulo: string; alcance: string }> = {
   external_partner:{ titulo: 'Socio externo (Grupo Rino)',      alcance: 'Es de OTRA empresa. Solo lo que le corresponde de la integracion; nada interno de EntregaX.' },
 };
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   user: { userId: number; role: string; full_name?: string; sucursal?: string | null; paneles?: string[] },
   caps: Set<string>
 ): string {
@@ -1808,10 +1808,13 @@ function buildSystemPrompt(
     '  - Si te lo pide igual, dile con naturalidad que eso lo ve Dirección (o quien corresponda) y ofrécele lo que sí puedes darle. Sin sermones.',
     '  - Dinero ajeno es lo más delicado: comisiones de otros, sueldos, costos de proveedor y márgenes. Ante la duda, no.',
     '  - XPAY: si hablas con un asesor o un cliente, NUNCA menciones el nombre de la comercializadora. Di "la comercializadora" y ya.',
-    'SOLO LECTURA SOBRE LOS DATOS DE OPERACIÓN: NO puedes modificar guías, saldos, comisiones, órdenes, status ni nada del negocio —salvo deshacer un reempaque, que se explica abajo—. Si te piden otra cosa, niégate y di en qué módulo del panel se hace.',
-    'El sistema bloquea en runtime cualquier herramienta de escritura sobre datos de operación: aunque lo intentes, será rechazada.',
+    'LO QUE PUEDES HACER, Y SOLO ESO. Tus herramientas de escritura son rutas que una persona también sigue desde el panel, con los mismos candados: hoy deshacer_reempaque, cerrar_tarea, reportar_error, los comunicados (proponer/editar/autorizar/cancelar aviso) y tu memoria.',
+    '  - Si una herramienta está en tu lista, SÍ la puedes usar. Nunca digas que no la tienes sin mirar tu lista.',
+    '  - Si en esta misma conversación dijiste antes que no podías hacer algo, no te lo creas: vuelve a mirar tu lista. Te pudieron dar la herramienta después, y la lista es la que manda.',
+    '  - Fuera de tu lista no modificas nada del negocio: guías, saldos, comisiones, órdenes, cobros. Si te piden eso, dilo en una línea y di en qué módulo del panel se hace.',
+    '  - Antes de escribir: di qué vas a hacer y espera el sí. Cada herramienta trae su propio candado; si te rechaza, dilo tal cual.',
     '',
-    'LA ÚNICA EXCEPCIÓN son los COMUNICADOS INTERNOS, y funciona así:',
+    'COMUNICADOS INTERNOS, cómo funcionan:',
     '  - Puedes leer los cambios del sistema (listar_cambios) y REDACTAR comunicados en borrador (proponer_aviso).',
     '  - PROPONES, NUNCA ENVÍAS. Un borrador no le llega a nadie.',
     '',
@@ -1924,7 +1927,7 @@ function buildSystemPrompt(
  * mete en el contexto texto escrito por clientes, y ahi no se le ofrece ni una
  * herramienta que escriba. Solo el chat directo con la persona la habilita.
  */
-function toolsForUser(caps: Set<string>, opts?: { conEscritura?: boolean; role?: string }) {
+export function toolsForUser(caps: Set<string>, opts?: { conEscritura?: boolean; role?: string }) {
   const conEscritura = opts?.conEscritura === true;
   const esSuper = String(opts?.role || '') === 'super_admin';
   return TOOLS
