@@ -38,6 +38,7 @@ import AllInboxIcon from '@mui/icons-material/AllInbox';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import DeleteIcon from '@mui/icons-material/Delete';
+import UndoIcon from '@mui/icons-material/Undo';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import PrintIcon from '@mui/icons-material/Print';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -135,6 +136,12 @@ const fechaHoraMx = (iso?: string): string => {
 export default function RepackPage() {
   const { i18n } = useTranslation();
   const [instructions, setInstructions] = useState<RepackInstruction[]>([]);
+  // Deshacer reempaque: `porDeshacer` es el que se está confirmando y
+  // `deshaciendo` el id en vuelo. Se pregunta antes porque suelta las guías y
+  // borra la caja: no es algo que deba pasar por un clic distraído.
+  const [porDeshacer, setPorDeshacer] = useState<RepackInstruction | null>(null);
+  const [deshaciendo, setDeshaciendo] = useState<number | null>(null);
+  const [avisoDeshacer, setAvisoDeshacer] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Wizard de Reempaque
@@ -168,6 +175,27 @@ export default function RepackPage() {
   useEffect(() => {
     loadRepackInstructions();
   }, []);
+
+  // Deshacer un reempaque: suelta las guías, les devuelve su costo y borra la
+  // caja. El backend rechaza los que ya viajaron o ya se pagaron y explica por
+  // qué, así que aquí solo hay que mostrar ese motivo tal cual.
+  const deshacerReempaque = async (inst: RepackInstruction) => {
+    setPorDeshacer(null);
+    setDeshaciendo(inst.id);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.post(`${API_URL}/api/packages/repack/${inst.id}/undo`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAvisoDeshacer({ msg: r.data?.mensaje || `${inst.tracking_internal} deshecho.`, sev: 'success' });
+      await loadRepackInstructions();
+    } catch (e: any) {
+      setAvisoDeshacer({
+        msg: e?.response?.data?.error || 'No se pudo deshacer el reempaque.',
+        sev: 'error',
+      });
+    } finally { setDeshaciendo(null); }
+  };
 
   // Cargar instrucciones de reempaque pendientes
   const loadRepackInstructions = async () => {
@@ -963,6 +991,7 @@ export default function RepackPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>DIMENSIONES</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>PESO</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>ESTADO</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">ACCIÓN</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1043,13 +1072,31 @@ export default function RepackPage() {
                       color="warning"
                     />
                   </TableCell>
+                  {/* Deshacer: cuando el cliente se arrepiente y quiere esperar
+                      más mercancía. Antes no había forma y las guías quedaban
+                      pegadas al reempaque para siempre (TKT-2026-2499). */}
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      disabled={deshaciendo !== null}
+                      startIcon={deshaciendo === inst.id
+                        ? <CircularProgress size={14} color="inherit" />
+                        : <UndoIcon fontSize="small" />}
+                      onClick={() => setPorDeshacer(inst)}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      {deshaciendo === inst.id ? 'Deshaciendo…' : 'Deshacer'}
+                    </Button>
+                  </TableCell>
                 </TableRow>
                 );
               })}
 
               {instructions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 8 }}>
                     <AllInboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
                       {i18n.language === 'es' 
@@ -1121,6 +1168,48 @@ export default function RepackPage() {
       >
         <Alert severity={snackbar.severity} variant="filled">
           {snackbar.message}
+        </Alert>
+      </Snackbar>
+
+      {/* Confirmación de deshacer. Se dice QUÉ va a pasar con las guías, no solo
+          "¿estás seguro?": quien lo aprieta tiene que poder prever el resultado. */}
+      <Dialog open={!!porDeshacer} onClose={() => setPorDeshacer(null)} maxWidth="xs" fullWidth>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography fontWeight={700} gutterBottom>
+            ¿Deshacer {porDeshacer?.tracking_internal}?
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Las {porDeshacer?.child_packages?.length || 0} guía(s) que trae adentro vuelven a
+            bodega como paquetes sueltos, con su costo, y se van a poder seleccionar para
+            un reempaque nuevo. La caja de reempaque se elimina.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Solo se puede mientras siga en bodega. Si ya salió o ya se pagó, el sistema
+            lo va a rechazar y te dirá por qué.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPorDeshacer(null)}>Cancelar</Button>
+          <Button
+            color="error"
+            variant="contained"
+            startIcon={<UndoIcon />}
+            onClick={() => porDeshacer && deshacerReempaque(porDeshacer)}
+          >
+            Sí, deshacer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!avisoDeshacer}
+        autoHideDuration={avisoDeshacer?.sev === 'error' ? 9000 : 5000}
+        onClose={() => setAvisoDeshacer(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={avisoDeshacer?.sev || 'success'} variant="filled"
+               onClose={() => setAvisoDeshacer(null)}>
+          {avisoDeshacer?.msg}
         </Alert>
       </Snackbar>
     </Box>
