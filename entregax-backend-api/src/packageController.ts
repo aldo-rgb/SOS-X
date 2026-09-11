@@ -8427,6 +8427,64 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       });
     }
 
+    // ── Doble envío del formulario ───────────────────────────────────────────
+    // Un toque repetido en "Siguiente" —o una conexión que reintenta— mandaba la
+    // MISMA caja dos veces y se creaban dos hijas. A Jair Espinoza (S1708) le
+    // pasó el 5-sep: la -0008 y la -0009 nacieron con 43 MILISEGUNDOS de
+    // diferencia, con el mismo peso, las mismas medidas y la misma guía de
+    // origen. La 0009 viajó; la 0008 se quedó en bodega sin moverse y aun así se
+    // le cobró al cliente $1,299.42 (TKT-2026-2605, tarea 531).
+    //
+    // El criterio es el MISMO FORMULARIO otra vez: guía de origen, peso y las
+    // tres medidas idénticas, dentro de 2 segundos. Las dos condiciones hacen
+    // falta y la ventana corta es la que de verdad separa:
+    //
+    //   · solo la guía, 30 s   → 236 capturas buenas frenadas (una guía trae
+    //                            varias cajas y se capturan seguidas)
+    //   · + medidas, 10 s      → 55, y entre ellas un embarque real de 30 cajas
+    //                            idénticas capturadas cada 8 segundos
+    //   · + medidas, 2 s       → solo lo que ninguna persona alcanza a teclear
+    //
+    // Hay que pesar y medir cada caja: la captura legítima más rápida del
+    // histórico tardó 7.5 s. La de Jair tardó 44 MILÉSIMAS.
+    //
+    // Se responde 200 con la caja que ya existe, igual que hace arriba el caso
+    // individual: el front ve éxito y avanza, sin registrar dos veces.
+    const guiaOrigen = (trackingCourier || '').trim();
+    if (guiaOrigen) {
+      const repetida = await client.query(
+        `SELECT id, tracking_internal, box_number, weight
+           FROM packages
+          WHERE master_id = $1
+            AND TRIM(COALESCE(tracking_provider, '')) = $2
+            AND weight = $3::numeric
+            AND pkg_length = $4::numeric
+            AND pkg_width  = $5::numeric
+            AND pkg_height = $6::numeric
+            AND created_at > NOW() - INTERVAL '2 seconds'
+          ORDER BY id DESC LIMIT 1`,
+        [masterId, guiaOrigen, w, l, wd, h]
+      );
+      if (repetida.rows.length > 0) {
+        const ya = repetida.rows[0];
+        console.warn(
+          `[RECEPCIÓN] doble envío frenado: la guía ${guiaOrigen} ya se capturó hace segundos ` +
+          `en el master ${master.tracking_internal} como ${ya.tracking_internal}. No se crea otra caja.`
+        );
+        return res.status(200).json({
+          success: true,
+          alreadyExisted: true,
+          duplicadoEvitado: true,
+          childId: ya.id,
+          childTracking: ya.tracking_internal,
+          boxNumber: ya.box_number,
+          expectedTotal,
+          completed: currentChildren >= expectedTotal,
+          weight: ya.weight,
+        });
+      }
+    }
+
     const boxNumber = Math.max(currentChildren, maxBoxNumber) + 1;
     const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(4, '0')}`;
 
