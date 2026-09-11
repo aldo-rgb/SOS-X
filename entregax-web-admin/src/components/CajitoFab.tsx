@@ -91,7 +91,9 @@ interface ChatMsg {
   adjuntos?: AdjuntoChat[];
 }
 
-const LIMITE_ADJUNTOS = 3;
+const LIMITE_ADJUNTOS = 10;
+// Entre todos. Van en base64 dentro del JSON y el servidor acepta hasta 50 MB.
+const LIMITE_MB_TOTAL = 30;
 const IMAGEN_QUE_SE_VE = /^image\/(jpeg|png|gif|webp)$/;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1548,12 +1550,18 @@ export default function CajitoFab() {
     if (!lista.length) return;
     const libres = LIMITE_ADJUNTOS - adjuntos.length;
     setAvisoAdjunto(lista.length > libres ? `Puedes adjuntar hasta ${LIMITE_ADJUNTOS} archivos por mensaje.` : '');
+    let acumuladoMb = adjuntos.reduce((n, a) => n + (a.dataUrl.length * 0.75) / 1048576, 0);
     lista.slice(0, Math.max(libres, 0)).forEach((f) => {
       const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
       const esImagen = f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name);
       if (!esPdf && !esImagen) { setAvisoAdjunto(`"${f.name}": solo fotos, capturas o PDF.`); return; }
       const maxMb = esPdf ? 10 : 15;
       if (f.size > maxMb * 1024 * 1024) { setAvisoAdjunto(`"${f.name}" pesa más de ${maxMb} MB.`); return; }
+      if (acumuladoMb + f.size / 1048576 > LIMITE_MB_TOTAL) {
+        setAvisoAdjunto(`Entre todos pasan de ${LIMITE_MB_TOTAL} MB: "${f.name}" ya no cupo.`);
+        return;
+      }
+      acumuladoMb += f.size / 1048576;
       const lector = new FileReader();
       lector.onload = () => {
         const dataUrl = String(lector.result || '');

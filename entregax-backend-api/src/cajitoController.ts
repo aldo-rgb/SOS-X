@@ -2224,9 +2224,13 @@ async function saveMessage(conversationId: number, opts: {
 // pedida por Juan Segura). Llegan como data-URL en el mismo JSON del mensaje.
 // Se decide por los BYTES, no por el nombre ni por el tipo que diga el
 // navegador: el iPhone manda HEIC y la IA no lo acepta, así que se convierte.
-const MAX_ADJUNTOS = 3;
+const MAX_ADJUNTOS = 10;
 const MAX_BYTES_IMAGEN = 5 * 1024 * 1024;   // lo más que acepta la IA por imagen
 const MAX_BYTES_PDF = 10 * 1024 * 1024;
+// La IA acepta hasta 32 MB por petición, ya en base64 (que pesa 4/3). 18 MB de
+// archivos dejan margen para el historial y las herramientas.
+const MAX_BYTES_TOTAL = 18 * 1024 * 1024;
+const LADO_IA = 1568; // la IA reduce toda imagen a este lado largo antes de verla
 
 interface AdjuntoListo { nombre: string; mime: string; buffer: Buffer; tipo: 'image' | 'document'; }
 
@@ -2251,18 +2255,27 @@ async function prepararAdjuntos(crudos: any[]): Promise<{ lista: AdjuntoListo[] 
     if (!formato || !FORMATOS_QUE_SE_VEN.includes(formato)) {
       return { error: `"${nombre}": solo puedo recibir fotos o capturas (JPG, PNG, WEBP, GIF, HEIC) y PDF.` };
     }
-    if (buffer.length > MAX_BYTES_IMAGEN) {
-      // Una foto de celular pasa fácil de 5 MB: se reduce en vez de rechazarla.
-      try {
+    // Mandarla más grande que LADO_IA solo gasta: la IA la reduce igual. Una
+    // foto de celular de 4 MB queda en unos cientos de KB y se lee igual, y con
+    // hasta 10 archivos por mensaje es lo que evita pasar el límite de la
+    // petición. rotate() respeta la orientación con que se tomó la foto.
+    try {
+      const meta = await sharp(buffer).metadata();
+      if (Math.max(meta.width || 0, meta.height || 0) > LADO_IA || buffer.length > 1.5 * 1024 * 1024) {
         buffer = await sharp(buffer)
-          .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+          .rotate()
+          .resize({ width: LADO_IA, height: LADO_IA, fit: 'inside', withoutEnlargement: true })
           .jpeg({ quality: 80 })
           .toBuffer();
         formato = 'jpeg';
-      } catch { /* si no se puede reducir, abajo se rechaza */ }
-      if (buffer.length > MAX_BYTES_IMAGEN) return { error: `"${nombre}" pesa más de 5 MB.` };
-    }
+      }
+    } catch { /* si no se puede reducir, se revisa el tamaño tal cual */ }
+    if (buffer.length > MAX_BYTES_IMAGEN) return { error: `"${nombre}" pesa más de 5 MB.` };
     lista.push({ nombre, mime: `image/${formato}`, buffer, tipo: 'image' });
+  }
+  const total = lista.reduce((n, a) => n + a.buffer.length, 0);
+  if (total > MAX_BYTES_TOTAL) {
+    return { error: 'Entre todos los archivos pasan de 18 MB. Manda menos o más ligeros (los PDF son los que más pesan).' };
   }
   return { lista };
 }

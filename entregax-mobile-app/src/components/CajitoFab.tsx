@@ -56,7 +56,9 @@ const Chip = ({ label, bg = '#f3f4f6', fg = '#374151' }: { label: string; bg?: s
 
 interface ChatMsg { role: 'user' | 'cajito'; text: string; tools?: string[]; adjuntos?: { nombre: string; mime: string; uri?: string }[]; }
 interface AdjuntoPorMandar { nombre: string; mime: string; uri: string; base64: string; }
-const LIMITE_ADJUNTOS = 3;
+const LIMITE_ADJUNTOS = 10;
+// Entre todos. Van en base64 dentro del JSON y el servidor acepta hasta 50 MB.
+const LIMITE_MB_TOTAL = 30;
 
 interface Props {
   user: { role?: string; name?: string; full_name?: string };
@@ -171,7 +173,14 @@ export default function CajitoFab({ user, token }: Props) {
   const roleLabel = isSuperAdmin ? 'Super Admin' : (role === 'customer_service' ? 'Servicio a cliente' : 'Mis clientes');
 
   const agregarAdjunto = (a: AdjuntoPorMandar) =>
-    setAdjuntos((prev) => (prev.length >= LIMITE_ADJUNTOS ? prev : [...prev, a]));
+    setAdjuntos((prev) => {
+      const mb = [...prev, a].reduce((n, x) => n + (x.base64.length * 0.75) / 1048576, 0);
+      if (prev.length >= LIMITE_ADJUNTOS || mb > LIMITE_MB_TOTAL) {
+        Alert.alert('Adjuntos', `Hasta ${LIMITE_ADJUNTOS} archivos y ${LIMITE_MB_TOTAL} MB entre todos: "${a.nombre}" ya no cupo.`);
+        return prev;
+      }
+      return [...prev, a];
+    });
 
   const elegirFoto = async () => {
     const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
