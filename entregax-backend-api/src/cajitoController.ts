@@ -503,7 +503,9 @@ export const TOOLS: ToolDef[] = [
         return {
           found: false,
           probe: variantes,
-          nota: 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
+          nota: /^LOG/i.test(limpio)
+            ? 'Es un LOG marítimo: esos no viven en paquetes. Consúltalo con lookup_maritimo.'
+            : 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
         };
       }
       // Se traduce el origen de la guia a lenguaje llano: dejarlo como
@@ -516,6 +518,167 @@ export const TOOLS: ToolDef[] = [
           : 'no registrado',
       }));
       return { found: true, packages: paquetes };
+    }
+  },
+
+  // -------------------- MARÍTIMO: un LOG a fondo --------------------
+  // CJD-2026-0008 · TKT-2026-2600. Un asesor preguntó por qué cambió la ETA de
+  // LOG26CNMX01031 y Cajito contestó que le faltaban herramientas. Tenía razón:
+  // los LOG viven en maritime_orders y aquí solo se buscaba en packages.
+  //
+  // Pero lo que de verdad hacía falta era el DIAGNÓSTICO, no la fila: ese LOG
+  // nunca se ligó a un contenedor, y la ETA sale del contenedor. No había ETA en
+  // ningún lado —ni en la app del cliente— y la fecha que se le dio al asesor no
+  // salía de nuestros datos. Esta tool lo dice con esas palabras, y dice además
+  // POR QUÉ no tiene contenedor: si su BL está en un borrador que nadie aprobó,
+  // si se rechazó, o si el documento nunca llegó.
+  {
+    name: 'lookup_maritimo',
+    requiredCapability: 'cajito.read.packages',
+    readOnly: true,
+    description: 'Investiga un envío MARÍTIMO por su LOG (LOG26CNMX…): estado, cliente, barco, su CONTENEDOR con ETA, zarpe y llegada, el rastreo de la orden, el historial del contenedor, y si su documento de recepción (BL/packing list) está aprobado, rechazado o detenido. Trae un "diagnostico" en español llano que explica, por ejemplo, por qué no hay ETA. Úsala SIEMPRE que pregunten por un LOG, por la ETA o fecha de llegada de algo marítimo, o por qué cambió o no aparece.',
+    parameters: {
+      type: 'object',
+      properties: {
+        log: { type: 'string', description: 'El LOG, ej. LOG26CNMX01031' },
+      },
+      required: ['log'],
+    },
+    handler: async ({ log }) => {
+      const q = String(log || '').replace(/\s+/g, '').toUpperCase();
+      if (q.length < 6) return { error: 'Dame el LOG completo, ej. LOG26CNMX01031.' };
+      const dias = (d: any) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
+
+      const o = await pool.query(
+        `SELECT mo.id, mo.ordersn, mo.shipping_mark, mo.status, mo.goods_name, mo.goods_num, mo.weight, mo.volume,
+                mo.ship_number, mo.container_id, mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date,
+                mo.tracking_disabled, mo.tracking_disabled_reason, mo.created_at, mo.received_at, mo.delivered_at,
+                mo.payment_status, mo.saldo_pendiente,
+                u.full_name AS cliente
+           FROM maritime_orders mo LEFT JOIN users u ON u.id = mo.user_id
+          WHERE UPPER(mo.ordersn) = $1 LIMIT 1`, [q]);
+      if (!o.rows.length) {
+        return { found: false, nota: `No existe ninguna orden marítima ${q}. Revisa que el LOG esté completo.` };
+      }
+      const ord = o.rows[0];
+
+      const rastreo = await pool.query(
+        `SELECT track_date AS fecha, status, COALESCE(detail_en, detail) AS detalle
+           FROM maritime_tracking_logs WHERE ordersn = $1 OR maritime_order_id = $2
+          ORDER BY COALESCE(track_date, created_at) DESC LIMIT 12`, [ord.ordersn, ord.id]);
+
+      let contenedor: any = null, historial: any[] = [], eventos: any[] = [];
+      if (ord.container_id) {
+        const c = await pool.query(
+          // Las columnas `date` se piden como texto: node-pg las vuelve un Date a
+          // medianoche local y al serializarse se corren de hora (y "Thu Jul 02"
+          // no dice ni el año). Una ETA es un día, no un instante.
+          `SELECT id, container_number, bl_number, status, to_char(eta, 'YYYY-MM-DD') AS eta, week_number, vessel_name, voyage_number,
+                  port_of_loading, port_of_discharge, to_char(laden_on_board, 'YYYY-MM-DD') AS laden_on_board, planned_departure, actual_departure,
+                  actual_arrival, last_tracking_event, last_tracking_date, last_tracking_location, updated_at
+             FROM containers WHERE id = $1`, [ord.container_id]);
+        contenedor = c.rows[0] || null;
+        historial = (await pool.query(
+          `SELECT changed_at AS fecha, previous_status AS antes, new_status AS despues, changed_by_name AS quien, notes AS nota
+             FROM container_status_history WHERE container_id = $1 ORDER BY changed_at DESC LIMIT 12`, [ord.container_id])).rows;
+        eventos = (await pool.query(
+          `SELECT event_date AS fecha, event_description AS evento, location AS lugar, vessel_name AS barco, created_at AS capturado
+             FROM container_tracking_logs WHERE container_id = $1 ORDER BY COALESCE(event_date, created_at) DESC LIMIT 12`, [ord.container_id])).rows;
+      }
+
+      // ¿Qué pasó con su documento de recepción? Es el paso que liga el LOG a
+      // su contenedor: sin él no hay contenedor y sin contenedor no hay ETA.
+      const docs = (await pool.query(
+        `SELECT id, status, created_at, reviewed_at, rejection_reason,
+                COALESCE(extracted_data->>'containerNumber', container_number) AS contenedor,
+                COALESCE(extracted_data->>'blNumber', bl_number) AS bl,
+                extracted_data->>'vesselName' AS barco, extracted_data->>'eta' AS eta
+           FROM maritime_reception_drafts
+          WHERE extracted_data::text ILIKE $1
+          ORDER BY id DESC LIMIT 5`, [`%"${ord.ordersn}"%`])).rows;
+
+      const diag: string[] = [];
+      const parado = dias(ord.last_tracking_date);
+      if (!ord.container_id) {
+        diag.push('No tiene contenedor ligado. La ETA sale del contenedor, así que en el sistema NO hay ETA para este LOG: tampoco la ve el cliente en la app. Cualquier fecha que se le haya dado no sale de nuestros datos.');
+        const pend = docs.find((d: any) => d.status === 'draft');
+        const rech = docs.find((d: any) => d.status === 'rejected');
+        const apro = docs.find((d: any) => d.status === 'approved');
+        if (pend) diag.push(`Su documento de recepción está en el borrador #${pend.id} (contenedor ${pend.contenedor || '—'}, BL ${pend.bl || '—'}) y nadie lo ha aprobado desde hace ${dias(pend.created_at)} días. Al aprobarlo en Recepción Marítima se liga el contenedor y aparece la ETA.`);
+        else if (apro) diag.push(`Venía en el borrador #${apro.id}, que sí se aprobó, pero la orden quedó sin contenedor: eso no debería pasar y vale la pena reportarlo.`);
+        else if (rech) diag.push(`Venía en el borrador #${rech.id}, que se rechazó (${rech.rejection_reason || 'sin motivo'}) y no se volvió a cargar.`);
+        else diag.push(`Ningún correo de BL o packing list lo ha traído. Hay que conseguir el documento del contenedor en el que salió${ord.ship_number ? ` (barco ${ord.ship_number})` : ''}.`);
+      } else if (contenedor && !contenedor.eta) {
+        diag.push(`Tiene contenedor (${contenedor.container_number || contenedor.id}), pero el contenedor no tiene ETA capturada.`);
+      } else if (contenedor) {
+        diag.push(`ETA vigente del contenedor ${contenedor.container_number}: ${contenedor.eta}.`);
+      }
+      diag.push('El sistema NO guarda historial de cambios de ETA, solo la vigente. Para explicar un cambio, apóyate en los eventos del contenedor y del barco.');
+      if (parado !== null && parado > 30 && !['delivered', 'cancelled'].includes(String(ord.status))) {
+        diag.push(`El rastreo lleva ${parado} días sin movimiento (último: "${ord.last_tracking_status}").`);
+      }
+      if (ord.tracking_disabled) diag.push(`El rastreo automático está apagado: ${ord.tracking_disabled_reason || 'sin motivo'}.`);
+
+      return {
+        found: true,
+        diagnostico: diag,
+        orden: { ...ord, dias_sin_rastreo: parado },
+        contenedor,
+        rastreo_orden: rastreo.rows,
+        historial_contenedor: historial,
+        eventos_barco: eventos,
+        documentos_recepcion: docs,
+      };
+    }
+  },
+
+  // -------------------- MARÍTIMO: lo que está detenido --------------------
+  // El caso de arriba no era uno: al revisarlo salieron 161 órdenes en tránsito
+  // sin contenedor y un borrador de recepción (#508, 24 LOGs) sin aprobar desde
+  // el 22 de julio. Nadie lo veía porque no hay pantalla que lo junte.
+  {
+    name: 'maritimo_detenido',
+    requiredCapability: 'cajito.read.warehouses',
+    readOnly: true,
+    description: 'Panorama de lo marítimo que está detenido: órdenes en tránsito SIN contenedor (y por lo tanto sin ETA), las que llevan semanas sin rastreo, y los documentos de recepción (BL/packing list) que nadie ha aprobado ni rechazado. Úsala cuando pregunten qué está atorado en marítimo, por qué hay clientes sin ETA, o qué falta aprobar en Recepción Marítima.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dias: { type: 'number', description: 'A partir de cuántos días sin rastreo se considera parado (por defecto 30)' },
+      },
+    },
+    handler: async ({ dias }) => {
+      const umbral = Math.max(1, Math.min(365, Number(dias) || 30));
+      const res = await pool.query(
+        `SELECT COUNT(*)::int AS en_transito_sin_contenedor,
+                COUNT(*) FILTER (WHERE COALESCE(last_tracking_date, updated_at) < NOW() - make_interval(days => $1))::int AS de_esas_con_rastreo_parado
+           FROM maritime_orders WHERE status = 'in_transit' AND container_id IS NULL`, [umbral]);
+      const parados = await pool.query(
+        `SELECT ordersn, shipping_mark, ship_number, last_tracking_status, last_tracking_date,
+                EXTRACT(DAY FROM NOW() - COALESCE(last_tracking_date, updated_at))::int AS dias_sin_rastreo
+           FROM maritime_orders
+          WHERE status = 'in_transit' AND container_id IS NULL
+            AND COALESCE(last_tracking_date, updated_at) < NOW() - make_interval(days => $1)
+          ORDER BY COALESCE(last_tracking_date, updated_at) ASC LIMIT 15`, [umbral]);
+      const borradores = await pool.query(
+        `SELECT d.id, d.created_at, EXTRACT(DAY FROM NOW() - d.created_at)::int AS dias_sin_revisar,
+                COALESCE(d.extracted_data->>'containerNumber', d.container_number) AS contenedor,
+                COALESCE(d.extracted_data->>'blNumber', d.bl_number) AS bl,
+                d.extracted_data->>'vesselName' AS barco,
+                jsonb_array_length(COALESCE(d.extracted_data->'logs', '[]'::jsonb)) AS logs,
+                (SELECT COUNT(*)::int FROM maritime_orders mo
+                  WHERE mo.container_id IS NULL
+                    AND mo.ordersn IN (SELECT l->>'log' FROM jsonb_array_elements(COALESCE(d.extracted_data->'logs','[]'::jsonb)) l)) AS logs_sin_contenedor
+           FROM maritime_reception_drafts d
+          WHERE d.status = 'draft'
+          ORDER BY d.created_at ASC LIMIT 15`);
+      return {
+        resumen: res.rows[0],
+        umbral_dias: umbral,
+        ordenes_paradas: parados.rows,
+        borradores_sin_revisar: borradores.rows,
+        nota: 'Una orden en tránsito sin contenedor no tiene ETA: ni para nosotros ni para el cliente. El contenedor se liga al aprobar su documento en Recepción Marítima.',
+      };
     }
   },
 
@@ -1899,6 +2062,7 @@ export function buildSystemPrompt(
     'Estados de paquetes: pending (pendiente), received (recibido en almacén origen), in_transit (en tránsito), in_cedis (en CEDIS/almacén local), out_for_delivery (en ruta de entrega), delivered (entregado), cancelled (cancelado).',
     '"Contenedores": tabla containers, son los contenedores marítimos que agrupan envíos SEA_CHN_MX.',
     'Estados de contenedores: received_origin (recibido en China), consolidated (consolidado), in_transit (zarpó, en camino), arrived_port (llegó al puerto MX), customs_cleared (aduana liberada), in_transit_clientfinal (en camino al cliente final), delivered (entregado).',
+    'MARÍTIMO: un LOG (LOG26CNMX…) se consulta con lookup_maritimo; lo que está atorado en marítimo, con maritimo_detenido. Si preguntan por una ETA, di lo que trae el "diagnostico": si no hay contenedor, NO hay ETA en el sistema, y no inventes ni estimes una.',
     'Para preguntas sobre cajas/paquetes pendientes o en tránsito → usa packages_pending_counts o package_status_counts.',
     'Para preguntas sobre contenedores marítimos → usa container_status_counts.',
     '',
@@ -2033,7 +2197,8 @@ export const investigarTicketCore = async (
       '',
       'SIGUE ESTE PROCESO, EN ORDEN:',
       '1. Lee el hilo completo y di en una línea qué se está reclamando.',
-      '2. Saca TODOS los folios y códigos que menciona: guías (US-, TDX-, JJD, 10 dígitos), órdenes (UW-, RO-, PP-, CEX-), operaciones X-Pay (XP), casilleros.',
+      '2. Saca TODOS los folios y códigos que menciona: guías (US-, TDX-, JJD, AIR, 10 dígitos), LOG marítimos (LOG26CNMX…), órdenes (UW-, RO-, PP-, CEX-), operaciones X-Pay (XP), casilleros.',
+      '   Un LOG se investiga con lookup_maritimo, no con lookup_package. Si preguntan por una ETA o por qué cambió, usa su "diagnostico": ahí dice si hay ETA en el sistema o no, y por qué.',
       '3. Búscalos con tus herramientas. No te quedes con lo que dice el ticket: compáralo contra lo que dicen los datos.',
       '4. Di si lo que reclama el usuario CUADRA o NO con el sistema, y con qué números.',
       '5. Concluye en una de estas CINCO:',
