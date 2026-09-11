@@ -167,6 +167,15 @@ class OpenAiProvider implements LlmProvider {
               content: tr.content,
             });
           }
+          // Imágenes que regresó una herramienta (ver_imagenes_ticket): OpenAI no
+          // las acepta dentro de un mensaje 'tool', van en uno de usuario aparte.
+          const imagenes = m.content.filter((b) => b.type === 'image') as LlmImageContent[];
+          if (imagenes.length) {
+            oaiMessages.push({
+              role: 'user',
+              content: imagenes.map((b) => ({ type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } })),
+            });
+          }
         } else {
           const partes: any[] = [];
           for (const b of m.content) {
