@@ -1,5 +1,19 @@
 // EntregaX Backend API v2.1.0
 import './instrument'; // Sentry.init() ANTES de importar express
+
+// ── Estos tres suben aquí a la fuerza, y no es capricho ───────────────────────
+// TypeScript emite cada `require` EN EL LUGAR donde está el import, no arriba.
+// Estos tres vivían pasada la línea 8700 pero sus rutas se registran mucho
+// antes (la de mostrador en la ~4870), así que el JS compilado usaba el binding
+// antes de crearlo: ReferenceError en la línea 1 del arranque, el proceso
+// muerto, 502 en todo.
+//
+// Lo cazó `npm run check:arranque`, que revisa justo esto en dist/index.js y
+// ahora corre pegado al build. Si vuelves a agregar un import a media página,
+// el build te lo dice antes de que lo veas Railway.
+import { requireSuperAdmin, requireSuperAdminOrAdmin, requirePanelPermission, requirePanelPermissionOrRoles } from './authMiddleware';
+import { listarPendientesMostrador as poboxListarPendientesMostrador, entregarEnMostrador as poboxEntregarEnMostrador } from './poboxEntregaMostrador';
+import { cajaHidalgo as poboxCajaHidalgo } from './poboxCajaHidalgo';
 import express, { NextFunction, Request, Response } from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -8753,7 +8767,6 @@ import {
   updateUserModulePermissions,
   getMyModulePermissions
 } from './permissionController';
-import { requireSuperAdmin, requireSuperAdminOrAdmin, requirePanelPermission, requirePanelPermissionOrRoles } from './authMiddleware';
 
 // Email Inbound Controller (Webhooks de correo)
 import {
@@ -14594,8 +14607,6 @@ import {
   verifyAuth as syncVerifyAuth,
 } from './syncController';
 import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes, syncListTasks } from './syncService';
-import { listarPendientesMostrador as poboxListarPendientesMostrador, entregarEnMostrador as poboxEntregarEnMostrador } from './poboxEntregaMostrador';
-import { cajaHidalgo as poboxCajaHidalgo } from './poboxCajaHidalgo';
 import {
   uploadBrandAsset,
   activateBrandAsset,
