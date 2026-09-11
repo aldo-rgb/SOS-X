@@ -727,6 +727,10 @@
         "title": "TDI Air China",
         "subtitle": "Administrative management of air shipments from China"
       },
+      "tdi_express": {
+        "title": "TDI Express",
+        "subtitle": "Administrative management of TDX shipments from the warehouse in China"
+      },
       "china_sea": {
         "title": "Maritime China",
         "subtitle": "Administrative management of maritime consolidations"

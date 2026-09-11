@@ -120,6 +120,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const SERVICE_ICONS = {
     china_air: <FlightIcon />,
+    tdi_express: <FlightIcon />,
     china_sea: <BoatIcon />,
     usa_pobox: <TruckIcon />,
     mx_cedis: <WarehouseIcon />,
@@ -128,6 +129,7 @@ const SERVICE_ICONS = {
 
 const SERVICE_COLORS = {
     china_air: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇨🇳' },
+    tdi_express: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇨🇳' },
     china_sea: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇨🇳' },
     usa_pobox: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇺🇸' },
     mx_cedis: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇲🇽' },
@@ -182,6 +184,13 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'air_management', status: 'active' },
         { key: 'cajo_management', status: 'active' },
         { key: 'reports', status: 'pending' },
+    ],
+    // TDI Express (TDX): la mercancía entra por la bodega de Feng en China, así
+    // que necesita su propia dirección e instrucciones de empaque. Antes no
+    // estaba en esta lista y no había dónde capturarlas (Aldo, 11-sep-2026).
+    tdi_express: [
+        { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
     ],
     china_sea: [
         { key: 'costing', status: 'active' },
@@ -245,6 +254,7 @@ interface Props {
 // Mapeo de panel_key a código de servicio
 const PANEL_TO_SERVICE: Record<string, string> = {
     'admin_china_air': 'china_air',
+    'admin_tdi_express': 'tdi_express',
     'admin_china_sea': 'china_sea',
     'admin_usa_pobox': 'usa_pobox',
     'admin_mx_cedis': 'mx_cedis',
@@ -361,6 +371,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     // Lista estática de servicios - no depende de endpoint que requiere nivel DIRECTOR
     const SERVICES_LIST = [
         { code: 'china_air', name: 'China Air', services: ['AIR_CHN_MX'] },
+        { code: 'tdi_express', name: 'TDI Express', services: ['TDI_EXPRESS'] },
         { code: 'china_sea', name: 'China Sea', services: ['SEA_CHN_MX'] },
         { code: 'usa_pobox', name: 'USA PO Box', services: ['POBOX_USA'] },
         { code: 'mx_cedis', name: 'MX CEDIS', services: ['AA_DHL'] },

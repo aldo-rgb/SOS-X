@@ -773,6 +773,10 @@
         "title": "TDI Aéreo China",
         "subtitle": "Gestión administrativa de envíos aéreos desde China"
       },
+      "tdi_express": {
+        "title": "TDI Express",
+        "subtitle": "Gestión administrativa de los envíos TDX desde la bodega en China"
+      },
       "china_sea": {
         "title": "Marítimo China",
         "subtitle": "Gestión administrativa de consolidados marítimos"

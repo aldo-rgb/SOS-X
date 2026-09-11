@@ -688,6 +688,10 @@
         "title": "TDI中国空运",
         "subtitle": "中国空运货物管理"
       },
+      "tdi_express": {
+        "title": "TDI Express",
+        "subtitle": "中国仓库TDX货物管理"
+      },
       "china_sea": {
         "title": "中国海运",
         "subtitle": "海运拼柜管理"
