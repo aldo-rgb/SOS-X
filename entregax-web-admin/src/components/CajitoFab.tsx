@@ -1366,6 +1366,13 @@ export default function CajitoFab() {
   // Mismo criterio que en la app: reportar un error levanta una tarea y le suena
   // el teléfono a quien la recibe, así que solo administración.
   const puedeReportar = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
+  // Estos dos hooks van AQUI, antes de los `return null` de mas abajo. Los tuve
+  // primero junto a reportarError y eso tumbo el dashboard entero: en el primer
+  // render `loading` es true y el componente sale por el return; en el segundo
+  // ya no, y React se encontro con dos hooks que no existian antes. Un hook
+  // despues de un return condicional no es un detalle de estilo.
+  const [reportando, setReportando] = useState<number | null>(null);
+  const [reportadas, setReportadas] = useState<Record<number, string>>({});
   const _role = String(user?.role || '').toLowerCase();
   // Asesores: acceso por default solo a "Rastrear guía" (acotado a sus clientes).
   const isAdvisor = ['advisor', 'sub_advisor'].includes(_role);
@@ -1496,9 +1503,6 @@ export default function CajitoFab() {
   // tenía cómo levantarlo. Manda a la tarea la pregunta y la respuesta tal cual
   // las dio Cajito —sin editar— porque lo valioso es el detalle con el que las
   // dedujo.
-  const [reportando, setReportando] = useState<number | null>(null);
-  const [reportadas, setReportadas] = useState<Record<number, string>>({});
-
   const reportarError = async (i: number) => {
     if (reportando !== null || reportadas[i]) return;
     const respuesta = messages[i]?.text || '';
