@@ -2600,6 +2600,7 @@ export const escalarADireccion = async (ticketId: number, uid: number, role: str
   const desc = [
     `⬆️ ${quien} escaló el ticket ${folio}${t.cliente ? ` · ${t.cliente}${t.box_id ? ` (${t.box_id})` : ''}` : ''}. Necesita tu decisión.`,
     String(nota || '').trim() ? `\n📝 Nota de Servicio a Cliente:\n${String(nota).trim()}` : '',
+    c.motivo_escalar ? `\n💬 Qué piden y qué ofrecen a cambio:\n${c.motivo_escalar}` : '',
     c.reclamo ? `\n🔎 Lo que se pide (según Cajito):\n${c.reclamo}` : '',
     primerMsg ? `\n📩 El mensaje original:\n${String(primerMsg).trim()}` : '',
   ].filter(Boolean).join('\n').trim();

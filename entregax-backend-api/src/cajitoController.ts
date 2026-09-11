@@ -2180,6 +2180,21 @@ async function saveMessage(conversationId: number, opts: {
  * la revisión automática al crear un ticket. Devuelve el veredicto o un error
  * con su código; nunca lanza.
  */
+// ── Precio a cambio de volumen → Juan Carlos ─────────────────────────────────
+// Regla de Aldo (11-sep-2026): pedir un mejor precio a cambio de una compra
+// mayor le toca a Juan Carlos; una cotización a secas se queda en Servicio a
+// Cliente. El modelo lo sabe por el prompt, pero no se deja solo en él: en local
+// el TKT-2026-2673 salió "CORRECTO". Esta red fija lo detecta en el texto.
+//
+// Medida contra 880 tickets de 45 días: 18 piden precio o descuento y solo 4
+// además ofrecen volumen —las cuatro capturas de la misma petición de Genaro
+// (TKT-2026-2671 a 2674)—. Los que solo piden precio son "aplícale el descuento
+// que ya tiene autorizado" y no se marcan.
+const PIDE_MEJOR_PRECIO = /(mejor(ar)?\s+(el\s+|un\s+)?(precio|costo|tarifa)|(precio|costo|tarifa)\s+preferencial|descuento|rebaja|negociar|llegar a un acuerdo con (el )?costo)/i;
+const OFRECE_MAS_VOLUMEN = /(contenedores?\s+(en\s+puerta|pr[oó]ximos|para enviar|por enviar|m[aá]s)|\d+\s+contenedores|m[aá]s\s+(volumen|env[ií]os|contenedores|carga)|env[ií]os?\s+(recurrentes?|constantes?|mensuales?|futuros?)|futuros?\s+env[ií]os|cliente\s+potencial|seguir[ií]a\s+trabajando)/i;
+export const pidePrecioPorVolumen = (texto: string): boolean =>
+  PIDE_MEJOR_PRECIO.test(String(texto || '')) && OFRECE_MAS_VOLUMEN.test(String(texto || ''));
+
 export const investigarTicketCore = async (
   ticketId: number,
   userId: number,
@@ -2237,7 +2252,9 @@ export const investigarTicketCore = async (
       '   (c) ACOMPANAR — no hay nada roto que reparar: el caso está en curso o depende de un tercero (aduana, la paquetería, el proveedor) y lo que hace falta es que Servicio a Cliente CONTENGA al cliente: hablarle, explicarle en qué va y darle seguimiento. Una guía detenida en aduana desde hace semanas es esto, no un error de código.',
       '   (d) CORRECTO — el sistema está bien y sólo hay que explicárselo.',
       '   (e) NO_PUDE — no alcanzo a determinarlo.',
-      '   (f) DECISION — no hay nada que investigar en el sistema: piden algo que tiene que decidir una persona con autoridad. Un precio o descuento a futuro, una excepción a una regla, un trato especial para un cliente. Ni lo concedas ni lo niegues: Servicio a Cliente decide si lo resuelve o lo escala a Juan Carlos.',
+      '   (f) DECISION — no hay nada que investigar en el sistema: piden algo que tiene que decidir una persona con autoridad. Una excepción a una regla, un trato especial para un cliente. Ni lo concedas ni lo niegues: Servicio a Cliente decide si lo resuelve o lo escala.',
+      '       · Si piden MEJOR PRECIO o DESCUENTO a cambio de COMPRAR MÁS —más contenedores, más volumen, envíos recurrentes, una promesa de negocio a futuro— eso le toca a JUAN CARLOS: pon "escalar_a": "juan_carlos" y en "motivo_escalar" una línea con qué piden y qué ofrecen a cambio.',
+      '       · Una COTIZACIÓN a secas —piden el precio de un envío sin ofrecer nada a cambio— NO es DECISION ni se escala: la resuelve Servicio a Cliente. Concluye ACOMPANAR y di en la explicación que es una cotización.',
       'No confundas (a) con (c). La prueba es UNA: ¿hay algo que un programador tendría que reparar para que esto no vuelva a pasar?',
       '  - SÍ lo hay → es (a) ERROR_SISTEMA, aunque el caso ya esté en curso, aunque alguien ya lo esté atendiendo a mano, y aunque al cliente le vayan a resolver por otra vía. Que se esté resolviendo NO quiere decir que no esté roto.',
       '  - NO lo hay → es (c). Una guía detenida en aduana, un proveedor que no contesta, una entrega que se atrasó: ahí no hay nada que reparar en el software.',
@@ -2261,7 +2278,9 @@ export const investigarTicketCore = async (
       '  "conclusion": "ERROR_SISTEMA|CAPTURA|ACOMPANAR|CORRECTO|NO_PUDE|DECISION",',
       '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
       '  "para_el_cliente": "lo que Servicio a Cliente le va a decir al cliente, en dos líneas",',
-      '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó"',
+      '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó",',
+      '  "escalar_a": "sólo si conclusion es DECISION y piden mejor precio a cambio de comprar más: juan_carlos. En cualquier otro caso, vacío",',
+      '  "motivo_escalar": "sólo si hay escalar_a: una línea con qué piden y qué ofrecen a cambio"',
       '}',
       '',
       'SOBRE "para_el_cliente" — es el campo que más se va a usar, así que léelo dos veces:',
@@ -2380,7 +2399,26 @@ export const investigarTicketCore = async (
       if (ini >= 0 && fin > ini) datos = JSON.parse(bruto.slice(ini, fin + 1));
     } catch { datos = null; }
 
-    const conclusion = String(datos?.conclusion || 'NO_PUDE').toUpperCase();
+    let conclusion = String(datos?.conclusion || 'NO_PUDE').toUpperCase();
+    let escalarA = conclusion === 'DECISION' && String(datos?.escalar_a || '').trim().toLowerCase() === 'juan_carlos' ? 'juan_carlos' : '';
+    let motivoEscalar = String(datos?.motivo_escalar || '').trim();
+    // Red fija: si lo que escribió el cliente/asesor pide mejor precio a cambio
+    // de más volumen, es de Juan Carlos aunque el modelo no lo haya dicho.
+    // Incluye ACOMPANAR y CORRECTO a propósito: en producción las cuatro capturas
+    // idénticas de la petición de Genaro salieron tres veces ACOMPANAR y una
+    // NO_PUDE — el mismo texto, cuatro juicios—. Solo respeta ERROR_SISTEMA y
+    // CAPTURA, que disparan un reporte. Es seguro porque la regla no marcó ni un
+    // ticket de más en 880. Va ANTES de decidir si se registra duda.
+    if (!escalarA && ['NO_PUDE', 'DECISION', 'ACOMPANAR', 'CORRECTO'].includes(conclusion)) {
+      const loQueEscribieron = msgs.rows
+        .filter((m: any) => !['agent', 'ai'].includes(String(m.sender_type || '')))
+        .map((m: any) => String(m.message || '')).join(' ');
+      if (pidePrecioPorVolumen(loQueEscribieron)) {
+        conclusion = 'DECISION';
+        escalarA = 'juan_carlos';
+        if (!motivoEscalar) motivoEscalar = 'Pide mejor precio y ofrece más volumen a futuro (detectado en el mensaje; revisen los números en el ticket).';
+      }
+    }
     const pudo = conclusion !== 'NO_PUDE';
     // Si no vino JSON, se devuelve el texto crudo para no perder el trabajo.
     const hallazgo = datos ? '' : String(texto || '').trim();
@@ -2424,6 +2462,11 @@ export const investigarTicketCore = async (
       pudo,
       es_error_sistema: conclusion === 'ERROR_SISTEMA',
       requiere_decision: conclusion === 'DECISION',
+      // A quién le toca. Hoy solo hay un destino con nombre: precio a cambio de
+      // volumen es de Juan Carlos. Una cotización a secas se queda en Servicio
+      // a Cliente y ni siquiera llega como DECISION.
+      escalar_a: escalarA,
+      motivo_escalar: motivoEscalar,
       reclamo: datos?.reclamo || '',
       folios: Array.isArray(datos?.folios) ? datos.folios : [],
       hallazgos: Array.isArray(datos?.hallazgos) ? datos.hallazgos : [],

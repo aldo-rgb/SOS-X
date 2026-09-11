@@ -43,13 +43,18 @@ const sugerirEnTicket = async (ticketId: number, v: any): Promise<void> => {
     [ticketId, `${PREFIJO_SUGERENCIA}%`]);
   if (ya.rows.length) return;
   const entendi = String(v.reclamo || '').trim();
-  const motivo = v.conclusion === 'DECISION'
-    ? 'esto no se resuelve en el sistema: lo tiene que decidir una persona (precio, descuento o una excepción).'
-    : `no alcancé a resolverlo${v.falto ? ` — ${String(v.falto).trim()}` : '.'}`;
+  const paraJuanCarlos = v.escalar_a === 'juan_carlos';
+  const motivo = paraJuanCarlos
+    ? `esto es para Juan Carlos: piden un mejor precio a cambio de comprar más${v.motivo_escalar ? ` (${String(v.motivo_escalar).trim()})` : ''}.`
+    : v.conclusion === 'DECISION'
+      ? 'esto no se resuelve en el sistema: lo tiene que decidir una persona.'
+      : `no alcancé a resolverlo${v.falto ? ` — ${String(v.falto).trim()}` : '.'}`;
   const texto = [
     `${PREFIJO_SUGERENCIA}: ${motivo}`,
     entendi ? `Lo que entendí: ${entendi}` : '',
-    'Ustedes deciden: si lo pueden resolver aquí, respondan al cliente; si no, usen «Escalar a Juan Carlos» en este ticket.',
+    paraJuanCarlos
+      ? 'Si están de acuerdo, usen «Escalar a Juan Carlos» en este ticket.'
+      : 'Ustedes deciden: si lo pueden resolver aquí, respondan al cliente; si no, usen «Escalar a Juan Carlos» en este ticket.',
   ].filter(Boolean).join('\n\n');
   await pool.query(
     `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
@@ -79,6 +84,8 @@ const guardarVeredicto = async (ticketId: number, v: any): Promise<void> => {
       falto: v.falto,
       folio_duda: v.folio_duda,
       hallazgo: v.hallazgo,
+      escalar_a: v.escalar_a,
+      motivo_escalar: v.motivo_escalar,
       origen: v.origen,
       revisado_at: new Date().toISOString(),
       automatico: v.origen === 'automatico',

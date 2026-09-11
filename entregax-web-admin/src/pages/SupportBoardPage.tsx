@@ -142,6 +142,8 @@ interface SupportTicket {
       falto?: string;
       folio_duda?: string | null;
       hallazgo?: string;
+      escalar_a?: string;
+      motivo_escalar?: string;
     };
   } | null;
 }
@@ -865,6 +867,7 @@ export default function SupportBoardPage() {
     reclamo: string; folios: string[]; hallazgos: Hallazgo[];
     explicacion: string; falto: string; hallazgo: string; folio_duda?: string | null;
     para_el_cliente?: string; guardada?: boolean; revisado_at?: string;
+    escalar_a?: string; motivo_escalar?: string;
   } | null>(null);
   // Los pasos que va diciendo mientras trabaja son los que de verdad ejecuta,
   // no relleno: leer, extraer folios, buscarlos, comparar y concluir. Ver a
@@ -1780,7 +1783,7 @@ export default function SupportBoardPage() {
                   CAPTURA: 'Un dato quedó mal · ya reportado',
                   ACOMPANAR: 'No hay nada roto: hay que acompañar al cliente',
                   CORRECTO: 'El sistema está bien · hay que explicárselo',
-                  DECISION: 'Requiere decisión de Juan Carlos',
+                  DECISION: 'Requiere decisión',
                   NO_PUDE: 'Cajito no alcanzó a determinarlo',
                 };
                 return (
@@ -1793,7 +1796,7 @@ export default function SupportBoardPage() {
                       <Typography variant="caption" sx={{ fontWeight: 800, color: '#6b7280' }}>
                         LO QUE ENCONTRÓ CAJITO
                       </Typography>
-                      <Chip size="small" label={etiqueta[String(c.conclusion)] || c.conclusion}
+                      <Chip size="small" label={c.escalar_a === 'juan_carlos' ? 'Para Juan Carlos' : (etiqueta[String(c.conclusion)] || c.conclusion)}
                             color={esNuestro ? 'error' : 'default'} variant={esNuestro ? 'filled' : 'outlined'} />
                     </Box>
 
@@ -1834,7 +1837,9 @@ export default function SupportBoardPage() {
                     {['DECISION', 'NO_PUDE'].includes(String(c.conclusion)) && (
                       <Box sx={{ mt: 1 }}>
                         <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mb: 0.5 }}>
-                          Ustedes deciden: si lo pueden resolver, respondan al cliente; si no, escálenlo.
+                          {c.escalar_a === 'juan_carlos'
+                            ? `Esto es para Juan Carlos: piden mejor precio a cambio de comprar más${c.motivo_escalar ? ` — ${c.motivo_escalar}` : ''}.`
+                            : 'Ustedes deciden: si lo pueden resolver, respondan al cliente; si no, escálenlo.'}
                         </Typography>
                         <Button size="small" variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
                           sx={{ textTransform: 'none', borderColor: '#7C3AED', color: '#6D28D9' }}>
@@ -2232,9 +2237,15 @@ export default function SupportBoardPage() {
               trabajo nuestro. */}
           {!invLoading && inv && inv.conclusion === 'DECISION' && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              <strong>No hay nada roto: lo que piden lo tiene que decidir una persona.</strong>
+              <strong>
+                {inv.escalar_a === 'juan_carlos'
+                  ? 'Esto es para Juan Carlos: piden mejor precio a cambio de comprar más.'
+                  : 'No hay nada roto: lo que piden lo tiene que decidir una persona.'}
+              </strong>
               <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
-                Un precio, un descuento o una excepción. Si lo pueden resolver, respondan al cliente; si no, escálenlo a Juan Carlos.
+                {inv.escalar_a === 'juan_carlos'
+                  ? (inv.motivo_escalar || 'Si están de acuerdo, escálenlo a Juan Carlos.')
+                  : 'Si lo pueden resolver, respondan al cliente; si no, escálenlo.'}
               </Typography>
             </Alert>
           )}
