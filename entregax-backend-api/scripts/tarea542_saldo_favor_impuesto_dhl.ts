@@ -29,6 +29,16 @@ const APLICAR = process.argv.includes('--aplicar');
 // revisión aparte: a Ramón (S2031) ya le habían compensado a mano y no hay
 // renglón que diga cuánto, así que abonarle a ciegas lo pagaría dos veces.
 const SOLO = (process.argv.find(a => a.startsWith('--guia=')) || '').split('=')[1] || null;
+
+/**
+ * Lo que ya se compensó a mano y NO dejó renglón en el monedero. Sin esto el
+ * abono se pagaría dos veces. Yliana le aplicó a Ramón (S2031) $908.94 de
+ * descuento por la 4164740403 al atender el ticket; lo dejó escrito en la
+ * tarea 542 pero el movimiento nunca se registró. Confirmado por Aldo.
+ */
+const YA_COMPENSADO: Record<string, number> = {
+  '4164740403': 908.94,
+};
 const f = (n: number) => '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 });
 
 const SQL = `
@@ -73,6 +83,14 @@ async function main() {
       console.log(`· ${r.guia} (${r.box_id}) ya tiene su abono de antes — se salta`);
       continue;
     }
+    const previo = YA_COMPENSADO[String(r.guia)] || 0;
+    if (previo > 0) {
+      const resto = +(Number(r.de_mas) - previo).toFixed(2);
+      console.log(`· ${r.guia} (${r.box_id}) ya recibió ${f(previo)} a mano; quedan ${f(resto)}`);
+      if (resto <= 0.5) continue;
+      r.de_mas = resto;
+      r.previo = previo;
+    }
     pendientes.push(r);
   }
 
@@ -103,7 +121,12 @@ async function main() {
         `Saldo a favor por corrección tarea 542: el impuesto DHL de la guía ${r.guia} ` +
         `se cobró una vez por caja. La nota de aduana fue de ${f(Number(r.nota))} y en las ` +
         `${r.cajas} cajas se cobraron ${f(Number(r.cobrado))}; correspondían ` +
-        `${f(Number(r.debio))}. Se devuelve la diferencia de ${f(monto)}. Autorizado por Aldo.`;
+        `${f(Number(r.debio))}. ` +
+        (r.previo
+          ? `Ya se le habían aplicado ${f(Number(r.previo))} de descuento a mano, así que se ` +
+            `devuelve el resto: ${f(monto)}. `
+          : `Se devuelve la diferencia de ${f(monto)}. `) +
+        `Autorizado por Aldo.`;
 
       await cx.query(
         `UPDATE users SET wallet_balance = COALESCE(wallet_balance,0) + $1 WHERE id = $2`,
