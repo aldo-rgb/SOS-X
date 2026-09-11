@@ -42,34 +42,62 @@ const guardarVeredicto = async (ticketId: number, v: any): Promise<void> => {
         SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cajito', $2::jsonb),
             updated_at = NOW()
       WHERE id = $1`,
+    // Se guarda COMPLETA, con todo lo que pinta el diálogo de Investigar: desde
+    // que el botón muestra esta misma investigación en vez de hacer otra, lo
+    // que no quede aquí no lo ve nadie.
     [ticketId, JSON.stringify({
       conclusion: v.conclusion,
+      pudo: v.pudo,
+      es_error_sistema: v.es_error_sistema,
       reclamo: v.reclamo,
       explicacion: v.explicacion,
       para_el_cliente: v.para_el_cliente,
       hallazgos: v.hallazgos,
       folios: v.folios,
+      falto: v.falto,
+      folio_duda: v.folio_duda,
+      hallazgo: v.hallazgo,
+      origen: v.origen,
       revisado_at: new Date().toISOString(),
-      automatico: true,
+      automatico: v.origen === 'automatico',
     })]
   );
 };
 
 /**
- * Revisa un ticket y, si resulta ser un error nuestro, lo reporta.
+ * Investigaciones en curso, por ticket. Si dos personas aprietan Investigar a la
+ * vez —o una aprieta mientras el juez del alta todavía corre—, comparten la
+ * MISMA investigación en vez de lanzar dos que además podrían concluir distinto.
+ */
+const enCurso = new Map<number, Promise<any | null>>();
+
+/**
+ * Revisa un ticket y, si resulta ser un error nuestro, lo reporta. Devuelve el
+ * veredicto guardado, o null si no se pudo.
  * No lanza nunca: cualquier falla se queda en el log.
  */
-export const revisarTicketAlNacer = async (ticketId: number): Promise<void> => {
+export const revisarTicketAlNacer = (
+  ticketId: number,
+  origen: 'automatico' | 'boton' = 'automatico'
+): Promise<any | null> => {
+  const ya = enCurso.get(ticketId);
+  if (ya) return ya;
+  const p = revisar(ticketId, origen).finally(() => enCurso.delete(ticketId));
+  enCurso.set(ticketId, p);
+  return p;
+};
+
+const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promise<any | null> => {
   try {
     const juez = await superAdminParaJuez();
-    if (!juez) { console.warn('[JUEZ] no hay super admin activo; no se revisa el ticket', ticketId); return; }
+    if (!juez) { console.warn('[JUEZ] no hay super admin activo; no se revisa el ticket', ticketId); return null; }
 
     const { investigarTicketCore } = await import('./cajitoController');
-    const v = await investigarTicketCore(ticketId, juez.id, juez.role, 'automatico');
-    if (!v?.ok) { console.warn(`[JUEZ] ticket ${ticketId}: no se pudo investigar — ${v?.error || 'sin motivo'}`); return; }
+    const v = await investigarTicketCore(ticketId, juez.id, juez.role, origen);
+    if (!v?.ok) { console.warn(`[JUEZ] ticket ${ticketId}: no se pudo investigar — ${v?.error || 'sin motivo'}`); return null; }
 
     await guardarVeredicto(ticketId, v);
-    console.log(`[JUEZ] ${v.folio}: ${v.conclusion}`);
+    console.log(`[JUEZ] ${v.folio}: ${v.conclusion} (${origen})`);
 
     // Se reporta lo que es NUESTRO y hay que reparar: ERROR_SISTEMA y también
     // CAPTURA. Lo segundo lo manda el propio proceso del juez —"un dato mal
@@ -77,23 +105,53 @@ export const revisarTicketAlNacer = async (ticketId: number): Promise<void> => {
     // casos reales resultó que ahí se le van varios: el cobro de impuesto por
     // caja (TKT-2026-2620) lo llamó CAPTURA y era código nuestro multiplicando
     // la nota.
-    if (!['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))) return;
+    if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))) {
+      // El reporte lo levanta el sistema con el mismo camino del botón, para que
+      // la tarea salga idéntica a la que crearía una persona.
+      const { reportarErrorDeTicket } = await import('./supportController');
+      const r = await reportarErrorDeTicket(ticketId, juez.id, [
+        v.reclamo ? `Reclamo: ${v.reclamo}` : '',
+        ...(Array.isArray(v.hallazgos) ? v.hallazgos.map((h: any) =>
+          `· ${h?.dato}: ${h?.valor}${h?.nota ? ` (${h.nota})` : ''}`) : []),
+        v.explicacion || '',
+        '',
+        origen === 'automatico'
+          ? '(Lo revisó Cajito solo, al crearse el ticket. Nadie apretó el botón.)'
+          : '(Lo investigó Cajito la primera vez que alguien apretó Investigar en este ticket.)',
+      ].filter(Boolean).join('\n'));
 
-    // El reporte lo levanta el sistema con el mismo camino del botón, para que
-    // la tarea salga idéntica a la que crearía una persona.
-    const { reportarErrorDeTicket } = await import('./supportController');
-    const r = await reportarErrorDeTicket(ticketId, juez.id, [
-      v.reclamo ? `Reclamo: ${v.reclamo}` : '',
-      ...(Array.isArray(v.hallazgos) ? v.hallazgos.map((h: any) =>
-        `· ${h?.dato}: ${h?.valor}${h?.nota ? ` (${h.nota})` : ''}`) : []),
-      v.explicacion || '',
-      '',
-      '(Lo revisó Cajito solo, al crearse el ticket. Nadie apretó el botón.)',
-    ].filter(Boolean).join('\n'));
+      if (r?.already) console.log(`[JUEZ] ${v.folio}: ya existía la tarea del error`);
+      else if (r?.task_id) console.warn(`[JUEZ] ${v.folio}: ERROR DE SISTEMA reportado solo → tarea ${r.task_id}`);
+    }
 
-    if (r?.already) console.log(`[JUEZ] ${v.folio}: ya existía la tarea del error`);
-    else if (r?.task_id) console.warn(`[JUEZ] ${v.folio}: ERROR DE SISTEMA reportado solo → tarea ${r.task_id}`);
+    const g = await pool.query(`SELECT metadata->'cajito' AS c FROM support_tickets WHERE id = $1`, [ticketId]);
+    return g.rows[0]?.c || null;
   } catch (e: any) {
     console.error('[JUEZ] revisarTicketAlNacer:', e?.message || e);
+    return null;
   }
+};
+
+/**
+ * Lo que ve quien aprieta Investigar: la investigación que YA se hizo.
+ *
+ * Aldo, 11-sep-2026: "cuando aprieten deben ver la investigación que se hizo,
+ * no hacer una nueva". Tres razones que lo sostienen:
+ *  · Una sola verdad por ticket. El mismo ticket investigado dos veces llegó a
+ *    dar veredictos distintos; con dos versiones nadie sabe a cuál creerle.
+ *  · Todos ven la misma investigación completa. Antes corría con los permisos
+ *    de quien apretaba, y a Servicio a Cliente —sin permisos de consulta—
+ *    Cajito le salía a ciegas justo en los tickets que son su trabajo.
+ *  · No se paga un modelo por repetir lo que ya está escrito.
+ *
+ * Si el ticket no tiene investigación (los anteriores al juez, o si el juez
+ * falló), se hace UNA vez, por el mismo camino del juez, y queda guardada.
+ */
+export const investigacionDelTicket = async (ticketId: number): Promise<any | null> => {
+  const r = await pool.query(`SELECT metadata->'cajito' AS c FROM support_tickets WHERE id = $1`, [ticketId]);
+  if (r.rows.length === 0) return null;
+  const guardada = r.rows[0]?.c;
+  if (guardada?.conclusion) return { ...guardada, guardada: true };
+  const nueva = await revisarTicketAlNacer(ticketId, 'boton');
+  return nueva ? { ...nueva, guardada: false } : null;
 };

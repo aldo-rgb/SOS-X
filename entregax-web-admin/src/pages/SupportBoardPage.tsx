@@ -136,6 +136,12 @@ interface SupportTicket {
       folios?: string[];
       revisado_at?: string;
       automatico?: boolean;
+      origen?: string;
+      pudo?: boolean;
+      es_error_sistema?: boolean;
+      falto?: string;
+      folio_duda?: string | null;
+      hallazgo?: string;
     };
   } | null;
 }
@@ -857,6 +863,7 @@ export default function SupportBoardPage() {
     conclusion: string; pudo: boolean; es_error_sistema: boolean;
     reclamo: string; folios: string[]; hallazgos: Hallazgo[];
     explicacion: string; falto: string; hallazgo: string; folio_duda?: string | null;
+    para_el_cliente?: string; guardada?: boolean; revisado_at?: string;
   } | null>(null);
   // Los pasos que va diciendo mientras trabaja son los que de verdad ejecuta,
   // no relleno: leer, extraer folios, buscarlos, comparar y concluir. Ver a
@@ -899,7 +906,15 @@ export default function SupportBoardPage() {
       });
       const d = await r.json().catch(() => ({}));
       const base = { reclamo: '', folios: [], hallazgos: [], explicacion: '', falto: '', hallazgo: '' };
-      if (r.ok) setInv({ ...base, ...d, conclusion: d.conclusion || 'NO_PUDE', pudo: !!d.pudo, es_error_sistema: !!d.es_error_sistema });
+      if (r.ok) {
+        setInv({ ...base, ...d, conclusion: d.conclusion || 'NO_PUDE', pudo: !!d.pudo, es_error_sistema: !!d.es_error_sistema });
+        // La investigación queda guardada en el ticket: se refleja ya en el
+        // panel de arriba, sin esperar a recargar el tablero.
+        const tid = selectedTicket.id;
+        const pegar = (t: any) => (t && t.id === tid ? { ...t, metadata: { ...(t.metadata || {}), cajito: d } } : t);
+        setSelectedTicket((prev) => pegar(prev));
+        setTickets((prev) => prev.map(pegar));
+      }
       else setInv({ ...base, explicacion: d.error || 'No se pudo investigar.', conclusion: 'NO_PUDE', pudo: false, es_error_sistema: false });
     } catch {
       setInv({ reclamo: '', folios: [], hallazgos: [], falto: '', hallazgo: '',
@@ -1789,7 +1804,8 @@ export default function SupportBoardPage() {
                     )}
 
                     <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.75 }}>
-                      Lo revisó solo al llegar el ticket. Si algo no cuadra, aprieta Investigar para que lo vuelva a ver.
+                      {c.origen === 'boton' ? 'Lo investigó Cajito la primera vez que alguien apretó Investigar.' : 'Lo investigó Cajito solo, al llegar el ticket.'}
+                      {' '}Es una sola investigación por ticket: Investigar muestra esta misma.
                     </Typography>
                   </Box>
                 );
@@ -1972,7 +1988,7 @@ export default function SupportBoardPage() {
                   ) : (
                     <>
                     {puedeInvestigar && (
-                      <Tooltip title="Cajito lee el ticket, busca los folios en el sistema y te dice qué encontró">
+                      <Tooltip title="Muestra lo que Cajito investigó de este ticket. Si todavía no lo había investigado, lo hace una vez y queda guardado.">
                         <Button
                           variant="outlined"
                           startIcon={<SearchIcon />}
@@ -2138,6 +2154,21 @@ export default function SupportBoardPage() {
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 Tarda un poco: está consultando el sistema guía por guía.
               </Typography>
+            </Box>
+          )}
+
+          {!invLoading && inv?.revisado_at && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {inv.guardada ? 'Investigación guardada' : 'Investigación nueva, ya quedó guardada'} ·{' '}
+              {new Date(inv.revisado_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
+              {inv.guardada ? '. No se hizo otra: es la misma que ven todos.' : '.'}
+            </Typography>
+          )}
+
+          {!invLoading && inv?.para_el_cliente && (
+            <Box sx={{ p: 1.25, mb: 2, borderRadius: 1.5, border: '1px dashed #d1d5db' }}>
+              <Typography variant="caption" sx={{ color: '#6b7280', fontWeight: 700 }}>QUÉ DECIRLE AL CLIENTE</Typography>
+              <Typography variant="body2" sx={{ mt: 0.5, lineHeight: 1.5 }}>{inv.para_el_cliente}</Typography>
             </Box>
           )}
 

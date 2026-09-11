@@ -2237,14 +2237,18 @@ export const investigarTicketCore = async (
 
 /** POST /api/cajito/investigar-ticket/:id — el botón Investigar. */
 export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
-  const r = await investigarTicketCore(
-    Number(req.params.id),
-    Number(req.user?.userId || (req.user as any)?.id || 0),
-    String(req.user?.role || ''),
-    'boton'
-  );
-  if (r.ok) { res.json(r); return; }
-  res.status(r.status || 500).json({ error: r.error });
+  // Muestra la investigación que ya se hizo; solo si no existe, la hace una vez
+  // y la guarda. Ver investigacionDelTicket en cajitoJuez.ts.
+  const uid = Number(req.user?.userId || (req.user as any)?.id || 0);
+  const ticketId = Number(req.params.id);
+  if (!Number.isFinite(ticketId) || ticketId <= 0) { res.status(400).json({ error: 'ticket inválido' }); return; }
+  const caps = await getUserCapabilities(uid, String(req.user?.role || ''));
+  if (!hasCap(caps, 'cajito.access')) { res.status(403).json({ error: 'Sin acceso a Cajito' }); return; }
+
+  const { investigacionDelTicket } = await import('./cajitoJuez');
+  const v = await investigacionDelTicket(ticketId);
+  if (!v) { res.status(500).json({ error: 'No se pudo investigar el ticket. Intenta de nuevo en un momento.' }); return; }
+  res.json({ ok: true, ticket_id: ticketId, ...v });
 };
 
 export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
