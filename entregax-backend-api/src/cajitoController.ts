@@ -391,7 +391,7 @@ export async function consolidarMemorias(userId: number): Promise<{ ok: boolean;
   }
 }
 
-const TOOLS: ToolDef[] = [
+export const TOOLS: ToolDef[] = [
   // -------------------- BASE DE CONOCIMIENTO --------------------
   {
     name: 'search_knowledge',
@@ -942,12 +942,16 @@ const TOOLS: ToolDef[] = [
       },
     },
     handler: async ({ incluir_completadas }, ctx) => {
-      const soloAbiertas = incluir_completadas ? '' : `AND t.status <> 'done'`;
+      // Los estados reales son 'open', 'awaiting_confirmation' y 'completed'.
+      // Antes se filtraba por 'done', que no existe: no se ocultaba ninguna
+      // tarea terminada y el conteo de completadas siempre daba 0, así que a
+      // Aldo le salían como pendientes tareas que él mismo había cerrado.
+      const soloAbiertas = incluir_completadas ? '' : `AND t.status <> 'completed'`;
       const r = await pool.query(`
         SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
                t.due_at, t.created_at, t.completed_at,
                c.full_name AS creada_por,
-               (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'done') AS vencida,
+               (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'completed') AS vencida,
                (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
           FROM tasks t
           LEFT JOIN users c ON c.id = t.created_by
@@ -957,26 +961,165 @@ const TOOLS: ToolDef[] = [
 
       const filas = r.rows;
       const cuenta = (f: (x: any) => boolean) => filas.filter(f).length;
+      const terminada = (t: any) => t.status === 'completed';
       return {
         resumen: {
           total: filas.length,
-          abiertas: cuenta((t) => t.status !== 'done'),
+          abiertas: cuenta((t) => !terminada(t)),
           vencidas: cuenta((t) => t.vencida === true),
           vencen_hoy: cuenta((t) => t.vence_hoy === true),
-          sin_fecha: cuenta((t) => !t.due_at && t.status !== 'done'),
-          completadas: cuenta((t) => t.status === 'done'),
+          sin_fecha: cuenta((t) => !t.due_at && !terminada(t)),
+          esperando_confirmacion: cuenta((t) => t.status === 'awaiting_confirmation'),
+          completadas: cuenta(terminada),
         },
         por_matriz: {
-          estrella: cuenta((t) => t.eisenhower === 'estrella' && t.status !== 'done'),
-          planear: cuenta((t) => t.eisenhower === 'planear' && t.status !== 'done'),
-          delegar: cuenta((t) => t.eisenhower === 'delegar' && t.status !== 'done'),
-          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && t.status !== 'done'),
+          fuego: cuenta((t) => t.eisenhower === 'fuego' && !terminada(t)),
+          estrella: cuenta((t) => t.eisenhower === 'estrella' && !terminada(t)),
+          delegar: cuenta((t) => t.eisenhower === 'delegar' && !terminada(t)),
+          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && !terminada(t)),
         },
         tareas: filas.map((t: any) => ({
           id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
           vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
           creada_por: t.creada_por,
         })),
+      };
+    }
+  },
+
+  // -------------------- TAREAS: abrir una y leerla completa --------------------
+  {
+    name: 'lookup_task',
+    requiredCapability: 'cajito.read.tasks',
+    readOnly: true,
+    description: 'Abre UNA tarea por su número y la devuelve completa: descripción, estado, matriz de Eisenhower, tablero, responsable, quién la creó, fechas, el checklist, TODOS los comentarios con su autor y fecha, los archivos adjuntos y la bitácora de lo que le ha pasado. Si el título es "Error localizado TKT-…", trae además el ticket que la originó con su conversación. Úsala SIEMPRE que mencionen una tarea por número ("revisa la 538", "qué pasó con la tarea 470", "de qué trata la 522") o pidan investigar, resumir o entender un caso. También acepta texto para buscar entre títulos y descripciones cuando no sepan el número.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Número de la tarea (ej. 538)' },
+        buscar: { type: 'string', description: 'Texto a buscar en título o descripción, cuando no se sabe el número' },
+      },
+    },
+    handler: async ({ id, buscar }) => {
+      // Sin número: se busca por texto y se devuelve la lista para elegir.
+      if (!id) {
+        const q = String(buscar || '').trim();
+        if (!q) return { error: 'Dime el número de la tarea o un texto para buscarla.' };
+        const r = await pool.query(
+          `SELECT t.id, t.title, t.status, t.eisenhower, t.due_at,
+                  u.full_name AS responsable, b.name AS tablero
+             FROM tasks t
+             LEFT JOIN users u ON u.id = t.assignee_id
+             LEFT JOIN task_boards b ON b.id = t.board_id
+            WHERE t.title ILIKE $1 OR COALESCE(t.description,'') ILIKE $1
+            ORDER BY t.updated_at DESC LIMIT 15`, [`%${q}%`]);
+        return {
+          total: r.rows.length,
+          nota: r.rows.length === 0 ? 'No encontré tareas con ese texto.' : 'Pídeme el detalle con el número.',
+          tareas: r.rows.map((t: any) => ({
+            id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
+            responsable: t.responsable, tablero: t.tablero, vence: t.due_at,
+          })),
+        };
+      }
+
+      const tid = Number(id);
+      const t = await pool.query(
+        `SELECT t.id, t.title, t.description, t.status, t.eisenhower, t.priority,
+                t.created_at, t.updated_at, t.completed_at, t.due_at, t.started_at,
+                t.requiere_confirmacion, t.forced_reason,
+                u.full_name AS responsable, c.full_name AS creada_por,
+                fc.full_name AS cerrada_a_la_fuerza_por,
+                b.name AS tablero, col.name AS columna,
+                t.external_app, t.external_id
+           FROM tasks t
+           LEFT JOIN users u  ON u.id  = t.assignee_id
+           LEFT JOIN users c  ON c.id  = t.created_by
+           LEFT JOIN users fc ON fc.id = t.forced_close_by
+           LEFT JOIN task_boards b   ON b.id   = t.board_id
+           LEFT JOIN task_columns col ON col.id = t.column_id
+          WHERE t.id = $1`, [tid]);
+      if (t.rows.length === 0) return { error: `No existe la tarea ${tid}.` };
+      const tarea = t.rows[0];
+
+      const [subs, coms, act, adj, parts] = await Promise.all([
+        pool.query(`SELECT s.body, s.done, s.done_at, u.full_name AS hecha_por
+                      FROM task_subtasks s LEFT JOIN users u ON u.id = s.done_by
+                     WHERE s.task_id = $1 ORDER BY s.sort_order, s.id`, [tid]),
+        pool.query(`SELECT c.body, c.attachment_url, c.created_at, u.full_name AS quien
+                      FROM task_comments c LEFT JOIN users u ON u.id = c.author_id
+                     WHERE c.task_id = $1 ORDER BY c.created_at ASC LIMIT 60`, [tid]),
+        pool.query(`SELECT a.action, a.created_at, u.full_name AS quien
+                      FROM task_activity a LEFT JOIN users u ON u.id = a.actor_id
+                     WHERE a.task_id = $1 ORDER BY a.created_at DESC LIMIT 25`, [tid]),
+        pool.query(`SELECT at.file_name, at.mime_type, at.created_at, u.full_name AS subio
+                      FROM task_attachments at LEFT JOIN users u ON u.id = at.uploaded_by
+                     WHERE at.task_id = $1 ORDER BY at.id DESC LIMIT 20`, [tid])
+          .catch(() => ({ rows: [] as any[] })),
+        pool.query(`SELECT u.full_name FROM task_participants tp
+                      JOIN users u ON u.id = tp.user_id WHERE tp.task_id = $1`, [tid])
+          .catch(() => ({ rows: [] as any[] })),
+      ]);
+
+      // Las tareas de errores nacen de un ticket y el título lo dice. Traerlo
+      // evita la ida y vuelta de "ahora búscame el ticket": lo que reportó el
+      // asesor casi siempre tiene más detalle que la tarea.
+      let ticket: any = null;
+      const folioTicket = (String(tarea.title || '').match(/\b(TKT-\d{4}-\d+)\b/i) || [])[1];
+      if (folioTicket) {
+        const tk = await pool.query(
+          `SELECT s.id, s.ticket_folio, s.subject, s.status, s.ticket_status, s.category,
+                  s.created_at, s.resolved_at, u.full_name AS cliente, u.box_id
+             FROM support_tickets s LEFT JOIN users u ON u.id = s.user_id
+            WHERE s.ticket_folio = $1 LIMIT 1`, [folioTicket.toUpperCase()]);
+        if (tk.rows.length > 0) {
+          const tr = tk.rows[0];
+          const msgs = await pool.query(
+            `SELECT sender_type, message, is_internal, created_at
+               FROM ticket_messages WHERE ticket_id = $1
+              ORDER BY created_at ASC LIMIT 40`, [tr.id]);
+          ticket = {
+            folio: tr.ticket_folio, asunto: trimText(tr.subject, 200),
+            estado: tr.status, etapa: tr.ticket_status, categoria: tr.category,
+            cliente: tr.cliente, casillero: tr.box_id,
+            creado: tr.created_at, resuelto: tr.resolved_at,
+            conversacion: msgs.rows.map((m: any) => ({
+              de: m.sender_type, interno: m.is_internal,
+              mensaje: trimText(m.message, 600), fecha: m.created_at,
+            })),
+          };
+        }
+      }
+
+      return {
+        tarea: {
+          id: tarea.id, titulo: tarea.title,
+          descripcion: trimText(tarea.description, 3000),
+          estado: tarea.status, matriz: tarea.eisenhower, prioridad: tarea.priority,
+          tablero: tarea.tablero, columna: tarea.columna,
+          responsable: tarea.responsable, creada_por: tarea.creada_por,
+          participantes: parts.rows.map((p: any) => p.full_name),
+          creada: tarea.created_at, vence: tarea.due_at,
+          iniciada: tarea.started_at, completada: tarea.completed_at,
+          ultimo_movimiento: tarea.updated_at,
+          requiere_confirmacion: tarea.requiere_confirmacion,
+          cerrada_a_la_fuerza_por: tarea.cerrada_a_la_fuerza_por,
+          motivo_del_cierre_forzado: tarea.forced_reason,
+          viene_de_otra_app: tarea.external_app || null,
+        },
+        checklist: subs.rows.map((s: any) => ({
+          punto: trimText(s.body, 200), hecha: s.done, hecha_por: s.hecha_por, cuando: s.done_at,
+        })),
+        comentarios: coms.rows.map((c: any) => ({
+          quien: c.quien, fecha: c.created_at,
+          texto: trimText(c.body, 1500),
+          adjunto: c.attachment_url ? 'sí' : null,
+        })),
+        adjuntos: adj.rows.map((a: any) => ({
+          archivo: a.file_name, tipo: a.mime_type, subio: a.subio, fecha: a.created_at,
+        })),
+        bitacora: act.rows.map((a: any) => ({ que: a.action, quien: a.quien, fecha: a.created_at })),
+        ticket_que_la_origino: ticket,
       };
     }
   },
