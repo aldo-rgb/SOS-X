@@ -44,6 +44,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 }
 
 import { pool } from './db';
+import { servirArchivoFactura } from './facturaArchivo';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
 import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
@@ -7532,14 +7533,17 @@ app.get('/api/ctz/:code', getSharedQuotePdf);
 // es el UUID del SAT, que no se adivina. Reemplaza el enlace directo al API de
 // Facturama, que respondía 401 y hacía que el navegador pidiera contraseña
 // (TKT-2026-2639).
-import('./facturaArchivo').then(({ servirArchivoFactura }) => {
-  app.get('/api/facturas/:clave/:tipo(pdf|xml)', servirArchivoFactura);
-  // Enlace bonito en el dominio web: /factura/<uuid>.pdf
-  app.get('/factura/:clave', (req, res) => {
-    (req.params as any).tipo = String(req.params.clave || '').toLowerCase().endsWith('.xml') ? 'xml' : 'pdf';
-    return servirArchivoFactura(req, res);
-  });
-}).catch((e) => console.error('[factura-archivo] no se pudo montar la ruta:', e?.message));
+//
+// OJO con el registro: esto iba dentro de un import() dinámico y las rutas se
+// montaban DESPUÉS del 404 general, que se registra al final del archivo de
+// forma síncrona. Resultado: la ruta existía en el código y la API contestaba
+// "Endpoint no encontrado". Va con import estático (arriba) justamente por eso.
+app.get('/api/facturas/:clave/:tipo(pdf|xml)', servirArchivoFactura);
+// Enlace bonito en el dominio web: /factura/<uuid>.pdf
+app.get('/factura/:clave', (req, res) => {
+  (req.params as any).tipo = String(req.params.clave || '').toLowerCase().endsWith('.xml') ? 'xml' : 'pdf';
+  return servirArchivoFactura(req, res);
+});
 app.delete('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, deleteAdvisorPaymentProof);
 app.patch('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, updateAdvisorProofAmount);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
