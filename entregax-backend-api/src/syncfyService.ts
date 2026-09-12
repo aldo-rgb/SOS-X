@@ -521,7 +521,10 @@ async function autoMatchTransaction(
     }
 
     const pobox = await pool.query(
-      `SELECT id, status FROM pobox_payments WHERE payment_reference = $1`,
+      `SELECT pp.id, pp.status, u.full_name AS cliente_nombre
+         FROM pobox_payments pp
+         LEFT JOIN users u ON u.id = pp.user_id
+        WHERE pp.payment_reference = $1`,
       [extractedRef]
     );
     const CONCILIABLE = ['pending', 'pending_payment', 'vouchers_submitted', 'vouchers_partial'];
@@ -545,6 +548,17 @@ async function autoMatchTransaction(
         `[syncfy] tx#${txId} nombra ${extractedRef} pero esa orden está '${orden.status}'. ` +
         `No se empareja por monto para no pagarle a otra orden; queda para revisión manual.`
       );
+      // "Revisión manual" era solo este renglón en el log, que nadie lee: el
+      // segundo depósito de S1656 por $23,660 estuvo tres días en la cuenta sin
+      // que nadie lo supiera (tarea 577). Ahora Cobranza se entera el mismo día.
+      const { avisarDepositoSinAplicar } = await import('./bankAutoMatchService');
+      await avisarDepositoSinAplicar({
+        syncfyTxId: txId,
+        referencia: extractedRef,
+        monto: amount,
+        estadoOrden: String(orden.status),
+        clienteNombre: orden.cliente_nombre,
+      }).catch((e: any) => console.warn('[syncfy] aviso de depósito sin aplicar:', e?.message));
       return false;
     }
     // Si la referencia no corresponde a ninguna orden (ej. una US- de otro

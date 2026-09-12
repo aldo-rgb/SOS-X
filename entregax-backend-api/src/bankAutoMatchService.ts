@@ -58,9 +58,73 @@ const resolveCronActor = async (emitterId: number): Promise<{ id: number; name: 
 };
 
 /**
+ * Avisa que entró un depósito que no se pudo aplicar a nada.
+ *
+ * Un depósito con la referencia de una orden YA pagada (o cancelada) no se
+ * aplica y hasta hoy se quedaba mudo: el del 8-sep de Javier Silva (S1656) por
+ * $23,660 estuvo tres días en la cuenta sin que nadie lo supiera, hasta que su
+ * asesor lo reportó (tarea 577). En 30 días hay 37 depósitos así.
+ *
+ * NO se abona solo: un saldo a favor se autoriza con PIN de director. Lo que
+ * hace falta es que alguien se entere el mismo día. Se avisa una sola vez por
+ * movimiento (candado en bank_entry_alertas) para no repetir en cada corrida.
+ */
+export const avisarDepositoSinAplicar = async (datos: {
+  syncfyTxId: number;
+  referencia: string;
+  monto: number;
+  estadoOrden: string;
+  clienteNombre?: string | null;
+}): Promise<void> => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bank_entry_alertas (
+        id           SERIAL PRIMARY KEY,
+        syncfy_tx_id INTEGER UNIQUE,
+        referencia   TEXT,
+        monto        NUMERIC(14,2),
+        estado_orden TEXT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`);
+    const nuevo = await pool.query(
+      `INSERT INTO bank_entry_alertas (syncfy_tx_id, referencia, monto, estado_orden)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (syncfy_tx_id) DO NOTHING RETURNING id`,
+      [datos.syncfyTxId, datos.referencia, datos.monto, datos.estadoOrden]
+    );
+    if (nuevo.rowCount === 0) return;   // de este movimiento ya se avisó
+
+    const quienes = await pool.query(
+      `SELECT id FROM users
+        WHERE COALESCE(is_active, TRUE) AND deleted_at IS NULL
+          AND role IN ('accountant', 'director', 'super_admin')`
+    );
+    const ids = quienes.rows.map((r: any) => Number(r.id)).filter(Boolean);
+    if (!ids.length) return;
+
+    const comoEsta = datos.estadoOrden === 'paid' ? 'ya pagada' : `${datos.estadoOrden}`;
+    const titulo = '💰 Depósito sin aplicar';
+    const cuerpo = `$${Number(datos.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} con referencia ` +
+      `${datos.referencia} de una orden ${comoEsta}` +
+      `${datos.clienteNombre ? ` (${datos.clienteNombre})` : ''}. Puede ser un segundo pago del cliente: revísalo en Cobranza.`;
+
+    for (const uid of ids) {
+      await createCustomNotification(uid, titulo, cuerpo, 'warning', 'cash').catch(() => {});
+    }
+    const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
+    const conPush = await filterRecipientsForPush(ids, true);
+    if (conPush.length) {
+      await sendPushToUsers(conPush, { title: titulo, body: cuerpo, data: {}, notificationType: 'deposit_orphan' });
+    }
+    console.warn(`[bankAutoMatch] 💰 Depósito sin aplicar: ${datos.referencia} $${datos.monto} (orden ${comoEsta})`);
+  } catch (e: any) {
+    console.warn('[bankAutoMatch] aviso de depósito sin aplicar:', e?.message);
+  }
+};
+
+/**
  * Autoriza UN match (replica la lógica del endpoint manual). Usa transacción
- * a nivel de pg client. Si la orden ya está paid devuelve already_paid sin
- * tocar nada.
+ * a nivel de pg client. Si la orden ya está paid no toca nada, pero avisa a
+ * Cobranza: ese dinero está en el banco y no es de esa orden.
  */
 const authorizeOneMatch = async (
   syncfyTxId: number,
@@ -89,7 +153,25 @@ const authorizeOneMatch = async (
 
     if (order.status === 'paid') {
       await client.query('ROLLBACK');
+      await avisarDepositoSinAplicar({
+        syncfyTxId, referencia: ref, monto: bankAmount || 0,
+        estadoOrden: 'paid', clienteNombre: order.cliente_nombre,
+      });
       return { ref, status: 'already_paid' };
+    }
+
+    // Una orden cancelada o vencida tampoco se paga sola, y el depósito ya
+    // entró al banco: mismo aviso que arriba (tarea 577).
+    if (['cancelled', 'completed'].includes(String(order.status))) {
+      await client.query('ROLLBACK');
+      await avisarDepositoSinAplicar({
+        syncfyTxId, referencia: ref, monto: bankAmount || 0,
+        estadoOrden: String(order.status), clienteNombre: order.cliente_nombre,
+      });
+      return {
+        ref, status: 'error',
+        error: `La orden ${ref} está ${order.status}: el depósito no se aplica solo, revísalo en Cobranza.`,
+      };
     }
 
     const orderAmount = parseFloat(order.amount) || 0;
