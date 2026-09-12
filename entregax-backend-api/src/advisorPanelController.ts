@@ -2762,7 +2762,9 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 COALESCE(p.has_gex, false) AS has_gex,
                 p.created_at,
                 u.full_name AS client_name,
-                u.box_id AS client_box_id
+                u.box_id AS client_box_id,
+                u.phone AS client_phone,
+                CASE WHEN p.assigned_address_id IS NOT NULL OR (p.destination_address IS NOT NULL AND p.destination_address != 'Pendiente de asignar') OR p.needs_instructions = FALSE THEN true ELSE false END AS has_instructions
          FROM packages p
          LEFT JOIN users u ON p.user_id = u.id
          WHERE p.id = $1`,
@@ -2827,6 +2829,8 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         created_at: p.created_at,
         client_name: p.client_name || null,
         client_box_id: p.client_box_id || null,
+        client_phone: p.client_phone || null,
+        has_instructions: !!p.has_instructions,
       };
 
       // Guías hijas (repack/consolidación): nivel, medidas y peso (sin costo)
@@ -2905,7 +2909,9 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 COALESCE(mo.monto_pagado, 0) AS monto_pagado,
                 mo.created_at,
                 u.full_name AS client_name,
-                u.box_id AS client_box_id
+                u.box_id AS client_box_id,
+                u.phone AS client_phone,
+                CASE WHEN mo.delivery_address_id IS NOT NULL THEN true ELSE false END AS has_instructions
          FROM maritime_orders mo
          LEFT JOIN users u ON mo.user_id = u.id
          WHERE mo.id = $1`,
@@ -2931,6 +2937,8 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         created_at: m.created_at,
         client_name: m.client_name || null,
         client_box_id: m.client_box_id || null,
+        client_phone: m.client_phone || null,
+        has_instructions: !!m.has_instructions,
       };
 
     } else if (prefix === 'DHL') {
@@ -2949,7 +2957,9 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 COALESCE(ds.monto_pagado, 0) AS monto_pagado,
                 ds.created_at,
                 u.full_name AS client_name,
-                u.box_id AS client_box_id
+                u.box_id AS client_box_id,
+                u.phone AS client_phone,
+                CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END AS has_instructions
          FROM dhl_shipments ds
          LEFT JOIN users u ON ds.user_id = u.id
          WHERE ds.id = $1`,
@@ -2977,6 +2987,8 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         created_at: d.created_at,
         client_name: d.client_name || null,
         client_box_id: d.client_box_id || null,
+        client_phone: d.client_phone || null,
+        has_instructions: !!d.has_instructions,
       };
 
     } else {
