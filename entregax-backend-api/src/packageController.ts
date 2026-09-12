@@ -6950,6 +6950,37 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                     );
                     const remainingCount = Number(remaining.rows[0]?.n || 0);
                     if (remainingCount === 0) {
+                        // Si la caja que quedó vacía es OTRO REEMPAQUE, no se anida:
+                        // se borra. Su contenido acaba de pasar a la caja nueva, así
+                        // que como bulto físico ya no existe. Anidarla dejaba una caja
+                        // fantasma colgada del reempaque nuevo, que CEDIS veía en el
+                        // panel y en la lista de salida como un segundo pendiente del
+                        // mismo cliente y no sabía cuál despachar (tarea 576:
+                        // US-REPACK-7269 dentro de US-REPACK-1528, cliente S1202).
+                        // El candado de "no meter un reempaque en otro" solo mira lo
+                        // que el operador SELECCIONA; por aquí entraba solo.
+                        const viejo = await pool.query(
+                            `SELECT tracking_internal, client_paid, payment_status FROM packages WHERE id = $1`,
+                            [oldMasterId]
+                        );
+                        const trackingViejo = String(viejo.rows[0]?.tracking_internal || '');
+                        const esReempaque = trackingViejo.toUpperCase().startsWith('US-REPACK-');
+                        // Si esa caja ya se cobró o está en una orden, NO se borra:
+                        // perderíamos el rastro de un cargo. Ahí se deja como estaba.
+                        const enOrden = esReempaque
+                            ? await pool.query(
+                                `SELECT 1 FROM pobox_payments
+                                  WHERE status NOT IN ('cancelled','expired') AND package_ids @> to_jsonb($1::int) LIMIT 1`,
+                                [oldMasterId])
+                            : { rows: [] as any[] };
+                        const yaCobrada = viejo.rows[0]?.client_paid === true
+                            || String(viejo.rows[0]?.payment_status) === 'paid'
+                            || enOrden.rows.length > 0;
+                        if (esReempaque && !yaCobrada) {
+                            await pool.query(`DELETE FROM packages WHERE id = $1`, [oldMasterId]);
+                            console.log(`   🗑️ Caja de reempaque vacía ${trackingViejo} eliminada: su contenido pasó a ${consolidatedTracking}`);
+                            continue;
+                        }
                         await pool.query(
                             `UPDATE packages
                                 SET is_master = FALSE,
@@ -7300,8 +7331,10 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
               AND p.status IN ('received', 'reempacado')
               ${instructionsFilter}
               AND (
-                -- REPACK: siempre mostrar (son contenedores)
-                p.tracking_internal LIKE 'US-REPACK-%'
+                -- REPACK: siempre mostrar (son contenedores), salvo los que se
+                -- quedaron VACÍOS: esa caja ya no tiene nada que despachar y
+                -- confundía a CEDIS con dos pendientes iguales (tarea 576).
+                (p.tracking_internal LIKE 'US-REPACK-%' AND COALESCE(p.total_boxes, 1) > 0)
                 OR
                 -- Paquetes hijos de master normal (NO REPACK): mostrar
                 (p.master_id IS NOT NULL AND master.tracking_internal NOT LIKE 'US-REPACK-%')
@@ -7483,6 +7516,10 @@ export const getRepackInstructions = async (_req: Request, res: Response): Promi
             JOIN users u ON p.user_id = u.id
             WHERE p.tracking_internal LIKE 'US-REPACK-%'
               AND p.status = 'received'
+              -- Sin las cajas vacías: una caja de reempaque sin contenido no es
+              -- mercancía pendiente y aparecía como un segundo pendiente del
+              -- mismo cliente, duplicando el peso del panel (tarea 576).
+              AND COALESCE(p.total_boxes, 1) > 0
             ORDER BY p.created_at DESC
         `);
         
