@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { waPhone } from '../utils/waLink';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -353,7 +354,7 @@ function ClientDetailDialog({ boxId, onClose }: { boxId: string | null; onClose:
                       <IconButton
                         size="small"
                         component="a"
-                        href={`https://wa.me/52${client.phone.replace(/\D/g, '')}`}
+                        href={`https://wa.me/${waPhone(client.phone)}`}
                         target="_blank"
                         rel="noreferrer"
                         sx={{ color: '#25D366', p: 0.3 }}
@@ -1499,7 +1500,7 @@ export default function SupportBoardPage() {
                             <IconButton
                               size="small"
                               component="a"
-                              href={`https://wa.me/52${selectedTicket.phone.replace(/\D/g, '').replace(/^52/, '')}`}
+                              href={`https://wa.me/${waPhone(selectedTicket.phone)}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               sx={{ color: '#25D366', p: 0.3 }}

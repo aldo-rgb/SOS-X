@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { waPhone } from '../utils/waLink';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -5787,7 +5788,7 @@ export default function DashboardAdvisor() {
                                   </IconButton>
                                 </Tooltip>
                                 <Tooltip title="WhatsApp">
-                                  <IconButton size="small" href={`https://wa.me/52${m.phone.replace(/\D/g, '')}`} target="_blank" component="a">
+                                  <IconButton size="small" href={`https://wa.me/${waPhone(m.phone)}`} target="_blank" component="a">
                                     <WhatsAppIcon fontSize="small" sx={{ color: '#25D366' }} />
                                   </IconButton>
                                 </Tooltip>
@@ -7260,7 +7261,7 @@ export default function DashboardAdvisor() {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="WhatsApp">
-                        <IconButton size="small" href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}`} target="_blank" sx={{ color: '#25D366' }}>
+                        <IconButton size="small" href={`https://wa.me/${waPhone(s.clientPhone)}`} target="_blank" sx={{ color: '#25D366' }}>
                           <WhatsAppIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -7349,7 +7350,7 @@ export default function DashboardAdvisor() {
                         variant="contained"
                         fullWidth
                         startIcon={<WhatsAppIcon />}
-                        href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}?text=${encodeURIComponent(
+                        href={`https://wa.me/${waPhone(s.clientPhone)}?text=${encodeURIComponent(
                           `¡Hola ${s.clientName?.split(' ')[0] || ''}! 👋\n\n` +
                           `Te recordamos que tienes un pago pendiente en EntregaX:\n\n` +
                           `📦 Tracking: ${s.tracking || s.uid}\n` +
@@ -7376,7 +7377,7 @@ export default function DashboardAdvisor() {
                         variant="contained"
                         fullWidth
                         startIcon={<WhatsAppIcon />}
-                        href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}?text=${encodeURIComponent(
+                        href={`https://wa.me/${waPhone(s.clientPhone)}?text=${encodeURIComponent(
                           `¡Hola ${s.clientName?.split(' ')[0] || ''}! 👋\n\n` +
                           `Te recordamos que tu paquete necesita instrucciones de entrega:\n\n` +
                           `📦 Tracking: ${s.tracking || s.uid}\n\n` +
