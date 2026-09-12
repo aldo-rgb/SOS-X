@@ -11,6 +11,29 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { createAudioPlayer } from 'expo-audio';
 import { registerPushToken } from './chatService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+/**
+ * Identificador propio del aparato, estable aunque cambie el token.
+ *
+ * Expo emite un token nuevo al reinstalar la app o al cambiar de build. Sin un
+ * identificador del aparato, el token viejo se quedaba activo junto al nuevo y
+ * el mismo teléfono recibía el aviso DOS veces (Aldo, 11-sep-2026: dos avisos
+ * idénticos de la misma tarea). El nombre del aparato no sirve para juntarlos:
+ * el mismo iPhone se registró una vez como "iPhone" y otra como "iPad".
+ */
+const DEVICE_ID_KEY = 'entregax_device_id';
+async function obtenerDeviceId(): Promise<string | undefined> {
+  try {
+    const guardado = await AsyncStorage.getItem(DEVICE_ID_KEY);
+    if (guardado) return guardado;
+    const nuevo = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    await AsyncStorage.setItem(DEVICE_ID_KEY, nuevo);
+    return nuevo;
+  } catch {
+    return undefined;
+  }
+}
 
 // Configurar handler en foreground (mostrar banner). Si la notificación trae un
 // MP3 custom (_customSoundUrl), NO dejamos que el SO reproduzca el tono del canal
@@ -158,8 +181,11 @@ export async function registerForPushNotifications(authToken: string): Promise<s
     await registerPushToken(authToken, {
       token: expoToken,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      device_id: await obtenerDeviceId(),
       device_name: Device.deviceName || undefined,
-      app_version: '1.0.0',
+      // La versión real, no una escrita a mano: servía para saber qué build
+      // trae cada aparato (p. ej. si ya incluye los tonos empaquetados).
+      app_version: (Constants?.expoConfig as any)?.version || undefined,
     });
 
     registeredToken = expoToken;

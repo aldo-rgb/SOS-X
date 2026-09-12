@@ -638,6 +638,18 @@ export const registerPushToken = async (req: AuthRequest, res: Response) => {
       [userId, token, platform, device_id || null, device_name || null]
     ).catch(() => {});
 
+    // 🧹 Tokens muertos del mismo usuario y plataforma: los que llevan más de 45
+    // días sin registrarse ya no son un aparato en uso. Se acumularon mientras
+    // la app no mandaba device_id (253 tokens activos sin él), y por eso el push
+    // llegaba dos veces al mismo teléfono. Si el aparato se vuelve a abrir, el
+    // registro lo reactiva solo.
+    await pool.query(
+      `UPDATE user_push_tokens SET is_active = FALSE
+        WHERE user_id = $1 AND token <> $2 AND is_active = TRUE AND platform = $3
+          AND COALESCE(last_seen_at, created_at) < NOW() - INTERVAL '45 days'`,
+      [userId, token, platform]
+    ).catch(() => {});
+
     res.json({ ok: true });
   } catch (error: any) {
     console.error('[chat] registerPushToken:', error);
