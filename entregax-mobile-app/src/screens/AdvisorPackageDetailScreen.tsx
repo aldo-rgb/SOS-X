@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator,
-  TouchableOpacity, Image, Modal, Pressable,
+  TouchableOpacity, Image, Modal, Pressable, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
+import { waPhone } from '../utils/waLink';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -89,6 +90,8 @@ interface ShipmentDetail {
   created_at: string | null;
   client_name: string | null;
   client_box_id: string | null;
+  client_phone: string | null;
+  has_instructions?: boolean;
 }
 
 export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
@@ -197,6 +200,28 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
             <Section title="Cliente" icon="person-outline">
               {clientName ? <InfoRow label="Nombre" value={clientName} /> : null}
               {clientBoxId ? <InfoRow label="Box ID" value={clientBoxId} mono /> : null}
+              {/* Recordatorio de instrucciones: existía en la web pero no en la
+                  app, así que el asesor tenía que abrir la computadora para
+                  mandarlo (tarea 578). Mismo texto que el botón de la web. */}
+              {pkg.client_phone && pkg.has_instructions === false ? (
+                <TouchableOpacity
+                  style={styles.waBtn}
+                  onPress={() => {
+                    const texto =
+                      `¡Hola ${(clientName || '').split(' ')[0]}! 👋\n\n` +
+                      `Te recordamos que tu paquete necesita instrucciones de entrega:\n\n` +
+                      `📦 Tracking: ${pkg.tracking_internal || ''}\n\n` +
+                      `Para que podamos enviarte tu paquete, necesitas asignar tu dirección de entrega desde la app.\n\n` +
+                      `📋 Tutorial paso a paso:\n` +
+                      `🔗 https://entregax.app/tutoriales#instrucciones-entrega\n\n` +
+                      `¿Necesitas ayuda? Estoy para apoyarte. 😊`;
+                    Linking.openURL(`https://wa.me/${waPhone(pkg.client_phone)}?text=${encodeURIComponent(texto)}`);
+                  }}
+                >
+                  <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                  <Text style={styles.waBtnText}>Recordar instrucciones</Text>
+                </TouchableOpacity>
+              ) : null}
             </Section>
           )}
 
@@ -313,6 +338,9 @@ const styles = StyleSheet.create({
   serviceTagText: { color: ORANGE, fontSize: 11, fontWeight: '700' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   errorText: { color: '#F44336', textAlign: 'center', marginTop: 12, fontSize: 15 },
+  waBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#25D366', borderRadius: 10, paddingVertical: 12, marginTop: 12 },
+  waBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   retryBtn: { marginTop: 16, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 24, paddingVertical: 10 },
   retryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   content: { padding: 16, gap: 12 },
