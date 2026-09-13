@@ -135,6 +135,45 @@ const actor = async (): Promise<{ id: number; role: string; nombre: string } | n
   return u ? { id: Number(u.id), role: String(u.role), nombre: String(u.full_name || '') } : null;
 };
 
+// GET /api/zaia/verify — diagnóstico de la llave, sin que el secreto viaje.
+//
+// Cuando las dos copias no coinciden no hay forma de saber por qué: ¿se pegó
+// otra cadena, se coló un espacio, se guardó sin redesplegar? Esto devuelve la
+// huella de cada lado —longitud y los primeros 8 caracteres del SHA-256— que
+// basta para comparar y no permite reconstruir la llave. Mismo espíritu que
+// /api/sync/verify del canal de Grupo Rino.
+export const zaiaVerify = async (req: Request, res: Response): Promise<any> => {
+  const server = API_KEY();
+  const recibida = llaveDe(req);
+  if (!recibida) return res.status(400).json({ error: 'Manda tu llave en X-Zaia-Key para poder compararla.' });
+
+  const crypto = await import('crypto');
+  const huella = (s: string) => crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 8);
+  const limpia = recibida.trim();
+
+  res.json({
+    coincide: !!server && recibida === server,
+    recibida: {
+      longitud: recibida.length,
+      huella: huella(recibida),
+      tiene_espacios_alrededor: recibida !== limpia,
+      huella_sin_espacios: recibida !== limpia ? huella(limpia) : undefined,
+    },
+    configurada_en_el_servidor: server
+      ? { longitud: server.length, huella: huella(server) }
+      : null,
+    pista: !server
+      ? 'El servidor no tiene ZAIA_API_KEY cargada.'
+      : recibida === server
+        ? 'Las dos copias son idénticas.'
+        : recibida.trim() === server.trim()
+          ? 'Es la misma cadena pero con espacios o saltos de línea de diferencia: limpia el valor.'
+          : recibida.length === server.length
+            ? 'Misma longitud pero contenido distinto: son dos llaves diferentes.'
+            : 'Longitudes distintas: en algún lado se pegó otra cadena o quedó recortada.',
+  });
+};
+
 // GET /api/zaia/health — verifica llave y estado sin consultar nada del negocio.
 export const zaiaHealth = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;

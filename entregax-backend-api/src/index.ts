@@ -639,7 +639,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17303,6 +17303,7 @@ app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
 // no llevan authenticateToken: quien llama es una máquina, no una sesión.
 // ============================================================
 app.get('/api/zaia/health', zaiaHealth);
+app.get('/api/zaia/verify', zaiaVerify);   // diagnóstico de la llave, sin exponerla
 app.get('/api/zaia/tareas', zaiaTareas);
 app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
