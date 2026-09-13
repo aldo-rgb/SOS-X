@@ -639,7 +639,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaTareas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
+import { zaiaHealth, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17304,6 +17304,7 @@ app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
 // ============================================================
 app.get('/api/zaia/health', zaiaHealth);
 app.get('/api/zaia/tareas', zaiaTareas);
+app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
 

@@ -3054,7 +3054,10 @@ export const preguntarCore = async (opts: {
   const tg = await pool.query(
     `SELECT config_value FROM system_configurations WHERE config_key = 'cajito_enabled' LIMIT 1`
   ).catch(() => ({ rows: [] as any[] }));
-  if (tg.rows[0]?.config_value?.enabled !== true) return { ok: false, status: 403, error: 'Cajito está deshabilitado' };
+  // 503 y no 403: que Cajito esté apagado es "servicio no disponible por ahora",
+  // no "no tienes permiso". Con 403 quien integra manda a revisar una credencial
+  // que está bien (lo señaló el equipo de ZAIA al revisar el manual).
+  if (tg.rows[0]?.config_value?.enabled !== true) return { ok: false, status: 503, error: 'Cajito está deshabilitado temporalmente.' };
 
   const caps = await getUserCapabilities(userId, String(role || ''));
   if (!hasCap(caps, 'cajito.access')) return { ok: false, status: 403, error: 'Sin acceso a Cajito' };

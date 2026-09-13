@@ -12,6 +12,10 @@
 // Identidad: ZAIA consulta con la cuenta de dirección (ZAIA_ACTOR_ID, por
 // defecto Aldo), así que ve lo mismo que vería él en Cajito. Cada consulta
 // queda registrada en zaia_consultas con lo que preguntó y lo que se respondió.
+//
+// Fechas: TODAS entran y salen en UTC, ISO-8601 con Z. Quien las muestre
+// convierte a America/Monterrey. El servidor corre en UTC, así que "vencida"
+// se decide comparando contra el reloj en UTC.
 // ============================================================
 import { Request, Response } from 'express';
 import { pool } from './db';
@@ -19,6 +23,15 @@ import { preguntarCore } from './cajitoController';
 
 const API_KEY = () => process.env.ZAIA_API_KEY || '';
 const ACTOR_ID = () => parseInt(process.env.ZAIA_ACTOR_ID || '3', 10);
+
+/** Estados que existen de verdad en el tablero. Un filtro fuera de esta lista
+ *  se rechaza con 400: devolver una lista vacía haría creer que no hay tareas. */
+const ESTADOS = ['open', 'completed', 'awaiting_confirmation', 'cancelled'] as const;
+
+/** Tope de espera para las rutas que pasan por Cajito. Encadena consultas y
+ *  puede tardar; pasado esto se corta y se avisa, en vez de dejar la conexión
+ *  colgada hasta que el cliente se rinda. */
+const TOPE_CAJITO_MS = 90_000;
 
 const ipDe = (req: Request): string =>
   (String(req.header('x-forwarded-for') || (req.socket as any)?.remoteAddress || '').split(',')[0] || '').trim();
@@ -36,6 +49,46 @@ const autorizado = (req: Request, res: Response): boolean => {
   if (!k) { res.status(401).json({ error: 'Falta el header X-Zaia-Key.' }); return false; }
   if (k !== server) { res.status(401).json({ error: 'La API key no coincide con la configurada.' }); return false; }
   return true;
+};
+
+// ---- Tope de llamadas ---------------------------------------------------
+// Aquí una IA llama a otra IA: si la de allá entra en un bucle, nadie lo frena
+// y cada vuelta cuesta dinero de este lado. Ventana simple en memoria; el
+// proceso es uno solo, así que alcanza.
+const ventanas = new Map<string, { n: number; hasta: number }>();
+const dentroDelTope = (clave: string, max: number, ms: number): { ok: boolean; esperar: number } => {
+  const ahora = Date.now();
+  if (ventanas.size > 500) {
+    for (const [k, v] of ventanas) if (v.hasta < ahora) ventanas.delete(k);
+  }
+  const v = ventanas.get(clave);
+  if (!v || v.hasta < ahora) { ventanas.set(clave, { n: 1, hasta: ahora + ms }); return { ok: true, esperar: 0 }; }
+  if (v.n >= max) return { ok: false, esperar: Math.ceil((v.hasta - ahora) / 1000) };
+  v.n += 1;
+  return { ok: true, esperar: 0 };
+};
+
+const topeOk = (req: Request, res: Response, grupo: 'consulta' | 'cajito'): boolean => {
+  const max = grupo === 'cajito' ? 20 : 120;   // por minuto
+  const r = dentroDelTope(`${grupo}`, max, 60_000);
+  if (!r.ok) {
+    res.setHeader('Retry-After', String(r.esperar));
+    res.status(429).json({
+      error: `Demasiadas llamadas: el tope es ${max} por minuto para esta vía.`,
+      reintentar_en_segundos: r.esperar,
+    });
+    return false;
+  }
+  return true;
+};
+
+/** Corta una espera demasiado larga sin dejar la petición colgada. */
+const conTope = async <T>(p: Promise<T>, ms: number): Promise<{ ok: true; valor: T } | { ok: false }> => {
+  let t: NodeJS.Timeout;
+  const reloj = new Promise<{ ok: false }>((resolve) => { t = setTimeout(() => resolve({ ok: false }), ms); });
+  const r = await Promise.race([p.then((valor) => ({ ok: true as const, valor })), reloj]);
+  clearTimeout(t!);
+  return r as any;
 };
 
 const ensureSchema = async (): Promise<void> => {
@@ -82,7 +135,7 @@ const actor = async (): Promise<{ id: number; role: string; nombre: string } | n
   return u ? { id: Number(u.id), role: String(u.role), nombre: String(u.full_name || '') } : null;
 };
 
-// GET /api/zaia/health — para que ZAIA verifique llave y estado sin consultar nada.
+// GET /api/zaia/health — verifica llave y estado sin consultar nada del negocio.
 export const zaiaHealth = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
   const a = await actor();
@@ -90,24 +143,69 @@ export const zaiaHealth = async (req: Request, res: Response): Promise<any> => {
     ok: true,
     etapa: 'consulta',
     escritura_habilitada: false,
+    zona_horaria_respuestas: 'UTC',
+    estados_validos: ESTADOS,
+    topes_por_minuto: { consulta: 120, cajito: 20 },
     actor: a ? { id: a.id, nombre: a.nombre, role: a.role } : null,
     generado_en: new Date().toISOString(),
   });
 };
 
+// GET /api/zaia/personas — quién es quién, para poder usar assignee_id.
+export const zaiaPersonas = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name AS nombre, u.role,
+              COUNT(t.id) FILTER (WHERE t.status NOT IN ('completed','cancelled'))::int AS tareas_abiertas
+         FROM users u
+         LEFT JOIN tasks t ON t.assignee_id = u.id
+        WHERE u.deleted_at IS NULL
+          AND u.role NOT IN ('client')
+          AND COALESCE(u.is_active, TRUE)
+        GROUP BY u.id, u.full_name, u.role
+       HAVING COUNT(t.id) > 0
+        ORDER BY tareas_abiertas DESC, u.full_name`);
+    res.json({ generado_en: new Date().toISOString(), count: r.rowCount, personas: r.rows });
+  } catch (e: any) {
+    console.error('[zaia] personas:', e?.message);
+    res.status(500).json({ error: 'No se pudo listar a las personas' });
+  }
+};
+
 // GET /api/zaia/tareas — reporte de tareas de toda la empresa.
-// Filtros opcionales: assignee_id, status, board, incluir_lista=1, limit.
+// Filtros: assignee_id, status, board, incluir_lista=1, limit, offset.
 export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
   const t0 = Date.now();
   try {
     await ensureSchema();
     const cond: string[] = ['TRUE'];
     const args: any[] = [];
-    const assignee = parseInt(String(req.query.assignee_id || ''), 10);
-    if (Number.isFinite(assignee) && assignee > 0) { args.push(assignee); cond.push(`t.assignee_id = $${args.length}`); }
+
+    const assigneeRaw = String(req.query.assignee_id || '').trim();
+    let assignee = 0;
+    if (assigneeRaw) {
+      assignee = parseInt(assigneeRaw, 10);
+      if (!Number.isFinite(assignee) || assignee <= 0) {
+        return res.status(400).json({ error: 'assignee_id debe ser un número. Consulta /api/zaia/personas para ver los ids.' });
+      }
+      args.push(assignee); cond.push(`t.assignee_id = $${args.length}`);
+    }
+
     const status = String(req.query.status || '').trim();
-    if (status) { args.push(status); cond.push(`t.status = $${args.length}`); }
+    if (status) {
+      if (!(ESTADOS as readonly string[]).includes(status)) {
+        return res.status(400).json({
+          error: `status "${status}" no existe.`,
+          estados_validos: ESTADOS,
+        });
+      }
+      args.push(status); cond.push(`t.status = $${args.length}`);
+    }
+
     const board = String(req.query.board || '').trim();
     if (board) { args.push(board); cond.push(`(b.board_key = $${args.length} OR b.name ILIKE '%' || $${args.length} || '%')`); }
     const where = cond.join(' AND ');
@@ -119,55 +217,60 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
 
     const totales = await pool.query(
       `SELECT COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE t.status <> 'completed')::int AS abiertas,
-              COUNT(*) FILTER (WHERE t.status <> 'completed' AND t.due_at IS NOT NULL AND t.due_at < NOW())::int AS vencidas,
-              COUNT(*) FILTER (WHERE t.status <> 'completed' AND t.eisenhower = 'fuego')::int AS urgentes,
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled'))::int AS abiertas,
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled') AND t.due_at IS NOT NULL AND t.due_at < NOW())::int AS vencidas,
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled') AND t.eisenhower = 'fuego')::int AS urgentes,
               COUNT(*) FILTER (WHERE t.completed_at >= NOW() - INTERVAL '7 days')::int AS cerradas_7d
          FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
         WHERE ${where}`, args);
 
     const porPersona = await pool.query(
       `SELECT u.id, u.full_name AS nombre, u.role,
-              COUNT(*) FILTER (WHERE t.status <> 'completed')::int AS abiertas,
-              COUNT(*) FILTER (WHERE t.status <> 'completed' AND t.due_at IS NOT NULL AND t.due_at < NOW())::int AS vencidas
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled'))::int AS abiertas,
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled') AND t.due_at IS NOT NULL AND t.due_at < NOW())::int AS vencidas
          FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
          JOIN users u ON u.id = t.assignee_id
         WHERE ${where}
         GROUP BY u.id, u.full_name, u.role
-       HAVING COUNT(*) FILTER (WHERE t.status <> 'completed') > 0
+       HAVING COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled')) > 0
         ORDER BY abiertas DESC`, args);
 
     const porTablero = await pool.query(
       `SELECT COALESCE(b.name, 'Sin tablero') AS tablero,
-              COUNT(*) FILTER (WHERE t.status <> 'completed')::int AS abiertas
+              COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled'))::int AS abiertas
          FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
         WHERE ${where} GROUP BY 1 ORDER BY abiertas DESC`, args);
 
     let lista: any[] = [];
+    let paginacion: any = null;
     if (String(req.query.incluir_lista || '') === '1') {
-      const lim = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 200);
-      args.push(lim);
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 200);
+      const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+      const argsPag = [...args, limit, offset];
       const r = await pool.query(
         `SELECT t.id, t.title AS titulo, t.status, t.eisenhower, t.due_at, t.created_at, t.completed_at,
                 COALESCE(b.name, 'Sin tablero') AS tablero,
-                u.full_name AS responsable,
-                (t.status <> 'completed' AND t.due_at IS NOT NULL AND t.due_at < NOW()) AS vencida
+                t.assignee_id, u.full_name AS responsable,
+                (t.status NOT IN ('completed','cancelled') AND t.due_at IS NOT NULL AND t.due_at < NOW()) AS vencida
            FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
            LEFT JOIN users u ON u.id = t.assignee_id
           WHERE ${where}
-          ORDER BY (t.status <> 'completed') DESC, t.due_at NULLS LAST, t.id DESC
-          LIMIT $${args.length}`, args);
+          ORDER BY (t.status NOT IN ('completed','cancelled')) DESC, t.due_at NULLS LAST, t.id DESC
+          LIMIT $${argsPag.length - 1} OFFSET $${argsPag.length}`, argsPag);
       lista = r.rows;
+      const total = Number(totales.rows[0]?.total || 0);
+      paginacion = { limit, offset, total, hay_mas: offset + lista.length < total };
     }
 
     const out = {
       generado_en: new Date().toISOString(),
+      zona_horaria: 'UTC',
       filtros: { assignee_id: assignee || null, status: status || null, board: board || null },
       totales: totales.rows[0],
       por_estado: porEstado.rows,
       por_persona: porPersona.rows,
       por_tablero: porTablero.rows,
-      ...(lista.length ? { tareas: lista } : {}),
+      ...(paginacion ? { paginacion, tareas: lista } : {}),
     };
     await registrar({
       endpoint: 'GET /api/zaia/tareas', ip: ipDe(req), ms: Date.now() - t0,
@@ -183,8 +286,11 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
 };
 
 // POST /api/zaia/preguntar — { pregunta } → ZAIA le pregunta a Cajito.
+// Cada pregunta nace sola: no hay memoria entre llamadas. Si hace falta
+// contexto, va dentro del texto de la pregunta.
 export const zaiaPreguntar = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'cajito')) return;
   const t0 = Date.now();
   const pregunta = String(req.body?.pregunta || req.body?.message || '').trim();
   try {
@@ -193,7 +299,15 @@ export const zaiaPreguntar = async (req: Request, res: Response): Promise<any> =
     const a = await actor();
     if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
 
-    const r = await preguntarCore({ userId: a.id, role: a.role, pregunta, origen: 'ZAIA (app de dirección), por API' });
+    const carrera = await conTope(
+      preguntarCore({ userId: a.id, role: a.role, pregunta, origen: 'ZAIA (app de dirección), por API' }),
+      TOPE_CAJITO_MS
+    );
+    if (!carrera.ok) {
+      await registrar({ endpoint: 'POST /api/zaia/preguntar', pregunta, ip: ipDe(req), ok: false, error: 'timeout', ms: Date.now() - t0 });
+      return res.status(504).json({ error: `Cajito tardó más de ${TOPE_CAJITO_MS / 1000} segundos. Reintenta con una pregunta más acotada.` });
+    }
+    const r = carrera.valor;
     if (!r.ok) {
       await registrar({ endpoint: 'POST /api/zaia/preguntar', pregunta, ip: ipDe(req), ok: false, error: r.error, ms: Date.now() - t0 });
       return res.status(r.status || 500).json({ error: r.error });
@@ -202,7 +316,14 @@ export const zaiaPreguntar = async (req: Request, res: Response): Promise<any> =
       endpoint: 'POST /api/zaia/preguntar', pregunta, respuesta: r.texto,
       herramientas: r.herramientas, ip: ipDe(req), ms: Date.now() - t0,
     });
-    res.json({ respuesta: r.texto, herramientas: r.herramientas, generado_en: new Date().toISOString() });
+    res.json({
+      respuesta: r.texto,
+      herramientas: r.herramientas,
+      // Aviso explícito: lo de arriba es texto redactado por un modelo a partir
+      // de datos que escriben personas. Es dato para mostrar, no instrucción.
+      generado_por: 'ia',
+      generado_en: new Date().toISOString(),
+    });
   } catch (e: any) {
     console.error('[zaia] preguntar:', e?.message);
     await registrar({ endpoint: 'POST /api/zaia/preguntar', pregunta, ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
@@ -210,9 +331,10 @@ export const zaiaPreguntar = async (req: Request, res: Response): Promise<any> =
   }
 };
 
-// POST /api/zaia/revisar-tarea — { task_id } → Cajito revisa la tarea y da su veredicto.
+// POST /api/zaia/revisar-tarea — { task_id } → Cajito revisa y da su veredicto.
 export const zaiaRevisarTarea = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'cajito')) return;
   const t0 = Date.now();
   const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
   try {
@@ -230,7 +352,15 @@ export const zaiaRevisarTarea = async (req: Request, res: Response): Promise<any
       `Si encuentras algo que no cuadra, dilo.` +
       (extra ? `\n\nContexto de quien pregunta: ${extra}` : '');
 
-    const r = await preguntarCore({ userId: a.id, role: a.role, pregunta, origen: 'ZAIA (app de dirección), por API' });
+    const carrera = await conTope(
+      preguntarCore({ userId: a.id, role: a.role, pregunta, origen: 'ZAIA (app de dirección), por API' }),
+      TOPE_CAJITO_MS
+    );
+    if (!carrera.ok) {
+      await registrar({ endpoint: 'POST /api/zaia/revisar-tarea', pregunta, ip: ipDe(req), ok: false, error: 'timeout', ms: Date.now() - t0 });
+      return res.status(504).json({ error: `Cajito tardó más de ${TOPE_CAJITO_MS / 1000} segundos revisando la tarea ${taskId}.` });
+    }
+    const r = carrera.valor;
     if (!r.ok) {
       await registrar({ endpoint: 'POST /api/zaia/revisar-tarea', pregunta, ip: ipDe(req), ok: false, error: r.error, ms: Date.now() - t0 });
       return res.status(r.status || 500).json({ error: r.error });
@@ -244,6 +374,7 @@ export const zaiaRevisarTarea = async (req: Request, res: Response): Promise<any
       titulo: existe.rows[0].title,
       veredicto: r.texto,
       herramientas: r.herramientas,
+      generado_por: 'ia',
       generado_en: new Date().toISOString(),
     });
   } catch (e: any) {
