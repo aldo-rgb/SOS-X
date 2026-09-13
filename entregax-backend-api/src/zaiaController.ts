@@ -21,7 +21,12 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { preguntarCore } from './cajitoController';
 
-const API_KEY = () => process.env.ZAIA_API_KEY || '';
+// .trim() en los dos lados a propósito: al pegar el valor en el panel del
+// servidor se coló un salto de línea y la integración entera se cayó con un
+// "la API key no coincide" que no había forma de diagnosticar desde fuera. Un
+// carácter invisible no debe tumbar una conexión; el secreto sigue siendo el
+// mismo con o sin espacios alrededor.
+const API_KEY = () => (process.env.ZAIA_API_KEY || '').trim();
 const ACTOR_ID = () => parseInt(process.env.ZAIA_ACTOR_ID || '3', 10);
 
 /** Estados que existen de verdad en el tablero. Un filtro fuera de esta lista
@@ -38,9 +43,9 @@ const ipDe = (req: Request): string =>
 
 /** Llave en header propio o como Bearer, igual que el canal de Grupo Rino. */
 const llaveDe = (req: Request): string =>
-  req.header('X-Zaia-Key')
-  || String(req.header('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
-  || '';
+  (req.header('X-Zaia-Key')
+    || String(req.header('Authorization') || '').replace(/^Bearer\s+/i, '')
+    || '').trim();
 
 const autorizado = (req: Request, res: Response): boolean => {
   const server = API_KEY();
