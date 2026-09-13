@@ -23,27 +23,40 @@ export function isMxWorkHours(d: Date = new Date()): boolean {
   } catch { return true; }
 }
 
-// Roles que reciben push SIEMPRE, sin restricción de horario laboral ni fines de
-// semana. Solo el rol 'admin' (administración) necesita enterarse en el momento;
-// super_admin y los demás roles quedan topados a horario laboral.
+/** Sábado o domingo en Monterrey. */
+export function esFinDeSemanaMx(d: Date = new Date()): boolean {
+  try {
+    const dia = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Monterrey', weekday: 'short' }).format(d);
+    return dia === 'Sat' || dia === 'Sun';
+  } catch { return false; }
+}
+
+// Roles que reciben push fuera de horario laboral, de lunes a viernes. El rol
+// 'admin' (Juan Segura) necesita enterarse en el momento entre semana, pero en
+// fin de semana tampoco se le interrumpe: sábado y domingo quedan libres para
+// él igual que para los demás (pedido de Aldo, 13-sep-2026).
 export const ALWAYS_NOTIFY_ROLES = ['admin'];
 
 // Dado un conjunto de destinatarios y si la notificación está topada a horario
 // laboral, devuelve SOLO los que deben recibir push AHORA:
-//   • admins / super_admins → siempre (24/7, incluidos sábado y domingo)
+//   • admins → fuera de horario sí, pero solo de lunes a viernes
 //   • los demás → solo dentro del horario laboral
 // Si la notificación no está topada a horario, pasan todos.
 export async function filterRecipientsForPush(userIds: number[], workHoursGated: boolean): Promise<number[]> {
   const ids = Array.isArray(userIds) ? userIds.filter(Boolean) : [];
   if (ids.length === 0) return [];
-  if (!workHoursGated || isMxWorkHours()) return ids; // todos pasan
+  if (!workHoursGated) return ids; // no topada: pasan todos
+  const finDeSemana = esFinDeSemanaMx();
   try {
-    const r = await pool.query(
+    // Admins en fin de semana: fuera, aunque la hora caiga en horario laboral
+    // (el sábado a las 11:00 isMxWorkHours dice que sí).
+    const admins = new Set<number>((await pool.query(
       `SELECT id FROM users WHERE id = ANY($1::int[]) AND role = ANY($2::text[])`,
       [ids, ALWAYS_NOTIFY_ROLES]
-    );
-    return r.rows.map((x: any) => x.id);
-  } catch { return []; }
+    )).rows.map((x: any) => Number(x.id)));
+    if (isMxWorkHours()) return finDeSemana ? ids.filter(id => !admins.has(Number(id))) : ids;
+    return finDeSemana ? [] : ids.filter(id => admins.has(Number(id)));
+  } catch { return isMxWorkHours() ? ids : []; }
 }
 
 /**
