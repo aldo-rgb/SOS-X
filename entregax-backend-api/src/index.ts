@@ -639,6 +639,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
+import { zaiaHealth, zaiaTareas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17293,6 +17294,18 @@ app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversatio
 app.post('/api/cajito/reportar-error', authenticateToken, cajitoReportarError);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
 app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
+
+// ============================================================
+// ZAIA — canal de CONSULTA para la app de inteligencia de dirección.
+// Etapa 1: ZAIA pregunta y Cajito contesta; ZAIA no le da órdenes. Ninguna de
+// estas rutas modifica nada y el núcleo corre sin herramientas de escritura.
+// Autentica con X-Zaia-Key (llave propia, aparte de la de Grupo Rino), por eso
+// no llevan authenticateToken: quien llama es una máquina, no una sesión.
+// ============================================================
+app.get('/api/zaia/health', zaiaHealth);
+app.get('/api/zaia/tareas', zaiaTareas);
+app.post('/api/zaia/preguntar', zaiaPreguntar);
+app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
 
 // 🎥 Videos en tickets y tareas. El CEDIS graba con el celular; el archivo sube
 // DIRECTO a S3 con URL firmada porque 60-90MB no caben por la API. Al

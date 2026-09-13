@@ -3028,6 +3028,114 @@ export const investigarTicketCore = async (
 };
 
 /** POST /api/cajito/investigar-ticket/:id — el botón Investigar. */
+/**
+ * Pregunta suelta a Cajito, sin pantalla ni conversación guardada.
+ *
+ * Nace para ZAIA (la app de inteligencia de dirección), que consulta por API:
+ * pregunta y Cajito contesta. Va SIEMPRE sin escritura — quien pregunta desde
+ * fuera no manda, solo consulta— así que aquí no se ofrecen las herramientas
+ * que modifican nada, y además se vuelve a comprobar capacidad por herramienta
+ * antes de ejecutarla, igual que en el chat.
+ *
+ * Es el mismo bucle de herramientas del chat y de la investigación de tickets;
+ * lo que cambia es que no persiste conversación ni acepta adjuntos.
+ */
+export const preguntarCore = async (opts: {
+  userId: number;
+  role: string;
+  pregunta: string;
+  origen?: string;
+}): Promise<{ ok: boolean; status?: number; error?: string; texto?: string; herramientas?: string[] }> => {
+  const { userId, role } = opts;
+  const pregunta = String(opts.pregunta || '').trim();
+  if (!pregunta) return { ok: false, status: 400, error: 'Pregunta vacía' };
+  if (pregunta.length > 4000) return { ok: false, status: 400, error: 'Pregunta demasiado larga (máx 4000)' };
+
+  const tg = await pool.query(
+    `SELECT config_value FROM system_configurations WHERE config_key = 'cajito_enabled' LIMIT 1`
+  ).catch(() => ({ rows: [] as any[] }));
+  if (tg.rows[0]?.config_value?.enabled !== true) return { ok: false, status: 403, error: 'Cajito está deshabilitado' };
+
+  const caps = await getUserCapabilities(userId, String(role || ''));
+  if (!hasCap(caps, 'cajito.access')) return { ok: false, status: 403, error: 'Sin acceso a Cajito' };
+
+  const u = await pool.query(
+    `SELECT u.full_name, b.name AS sucursal FROM users u
+       LEFT JOIN branches b ON b.id = u.branch_id WHERE u.id = $1`, [userId]
+  ).catch(() => ({ rows: [] as any[] }));
+  const pan = await pool.query(
+    `SELECT p.panel_name FROM user_panel_permissions up
+       JOIN admin_panels p ON p.panel_key = up.panel_key
+      WHERE up.user_id = $1 AND up.can_view = TRUE ORDER BY p.panel_name`, [userId]
+  ).catch(() => ({ rows: [] as any[] }));
+
+  const sistema = buildSystemPrompt({
+    userId, role,
+    full_name: u.rows[0]?.full_name,
+    sucursal: u.rows[0]?.sucursal || null,
+    paneles: pan.rows.map((x: any) => String(x.panel_name)),
+  }, caps) + `
+
+QUIÉN TE PREGUNTA AHORA: ${opts.origen || 'una consulta por API'}, no una persona escribiendo en el chat.
+Contesta en texto plano, completo y en español, sin pedir que abran una pantalla: quien lee tu respuesta
+no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consultar e informar.`;
+
+  const tools = toolsForUser(caps, { conEscritura: false, role });
+  const provider = getLlmProvider();
+  const messages: LlmMessage[] = [{ role: 'user', content: pregunta }];
+  const usadas: string[] = [];
+  let texto = '';
+
+  for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+    const c = await provider.complete({
+      system: sistema, messages, ...(tools.length ? { tools } : {}), maxTokens: MAX_TOKENS,
+    });
+    if (c.toolCalls.length > 0) {
+      const bloques: LlmContentBlock[] = [];
+      if (c.text) bloques.push({ type: 'text', text: c.text });
+      for (const tc of c.toolCalls) bloques.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+      messages.push({ role: 'assistant', content: bloques });
+
+      const results: LlmContentBlock[] = [];
+      const imagenes: LlmContentBlock[] = [];
+      for (const tc of c.toolCalls) {
+        const def = TOOLS.find(x => x.name === tc.name);
+        let r: any;
+        if (!def) r = { error: `Herramienta desconocida: ${tc.name}` };
+        else if (def.readOnly !== true) r = { error: 'Esta vía es de solo consulta: no se puede modificar nada.' };
+        else if (!hasCap(caps, def.requiredCapability)) r = { error: `Sin capacidad ${def.requiredCapability}` };
+        else {
+          usadas.push(tc.name);
+          try { r = await def.handler(tc.input || {}, { userId: Number(userId) || 0, role: String(role || '') }); }
+          catch (e: any) { r = { error: String(e?.message || e) }; }
+        }
+        if (r && Array.isArray(r.__imagenes)) {
+          imagenes.push(...r.__imagenes);
+          const { __imagenes, ...resto } = r;
+          r = resto;
+        }
+        results.push({ type: 'tool_result', tool_use_id: tc.id, content: JSON.stringify(r).slice(0, 6000) });
+      }
+      messages.push({ role: 'user', content: [...results, ...imagenes] });
+      continue;
+    }
+    texto = c.text || '';
+    break;
+  }
+
+  // Si se acabaron las vueltas pidiendo datos, que concluya con lo que reunió
+  // en vez de devolver vacío (mismo cierre que la investigación de tickets).
+  if (!texto) {
+    const c = await provider.complete({
+      system: sistema + '\n\nYA NO PUEDES USAR HERRAMIENTAS. Concluye con lo que reuniste.',
+      messages, maxTokens: MAX_TOKENS,
+    });
+    texto = c.text || '';
+  }
+
+  return { ok: true, texto, herramientas: Array.from(new Set(usadas)) };
+};
+
 export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
   // Muestra la investigación que ya se hizo; solo si no existe, la hace una vez
   // y la guarda. Ver investigacionDelTicket en cajitoJuez.ts.
