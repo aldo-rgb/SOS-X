@@ -10,8 +10,12 @@ import https from 'https';
 export function isMxWorkHours(d: Date = new Date()): boolean {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
     }).formatToParts(d);
+    // El domingo no se trabaja. Antes esto solo miraba la hora, así que el
+    // resumen de tickets atrasados de las 11:00 entraba igual en domingo: a
+    // nadie le sirve enterarse un día que no puede hacer nada al respecto.
+    if (parts.find(p => p.type === 'weekday')?.value === 'Sun') return false;
     const h = Number(parts.find(p => p.type === 'hour')?.value ?? '0');
     const m = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
     const mins = h * 60 + m;

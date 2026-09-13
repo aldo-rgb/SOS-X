@@ -1901,13 +1901,23 @@ export const startPurgaVideosCron = () => {
 
 export const startTicketAtrasosCron = () => {
   const correr = async () => {
+    // En domingo no se avisa. El rezago se mide en días hábiles, así que el
+    // domingo el número es el mismo que el sábado y el mismo que dirá el lunes:
+    // el aviso no aporta nada y sí interrumpe el día libre de todo el equipo.
+    const diaMx = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Mexico_City', weekday: 'short',
+    }).format(new Date());
+    if (diaMx === 'Sun') {
+      console.log('[CRON] Tickets atrasados: hoy es domingo, no se avisa.');
+      return;
+    }
     try {
       const { revisarTicketsAtrasados } = await import('./ticketAtrasos');
       await revisarTicketsAtrasados();
     } catch (e) { console.error('[CRON] tickets atrasados:', e); }
   };
   cron.schedule('0 11 * * *', correr, { timezone: 'America/Mexico_City' });
-  console.log('📅 [CRON] Tickets atrasados: diario 11:00 am (MX)');
+  console.log('📅 [CRON] Tickets atrasados: 11:00 am (MX), de lunes a sábado');
 };
 
 export const startTaskRemindersCron = () => {
