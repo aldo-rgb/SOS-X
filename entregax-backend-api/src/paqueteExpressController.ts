@@ -13,6 +13,34 @@ import { pool } from './db';
 // ============================================
 const PQTX_BASE_URL = process.env.PQTX_BASE_URL || 'https://qaglp.paquetexpress.com.mx';
 
+/**
+ * Nombre y contacto para la guía de Paquetexpress: su API rechaza la guía
+ * entera si pasan de 50 caracteres ("contacto string is too long, maximum
+ * allowed: 50"). Pasó con US-0999901977 (S186), cuyo receptor quedó guardado
+ * repetido: "Luis Polanco Norma Rosales Luis Polanco Norma Rosales" (53).
+ * Hay otras direcciones legítimas de más de 50 —razones sociales, "y/o"—
+ * que fallarían igual.
+ *
+ * 1) Espacios de sobra fuera. 2) Si el texto es la misma frase dos veces, se
+ * queda una. 3) Si aún pasa de 50, se corta en la última palabra completa. La
+ * dirección guardada no se toca.
+ */
+const nombreParaPqtx = (raw: any, fallback = 'CLIENTE'): string => {
+  let v = String(raw || '').replace(/\s+/g, ' ').trim();
+  const palabras = v.split(' ');
+  if (palabras.length >= 2 && palabras.length % 2 === 0) {
+    const mitad = palabras.length / 2;
+    const a = palabras.slice(0, mitad).join(' '), b = palabras.slice(mitad).join(' ');
+    if (a.toLowerCase() === b.toLowerCase()) v = a;
+  }
+  if (v.length > 50) {
+    const corte = v.slice(0, 50);
+    const esp = corte.lastIndexOf(' ');
+    v = (esp >= 25 ? corte.slice(0, esp) : corte).trim();
+  }
+  return v || fallback;
+};
+
 // Ambiente PQTX actual, derivado de la URL base. Las guías se etiquetan con este
 // valor para poder ocultar las de prueba (QA) del listado y sus totales al pasar
 // a producción. 'qa' = testing, 'production' = real.
@@ -549,9 +577,9 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
                   drnr: originNumber || 'S/N',
                   phno1: originPhone || '0000000000',
                   phno2: originPhone || '0000000000',
-                  clntName: originName || 'ENTREGAX',
+                  clntName: nombreParaPqtx(originName, 'ENTREGAX'),
                   email: originEmail || 'operaciones@entregax.com',
-                  contacto: originContact || originName || 'ENTREGAX',
+                  contacto: nombreParaPqtx(originContact || originName, 'ENTREGAX'),
                   addrType: 'ORIGIN',
                 },
                 {
@@ -565,9 +593,9 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
                   drnr: capDrnr(destNumber),
                   phno1: destPhone || '0000000000',
                   phno2: destPhone || '0000000000',
-                  clntName: destName || 'CLIENTE',
+                  clntName: nombreParaPqtx(destName),
                   email: destEmail || '',
-                  contacto: destContact || destName || 'CLIENTE',
+                  contacto: nombreParaPqtx(destContact || destName),
                   addrType: 'DESTINATION',
                 },
               ],
@@ -1691,7 +1719,7 @@ export async function generateOnePqtxGuide(params: {
     : (cleanAddr.city || ' ').toUpperCase();
   // El nombre y contacto siguen siendo el cliente para que el mostrador de
   // la sucursal sepa a quién entregar cuando pregunte por su casillero.
-  const destClntName = (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase();
+  const destClntName = nombreParaPqtx(params.addr.recipient_name || params.userName).toUpperCase();
   const destPhone = (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000';
   const destComt = isOcurre
     ? `OCURRE - ${destClntName} recoge en sucursal · ${params.trackingInternal}${commentSuffix}`
