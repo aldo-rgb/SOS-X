@@ -27,7 +27,9 @@ const PAQUETERIA_SCAN_KEY = 'scanMethod:paqueteria';
 // Normaliza códigos escaneados con layout de teclado ES (scanner HID)
 // Ñ→:  '→-  ¿→/  ¡→!  y extrae tracking de URL si es QR
 const normalizeBarcode = (raw: string): string => {
-  let v = raw.trim()
+  // Sin espacios ni saltos en ningún lugar: la etiqueta de Paquetexpress llega
+  // partida ("P2609B⏎41E2F") y la misma guía terminó en dos cajas de S20.
+  let v = raw.replace(/\s+/g, '')
     .replace(/Ñ/g, ':')
     .replace(/ñ/g, ':')
     .replace(/'/g, '-')
@@ -92,7 +94,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const [manualCode, setManualCode] = useState('');
   const [completed, setCompleted] = useState<CompletedPkg[]>([]);
   const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'ok' | 'err' | 'warn'; msg: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'ok' | 'err' | 'warn'; msg: string; ayuda?: string } | null>(null);
   const [showList, setShowList] = useState(false);
   const [copiedGuideId, setCopiedGuideId] = useState<number | null>(null);
 
@@ -146,11 +148,18 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     });
   }, []);
 
-  const showFeedback = (type: 'ok' | 'err' | 'warn', msg: string) => {
-    setFeedback({ type, msg });
+  // Los errores ya no se borran solos a los 4 segundos: con la caja en la mano
+  // el operador no alcanzaba a leerlos. Se quedan hasta el siguiente escaneo o
+  // hasta que los toque. Los aciertos sí se van solos.
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFeedback = (type: 'ok' | 'err' | 'warn', msg: string, ayuda?: string) => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    setFeedback({ type, msg, ...(ayuda ? { ayuda } : {}) });
     if (type === 'err' || type === 'warn') Vibration.vibrate([0, 200, 100, 200]);
-    else Vibration.vibrate(80);
-    setTimeout(() => setFeedback(null), type === 'ok' ? 2000 : 4000);
+    else {
+      Vibration.vibrate(80);
+      feedbackTimer.current = setTimeout(() => setFeedback(null), 2000);
+    }
   };
 
   const handleSelectMode = async (mode: 'scanner' | 'camera') => {
@@ -361,8 +370,9 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       }
     } catch (e: any) {
       const msg = e.response?.data?.error || e.message || 'Error';
+      const ayuda = e.response?.data?.ayuda as string | undefined;
       const isWarn = msg.includes('⚠️');
-      showFeedback(isWarn ? 'warn' : 'err', msg);
+      showFeedback(isWarn ? 'warn' : 'err', msg, ayuda);
       setTimeout(() => inputRef.current?.focus(), 200);
     } finally {
       enVueloRef.current = false;
@@ -579,7 +589,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
       {/* Feedback */}
       {feedback && (
-        <View style={[styles.feedbackBox, {
+        <TouchableOpacity activeOpacity={0.8} onPress={() => setFeedback(null)} style={[styles.feedbackBox, {
           backgroundColor: feedback.type === 'ok' ? '#E8F5E9' : feedback.type === 'warn' ? '#FFF8E1' : '#FFEBEE',
           borderColor: feedback.type === 'ok' ? '#4CAF50' : feedback.type === 'warn' ? '#FFC107' : '#F44336',
         }]}>
@@ -591,7 +601,13 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           <Text style={[styles.feedbackText, {
             color: feedback.type === 'ok' ? '#2E7D32' : feedback.type === 'warn' ? '#F57F17' : '#C62828',
           }]}>{feedback.msg}</Text>
-        </View>
+          {feedback.ayuda ? (
+            <Text style={styles.feedbackAyuda}>👉 {feedback.ayuda}</Text>
+          ) : null}
+          {feedback.type !== 'ok' ? (
+            <Text style={styles.feedbackCerrar}>Toca para cerrar</Text>
+          ) : null}
+        </TouchableOpacity>
       )}
 
       </ScrollView>
@@ -739,8 +755,10 @@ const styles = StyleSheet.create({
   input: { width: '100%', borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, fontSize: 15, fontFamily: 'monospace', marginBottom: 10, backgroundColor: '#fafafa' },
   validateBtn: { width: '100%', backgroundColor: ORANGE, borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   validateBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  feedbackBox: { marginHorizontal: 12, borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1 },
-  feedbackText: { flex: 1, fontSize: 13, fontWeight: '600' },
+  feedbackBox: { marginHorizontal: 12, borderRadius: 10, padding: 12, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderWidth: 1 },
+  feedbackText: { flex: 1, fontSize: 14, fontWeight: '700' },
+  feedbackAyuda: { width: '100%', fontSize: 13, color: '#37474F', lineHeight: 19, marginTop: 2 },
+  feedbackCerrar: { width: '100%', fontSize: 11, color: '#90A4AE', textAlign: 'right' },
   finalizeBtn: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: '#2E7D32', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, elevation: 4 },
   finalizeBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
   listModal: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

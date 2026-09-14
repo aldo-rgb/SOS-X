@@ -2375,6 +2375,17 @@ export const checkCarrierGuideAvailable = async (req: Request, res: Response): P
  * mode: 'mostrador' | 'recoleccion' | 'cargar_unidad'
  * phase: 'internal' | 'external'
  */
+/** Nombre de paquetería como lo lee el operador en la etiqueta ("ptx" → "Paquetexpress"). */
+const nombrePaqueteria = (c: any): string => {
+    const k = String(c || '').toLowerCase().replace(/[\s_-]+/g, '');
+    if (!k) return 'la paquetería';
+    if (k === 'ptx' || k.includes('paqueteexpress') || k.includes('paquetexpress')) return 'Paquetexpress';
+    if (k.includes('estafeta')) return 'Estafeta';
+    if (k.includes('fedex')) return 'FedEx';
+    if (k.includes('dhl')) return 'DHL';
+    return String(c);
+};
+
 export const paqueteriaHandoffScan = async (req: Request, res: Response): Promise<any> => {
     const { barcode, carrier, mode, phase, packageId: confirmedId, externalTracking } = req.body;
     const driverId = getAuthUserId(req);
@@ -2384,7 +2395,11 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
     try {
         // Normalizar código — layout teclado ES: ' → -, Ñ → :, y extraer tracking de URL
         const normalizeCode = (raw: string): string => {
-            let v = String(raw || '').trim()
+            // Sin espacios ni saltos de línea en NINGÚN lugar: la etiqueta de
+            // Paquetexpress llega partida ("P2609B⏎41E2F") y así se guardaba.
+            // La misma guía quedó en dos cajas de S20 porque, con el salto en
+            // otra posición, para el sistema eran textos distintos.
+            let v = String(raw || '').replace(/\s+/g, '')
                 .replace(/Ñ/gi, ':')
                 .replace(/['’ʼ]/g, '-')  // apostrofe regular, curvo y modificador
                 .replace(/¿/g, '/')
@@ -2578,9 +2593,46 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 }
             }
             if (result.rows.length === 0) {
-                return res.status(404).json({ error: `❌ Guía ${code} no encontrada en el sistema` });
+                // Antes solo decía "no encontrada" y el operador no sabía qué
+                // hizo mal. El caso más común es escanear en el paso 1 la
+                // etiqueta de la paquetería en vez de la nuestra.
+                const yaRegistrada = await pool.query(
+                    `SELECT tracking_internal, national_carrier FROM packages
+                      WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1
+                      LIMIT 1`, [code]);
+                if (yaRegistrada.rows[0]) {
+                    return res.status(400).json({
+                        error: `⚠️ ${code} es una guía de paquetería, no una guía interna`,
+                        ayuda: `Ya está registrada en la caja ${yaRegistrada.rows[0].tracking_internal}. `
+                             + `En el paso 1 escanea la etiqueta de EntregaX de la caja (la que empieza con US-). `
+                             + `La etiqueta de la paquetería va en el paso 2.`,
+                    });
+                }
+                if (/^[GP]\d{4}[0-9A-F]{6}$/.test(code)) {
+                    return res.status(400).json({
+                        error: `⚠️ ${code} es una etiqueta de Paquetexpress, no la guía interna`,
+                        ayuda: 'Primero escanea la etiqueta de EntregaX de la caja (la que empieza con US-). '
+                             + 'Cuando el sistema la acepte, escanea la etiqueta de Paquetexpress pegada en esa MISMA caja.',
+                    });
+                }
+                return res.status(404).json({
+                    error: `❌ Guía ${code} no encontrada en el sistema`,
+                    ayuda: 'Revisa que estés escaneando la etiqueta de EntregaX (empieza con US-). '
+                         + 'Si la etiqueta está dañada, escribe el número a mano. Si aun así no aparece, avisa a sistemas con foto de la etiqueta.',
+                });
             }
             const pkg = result.rows[0];
+
+            // Caja que ya salió con su guía: no se vuelve a despachar. Si se
+            // deja, la segunda pasada le sobreescribe la guía con otra.
+            const estado = String(pkg.delivery_status || '').toLowerCase();
+            if (mode !== 'cargar_unidad' && pkg.national_tracking && ['shipped', 'sent', 'delivered', 'enviado'].includes(estado)) {
+                return res.status(400).json({
+                    error: `⚠️ ${pkg.tracking_number} ya salió con la guía ${String(pkg.national_tracking).replace(/\s+/g, '')}`,
+                    ayuda: 'Esta caja ya tiene salida registrada; no hace falta escanearla otra vez. '
+                         + 'Si la guía registrada no es la que trae pegada, apártala y avisa a sistemas.',
+                });
+            }
 
             // Rechazar si es un MASTER con cajas hijas — escanear cada caja individual.
             // EXCEPCIÓN REPACK (US-REPACK-*): es UNA sola caja física consolidada; se
@@ -2653,9 +2705,12 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             const dhlMatch = /^dhl-(\d+)$/i.exec(String(confirmedId));
             if (dhlMatch) {
                 const dhlId = Number(dhlMatch[1]);
-                const extTracking = String(externalTracking || barcode || '').trim();
+                const extTracking = String(externalTracking || barcode || '').replace(/\s+/g, '').toUpperCase();
                 if (!extTracking) {
-                    return res.status(400).json({ error: '❌ Escanea la guía de la paquetería' });
+                    return res.status(400).json({
+                        error: '❌ No llegó la guía de la paquetería',
+                        ayuda: 'Escanea la etiqueta de la paquetería pegada en el envío que acabas de validar.',
+                    });
                 }
                 // Red de seguridad del servidor: el código que se escanea en la
                 // fase 2 tiene que ser del courier, no una guía nuestra. Los 33
@@ -2670,20 +2725,23 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                       LIMIT 1`, [extTracking]);
                 if (esGuiaNuestra.rows.length > 0) {
                     return res.status(400).json({
-                        error: `⚠️ ${extTracking} es una guía nuestra, no la del courier. Escanea la etiqueta de la paquetería.`
+                        error: `⚠️ ${extTracking} es una guía nuestra, no la de la paquetería`,
+                        ayuda: 'Ya se validó el envío. Ahora escanea la etiqueta de la paquetería pegada en ese mismo envío.',
                     });
                 }
                 // Rechazar si esa guía de courier ya está en OTRO envío (mal escaneo).
+                // Se compara sin espacios ni saltos: así estaban guardadas 21.
                 const dup = await pool.query(
                     `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking
                        FROM dhl_shipments
-                      WHERE UPPER(COALESCE(national_tracking,'')) = UPPER($1) AND id <> $2
+                      WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1 AND id <> $2
                       LIMIT 1`,
                     [extTracking, dhlId]
                 );
                 if (dup.rows.length > 0) {
                     return res.status(400).json({
-                        error: `⚠️ La guía ${extTracking} ya está asignada a ${dup.rows[0].tracking}`
+                        error: `⚠️ La guía ${extTracking} ya está registrada en ${dup.rows[0].tracking}`,
+                        ayuda: 'Cada envío lleva su propia etiqueta de paquetería. Busca la que está pegada en este envío y escanéala.',
                     });
                 }
                 const upd = await pool.query(
@@ -2711,7 +2769,45 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
 
             const statusColumn = await getPackageStatusColumn();
             const sentStatus = await getSentWriteStatus();
-            const extTracking = externalTracking || barcode || '';
+            const extTracking = String(externalTracking || barcode || '').replace(/\s+/g, '').toUpperCase();
+            const cajaRes = await pool.query(`SELECT tracking_internal FROM packages WHERE id = $1`, [confirmedId]);
+            const caja = cajaRes.rows[0]?.tracking_internal || 'esta caja';
+            if (!extTracking) {
+                return res.status(400).json({
+                    error: '❌ No llegó la guía de la paquetería',
+                    ayuda: `Escanea la etiqueta de ${nombrePaqueteria(carrier)} pegada en ${caja}.`,
+                });
+            }
+            // Candados que ya tenía DHL y aquí no existían.
+            // 1) El código del paso 2 no puede ser una guía nuestra.
+            const esNuestra = await pool.query(
+                `SELECT 1 FROM packages WHERE UPPER(tracking_internal) = $1 OR UPPER(COALESCE(child_no,'')) = $1
+                 UNION ALL
+                 SELECT 1 FROM dhl_shipments WHERE UPPER(COALESCE(secondary_tracking,'')) = $1 OR UPPER(COALESCE(inbound_tracking,'')) = $1
+                 LIMIT 1`, [extTracking]);
+            if (esNuestra.rows.length > 0) {
+                return res.status(400).json({
+                    error: `⚠️ ${extTracking} es una etiqueta de EntregaX, no la de la paquetería`,
+                    ayuda: `Ya se validó ${caja}. Ahora escanea la etiqueta de ${nombrePaqueteria(carrier)} pegada en esa misma caja.`,
+                });
+            }
+            // 2) Cada caja lleva su propia guía: la misma no puede quedar en dos.
+            // Se omiten los marcadores genéricos viejos ("10PAQUETERIAEXTERNA"…)
+            // que comparten cientos de cajas y no son guías de verdad.
+            const esGuiaReal = extTracking.length >= 8 && !/(SALIDA|ENTREGA|PAQUETERIA|EVISA)/.test(extTracking);
+            if (esGuiaReal) {
+                const dup = await pool.query(
+                    `SELECT tracking_internal FROM packages
+                      WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1 AND id <> $2
+                      LIMIT 1`, [extTracking, confirmedId]);
+                if (dup.rows[0]) {
+                    return res.status(400).json({
+                        error: `⚠️ La guía ${extTracking} ya está registrada en la caja ${dup.rows[0].tracking_internal}`,
+                        ayuda: `Cada caja lleva su propia etiqueta de paquetería. Busca la etiqueta que está pegada en ${caja} y escanéala. `
+                             + `Si ${caja} no tiene etiqueta, apártala y avisa a quien subió las guías.`,
+                    });
+                }
+            }
             // Actualizar AMBAS columnas: statusColumn (puede ser delivery_status TEXT)
             // Y también 'status' ENUM (que es lo que lee el track endpoint).
             // Si la columna es la misma ('status'), el segundo SET es redundante pero inofensivo.
