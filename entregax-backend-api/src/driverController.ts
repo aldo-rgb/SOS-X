@@ -2375,6 +2375,16 @@ export const checkCarrierGuideAvailable = async (req: Request, res: Response): P
  * mode: 'mostrador' | 'recoleccion' | 'cargar_unidad'
  * phase: 'internal' | 'external'
  */
+/**
+ * Guías genéricas que comparten muchos envíos a propósito y NO son un número de
+ * rastreo: Evisa sale con el mismo QR "08 ENTREGA NACIONAL" en todas sus cajas,
+ * y hay marcadores viejos como "09SALIDALOCAL" o "10PAQUETERIAEXTERNA". El
+ * candado de "esta guía ya está en otro envío" no aplica a ellas; si aplica,
+ * bloquea todas las salidas de Evisa (pasó el 14-sep, envío 1093639234).
+ */
+const esGuiaGenerica = (codigo: string): boolean =>
+    codigo.length < 8 || /(SALIDA|ENTREGA|PAQUETERIA|EVISA)/.test(codigo.toUpperCase());
+
 /** Nombre de paquetería como lo lee el operador en la etiqueta ("ptx" → "Paquetexpress"). */
 const nombrePaqueteria = (c: any): string => {
     const k = String(c || '').toLowerCase().replace(/[\s_-]+/g, '');
@@ -2731,7 +2741,8 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 }
                 // Rechazar si esa guía de courier ya está en OTRO envío (mal escaneo).
                 // Se compara sin espacios ni saltos: así estaban guardadas 21.
-                const dup = await pool.query(
+                // Las guías genéricas (Evisa "08ENTREGANACIONAL") se comparten a propósito.
+                const dup = esGuiaGenerica(extTracking) ? { rows: [] as any[] } : await pool.query(
                     `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking
                        FROM dhl_shipments
                       WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1 AND id <> $2
@@ -2794,7 +2805,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // 2) Cada caja lleva su propia guía: la misma no puede quedar en dos.
             // Se omiten los marcadores genéricos viejos ("10PAQUETERIAEXTERNA"…)
             // que comparten cientos de cajas y no son guías de verdad.
-            const esGuiaReal = extTracking.length >= 8 && !/(SALIDA|ENTREGA|PAQUETERIA|EVISA)/.test(extTracking);
+            const esGuiaReal = !esGuiaGenerica(extTracking);
             if (esGuiaReal) {
                 const dup = await pool.query(
                     `SELECT tracking_internal FROM packages
