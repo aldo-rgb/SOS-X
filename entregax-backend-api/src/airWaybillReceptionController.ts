@@ -485,7 +485,10 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
         );
         const missingTrackings = missingTrackingRes.rows.map((r: any) => r.tracking_internal).filter(Boolean);
 
-        // Aéreo China llega a CEDIS CDMX → notificar a operadores de CEDIS + admins
+        // Aéreo China llega a CEDIS CDMX → notificar a operadores de CEDIS + admin.
+        // Super admin fuera (pedido de Aldo, 14-sep-2026): un faltante de AWB lo
+        // atiende la operación, no dirección. Se excluye aunque tenga el permiso
+        // del panel, porque super admin tiene todos los paneles.
         const receiversRes = await client.query(
           `SELECT DISTINCT u.id
              FROM users u
@@ -493,8 +496,8 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
                ON ump.user_id = u.id
               AND ump.panel_key IN ('ops_mx_cedis','ops_china_air')
               AND ump.can_view = TRUE
-            WHERE u.role IN ('super_admin','admin')
-               OR ump.user_id IS NOT NULL`
+            WHERE u.role <> 'super_admin'
+              AND (u.role = 'admin' OR ump.user_id IS NOT NULL)`
         );
 
         const title = '⚠️ AWB recibido con faltantes';

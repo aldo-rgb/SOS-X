@@ -626,6 +626,19 @@ export const registerPushToken = async (req: AuthRequest, res: Response) => {
       [userId, token, platform, device_id || null, device_name || null, app_version || null]
     );
 
+    // 📱 Un teléfono recibe las notificaciones de UNA sola cuenta: la última que
+    // abrió sesión en él. Antes el token se sumaba a cada cuenta que entraba sin
+    // soltar las anteriores: el teléfono de Aldo seguía registrado en 17 cuentas
+    // (una de asesor, un repartidor, Monitoreo, clientes de prueba) y le llegaba
+    // lo de todas, p. ej. "Guía sin identificar", que es solo para asesores.
+    // Había 18 teléfonos así; un equipo compartido de bodega recibía lo de cada
+    // empleado que lo usó.
+    await pool.query(
+      `UPDATE user_push_tokens SET is_active = FALSE
+        WHERE token = $1 AND user_id <> $2 AND is_active = TRUE`,
+      [token, userId]
+    ).catch(() => {});
+
     // 🔕 Anti-duplicado: desactivar tokens VIEJOS del MISMO dispositivo. Al reinstalar
     // la app, Expo genera un token nuevo; sin esto el viejo quedaba activo y el push
     // llegaba 2-3 veces al mismo teléfono. Se identifica el dispositivo por device_id
