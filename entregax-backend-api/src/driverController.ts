@@ -2880,7 +2880,10 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // Historial
             try {
                 await pool.query(
-                    `INSERT INTO package_history (package_id, status, description, created_by, created_at)
+                    // La columna es `notes`: con `description` este INSERT fallaba
+                    // SIEMPRE y el catch de abajo lo callaba, así que ninguna salida
+                    // a paquetería quedaba en el historial de la guía.
+                    `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
                      VALUES ($1, $2, $3, $4, NOW())`,
                     [confirmedId, sentStatus,
                      `Enviado vía ${carrier} (${mode === 'mostrador' ? 'Mostrador' : 'Recolección'}) — guía: ${extTracking}`,
