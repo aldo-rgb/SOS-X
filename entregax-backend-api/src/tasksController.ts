@@ -77,6 +77,11 @@ async function logActivity(taskId: number, actorId: number | null, action: strin
 // Cada uno es configurable en el panel "Sonidos de Notificaciones".
 async function notify(userId: number | null, title: string, message: string, data: any = {}, notificationType: string = 'task_new'): Promise<void> {
   if (!userId) return;
+  // Completadas que no encargó él: van al resumen de las 6 pm (resumenCompletadas.ts).
+  if (notificationType === 'task_completed' && data?.task_id) {
+    const { guardarCompletadaEnResumen } = await import('./resumenCompletadas');
+    if (await guardarCompletadaEnResumen(Number(userId), Number(data.task_id), title)) return;
+  }
   try {
     const { createCustomNotification } = require('./notificationController');
     await createCustomNotification(userId, title, message, 'info', 'checkbox', data, '/tareas');

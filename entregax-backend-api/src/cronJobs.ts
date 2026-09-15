@@ -8,6 +8,7 @@ import { syncActiveMJCustomerOrders } from './chinaController';
 import { runFacturapiSyncAll } from './facturapiController';
 import { runMJCustomerFclSync } from './mjcustomerFclSync';
 import { runDatabaseBackup } from './dbBackupService';
+import { startResumenCompletadasCron } from './resumenCompletadas';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -2288,6 +2289,7 @@ export const initCronJobs = () => {
   startTicketAtrasosCron();
   startPurgaVideosCron();
   startAvisosProgramadosCron();
+  startResumenCompletadasCron();
 };
 
 export default initCronJobs;
