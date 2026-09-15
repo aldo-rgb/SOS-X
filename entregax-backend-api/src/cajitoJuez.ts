@@ -44,7 +44,10 @@ const sugerirEnTicket = async (ticketId: number, v: any): Promise<void> => {
   if (ya.rows.length) return;
   const entendi = String(v.reclamo || '').trim();
   const paraJuanCarlos = v.escalar_a === 'juan_carlos';
-  const motivo = paraJuanCarlos
+  const paraSistemas = v.escalar_a === 'sistema';
+  const motivo = paraSistemas
+    ? `esto es un cambio en el sistema, le toca a Sistemas${v.motivo_escalar ? ` (${String(v.motivo_escalar).trim()})` : ''}.`
+    : paraJuanCarlos
     ? `esto es para Juan Carlos: piden un mejor precio a cambio de comprar más${v.motivo_escalar ? ` (${String(v.motivo_escalar).trim()})` : ''}.`
     : v.conclusion === 'DECISION'
       ? 'esto no se resuelve en el sistema: lo tiene que decidir una persona.'
@@ -52,7 +55,9 @@ const sugerirEnTicket = async (ticketId: number, v: any): Promise<void> => {
   const texto = [
     `${PREFIJO_SUGERENCIA}: ${motivo}`,
     entendi ? `Lo que entendí: ${entendi}` : '',
-    paraJuanCarlos
+    paraSistemas
+      ? 'Si están de acuerdo, usen «Reportar error» en este ticket: le llega a Sistemas para evaluarlo.'
+      : paraJuanCarlos
       ? 'Si están de acuerdo, usen «Escalar a Juan Carlos» en este ticket.'
       : 'Ustedes deciden: si lo pueden resolver aquí, respondan al cliente; si no, usen «Escalar a Juan Carlos» en este ticket.',
   ].filter(Boolean).join('\n\n');

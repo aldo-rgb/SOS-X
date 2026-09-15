@@ -2789,6 +2789,7 @@ export const investigarTicketCore = async (
       '   (e) NO_PUDE — no alcanzo a determinarlo.',
       '   (f) DECISION — no hay nada que investigar en el sistema: piden algo que tiene que decidir una persona con autoridad. Una excepción a una regla, un trato especial para un cliente. Ni lo concedas ni lo niegues: Servicio a Cliente decide si lo resuelve o lo escala.',
       '       · Si piden MEJOR PRECIO o DESCUENTO a cambio de COMPRAR MÁS —más contenedores, más volumen, envíos recurrentes, una promesa de negocio a futuro— eso le toca a JUAN CARLOS: pon "escalar_a": "juan_carlos" y en "motivo_escalar" una línea con qué piden y qué ofrecen a cambio.',
+      '       · Si piden una FUNCIÓN NUEVA o un CAMBIO en el sistema —agregar un botón o una opción, un reporte, una herramienta, mandar algo automático o masivo— eso le toca a SISTEMAS, nunca a Juan Carlos: pon "escalar_a": "sistema" y en "motivo_escalar" una línea con el cambio que piden. Si lo que describen es algo que YA debería funcionar y no funciona, eso no es DECISION: es ERROR_SISTEMA.',
       '       · Una COTIZACIÓN a secas —piden el precio de un envío sin ofrecer nada a cambio— NO es DECISION ni se escala: la resuelve Servicio a Cliente. Concluye ACOMPANAR y di en la explicación que es una cotización.',
       'No confundas (a) con (c). La prueba es UNA: ¿hay algo que un programador tendría que reparar para que esto no vuelva a pasar?',
       '  - SÍ lo hay → es (a) ERROR_SISTEMA, aunque el caso ya esté en curso, aunque alguien ya lo esté atendiendo a mano, y aunque al cliente le vayan a resolver por otra vía. Que se esté resolviendo NO quiere decir que no esté roto.',
@@ -2814,8 +2815,8 @@ export const investigarTicketCore = async (
       '  "explicacion": "dos o tres líneas, en claro, sin repetir los hallazgos",',
       '  "para_el_cliente": "lo que Servicio a Cliente le va a decir al cliente, en dos líneas",',
       '  "falto": "sólo si conclusion es NO_PUDE: qué herramienta o dato te faltó",',
-      '  "escalar_a": "sólo si conclusion es DECISION y piden mejor precio a cambio de comprar más: juan_carlos. En cualquier otro caso, vacío",',
-      '  "motivo_escalar": "sólo si hay escalar_a: una línea con qué piden y qué ofrecen a cambio"',
+      '  "escalar_a": "sólo si conclusion es DECISION: juan_carlos si piden mejor precio a cambio de comprar más; sistema si piden una función nueva o un cambio en el sistema. En cualquier otro caso, vacío",',
+      '  "motivo_escalar": "sólo si hay escalar_a: una línea con qué piden (y, si es precio, qué ofrecen a cambio)"',
       '}',
       '',
       'SOBRE "para_el_cliente" — es el campo que más se va a usar, así que léelo dos veces:',
@@ -2941,7 +2942,12 @@ export const investigarTicketCore = async (
     } catch { datos = null; }
 
     let conclusion = String(datos?.conclusion || 'NO_PUDE').toUpperCase();
-    let escalarA = conclusion === 'DECISION' && String(datos?.escalar_a || '').trim().toLowerCase() === 'juan_carlos' ? 'juan_carlos' : '';
+    // Dos destinos con nombre: precio por volumen → Juan Carlos; función nueva o
+    // cambio en el sistema → Sistemas (se levanta como "Reportar error"). Antes
+    // solo existía Juan Carlos y una petición de mejora del sistema salía con
+    // «Escalar a Juan Carlos» (TKT-2026-2689: enviar tarifas por WhatsApp).
+    const _esc = String(datos?.escalar_a || '').trim().toLowerCase();
+    let escalarA = conclusion === 'DECISION' && ['juan_carlos', 'sistema'].includes(_esc) ? _esc : '';
     let motivoEscalar = String(datos?.motivo_escalar || '').trim();
     // Red fija: si lo que escribió el cliente/asesor pide mejor precio a cambio
     // de más volumen, es de Juan Carlos aunque el modelo no lo haya dicho.

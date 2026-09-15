@@ -1797,7 +1797,7 @@ export default function SupportBoardPage() {
                       <Typography variant="caption" sx={{ fontWeight: 800, color: '#6b7280' }}>
                         LO QUE ENCONTRÓ CAJITO
                       </Typography>
-                      <Chip size="small" label={c.escalar_a === 'juan_carlos' ? 'Para Juan Carlos' : (etiqueta[String(c.conclusion)] || c.conclusion)}
+                      <Chip size="small" label={c.escalar_a === 'juan_carlos' ? 'Para Juan Carlos' : c.escalar_a === 'sistema' ? 'Cambio en sistema' : (etiqueta[String(c.conclusion)] || c.conclusion)}
                             color={esNuestro ? 'error' : 'default'} variant={esNuestro ? 'filled' : 'outlined'} />
                     </Box>
 
@@ -1840,12 +1840,21 @@ export default function SupportBoardPage() {
                         <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mb: 0.5 }}>
                           {c.escalar_a === 'juan_carlos'
                             ? `Esto es para Juan Carlos: piden mejor precio a cambio de comprar más${c.motivo_escalar ? ` — ${c.motivo_escalar}` : ''}.`
+                            : c.escalar_a === 'sistema'
+                            ? `Esto es un cambio en el sistema: le toca a Sistemas${c.motivo_escalar ? ` — ${c.motivo_escalar}` : ''}.`
                             : 'Ustedes deciden: si lo pueden resolver, respondan al cliente; si no, escálenlo.'}
                         </Typography>
-                        <Button size="small" variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
-                          sx={{ textTransform: 'none', borderColor: '#7C3AED', color: '#6D28D9' }}>
-                          {escalando ? 'Escalando…' : '⬆️ Escalar a Juan Carlos'}
-                        </Button>
+                        {c.escalar_a === 'sistema' ? (
+                          <Button size="small" variant="outlined" color="error" disabled={reporting} onClick={handleReportError}
+                            sx={{ textTransform: 'none' }}>
+                            {reporting ? 'Enviando…' : '🛠️ Enviar a Sistemas'}
+                          </Button>
+                        ) : (
+                          <Button size="small" variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
+                            sx={{ textTransform: 'none', borderColor: '#7C3AED', color: '#6D28D9' }}>
+                            {escalando ? 'Escalando…' : '⬆️ Escalar a Juan Carlos'}
+                          </Button>
+                        )}
                       </Box>
                     )}
                     <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.75 }}>
@@ -2241,11 +2250,15 @@ export default function SupportBoardPage() {
               <strong>
                 {inv.escalar_a === 'juan_carlos'
                   ? 'Esto es para Juan Carlos: piden mejor precio a cambio de comprar más.'
+                  : inv.escalar_a === 'sistema'
+                  ? 'Esto es un cambio en el sistema: le toca a Sistemas.'
                   : 'No hay nada roto: lo que piden lo tiene que decidir una persona.'}
               </strong>
               <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
                 {inv.escalar_a === 'juan_carlos'
                   ? (inv.motivo_escalar || 'Si están de acuerdo, escálenlo a Juan Carlos.')
+                  : inv.escalar_a === 'sistema'
+                  ? (inv.motivo_escalar || 'Si están de acuerdo, envíenlo a Sistemas para evaluarlo.')
                   : 'Si lo pueden resolver, respondan al cliente; si no, escálenlo.'}
               </Typography>
             </Alert>
@@ -2353,7 +2366,12 @@ export default function SupportBoardPage() {
           {/* Un solo clic. Antes habia un segundo boton de confirmacion sobre
               una vista previa: quien llega hasta aqui ya leyo el hallazgo
               completo arriba, asi que volver a preguntarle sobra. */}
-          {!invLoading && inv && ['DECISION', 'NO_PUDE'].includes(inv.conclusion) && (
+          {!invLoading && inv && inv.escalar_a === 'sistema' && (
+            <Button variant="outlined" color="error" disabled={reporting} onClick={handleReportarConHallazgo}>
+              {reporting ? 'Enviando…' : '🛠️ Enviar a Sistemas'}
+            </Button>
+          )}
+          {!invLoading && inv && ['DECISION', 'NO_PUDE'].includes(inv.conclusion) && inv.escalar_a !== 'sistema' && (
             <Button variant="outlined" disabled={escalando} onClick={handleEscalarJuanCarlos}
               sx={{ borderColor: '#7C3AED', color: '#6D28D9' }}>
               {escalando ? 'Escalando…' : '⬆️ Escalar a Juan Carlos'}
