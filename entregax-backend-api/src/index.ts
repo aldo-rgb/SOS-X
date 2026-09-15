@@ -15451,10 +15451,18 @@ async function ensureRequiredColumns() {
       END;
       $$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS xpay_pkg_default_addr_trg ON packages;
-      CREATE TRIGGER xpay_pkg_default_addr_trg
-        BEFORE INSERT OR UPDATE OF user_id, service_type ON packages
-        FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_pkg();
+      -- Solo si no existe: DROP/CREATE TRIGGER toma el candado más fuerte sobre
+      -- packages en CADA arranque, y con una consulta colgada del proceso anterior
+      -- formó una fila que dejó el sistema sin entrar (15-sep-2026). La lógica vive
+      -- en la función (CREATE OR REPLACE no bloquea la tabla). Si algún día cambia
+      -- la definición del trigger (eventos o columnas), bórralo a mano en mantenimiento.
+      DO $trg$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'xpay_pkg_default_addr_trg' AND NOT tgisinternal) THEN
+          CREATE TRIGGER xpay_pkg_default_addr_trg
+            BEFORE INSERT OR UPDATE OF user_id, service_type ON packages
+            FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_pkg();
+        END IF;
+      END $trg$;
 
       CREATE OR REPLACE FUNCTION xpay_apply_default_address_mar() RETURNS trigger AS $$
       DECLARE
@@ -15481,10 +15489,18 @@ async function ensureRequiredColumns() {
       END;
       $$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS xpay_mar_default_addr_trg ON maritime_orders;
-      CREATE TRIGGER xpay_mar_default_addr_trg
-        BEFORE INSERT OR UPDATE OF user_id, shipping_mark ON maritime_orders
-        FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_mar();
+      -- Solo si no existe: DROP/CREATE TRIGGER toma el candado más fuerte sobre
+      -- maritime_orders en CADA arranque, y con una consulta colgada del proceso anterior
+      -- formó una fila que dejó el sistema sin entrar (15-sep-2026). La lógica vive
+      -- en la función (CREATE OR REPLACE no bloquea la tabla). Si algún día cambia
+      -- la definición del trigger (eventos o columnas), bórralo a mano en mantenimiento.
+      DO $trg$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'xpay_mar_default_addr_trg' AND NOT tgisinternal) THEN
+          CREATE TRIGGER xpay_mar_default_addr_trg
+            BEFORE INSERT OR UPDATE OF user_id, shipping_mark ON maritime_orders
+            FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_mar();
+        END IF;
+      END $trg$;
     `);
     console.log('✅ [STARTUP] Triggers de auto-instrucciones (packages + maritime_orders) creados');
 
@@ -15500,10 +15516,18 @@ async function ensureRequiredColumns() {
       END;
       $$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS trg_child_delivered_to_master ON packages;
-      CREATE TRIGGER trg_child_delivered_to_master
-        AFTER INSERT OR UPDATE OF status ON packages
-        FOR EACH ROW EXECUTE FUNCTION propagate_delivered_to_master();
+      -- Solo si no existe: DROP/CREATE TRIGGER toma el candado más fuerte sobre
+      -- packages en CADA arranque, y con una consulta colgada del proceso anterior
+      -- formó una fila que dejó el sistema sin entrar (15-sep-2026). La lógica vive
+      -- en la función (CREATE OR REPLACE no bloquea la tabla). Si algún día cambia
+      -- la definición del trigger (eventos o columnas), bórralo a mano en mantenimiento.
+      DO $trg$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_child_delivered_to_master' AND NOT tgisinternal) THEN
+          CREATE TRIGGER trg_child_delivered_to_master
+            AFTER INSERT OR UPDATE OF status ON packages
+            FOR EACH ROW EXECUTE FUNCTION propagate_delivered_to_master();
+        END IF;
+      END $trg$;
     `);
     console.log('✅ [STARTUP] Trigger propagate_delivered_to_master creado');
 

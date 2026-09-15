@@ -42,8 +42,13 @@ export const pool = new Pool(poolConfig);
 // la columna ya existía; por si fuera nueva, se reintenta en segundo plano.
 const ESPERA_CANDADO_MIGRACION = '3s';
 const REINTENTOS_MIGRACION = 5;
+// Migraciones que toman candado sobre una tabla existente. Antes solo se
+// cubrían los ALTER TABLE ... ADD COLUMN; el 15-sep-2026 un DROP/CREATE TRIGGER
+// sobre packages quedó esperando detrás de una consulta huérfana del proceso
+// anterior y todo lo que tocaba paquetes —incluido el login— se formó detrás.
+// Con lock_timeout, si no consigue el candado en 3 s se salta y reintenta.
 const esMigracionDeColumna = (sql: unknown): sql is string =>
-    typeof sql === 'string' && /^\s*ALTER\s+TABLE\b[\s\S]*\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b/i.test(sql);
+    typeof sql === 'string' && /\b(ALTER\s+TABLE|CREATE\s+(OR\s+REPLACE\s+)?TRIGGER|DROP\s+TRIGGER|CREATE\s+(UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS)\b/i.test(sql);
 const queryOriginal = pool.query.bind(pool) as (...args: any[]) => any;
 const intentosMigracion = new Map<string, number>();
 
