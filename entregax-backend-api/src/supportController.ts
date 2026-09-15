@@ -2534,11 +2534,19 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
         'Soporte Técnico': ['soporte_tecnico'],
         'Cotizaciones': ['customer_service'],
         'Contabilidad': ['accountant', 'Contador', 'contador'],
-        'Dirección': ['director', 'admin', 'super_admin'],
+        // Dirección = directora (Neida) + Ricardo Méndez, director de Servicio a
+        // Cliente. Ni admin ni super admin (pedido de Aldo, 15-sep-2026).
+        'Dirección': ['director'],
+      };
+      const CORREOS_POR_DEPTO: Record<string, string[]> = {
+        'Dirección': ['ricardoadmin@entregax.com'],
       };
       const roles = ROLE_MAP[deptName] || [];
-      if (roles.length) {
-        const r = await pool.query(`SELECT id FROM users WHERE role = ANY($1) AND COALESCE(is_active, true) = true`, [roles]);
+      const correos = CORREOS_POR_DEPTO[deptName] || [];
+      if (roles.length || correos.length) {
+        const r = await pool.query(
+          `SELECT id FROM users WHERE COALESCE(is_active, true) = true
+              AND (role = ANY($1) OR LOWER(email) = ANY($2))`, [roles, correos]);
         userIds = r.rows.map((x: any) => Number(x.id));
       }
     }

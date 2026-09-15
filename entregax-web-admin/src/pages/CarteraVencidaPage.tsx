@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import CrearPinSupervisor from '../components/CrearPinSupervisor';
 import {
   Box,
   Typography,
@@ -205,6 +206,7 @@ export default function CarteraVencidaPage() {
   const [ptOpen, setPtOpen] = useState(false);
   const [ptValue, setPtValue] = useState<'standard' | 'high_value'>('standard');
   const [ptPin, setPtPin] = useState('');
+  const [ptCrearPin, setPtCrearPin] = useState(false);
   const [ptLoading, setPtLoading] = useState(false);
   const [ptHistory, setPtHistory] = useState<any[]>([]);
 
@@ -229,6 +231,7 @@ export default function CarteraVencidaPage() {
       searchGuias();
     } catch (err: any) {
       setSnackbar({ open: true, message: err?.response?.data?.error || 'Error al cambiar tipo', severity: 'error' });
+      if (err?.response?.data?.crear_pin) setPtCrearPin(true);
     } finally { setPtLoading(false); }
   };
   
@@ -1732,7 +1735,13 @@ export default function CarteraVencidaPage() {
                           <MenuItem value="high_value">Específica</MenuItem>
                         </Select>
                       </FormControl>
-                      <TextField size="small" type="password" label="PIN de Supervisor" value={ptPin} onChange={(e) => setPtPin(e.target.value)} helperText="Requiere PIN de supervisor/admin/director. El precio se recalcula si la guía no está pagada." />
+                      <TextField size="small" type="password" label="PIN de Supervisor" value={ptPin} onChange={(e) => setPtPin(e.target.value)} helperText="Requiere tu PIN de supervisor. El precio se recalcula si la guía no está pagada." />
+                      {ptCrearPin && (
+                        <CrearPinSupervisor
+                          crear={async (pin) => { await api.post('/warehouse/update-supervisor-pin', { new_pin: pin }); }}
+                          onCreado={(pin) => { setPtPin(pin); setPtCrearPin(false); setSnackbar({ open: true, message: 'PIN creado. Presiona Actualizar para autorizar a tu nombre.', severity: 'success' }); }}
+                        />
+                      )}
                       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                         <Button size="small" onClick={() => { setPtOpen(false); setPtPin(''); }} disabled={ptLoading}>Cancelar</Button>
                         <Button size="small" variant="contained" onClick={handleChangeProductType} disabled={ptLoading}>

@@ -1591,11 +1591,12 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
 
   try {
     // 1) Validar PIN de supervisor (mismos roles que validateSupervisor)
+    const { puedeTenerPinSql } = await import('./warehouseController');
     const sup = await pool.query(
-      `SELECT id, full_name, email, role
-       FROM users
-       WHERE supervisor_pin = $1
-         AND role IN ('super_admin','admin','director','gerente_sucursal','branch_manager')
+      `SELECT u.id, u.full_name, u.email, u.role
+       FROM users u
+       WHERE u.supervisor_pin = $1
+         AND ${puedeTenerPinSql('u')}
        LIMIT 1`,
       [String(supervisor_pin).trim()]
     );
@@ -1607,6 +1608,18 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
           [requesterId || null, 'dhl_product_type_change', (req as any).ip]
         );
       } catch (_) { /* tabla puede no existir */ }
+      // ¿Quien intenta puede tener PIN y todavía no lo creó? Se le dice cómo, en
+      // vez de dejarlo seguir usando el PIN de otra cuenta.
+      const yo = requesterId ? await pool.query(
+        `SELECT (u.supervisor_pin IS NOT NULL) AS tiene_pin, ${puedeTenerPinSql('u')} AS puede
+           FROM users u WHERE u.id = $1`, [requesterId]).catch(() => ({ rows: [] as any[] })) : { rows: [] as any[] };
+      if (yo.rows[0]?.puede && !yo.rows[0]?.tiene_pin) {
+        return res.status(403).json({
+          error: 'PIN incorrecto. Todavía no tienes tu propio PIN de supervisor.',
+          crear_pin: true,
+          ayuda: 'Crea tu PIN personal: cada autorización queda a tu nombre. El PIN de otra cuenta ya no sirve para autorizar por ti.',
+        });
+      }
       return res.status(403).json({ error: 'PIN de supervisor incorrecto' });
     }
     const supervisor = sup.rows[0];

@@ -2205,13 +2205,12 @@ export const startComprobantesPorAutorizarCron = () => {
         `SELECT u.id FROM users u
           WHERE COALESCE(u.is_active, true) = true
             AND u.deleted_at IS NULL
-            AND (
-              u.role = 'super_admin'
-              OR (u.role IN ('accountant', 'finanzas', 'director')
-                  AND EXISTS (SELECT 1 FROM user_panel_permissions p
-                               WHERE p.user_id = u.id
-                                 AND p.panel_key = 'admin_finance_dashboard'))
-            )`)).rows.map((x: any) => Number(x.id));
+            -- Solo Contabilidad (pedido de Aldo, 15-sep-2026): ni super admin ni
+            -- dirección. Sigue filtrado por el permiso del tablero de Cobranza.
+            AND u.role IN ('accountant', 'finanzas', 'contador')
+            AND EXISTS (SELECT 1 FROM user_panel_permissions p
+                         WHERE p.user_id = u.id
+                           AND p.panel_key = 'admin_finance_dashboard')`)).rows.map((x: any) => Number(x.id));
       if (destinatarios.length === 0) {
         console.warn('[CRON] Comprobantes por autorizar: no hay contadores activos a quién avisar');
         return;

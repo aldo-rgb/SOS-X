@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import CrearPinSupervisor from '../components/CrearPinSupervisor';
 import { useNavigate } from 'react-router-dom';
 import useModulePermissions from '../hooks/useModulePermissions';
 import {
@@ -213,6 +214,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   const [editTypeDialog, setEditTypeDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
   const [editTypeValue, setEditTypeValue] = useState<'standard' | 'high_value'>('standard');
   const [editTypePin, setEditTypePin] = useState('');
+  const [editTypeCrearPin, setEditTypeCrearPin] = useState(false);
   const [editTypeError, setEditTypeError] = useState('');
   const [savingType, setSavingType] = useState(false);
   const [typeUpdatedDialog, setTypeUpdatedDialog] = useState<{ open: boolean; supervisorName: string; shipment: DhlShipment | null; oldType: string; newType: string }>({ open: false, supervisorName: '', shipment: null, oldType: '', newType: '' });
@@ -1327,8 +1329,17 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             value={editTypePin}
             onChange={(e) => setEditTypePin(e.target.value)}
             error={!!editTypeError}
-            helperText={editTypeError || 'Requiere PIN de supervisor/admin/director'}
+            helperText={editTypeError || 'Requiere tu PIN de supervisor'}
           />
+          {editTypeCrearPin && (
+            <CrearPinSupervisor
+              crear={async (pin) => {
+                const token = localStorage.getItem('token');
+                await axios.post(`${API_URL}/api/warehouse/update-supervisor-pin`, { new_pin: pin }, { headers: { Authorization: `Bearer ${token}` } });
+              }}
+              onCreado={(pin) => { setEditTypePin(pin); setEditTypeCrearPin(false); setEditTypeError('PIN creado. Presiona Actualizar para autorizar a tu nombre.'); }}
+            />
+          )}
         </DialogContent>
         <DialogActions>
           <Button
@@ -1362,6 +1373,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                 fetchStats();
               } catch (err: any) {
                 setEditTypeError(err?.response?.data?.error || 'No se pudo actualizar');
+                if (err?.response?.data?.crear_pin) setEditTypeCrearPin(true);
               } finally {
                 setSavingType(false);
               }

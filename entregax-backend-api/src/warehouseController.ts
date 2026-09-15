@@ -1657,6 +1657,22 @@ export const getBranchGeofence = async (req: Request, res: Response): Promise<vo
 // ============================================
 
 // POST /api/warehouse/validate-supervisor - Validar PIN de supervisor/operaciones
+/**
+ * Quién puede tener PIN de SUPERVISOR (autorizaciones de operación: recepción
+ * DHL, cambio de tipo de producto…). Por rol, más personas puntuales por correo:
+ * Ricardo Méndez es director de Servicio a Cliente con rol customer_service, y
+ * autorizaba con el PIN de la cuenta "Administrador EntregaX", así que todo
+ * quedaba a nombre de otro (pedido de Aldo, 15-sep-2026).
+ *
+ * NO aplica a autorizaciones financieras (saldo a favor), que siguen exigiendo
+ * PIN de dirección o super admin en customerServiceController.
+ */
+export const PIN_SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager'];
+export const PIN_SUPERVISOR_CORREOS = ['ricardoadmin@entregax.com'];
+/** Condición SQL: el usuario (alias u) puede tener PIN de supervisor. */
+export const puedeTenerPinSql = (alias = 'u') =>
+    `(${alias}.role = ANY(ARRAY['${PIN_SUPERVISOR_ROLES.join("','")}']) OR LOWER(${alias}.email) = ANY(ARRAY['${PIN_SUPERVISOR_CORREOS.join("','")}']))`;
+
 export const validateSupervisor = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         const { pin, branch_id, action_type } = req.body;
@@ -1673,7 +1689,7 @@ export const validateSupervisor = async (req: AuthRequest, res: Response): Promi
             SELECT u.id, u.full_name, u.email, u.role, u.branch_id
             FROM users u
             WHERE u.supervisor_pin = $1
-              AND u.role IN ('super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager')
+              AND ${puedeTenerPinSql('u')}
             LIMIT 1
         `, [pin]);
 
@@ -1726,8 +1742,7 @@ export const updateSupervisorPin = async (req: AuthRequest, res: Response): Prom
         // Verificar que el usuario tiene rol de supervisor/gerente
         const userResult = await pool.query(`
             SELECT id, full_name, role, supervisor_pin 
-            FROM users 
-            WHERE id = $1 AND role IN ('super_admin', 'admin', 'director', 'gerente_sucursal')
+            FROM users u WHERE u.id = $1 AND ${puedeTenerPinSql('u')}
         `, [userId]);
         
         if (userResult.rows.length === 0) {
@@ -1852,7 +1867,7 @@ export const listSupervisors = async (req: AuthRequest, res: Response): Promise<
         const result = await pool.query(`
             SELECT id, full_name, email, role, supervisor_pin, branch_id
             FROM users
-            WHERE role IN ('super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager')
+            WHERE ${puedeTenerPinSql('users')}
             ORDER BY role, full_name
         `);
         res.json(result.rows);
@@ -1966,7 +1981,7 @@ export const getMySupervisorPin = async (req: AuthRequest, res: Response): Promi
             `SELECT id, full_name, email, role, supervisor_pin
              FROM users
              WHERE id = $1
-               AND role IN ('super_admin','admin','director','gerente_sucursal','branch_manager')`,
+               AND ${puedeTenerPinSql('users')}`,
             [userId]
         );
         if (result.rows.length === 0) {
