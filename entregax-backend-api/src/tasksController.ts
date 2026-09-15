@@ -61,6 +61,16 @@ async function logActivity(taskId: number, actorId: number | null, action: strin
       [taskId, actorId, action, JSON.stringify(meta || {})]
     );
   } catch (e: any) { console.warn('[tasks] logActivity:', e?.message); }
+  // Aviso a ZAIA si la tarea es para Aldo y no puede esperar (zaiaAvisos.ts).
+  // Con unos segundos de gracia: quien crea la tarea todavía le liga el folio
+  // CJD o los adjuntos justo después de este registro.
+  if (action === 'created' || action === 'assigned') {
+    setTimeout(() => {
+      import('./zaiaAvisos')
+        .then(m => m.avisarZaiaTarea(taskId, action === 'created' ? 'creada' : 'asignada'))
+        .catch(() => {});
+    }, 3000);
+  }
 }
 
 // notificationType: 'task_new' (default) | 'task_comment' | 'task_completed'.

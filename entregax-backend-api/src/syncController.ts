@@ -395,6 +395,7 @@ async function crearTareaDesdeRino(task: any, refExterna: string): Promise<any> 
      asignado, vence && !isNaN(vence.getTime()) ? vence : null, eisen, EXTERNAL_APP, refExterna]);
 
   const taskId = r.rows[0].id;
+  import('./zaiaAvisos').then(m => m.avisarZaiaTarea(Number(taskId), 'creada')).catch(() => {});
   console.log(`[sync] Grupo Rino nos encargó la tarea ${taskId} ("${titulo}") para ${u.rows[0].full_name}`);
 
   try {
