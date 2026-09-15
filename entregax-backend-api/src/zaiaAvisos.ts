@@ -158,3 +158,44 @@ export const zaiaAvisos = async (req: Request, res: Response): Promise<any> => {
     res.status(500).json({ error: 'No se pudieron leer los avisos.' });
   }
 };
+
+/**
+ * POST /api/zaia/avisos/prueba — manda un aviso de prueba al webhook y dice
+ * qué contestó. Para conectar sin esperar a que llegue una tarea real. No se
+ * guarda en zaia_avisos.
+ */
+export const zaiaAvisoPrueba = async (req: Request, res: Response): Promise<any> => {
+  const server = API_KEY();
+  if (!server) return res.status(503).json({ error: 'El servidor no tiene ZAIA_API_KEY configurada.' });
+  const k = (req.header('X-Zaia-Key') || String(req.header('Authorization') || '').replace(/^Bearer\s+/i, '') || '').trim();
+  if (!k) return res.status(401).json({ error: 'Falta el header X-Zaia-Key.' });
+  if (k !== server) return res.status(401).json({ error: 'La API key no coincide con la configurada.' });
+  const url = WEBHOOK();
+  if (!url) return res.status(409).json({ ok: false, error: 'EntregaX todavía no tiene ZAIA_WEBHOOK_URL configurada: pídele a Aldo que la cargue en Railway.' });
+  const payload = {
+    aviso_id: 0,
+    evento: 'prueba',
+    motivo: 'prueba',
+    tarea: {
+      id: 0, titulo: 'Aviso de prueba', descripcion: 'Si ves esto, el webhook de EntregaX → ZAIA funciona.',
+      urgente: false, tablero: null, creada_por: 'EntregaX', vence: null, creada: new Date().toISOString(),
+    },
+    folio_cajito: null,
+    enviado: new Date().toISOString(),
+  };
+  const cuerpo = JSON.stringify(payload);
+  const t0 = Date.now();
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10_000);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-EntregaX-Firma': firmar(cuerpo), 'X-EntregaX-Aviso': '0' },
+      body: cuerpo, signal: ctrl.signal,
+    }).finally(() => clearTimeout(t));
+    const txt = (await r.text().catch(() => '')).slice(0, 500);
+    res.json({ ok: r.ok, status: r.status, respuesta: txt, ms: Date.now() - t0 });
+  } catch (e: any) {
+    res.json({ ok: false, error: e?.name === 'AbortError' ? 'Su webhook no contestó en 10 segundos.' : String(e?.message || e), ms: Date.now() - t0 });
+  }
+};

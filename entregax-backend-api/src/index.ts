@@ -640,7 +640,7 @@ import {
   getAdvisorShipmentDetail
 } from './advisorPanelController';
 import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea } from './zaiaController';
-import { zaiaAvisos } from './zaiaAvisos';
+import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17333,6 +17333,7 @@ app.get('/api/zaia/tareas', zaiaTareas);
 app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
+app.post('/api/zaia/avisos/prueba', zaiaAvisoPrueba);
 app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse al día
 
 // 🎥 Videos en tickets y tareas. El CEDIS graba con el celular; el archivo sube
