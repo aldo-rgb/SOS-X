@@ -427,3 +427,82 @@ export const zaiaRevisarTarea = async (req: Request, res: Response): Promise<any
     res.status(500).json({ error: 'No se pudo revisar la tarea' });
   }
 };
+
+// ============================================================
+// POST /api/zaia/cerrar-tarea — la ÚNICA escritura de este canal.
+//
+// ZAIA es el asistente de Aldo, así que puede dar por terminadas SUS tareas:
+// las que tiene asignadas la cuenta de ZAIA_ACTOR_ID. Ninguna otra, aunque él
+// sea super admin y en el sistema pudiera cerrar la de cualquiera.
+//
+// El cierre pasa por el mismo completeTask que usa el botón de la app, así que
+// se aplican las mismas reglas: si la tarea se la encargó otra persona, no se
+// cierra de golpe — queda "esperando confirmación" y quien la asignó la cierra.
+// Body: { task_id, nota? }. La nota se guarda como comentario suyo.
+// ============================================================
+export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    await ensureSchema();
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const t = (await pool.query(
+      `SELECT id, title, status, assignee_id, created_by FROM tasks WHERE id = $1`, [taskId])).rows[0];
+    if (!t) return res.status(404).json({ error: `La tarea ${taskId} no existe.` });
+    if (Number(t.assignee_id) !== a.id) {
+      return res.status(403).json({
+        error: `La tarea ${taskId} no es de ${a.nombre}: por esta vía solo se pueden cerrar sus tareas.`,
+      });
+    }
+    if (t.status === 'completed') {
+      return res.json({ task_id: taskId, titulo: t.title, estado: 'completed', ya_estaba: true, mensaje: 'Esa tarea ya estaba cerrada.' });
+    }
+
+    const nota = String(req.body?.nota || '').trim();
+    if (nota) {
+      await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1, $2, $3)`, [taskId, a.id, nota.slice(0, 4000)]);
+      await pool.query(`INSERT INTO task_activity (task_id, actor_id, action, meta) VALUES ($1, $2, 'comment', '{"via":"zaia"}'::jsonb)`, [taskId, a.id]);
+    }
+
+    // El mismo handler del botón "Completar", con la cuenta de Aldo.
+    const { completeTask } = await import('./tasksController');
+    const reqFalso: any = { params: { id: String(taskId) }, body: {}, user: { userId: a.id, role: a.role }, query: {}, headers: {} };
+    let httpStatus = 200;
+    let cuerpo: any = null;
+    const resFalso: any = {
+      status(c: number) { httpStatus = c; return this; },
+      json(o: any) { cuerpo = o; return this; },
+    };
+    await completeTask(reqFalso, resFalso);
+
+    const final = (await pool.query(`SELECT status FROM tasks WHERE id = $1`, [taskId])).rows[0]?.status;
+    const ok = httpStatus < 400;
+    await registrar({
+      endpoint: 'POST /api/zaia/cerrar-tarea',
+      pregunta: JSON.stringify({ task_id: taskId, nota: nota || null }),
+      respuesta: JSON.stringify({ status: httpStatus, estado: final }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo cerrar'), ms: Date.now() - t0,
+    });
+    if (!ok) return res.status(httpStatus).json({ error: cuerpo?.error || 'No se pudo cerrar la tarea.' });
+
+    res.json({
+      task_id: taskId,
+      titulo: t.title,
+      estado: final,
+      cerrada: final === 'completed',
+      mensaje: final === 'completed'
+        ? 'Tarea cerrada.'
+        : 'Quedó como terminada, esperando que quien la asignó la confirme (la misma regla que en la app).',
+      nota_agregada: !!nota,
+    });
+  } catch (e: any) {
+    console.error('[zaia] cerrar-tarea:', e);
+    await registrar({ endpoint: 'POST /api/zaia/cerrar-tarea', pregunta: String(taskId), ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo cerrar la tarea.' });
+  }
+};
