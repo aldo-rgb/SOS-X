@@ -398,6 +398,13 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   const [collectCarriers, setCollectCarriers] = useState<Array<{ key: string; name: string }>>([]);
   const [collectExpanded, setCollectExpanded] = useState(false);
   const [selectedCollect, setSelectedCollect] = useState<string>('');
+  /**
+   * Prepagadas de precio fijo del catálogo (Evisa Prepagado $400, Estafeta $99).
+   * La lista de arriba está fija en el código y nunca las mostraba, aunque el
+   * panel web del cliente sí (S1202, tarea 596). El backend cobra con la misma
+   * etiqueta del catálogo al guardar.
+   */
+  const [catalogPrepaid, setCatalogPrepaid] = useState<CarrierOption[]>([]);
   useEffect(() => {
     const svc = ({
       china_air: 'china_air', china_sea: 'china_sea', maritime: 'china_sea',
@@ -414,13 +421,33 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
           .filter((c: any) => c.allows_collect === true || c.carrier_type === 'collect')
           .map((c: any) => ({ key: String(c.carrier_key), name: String(c.name) }));
         setCollectCarriers(lista);
-      } catch { setCollectCarriers([]); }
+        const yaEnLista = ['local', 'entregax_local', 'entregax_local_mty', 'entregax_local_cdmx',
+          'entregax_pobox', 'pickup', 'pickup_hidalgo', 'paquete_express'];
+        const prepagadas: CarrierOption[] = (d?.data || [])
+          .filter((c: any) => c.allows_collect !== true && c.carrier_type !== 'collect')
+          .filter((c: any) => !yaEnLista.includes(String(c.carrier_key)))
+          .filter((c: any) => /^\$\s*[\d,]+(\.\d+)?\s*(mxn)?$/i.test(String(c.price_label || '').trim()))
+          .map((c: any) => ({
+            id: String(c.carrier_key),
+            name: String(c.name).trim(),
+            price: parseFloat(String(c.price_label).replace(/[^0-9.]/g, '')) || 0,
+            currency: 'MXN' as const,
+            estimatedDays: 'Prepagado · por caja',
+            isExternal: true,
+          }));
+        setCatalogPrepaid(prepagadas);
+      } catch { setCollectCarriers([]); setCatalogPrepaid([]); }
     })();
   }, [shipmentType, token]);
 
   const [selectedCarrier, setSelectedCarrier] = useState<string>(CARRIER_OPTIONS[0]?.id || localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
-  const [carrierRates, setCarrierRates] = useState<CarrierOption[]>(CARRIER_OPTIONS);
+  const [carrierRatesBase, setCarrierRates] = useState<CarrierOption[]>(CARRIER_OPTIONS);
+  // USK (Kit de Bienvenida) conserva sus dos opciones fijas.
+  const carrierRates: CarrierOption[] = isUsk ? carrierRatesBase : [
+    ...carrierRatesBase,
+    ...catalogPrepaid.filter(p => !carrierRatesBase.some(c => c.id === p.id)),
+  ];
   const [pqtxNoCoverage, setPqtxNoCoverage] = useState(false);
   const [pqtxOcurreInfo, setPqtxOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
 

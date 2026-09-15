@@ -2377,6 +2377,29 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       }
     }
 
+    /**
+     * Precio fijo por caja de la etiqueta del catálogo (Evisa Prepagado "$400",
+     * Estafeta "$99"). Arriba solo se cobraba si la paquetería tenía
+     * price_per_package; Evisa Prepagado solo tiene price_label y se guardaba
+     * en $0 cuando la asignaba el asesor (S1202, tarea 596). El panel del
+     * cliente ya cobraba con esta misma etiqueta. Etiquetas en dólares no.
+     */
+    if (carrierKey && !isCollectBool && !gratisNacional && pqtxPerBox <= 0) {
+      try {
+        const et = await pool.query(
+          `SELECT price_label FROM carrier_service_options
+            WHERE carrier_key = $1 AND is_active = TRUE AND COALESCE(allows_collect, false) = false
+            LIMIT 1`, [carrierKey]);
+        const label = String(et.rows[0]?.price_label || '').trim();
+        if (/^\$\s*[\d,]+(\.\d+)?\s*(mxn)?$/i.test(label)) {
+          pqtxPerBox = parseFloat(label.replace(/[^0-9.]/g, '')) || 0;
+          console.log(`💳 [Precio fijo asesor] ${uid} carrier=${carrierKey} → $${pqtxPerBox}/caja`);
+        }
+      } catch (e: any) {
+        console.warn(`[Precio fijo asesor] no se pudo leer la etiqueta de ${carrierKey}:`, e?.message);
+      }
+    }
+
 
     // Parse uid
     const uidStr = String(uid);
@@ -2499,7 +2522,9 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           national_delivery_zip = COALESCE($8, national_delivery_zip),
           -- Paquetería "por cobrar" (collect): el cliente paga al transportista al
           -- recibir → nuestro flete nacional debe ser 0 (no cobrarlo en la orden).
-          national_shipping_cost = CASE WHEN $10::boolean THEN 0 WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
+          -- Un REPACK es UNA caja física: total_boxes guarda cuántas guías consolidó
+          -- (igual que en el panel del cliente).
+          national_shipping_cost = CASE WHEN $10::boolean THEN 0 WHEN $9::numeric > 0 THEN $9::numeric * (CASE WHEN tracking_internal ILIKE 'US-REPACK-%' THEN 1 ELSE COALESCE(total_boxes, 1) END) ELSE national_shipping_cost END,
           -- Si el paquete aún no tiene sucursal, derivarla de su status
           -- (received_mty → CEDIS MTY, received_cdmx → CDMX), para que aparezca
           -- en las Salidas de Paquetería del repartidor de ese CEDIS.
