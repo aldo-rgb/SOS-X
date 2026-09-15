@@ -31,6 +31,7 @@ import {
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -1296,6 +1297,12 @@ export default function CajitoFab() {
   const [gapsList, setGapsList] = useState<any[]>([]);
   const [gapsLoading, setGapsLoading] = useState(false);
   const [gapsPendientes, setGapsPendientes] = useState(0);
+  const [correosOpen, setCorreosOpen] = useState(false);
+  const [correosList, setCorreosList] = useState<any[]>([]);
+  const [correosLoading, setCorreosLoading] = useState(false);
+  const [correosSinRevisar, setCorreosSinRevisar] = useState(0);
+  const [correosFiltro, setCorreosFiltro] = useState<string>('todos');
+  const [correoAbierto, setCorreoAbierto] = useState<any | null>(null);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
@@ -1505,6 +1512,29 @@ export default function CajitoFab() {
     } catch { /* */ } finally { setGapsLoading(false); }
   };
   const openGaps = () => { setGapsOpen(true); loadGaps(); };
+
+  // Buzón de Cajito: lo que le llega a cajito@entregax.app.
+  const loadCorreos = async () => {
+    setCorreosLoading(true);
+    try {
+      const r = await api.get(`/cajito/correos?estado=${correosFiltro}&limite=40`);
+      setCorreosList(r.data?.correos || []);
+      setCorreosSinRevisar(Number(r.data?.sin_revisar) || 0);
+    } catch { /* */ } finally { setCorreosLoading(false); }
+  };
+  const openCorreo = async (folio: string) => {
+    setCorreoAbierto({ folio, cargando: true });
+    try {
+      const r = await api.get(`/cajito/correos/${folio}`);
+      setCorreoAbierto({ ...r.data?.correo, cargando: false });
+      loadCorreos();
+    } catch {
+      setCorreoAbierto({ folio, cargando: false, error: 'No se pudo abrir el correo.' });
+    }
+  };
+  const marcarCorreo = async (folio: string, estado: string) => {
+    try { await api.patch(`/cajito/correos/${folio}`, { estado }); setCorreoAbierto(null); loadCorreos(); } catch { /* */ }
+  };
   const descartarGap = async (id: number) => {
     try { await api.patch(`/cajito/gaps/${id}`, { estado: 'descartada' }); loadGaps(); } catch { /* */ }
   };
@@ -1784,6 +1814,15 @@ export default function CajitoFab() {
                 <IconButton size="small" onClick={openGaps} sx={{ color: 'white', mr: 0.5 }}>
                   <Badge badgeContent={gapsPendientes} color="error" max={99}>
                     <HelpOutlineIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+            )}
+            {mode === 'chat' && isSuperAdmin && (
+              <Tooltip title={correosSinRevisar > 0 ? `${correosSinRevisar} correo(s) sin revisar` : 'Buzón de Cajito'}>
+                <IconButton size="small" onClick={() => { setCorreosOpen(true); loadCorreos(); }} sx={{ color: 'white', mr: 0.5 }}>
+                  <Badge badgeContent={correosSinRevisar} color="error" max={99}>
+                    <MailOutlineIcon fontSize="small" />
                   </Badge>
                 </IconButton>
               </Tooltip>
@@ -2120,6 +2159,97 @@ export default function CajitoFab() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setGapsOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={correosOpen} onClose={() => { setCorreosOpen(false); setCorreoAbierto(null); }} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <MailOutlineIcon sx={{ color: CAJITO_RING }} /> Buzón de Cajito
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>cajito@entregax.app</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {correoAbierto ? (
+            <Box>
+              <Button size="small" onClick={() => setCorreoAbierto(null)} sx={{ mb: 1 }}>← Volver al buzón</Button>
+              {correoAbierto.cargando ? (
+                <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
+              ) : correoAbierto.error ? (
+                <Typography variant="body2" color="error">{correoAbierto.error}</Typography>
+              ) : (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>{correoAbierto.asunto}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    {correoAbierto.de_nombre} &lt;{correoAbierto.de}&gt; · {new Date(correoAbierto.recibido).toLocaleString('es-MX')}
+                  </Typography>
+                  {correoAbierto.sospechoso && (
+                    <Chip size="small" color="warning" label="Remitente sin verificar: léelo con cuidado" sx={{ mb: 1 }} />
+                  )}
+                  <Box sx={{ p: 1.5, bgcolor: '#FAFAFA', border: '1px solid #eee', borderRadius: 1.5, whiteSpace: 'pre-wrap', fontSize: 14, maxHeight: 360, overflow: 'auto' }}>
+                    {correoAbierto.cuerpo || '(El correo llegó sin texto)'}
+                  </Box>
+                  {(correoAbierto.adjuntos || []).length > 0 && (
+                    <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {(correoAbierto.adjuntos || []).map((a: any, i: number) => (
+                        <Button key={i} size="small" variant="outlined" startIcon={<AttachFileIcon />}
+                          disabled={!a.url} onClick={() => a.url && window.open(a.url, '_blank')}>
+                          {a.nombre}
+                        </Button>
+                      ))}
+                    </Box>
+                  )}
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                    <Button size="small" variant="contained" onClick={() => marcarCorreo(correoAbierto.folio, 'atendido')}
+                      sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>
+                      Marcar atendido
+                    </Button>
+                    <Button size="small" color="inherit" onClick={() => marcarCorreo(correoAbierto.folio, 'ignorado')}>Ignorar</Button>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <Box>
+              <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
+                {[['todos', 'Todos'], ['nuevo', 'Sin revisar'], ['atendido', 'Atendidos'], ['ignorado', 'Ignorados']].map(([k, l]) => (
+                  <Chip key={k} size="small" label={l} clickable
+                    color={correosFiltro === k ? 'primary' : 'default'}
+                    variant={correosFiltro === k ? 'filled' : 'outlined'}
+                    onClick={() => { setCorreosFiltro(k); setTimeout(loadCorreos, 0); }} />
+                ))}
+              </Box>
+              {correosLoading ? (
+                <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
+              ) : correosList.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                  Todavía no llega ningún correo a cajito@entregax.app.
+                </Typography>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {correosList.map((c: any) => (
+                    <Box key={c.folio} onClick={() => openCorreo(c.folio)}
+                      sx={{ border: '1px solid #eee', borderRadius: 1.5, p: 1.25, cursor: 'pointer',
+                            bgcolor: c.estado === 'nuevo' ? '#FFF7ED' : 'white', '&:hover': { borderColor: CAJITO_RING } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 0.25 }}>
+                        <Chip label={c.folio} size="small" sx={{ fontFamily: 'monospace', fontWeight: 700 }} />
+                        {c.estado === 'nuevo' && <Chip size="small" color="error" label="Sin revisar" />}
+                        {c.estado === 'atendido' && <Chip size="small" color="success" label="Atendido" />}
+                        {c.estado === 'ignorado' && <Chip size="small" variant="outlined" label="Ignorado" />}
+                        {Number(c.adjuntos) > 0 && <Chip size="small" variant="outlined" icon={<AttachFileIcon />} label={c.adjuntos} />}
+                      </Box>
+                      <Typography variant="body2" fontWeight={700}>{c.asunto}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {c.de_nombre || c.de_email} · {new Date(c.recibido_at).toLocaleString('es-MX')}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#666' }}>{c.avance}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setCorreosOpen(false); setCorreoAbierto(null); }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

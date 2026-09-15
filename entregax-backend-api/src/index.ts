@@ -8887,6 +8887,8 @@ import {
 // } from './vizionController';
 
 // MJCustomer FCL Sync (sustituye a Vizion)
+import { handleCajitoInboundEmail, cajitoListCorreos, cajitoGetCorreo, cajitoUpdateCorreo } from './cajitoCorreosController';
+
 import {
     triggerMJCustomerFclSync,
     getMJCustomerFclSyncStatus,
@@ -8899,6 +8901,11 @@ app.post('/api/webhooks/email/inbound', handleInboundEmail);
 
 // Mailgun correos aéreos
 app.post('/api/webhooks/email/air-inbound', handleInboundAirEmail);
+
+// Mailgun: buzón de Cajito (cajito@entregax.app). multer.any() porque Mailgun
+// puede mandar los adjuntos como archivos (forward) o como URLs (store).
+const cajitoCorreoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 20 } });
+app.post('/api/webhooks/email/cajito-inbound', cajitoCorreoUpload.any(), handleCajitoInboundEmail);
 
 // Vizion webhook - DEPRECATED (se cancela API Vizion)
 // app.post('/api/webhooks/vizion', handleVizionWebhook);
@@ -17214,6 +17221,7 @@ const CAJITO_CAPABILITIES: {
   // proponer y autorizar están reservados al super admin en el dispatch, y un
   // borrador no sale hasta que alguien lo autoriza a mano.
   { key: 'cajito.avisos',               label: 'Redactar comunicados',               description: 'Leer los cambios del sistema y PROPONER comunicados en borrador. No los envía: el envío lo autoriza un super admin y queda margen para cancelar.', category: 'write',     risk: 'high' },
+  { key: 'cajito.correos',             label: 'Buzón de correo de Cajito',          description: 'Leer los correos que llegan a cajito@entregax.app y dejar anotado en qué quedó cada uno. No responde correos.', category: 'read',      risk: 'medium' },
   { key: 'cajito.read.tasks',           label: 'Ver mis tareas',                     description: 'Cuántas tareas tiene el usuario, cuáles están vencidas o vencen hoy, y cómo se reparten en la matriz. Solo las suyas.', category: 'read',      risk: 'low' },
   // Escritura por rutas que una persona también sigue, con los mismos candados.
   // Las herramientas ya las pedían y el catálogo no las tenía: no había forma de
@@ -17483,6 +17491,11 @@ app.delete('/api/cajito/knowledge/:id', authenticateToken, requireRole('super_ad
 app.get('/api/cajito/gaps', authenticateToken, requireRole('super_admin'), cajitoListGaps);
 app.patch('/api/cajito/gaps/:id', authenticateToken, requireRole('super_admin'), cajitoUpdateGap);
 app.post('/api/cajito/gaps/:id/ensenar', authenticateToken, requireRole('super_admin'), cajitoTeachGap);
+
+// Buzón de Cajito (cajito@entregax.app): lo que le escriben, para revisarlo.
+app.get('/api/cajito/correos', authenticateToken, requireRole('super_admin'), cajitoListCorreos);
+app.get('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoGetCorreo);
+app.patch('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoUpdateCorreo);
 
 // ============================================================
 // MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas

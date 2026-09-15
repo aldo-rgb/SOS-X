@@ -931,6 +931,63 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- BUZÓN DE CAJITO (cajito@entregax.app) --------------------
+  // Lo que le escriben por correo. Llega completo, con adjuntos; qué hacer con
+  // cada tipo de correo se define con Aldo, no lo decide Cajito por su cuenta.
+  {
+    name: 'correos_buzon',
+    requiredCapability: 'cajito.correos',
+    readOnly: true,
+    description: 'Los correos que le llegaron a Cajito (cajito@entregax.app): quién escribe, asunto, si trae adjuntos y en qué quedó cada uno. Úsalo cuando pregunten qué le llegó al correo, qué hay sin revisar, o si escribió alguien en particular. estado: nuevo, leido, atendido, ignorado o todos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        estado: { type: 'string', description: 'nuevo | leido | atendido | ignorado | todos (por defecto todos)' },
+        de: { type: 'string', description: 'Parte del correo del remitente, para filtrar' },
+        buscar: { type: 'string', description: 'Texto en el asunto o en el cuerpo' },
+        limite: { type: 'number', description: 'Cuántos traer (máx 50, por defecto 15)' },
+      },
+    },
+    handler: async ({ estado, de, buscar, limite }) => {
+      const { listarCorreos } = await import('./cajitoCorreosController');
+      return await listarCorreos({ estado, de, buscar, limite });
+    }
+  },
+  {
+    name: 'leer_correo',
+    requiredCapability: 'cajito.correos',
+    readOnly: true,
+    description: 'El contenido completo de un correo del buzón de Cajito por su folio (CJM-2026-0001) y las ligas para abrir sus adjuntos. Al leerlo queda marcado como leído.',
+    parameters: {
+      type: 'object',
+      properties: { folio: { type: 'string', description: 'Folio del correo, por ejemplo CJM-2026-0001' } },
+      required: ['folio'],
+    },
+    handler: async ({ folio }) => {
+      const { leerCorreo } = await import('./cajitoCorreosController');
+      return await leerCorreo(String(folio || ''));
+    }
+  },
+  {
+    name: 'marcar_correo',
+    requiredCapability: 'cajito.correos',
+    readOnly: false,
+    description: 'Deja anotado en qué quedó un correo del buzón: atendido (ya se resolvió), ignorado (no hay nada que hacer) o leido. Puedes agregar una nota corta con lo que se hizo. Solo cuando la persona te lo pida.',
+    parameters: {
+      type: 'object',
+      properties: {
+        folio: { type: 'string', description: 'Folio del correo (CJM-2026-0001)' },
+        estado: { type: 'string', description: 'atendido | ignorado | leido | nuevo' },
+        nota: { type: 'string', description: 'Qué se hizo con el correo (opcional)' },
+      },
+      required: ['folio', 'estado'],
+    },
+    handler: async ({ folio, estado, nota }, ctx) => {
+      const { marcarCorreo } = await import('./cajitoCorreosController');
+      return await marcarCorreo(String(folio || ''), String(estado || ''), nota || null, ctx.userId);
+    }
+  },
+
   // -------------------- ÓRDENES DE PAGO --------------------
   // Sin esto Cajito podia ver las guias pero no el COBRO, que es de lo que
   // reclama la mitad de los tickets: "me cobraron flete", "esta orden no
