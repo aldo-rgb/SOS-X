@@ -490,8 +490,10 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
               <TableCell>RFC</TableCell>
               <TableCell>UUID</TableCell>
               <TableCell align="right">Total</TableCell>
+              <TableCell>Orden</TableCell>
+              <TableCell>Fecha del pago</TableCell>
               <TableCell>Estado</TableCell>
-              <TableCell>Fecha</TableCell>
+              <TableCell>Fecha factura</TableCell>
               <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
@@ -513,6 +515,29 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                   <Tooltip title={r.uuid_sat || ''}><span>{r.uuid_sat?.slice(0, 8) || '—'}…</span></Tooltip>
                 </TableCell>
                 <TableCell align="right" sx={{ fontWeight: 'bold' }}>{fmt(parseFloat(r.total))}</TableCell>
+                {/* Qué pago se facturó (tarea 581): orden, liga al comprobante y
+                    fecha real del pago —la del depósito, no la de cuando se subió—. */}
+                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  {r.orden_referencia ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <span>{r.orden_referencia}</span>
+                      {r.comprobante_link && (
+                        <Tooltip title="Ver el pago que se facturó">
+                          <IconButton size="small" component="a" href={r.comprobante_link} target="_blank" rel="noopener noreferrer">
+                            <ReceiptLongIcon fontSize="small" sx={{ color: ORANGE }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  ) : (
+                    <Tooltip title="Factura manual o global: no está ligada a una orden">
+                      <span style={{ color: '#999' }}>Global</span>
+                    </Tooltip>
+                  )}
+                </TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                  {r.fecha_pago ? fmtDate(r.fecha_pago + 'T12:00:00') : <span style={{ color: '#999' }}>—</span>}
+                </TableCell>
                 <TableCell>
                   {(r.status === 'canceled' || r.canceled_at) ? (
                     <Chip label="Cancelada" size="small" sx={{ bgcolor: RED, color: 'white' }} />

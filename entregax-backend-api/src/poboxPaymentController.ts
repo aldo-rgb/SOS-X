@@ -1475,37 +1475,12 @@ export const generateInvoiceForPoboxPaymentByRef = async (paymentReference: stri
         if (payment.payment_method !== 'transferencia' && payment.payment_method !== 'credit') return;
         if (!payment.requiere_factura || payment.facturada) return;
 
-        const packageIds = typeof payment.package_ids === 'string'
-            ? JSON.parse(payment.package_ids)
-            : (payment.package_ids || []);
-
-        console.log(`🧾 [TRANSFERENCIA] Generando factura para orden ${ref}...`);
-        const invoiceResult = await createInvoice({
-            paymentId: ref,
-            paymentType: 'pobox',
-            userId: payment.user_id,
-            amount: parseFloat(payment.amount) || 0,
-            currency: payment.currency || 'MXN',
-            paymentMethod: 'spei', // SAT forma '03' transferencia
-            description: `Servicio de logística - ${packageIds.length} paquete(s)`,
-            packageIds: packageIds,
-            serviceType: 'po_box'
-        });
-
-        if (invoiceResult?.success) {
-            await pool.query(
-                `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1,
-                        factura_created_at = CURRENT_TIMESTAMP WHERE id = $2`,
-                [invoiceResult.uuid, payment.id]
-            );
-            console.log(`✅ [TRANSFERENCIA] Factura generada: ${invoiceResult.uuid}`);
-        } else {
-            await pool.query(
-                `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`,
-                [invoiceResult?.error || 'Error desconocido', payment.id]
-            );
-            console.error(`❌ [TRANSFERENCIA] Error generando factura: ${invoiceResult?.error}`);
-        }
+        // Una sola ruta con las reglas de la tarea 581 (conciliada con el banco,
+        // mes en curso, una factura por pago). Antes esta función timbraba el
+        // TOTAL de la orden al aprobar el comprobante, sin esperar el depósito.
+        const { autoInvoicePoboxPayment } = await import('./fiscalController');
+        await autoInvoicePoboxPayment(Number(payment.id));
+        return;
     } catch (e: any) {
         console.error('❌ [TRANSFERENCIA] Excepción generando factura:', e.message);
         try {

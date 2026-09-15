@@ -294,6 +294,10 @@ export const createInvoice = async (
     description: string;
     packageIds?: number[];
     serviceType?: string; // 'po_box', 'aereo', 'maritimo', etc.
+    // Qué pago se factura (tarea 581): orden, fecha real del depósito y movimiento del banco.
+    paymentReference?: string | null;
+    fechaPago?: string | null;
+    bankEntryId?: number | null;
   }
 ): Promise<{ success: boolean; uuid?: string | undefined; pdfUrl?: string | undefined; xmlUrl?: string | undefined; emitterId?: number | undefined; error?: string | undefined; deferred?: boolean | undefined }> => {
   try {
@@ -463,10 +467,12 @@ export const createInvoice = async (
         receptor_rfc, receptor_razon_social, receptor_codigo_postal,
         receptor_regimen_fiscal, receptor_uso_cfdi,
         subtotal, total, currency, payment_form,
-        folio, serie, pdf_url, xml_url, status, fiscal_emitter_id
+        folio, serie, pdf_url, xml_url, status, fiscal_emitter_id,
+        payment_reference, fecha_pago, bank_entry_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, 'valid', $19
+        $11, $12, $13, $14, $15, $16, $17, $18, 'valid', $19,
+        $20, $21, $22
       )
     `, [
       factura.id,
@@ -490,6 +496,9 @@ export const createInvoice = async (
       factura.pdf_url,
       factura.xml_url,
       emitter.id,
+      paymentData.paymentReference || null,
+      paymentData.fechaPago || null,
+      paymentData.bankEntryId || null,
     ]);
 
     console.log(`✅ Factura creada: ${factura.uuid} por ${emitter.alias} (emitterId=${emitter.id})`);
@@ -531,35 +540,52 @@ export const autoInvoicePoboxPayment = async (paymentId: number): Promise<void> 
     if (!pp) return;
     if (!pp.requiere_factura || pp.facturada) return;
 
+    // Reglas de la tarea 581: conciliada con el banco, del mes en curso y una
+    // factura por cada pago. Ver facturacionReglas.ts.
+    const { evaluarFacturable, actualizarEstadoFacturada } = await import('./facturacionReglas');
+    const ev = await evaluarFacturable(Number(pp.id));
+    if (!ev.ok) {
+      // Mes cerrado: se deja escrito y el barredor ya no lo reintenta. Lo que
+      // espera conciliación no es error: se vuelve a revisar en la siguiente vuelta.
+      if (ev.mesCerrado) {
+        await pool.query(`UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`, [ev.motivo, pp.id]);
+        console.warn(`⏸️ [auto-factura] pago ${pp.id}: ${ev.motivo}`);
+      }
+      return;
+    }
+
     let pkgIds: number[] = [];
     try { pkgIds = Array.isArray(pp.package_ids) ? pp.package_ids : JSON.parse(pp.package_ids || '[]'); } catch { pkgIds = []; }
+    const metodo = String(pp.payment_method || 'cash').toLowerCase();
 
-    const result = await createInvoice({
-      paymentId: String(pp.id),
-      paymentType: 'pobox',
-      userId: pp.user_id,
-      amount: parseFloat(pp.amount),
-      currency: pp.currency || 'MXN',
-      paymentMethod: String(pp.payment_method || 'cash'),
-      description: `Servicio PO Box USA - ${pkgIds.length || 1} paquete(s)`,
-      packageIds: pkgIds,
-      serviceType: 'po_box',
-    });
-
-    if (result.success) {
-      await pool.query(
-        `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1,
-                factura_created_at = CURRENT_TIMESTAMP, factura_error = NULL WHERE id = $2`,
-        [result.uuid, pp.id]
-      );
-      console.log(`✅ [auto-factura] pago ${pp.id} timbrado: ${result.uuid}`);
-    } else if (result.deferred) {
-      // Toggle apagado → se queda pendiente por timbrar, sin marcar error.
-      return;
-    } else {
-      await pool.query(`UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`, [result.error, pp.id]);
-      console.warn(`⚠️ [auto-factura] pago ${pp.id} falló: ${result.error}`);
+    let ultimoUuid: string | null = null;
+    for (const pago of ev.porFacturar) {
+      const result = await createInvoice({
+        paymentId: ev.orden.referencia,
+        paymentType: 'pobox',
+        userId: pp.user_id,
+        amount: pago.monto,
+        currency: pp.currency || 'MXN',
+        paymentMethod: metodo === 'transferencia' || (metodo === 'credit' && pago.bankEntryId) ? 'spei' : metodo,
+        description: `Servicio PO Box USA - ${pkgIds.length || 1} paquete(s)`,
+        packageIds: pkgIds,
+        serviceType: 'po_box',
+        paymentReference: ev.orden.referencia,
+        fechaPago: pago.fecha,
+        bankEntryId: pago.bankEntryId,
+      });
+      if (result.success) {
+        ultimoUuid = result.uuid || ultimoUuid;
+        console.log(`✅ [auto-factura] ${ev.orden.referencia} · pago del ${pago.fecha} por $${pago.monto} timbrado: ${result.uuid}`);
+      } else if (result.deferred) {
+        return; // Toggle apagado → pendiente por timbrar, sin error.
+      } else {
+        await pool.query(`UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`, [result.error, pp.id]);
+        console.warn(`⚠️ [auto-factura] pago ${pp.id} falló: ${result.error}`);
+        return;
+      }
     }
+    await actualizarEstadoFacturada(ev.orden.id, ev.orden.referencia, ev.orden.monto, ultimoUuid);
   } catch (e: any) {
     console.warn(`⚠️ [auto-factura] excepción pago ${paymentId}: ${e?.message}`);
   }

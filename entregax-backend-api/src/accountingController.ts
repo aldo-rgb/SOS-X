@@ -300,13 +300,44 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
                    f.user_id AS cliente_id,
                    u.box_id AS cliente_box_id,
                    u.full_name AS cliente_nombre, u.email AS cliente_email,
-                   COALESCE(NULLIF(TRIM(u.fiscal_email), ''), NULLIF(TRIM(u.email), '')) AS billing_email
+                   COALESCE(NULLIF(TRIM(u.fiscal_email), ''), NULLIF(TRIM(u.email), '')) AS billing_email,
+                   -- Qué se facturó (tarea 581): la orden, la fecha REAL del pago
+                   -- (depósito en banco o pago registrado, no cuando se subió el
+                   -- comprobante) y el comprobante para verlo.
+                   COALESCE(f.payment_reference, po.payment_reference, NULLIF(f.payment_id, '')) AS orden_referencia,
+                   po.id AS orden_id,
+                   TO_CHAR(COALESCE(f.fecha_pago, dep.fecha, (po.paid_at AT TIME ZONE 'America/Monterrey')::date), 'YYYY-MM-DD') AS fecha_pago,
+                   comp.file_key AS comprobante_key, comp.file_url AS comprobante_url
             FROM facturas_emitidas f
             LEFT JOIN users u ON u.id = f.user_id
+            LEFT JOIN LATERAL (
+                SELECT pp.id, pp.payment_reference, pp.paid_at
+                  FROM pobox_payments pp
+                 WHERE pp.payment_reference = COALESCE(f.payment_reference, f.payment_id)
+                    OR pp.id::text = f.payment_id
+                 LIMIT 1
+            ) po ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT MIN(b.fecha) AS fecha
+                  FROM bank_entry_applications a
+                  JOIN bank_statement_entries b ON b.id = a.bank_entry_id
+                 WHERE a.reversed_at IS NULL
+                   AND (a.bank_entry_id = f.bank_entry_id
+                        OR (f.bank_entry_id IS NULL AND (a.payment_order_id = po.id OR a.payment_reference = po.payment_reference)))
+            ) dep ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT v.file_key, v.file_url
+                  FROM payment_vouchers v
+                 WHERE po.id IS NOT NULL AND v.payment_order_id = po.id
+                   AND v.status IN ('approved', 'pending_confirm')
+                   AND COALESCE(v.file_key, v.file_url) IS NOT NULL
+                 ORDER BY v.created_at DESC
+                 LIMIT 1
+            ) comp ON TRUE
             ${where}
             ORDER BY f.created_at DESC
             LIMIT 500
-        `, params).catch(() => pool.query(`
+        `, params).catch((err: any) => { console.warn('[listEmitterInvoices] consulta completa falló, uso la básica:', err?.message); return pool.query(`
             SELECT f.id, f.facturama_id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
                    f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
                    ${sqlUrlFactura('f','pdf')} AS pdf_url, ${sqlUrlFactura('f','xml')} AS xml_url, f.created_at,
@@ -319,9 +350,20 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
             ${where}
             ORDER BY f.created_at DESC
             LIMIT 500
-        `, params));
+        `, params); });
 
-        return res.json({ success: true, invoices: r.rows });
+        // Liga firmada al comprobante (el bucket es privado).
+        const { signS3UrlIfNeeded, getSignedUrlForKey } = await import('./s3Service');
+        const invoices = await Promise.all(r.rows.map(async (row: any) => {
+            let comprobante: string | null = null;
+            try {
+                if (row.comprobante_key) comprobante = await getSignedUrlForKey(row.comprobante_key, 3600);
+                else if (row.comprobante_url) comprobante = await signS3UrlIfNeeded(row.comprobante_url);
+            } catch { comprobante = row.comprobante_url || null; }
+            const { comprobante_key, comprobante_url, ...resto } = row;
+            return { ...resto, comprobante_link: comprobante };
+        }));
+        return res.json({ success: true, invoices });
     } catch (e: any) {
         console.error('listEmitterInvoices:', e);
         res.status(500).json({ error: 'Error listando facturas', message: e.message });
@@ -735,6 +777,16 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
             return res.status(409).json({ error: 'Este pago ya fue facturado' });
         }
 
+        // Reglas de la tarea 581: transferencia conciliada con el banco, pago del
+        // mes en curso y una factura por cada pago (se timbra el siguiente
+        // depósito pendiente, por su monto).
+        const { evaluarFacturable, actualizarEstadoFacturada } = await import('./facturacionReglas');
+        const ev = await evaluarFacturable(Number(pay.id));
+        if (!ev.ok) return res.status(409).json({ error: ev.motivo });
+        const pagoAFacturar = ev.porFacturar[0]!;
+        const montoOrden = Number(pay.amount) || 0;
+        pay.amount = pagoAFacturar.monto;
+
         // 2. Datos del receptor (usar XAXX si no tiene RFC fiscal)
         const receptorRfc = pay.rfc?.toUpperCase()?.trim() || 'XAXX010101000';
         const receptorNombre = pay.razon_social?.trim() || pay.full_name?.trim() || 'Público en General';
@@ -799,14 +851,16 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
                 INSERT INTO facturas_emitidas
                     (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                      receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                     payment_form, status, pdf_url, xml_url, payment_id, created_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW())
+                     payment_form, status, pdf_url, xml_url, payment_id, created_at,
+                     payment_reference, fecha_pago, bank_entry_id)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW(),$16,$17,$18)
             `, [
                 pay.user_id, fiscal_emitter_id,
                 facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
                 receptorRfc, receptorNombre,
                 invoice.subtotal, invoice.total, invoice.currency,
                 formaPago, invoice.pdf_url, invoice.xml_url, payment_id,
+                ev.orden.referencia, pagoAFacturar.fecha, pagoAFacturar.bankEntryId,
             ]);
         } catch (dbErr: any) {
             if (dbErr?.code !== '23505') throw dbErr;
@@ -816,10 +870,9 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
         // 6. Marcar el pago como facturado. Guardamos también el UUID en el pago
         //    para que el asesor/cliente puedan descargar el PDF/XML y para que la
         //    cancelación de la factura pueda reabrir el pago.
-        await pool.query(
-            `UPDATE pobox_payments SET facturada=TRUE, factura_uuid=COALESCE($2, factura_uuid), factura_error=NULL WHERE id=$1`,
-            [payment_id, uuidSat]
-        );
+        // Facturada solo cuando la suma de facturas cubre la orden: si se pagó en
+        // varios depósitos, quedan pendientes los que falten.
+        await actualizarEstadoFacturada(Number(pay.id), ev.orden.referencia, montoOrden, uuidSat);
 
         return res.json({ success: true, invoice_id: facturamaId, uuid: uuidSat, pdf_url: urlPublicaFactura(uuidSat, 'pdf') });
 
@@ -993,6 +1046,7 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     const serie = body.serie ? String(body.serie) : undefined;
     let folio: number | undefined = body.folio ? Number(body.folio) : undefined;
     const linkPoboxPaymentId = body.link_pobox_payment_id ? Number(body.link_pobox_payment_id) : null;
+    let pagoVinculado: { referencia: string; monto: number; pago: { bankEntryId: number | null; fecha: string } } | null = null;
 
     // Si vamos a vincular a un pago PO Box, validar que esta empresa sea la
     // asignada al servicio POBOX_USA y que el pago no esté facturado.
@@ -1033,6 +1087,11 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         if (payChk.rows[0].facturada) {
             return res.status(409).json({ error: 'El pago vinculado ya fue facturado' });
         }
+        // Mismas reglas que la automática (tarea 581).
+        const { evaluarFacturable } = await import('./facturacionReglas');
+        const evLink = await evaluarFacturable(linkPoboxPaymentId);
+        if (!evLink.ok) return res.status(409).json({ error: evLink.motivo });
+        pagoVinculado = { referencia: evLink.orden.referencia, monto: evLink.orden.monto, pago: evLink.porFacturar[0]! };
     }
 
     // Auto-asignar folio si no se especificó: siguiente consecutivo por (emisor, serie).
@@ -1133,8 +1192,9 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     INSERT INTO facturas_emitidas
                         (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                          receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                         payment_form, status, pdf_url, xml_url, payment_id, created_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW())
+                         payment_form, status, pdf_url, xml_url, payment_id, created_at,
+                         payment_reference, fecha_pago, bank_entry_id)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW(),$16,$17,$18)
                     RETURNING id
                 `, [
                     linkedUserId, emitterId,
@@ -1144,6 +1204,7 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     String(currency || 'MXN').toUpperCase().slice(0, 3),
                     String(paymentForm || '99').slice(0, 2),
                     invoice.pdf_url, invoice.xml_url, linkPoboxPaymentId,
+                    pagoVinculado?.referencia || null, pagoVinculado?.pago.fecha || null, pagoVinculado?.pago.bankEntryId || null,
                 ]);
                 insertedInvoiceId = ins.rows[0].id;
             } catch (dbErr: any) {
@@ -1223,12 +1284,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         // pago PO Box como facturado para que desaparezca de la lista.
         if (linkPoboxPaymentId) {
             try {
-                await pool.query(
-                    `UPDATE pobox_payments
-                        SET facturada = TRUE, factura_uuid = COALESCE($2, factura_uuid), factura_error = NULL
-                      WHERE id = $1`,
-                    [linkPoboxPaymentId, uuidSat]
-                );
+                const { actualizarEstadoFacturada } = await import('./facturacionReglas');
+                await actualizarEstadoFacturada(linkPoboxPaymentId, pagoVinculado?.referencia || String(linkPoboxPaymentId), pagoVinculado?.monto || 0, uuidSat);
             } catch (e: any) {
                 console.warn('[createManualInvoice] no se pudo marcar pobox_payment como facturada:', e?.message);
             }
