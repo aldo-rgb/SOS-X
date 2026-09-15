@@ -8761,6 +8761,25 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       ]
     );
 
+    // Si el cliente ya puso instrucciones al master mientras bodega seguía
+    // capturando cajas, la caja nueva las hereda. La propagación solo alcanza a
+    // las hijas que ya existían: US-0004828505 recibió instrucciones a las
+    // 22:19 y las cajas 14 y 15 se capturaron a las 22:19 y 22:21; quedaron sin
+    // dirección y no pudieron salir con las otras 13 (tarea 593).
+    await client.query(
+      `UPDATE packages c
+          SET assigned_address_id = m.assigned_address_id,
+              national_carrier = m.national_carrier,
+              is_collect = m.is_collect,
+              collect_carrier = m.collect_carrier,
+              needs_instructions = FALSE,
+              instructions_assigned_by_id = m.instructions_assigned_by_id,
+              instructions_assigned_at = m.instructions_assigned_at
+         FROM packages m
+        WHERE c.id = $1 AND m.id = $2 AND m.assigned_address_id IS NOT NULL`,
+      [r.rows[0].id, masterId]
+    );
+
     // Sincronizar el master sumando hijas (peso + venta + costo proveedor)
     await client.query(
       `UPDATE packages SET
