@@ -938,6 +938,16 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       importTaxMxn
     ]);
 
+    // Con nota de impuestos ya registrada, la caja nueva cambia el reparto: se
+    // vuelve a cruzar para que todas las cajas no pagadas lleven su parte y la
+    // suma de la guía no pase del total.
+    try {
+      const notaGuia = await getDhlTaxNote([inbound_tracking, secondary_tracking]);
+      if (notaGuia) {
+        await crossDhlTaxNote(secondary_tracking || inbound_tracking, notaGuia.amount, notaGuia.pieces);
+      }
+    } catch (e: any) { console.warn('[DHL] re-cruce de nota tras alta:', e?.message); }
+
     // Enviar notificación al usuario (solo si tiene cuenta; los legacy sin
     // cuenta no tienen a quién notificar hasta que activen su usuario).
     if (userId) {
@@ -1844,6 +1854,18 @@ export const getDhlTaxNote = async (trackings: (string | null | undefined)[]): P
  */
 export const CAJAS_POR_COBRO_IMPUESTO = 5;
 
+/**
+ * Impuesto TOTAL de una guía con nota de DHL: el mayor entre la nota y el
+ * mínimo (default) por cada bloque de 5 cajas. El mínimo es por GUÍA.
+ *
+ * Antes se comparaba el mínimo contra lo que le tocaba a CADA caja: una nota de
+ * $293.69 en una guía de 2 cajas daba $146.85 por caja, "menos que $390", y cada
+ * caja quedaba en $390 → $780 por guía. Así se cobró doble a S91 en 2145372176,
+ * 9941228231 y 6006890750 (TKT-2026-2696, tarea 586).
+ */
+export const impuestoTotalDeGuia = (montoNota: number, cajas: number, minimo: number): number =>
+  Math.max(Number(montoNota) || 0, minimo * Math.ceil(Math.max(1, cajas) / CAJAS_POR_COBRO_IMPUESTO));
+
 export const resolveDhlTaxForNewBox = async (
   trackings: (string | null | undefined)[],
   secondaryTracking: string | null | undefined,
@@ -1853,10 +1875,17 @@ export const resolveDhlTaxForNewBox = async (
   const tk = secondaryTracking ? String(secondaryTracking).trim() : '';
   if (!tk) return efectivo;
 
-  // Si hay nota de impuestos para la guía, el reparto ya lo hizo el cálculo de
-  // arriba: cada caja lleva su parte y no se toca.
+  // Con nota: parte proporcional del total de la guía, contando esta caja. El
+  // alta vuelve a cruzar la nota después de insertar para dejar parejas a
+  // todas las cajas (ver createDhlShipment).
   const note = await getDhlTaxNote(trackings);
-  if (note) return efectivo;
+  if (note) {
+    const def = await getDhlImportTaxMxn();
+    const prevN = await pool.query(
+      `SELECT COUNT(*)::int n FROM dhl_shipments WHERE secondary_tracking = $1 OR inbound_tracking = $1`, [tk]);
+    const cajas = Math.max(note.pieces, (Number(prevN.rows[0]?.n) || 0) + 1);
+    return Math.round((impuestoTotalDeGuia(note.amount, cajas, def) / cajas) * 100) / 100;
+  }
 
   // Sin nota: el default se cobra UNA vez por cada bloque de 5 cajas del envío.
   const prev = await pool.query(
@@ -1920,8 +1949,11 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
     console.warn('[crossDhlTaxNote] no pude contar las cajas de la guía:', e?.message);
   }
 
-  const perBox = noteAmount / piezas;
-  const effective = perBox >= def ? Math.round(perBox * 100) / 100 : def;
+  // Total de la guía = mayor entre la nota y el mínimo por guía; se reparte
+  // parejo entre las cajas. Antes el mínimo se aplicaba a cada caja y una guía
+  // de 2 cajas con nota menor a $390 cobraba $780.
+  const totalGuia = impuestoTotalDeGuia(noteAmount, piezas, def);
+  const effective = Math.round((totalGuia / piezas) * 100) / 100;
   // import_cost_mxn = servicio (usd×TC) + impuesto; total = servicio + impuesto + nacional.
   // Se recalcula desde usd×TC para que actualizar el impuesto no lo duplique.
   const r = await pool.query(`
