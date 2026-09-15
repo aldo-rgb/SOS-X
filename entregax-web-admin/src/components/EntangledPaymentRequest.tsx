@@ -597,8 +597,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     return items;
   }, []);
   const lineItems = useMemo(() => computeLineItems(selectedConceptos, facturaTotalMxn), [selectedConceptos, facturaTotalMxn, computeLineItems]);
-  const setConceptoField = (clave: string, field: 'cantidad' | 'precioUnitario', value: number) => {
-    setSelectedConceptos((prev) => prev.map((c) => c.clave_prodserv === clave ? { ...c, [field]: value } : c));
+  // Por POSICIÓN y no por clave: una factura puede llevar el mismo producto en
+  // dos partidas con distinto precio (TKT-2026-2730). Si se edita por clave, las
+  // dos partidas cambian juntas.
+  const setConceptoField = (idx: number, field: 'cantidad' | 'precioUnitario', value: number) => {
+    setSelectedConceptos((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
   };
 
   // Sincroniza form.conceptos y asignacion cuando cambian las claves seleccionadas
@@ -712,10 +715,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   // Llama /asignacion para una clave y la añade si la empresa es compatible con la primera
   const tryAddConcepto = async (opt: ConceptoOption) => {
-    if (selectedConceptos.some(c => c.clave_prodserv === opt.clave_prodserv)) {
-      showAddConceptoError('Esta clave ya está agregada.');
-      return;
-    }
+    // Repetir una clave es válido: es otra partida del mismo producto con otro
+    // precio. Lo que no se puede es mezclar empresas, y eso se valida abajo.
     setAddingConcepto(true);
     setAddConceptoError(null);
     try {
@@ -829,8 +830,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
   };
 
-  const removeSelectedConcepto = (clave: string) => {
-    setSelectedConceptos(selectedConceptos.filter(c => c.clave_prodserv !== clave));
+  const removeSelectedConcepto = (idx: number) => {
+    setSelectedConceptos(selectedConceptos.filter((_c, i) => i !== idx));
     setAddConceptoError(null);
   };
 
@@ -3808,7 +3809,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       const isLast = idx === lineItems.length - 1;
                       const subtotal = c.cantidad * c.precioUnitario;
                       return (
-                      <Box key={c.clave_prodserv}
+                      <Box key={`${c.clave_prodserv}-${idx}`}
                         sx={{
                           display: 'flex', flexDirection: 'column', gap: 0.6, py: 0.8, px: 1.2, mb: 0.5,
                           borderRadius: 1,
@@ -3824,7 +3825,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           <Typography variant="caption" sx={{ color: C.textSecondary, flex: 1 }} noWrap>
                             {c.descripcion || '—'}
                           </Typography>
-                          <IconButton size="small" onClick={() => removeSelectedConcepto(c.clave_prodserv)}
+                          <IconButton size="small" onClick={() => removeSelectedConcepto(idx)}
                             sx={{ color: C.textMuted, '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
                             <DeleteIcon sx={{ fontSize: 16 }} />
                           </IconButton>
@@ -3834,7 +3835,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           <TextField
                             size="small" type="number" label="Cantidad"
                             value={c.cantidad}
-                            onChange={(e) => setConceptoField(c.clave_prodserv, 'cantidad', Math.max(1, Number(e.target.value) || 1))}
+                            onChange={(e) => setConceptoField(idx, 'cantidad', Math.max(1, Number(e.target.value) || 1))}
                             sx={{ width: 96, '& input': { color: C.textPrimary }, '& label': { color: C.textMuted } }}
                             inputProps={{ min: 1, step: 1 }}
                           />
@@ -3843,7 +3844,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             size="small" type="number"
                             label={isLast ? 'P. unitario (auto)' : 'P. unitario'}
                             value={isLast ? c.precioUnitario.toFixed(2) : c.precioUnitario}
-                            onChange={(e) => { if (!isLast) setConceptoField(c.clave_prodserv, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
+                            onChange={(e) => { if (!isLast) setConceptoField(idx, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
                             disabled={isLast}
                             sx={{ width: 140, '& input': { color: isLast ? ORANGE : C.textPrimary, fontWeight: isLast ? 700 : 400 }, '& label': { color: C.textMuted } }}
                             inputProps={{ min: 0, step: '0.01' }}

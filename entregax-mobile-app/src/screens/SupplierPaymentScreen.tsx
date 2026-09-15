@@ -527,13 +527,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   }, [token]);
 
   // Parseo ordenado de claves "clave|descripcion, ..." → [{clave, descripcion}].
-  const parseClaves = (str: string) => str.split(',').map(s => s.trim()).filter(Boolean).map(c => ({
-    clave: c.split('|')[0].trim(),
-    descripcion: c.split('|')[1]?.trim() || '',
-  }));
+  // Cada PARTIDA tiene su propio identificador, no su clave SAT: una factura
+  // puede llevar el mismo producto dos veces con distinto precio (TKT-2026-2730).
+  // Formato guardado: "clave|descripcion|idPartida".
+  const parseClaves = (str: string) => str.split(',').map(s => s.trim()).filter(Boolean).map(c => {
+    const p = c.split('|');
+    return {
+      clave: (p[0] || '').trim(),
+      descripcion: (p[1] || '').trim(),
+      uid: (p[2] || '').trim() || (p[0] || '').trim(),
+    };
+  });
+  const nuevaPartidaId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // Partidas de la factura: cantidad × precio; la ÚLTIMA clave autobalancea.
-  const computeMobileLineItems = (claves: { clave: string; descripcion: string }[], totalMxn: number) => {
-    const items = claves.map(c => ({ ...c, cantidad: qtyDe(c.clave), precioUnitario: precioDe(c.clave) }));
+  const computeMobileLineItems = (claves: { clave: string; descripcion: string; uid: string }[], totalMxn: number) => {
+    const items = claves.map(c => ({ ...c, cantidad: qtyDe(c.uid), precioUnitario: precioDe(c.uid) }));
     const n = items.length;
     if (n === 0) return items;
     const othersSubtotal = items.slice(0, n - 1).reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
@@ -547,33 +555,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (claves.length === 0) return;
     const items = computeMobileLineItems(claves, quote?.monto_mxn_total || 0);
     const last = items[items.length - 1];
-    setConceptoPrice(prev => ({ ...prev, [last.clave]: last.precioUnitario.toFixed(2) }));
+    setConceptoPrice(prev => ({ ...prev, [last.uid]: last.precioUnitario.toFixed(2) }));
   };
 
   const appendClaveFromHistory = (h: { clave: string; descripcion?: string | null }) => {
-    const existing = conceptos.split(',').map(s => s.trim()).filter(Boolean);
-    if (existing.includes(h.clave)) return;
     freezeLastBeforeAdd();
-    const next = existing.length ? `${conceptos}, ${h.clave}` : h.clave;
-    setConceptos(next);
+    const piece = `${h.clave}|${h.descripcion || ''}|${nuevaPartidaId()}`;
+    setConceptos(conceptos.trim() ? `${conceptos}, ${piece}` : piece);
   };
 
-  const removeClave = (clave: string) => {
-    const list = conceptos.split(',').map(s => s.trim()).filter(Boolean);
-    const next = list.filter(c => c.split('|')[0].trim() !== clave);
+  const removeClave = (uid: string) => {
+    const next = parseClaves(conceptos).filter(c => c.uid !== uid)
+      .map(c => `${c.clave}|${c.descripcion}|${c.uid}`);
     setConceptos(next.join(', '));
-    setConceptoQty(({ [clave]: _q, ...rest }) => rest);
-    setConceptoPrice(({ [clave]: _p, ...rest }) => rest);
+    setConceptoQty(({ [uid]: _q, ...rest }) => rest);
+    setConceptoPrice(({ [uid]: _p, ...rest }) => rest);
   };
 
   const addClaveFromSearch = (opt: { clave_prodserv: string; descripcion: string }) => {
-    const existing = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).filter(Boolean);
-    if (existing.includes(opt.clave_prodserv)) return;
     freezeLastBeforeAdd();
-    // Guardamos clave|descripcion para que el chip muestre la descripción
-    // aunque aún no haya pasado por la validación de /asignacion.
-    const piece = `${opt.clave_prodserv}|${opt.descripcion}`;
-    setConceptos(existing.length ? `${conceptos}, ${piece}` : piece);
+    // clave|descripcion|idPartida: la descripción para el chip y el id para que
+    // la misma clave pueda ir en dos partidas con distinto precio.
+    const piece = `${opt.clave_prodserv}|${opt.descripcion}|${nuevaPartidaId()}`;
+    setConceptos(conceptos.trim() ? `${conceptos}, ${piece}` : piece);
   };
 
   // Autocomplete del catálogo SAT (mismo flujo que web: input de
@@ -778,11 +782,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Vive aquí (post-quote) por TDZ: el closure referencia quote.tipo_cambio.
   useEffect(() => {
     if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current);
-    const claves = conceptos
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()));
+    // Una clave repetida (dos partidas del mismo producto) se valida UNA vez.
+    const claves = Array.from(new Set(
+      conceptos.split(',').map(s => s.trim()).filter(Boolean)
+        .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()))
+        .map(s => s.split('|').slice(0, 2).join('|'))
+    ));
     if (claves.length === 0) {
       setClaveValidations([]);
       return;
@@ -2879,7 +2884,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   {(() => {
                     const claves = parseClaves(conceptos).map(c => {
                       const v = claveValidations.find(x => x.clave === c.clave);
-                      return { clave: c.clave, descripcion: v?.descripcion || c.descripcion };
+                      return { clave: c.clave, descripcion: v?.descripcion || c.descripcion, uid: c.uid };
                     });
                     const items = computeMobileLineItems(claves, quote?.monto_mxn_total || 0);
                     if (items.length === 0) return null;
@@ -2890,13 +2895,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           const isLast = idx === items.length - 1;
                           const subtotal = s.cantidad * s.precioUnitario;
                           return (
-                          <View key={s.clave} style={{ backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: ORANGE, padding: 8, gap: 6 }}>
+                          <View key={s.uid} style={{ backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: ORANGE, padding: 8, gap: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                               <Text style={{ fontSize: 12, fontWeight: '800', color: '#111', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{s.clave}</Text>
                               {!!s.descripcion && (
                                 <Text numberOfLines={1} style={{ fontSize: 11, color: TEXT_DIM, flex: 1 }}>· {s.descripcion}</Text>
                               )}
-                              <TouchableOpacity onPress={() => removeClave(s.clave)} hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
+                              <TouchableOpacity onPress={() => removeClave(s.uid)} hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
                                 style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFE0D0', alignItems: 'center', justifyContent: 'center' }}>
                                 <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '900', lineHeight: 16 }}>×</Text>
                               </TouchableOpacity>
@@ -2905,12 +2910,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               <View style={{ flex: 1 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>Cantidad</Text>
                                 <TextInput
-                                  value={conceptoQty[s.clave] ?? '1'}
+                                  value={conceptoQty[s.uid] ?? '1'}
                                   // Se acepta el campo vacío mientras se escribe; si se
                                   // deja así, al salir vuelve a 1 (que es lo que se factura).
-                                  onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.clave]: t.replace(/[^0-9]/g, '') }))}
+                                  onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.uid]: t.replace(/[^0-9]/g, '') }))}
                                   onBlur={() => setConceptoQty(prev => (
-                                    prev[s.clave] ? prev : { ...prev, [s.clave]: '1' }
+                                    prev[s.uid] ? prev : { ...prev, [s.uid]: '1' }
                                   ))}
                                   selectTextOnFocus
                                   keyboardType="number-pad"
@@ -2921,13 +2926,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               <View style={{ flex: 1.3 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>{isLast ? 'P. unitario (auto)' : 'P. unitario'}</Text>
                                 <TextInput
-                                  value={isLast ? s.precioUnitario.toFixed(2) : (conceptoPrice[s.clave] ?? '')}
+                                  value={isLast ? s.precioUnitario.toFixed(2) : (conceptoPrice[s.uid] ?? '')}
                                   // Se deja el punto decimal a medio escribir ("19425.") y
                                   // solo se descarta un segundo punto; el número se saca al leer.
                                   onChangeText={(t) => {
                                     if (isLast) return;
                                     const limpio = t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-                                    setConceptoPrice(prev => ({ ...prev, [s.clave]: limpio }));
+                                    setConceptoPrice(prev => ({ ...prev, [s.uid]: limpio }));
                                   }}
                                   selectTextOnFocus
                                   editable={!isLast}
@@ -2986,11 +2991,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                       {!conceptoSearching && conceptoOptions.length > 0 && (
                         <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
                           {conceptoOptions.map(opt => {
-                            const ya = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).includes(opt.clave_prodserv);
+                            // Una clave ya usada SÍ se puede volver a agregar: es otra
+                            // partida del mismo producto con otro precio.
+                            const ya = parseClaves(conceptos).some(c => c.clave === opt.clave_prodserv);
                             return (
                               <TouchableOpacity
                                 key={opt.clave_prodserv}
-                                disabled={ya}
                                 onPress={() => {
                                   addClaveFromSearch(opt);
                                   setConceptoSearchInput('');
@@ -2999,7 +3005,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                                 style={{
                                   paddingVertical: 10, paddingHorizontal: 12,
                                   borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
-                                  opacity: ya ? 0.4 : 1,
                                   flexDirection: 'row', alignItems: 'center', gap: 8,
                                 }}
                               >
@@ -3009,9 +3014,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                                 <Text style={{ flex: 1, fontSize: 12, color: '#111' }} numberOfLines={2}>
                                   {opt.descripcion}
                                 </Text>
-                                {ya
-                                  ? <Text style={{ fontSize: 10, color: TEXT_DIM }}>Agregada</Text>
-                                  : <Text style={{ fontSize: 18, color: ORANGE, fontWeight: '700' }}>＋</Text>}
+                                {ya && <Text style={{ fontSize: 10, color: TEXT_DIM }}>Ya está · otra partida</Text>}
+                                <Text style={{ fontSize: 18, color: ORANGE, fontWeight: '700' }}>＋</Text>
                               </TouchableOpacity>
                             );
                           })}
