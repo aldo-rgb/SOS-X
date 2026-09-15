@@ -1308,6 +1308,8 @@ export const pqtxPricePerBox = (costPerBox: number): number =>
 
 export interface PqtxQuoteInput {
   destZipCode: string;
+  /** Colonia real del destino. Si no viene, se consulta el catálogo del CP. */
+  colonyName?: string | null;
   packageCount?: number;
   weight?: number;
   length?: number;
@@ -1371,7 +1373,7 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
         request: {
           data: {
             clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
-            clientAddrDest: { zipCode: destZipCode, colonyName: 'CENTRO' },
+            clientAddrDest: { zipCode: destZipCode, colonyName: (input.colonyName || '').trim().toUpperCase() || 'CENTRO' },
             services: { dlvyType: '1', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
             otherServices: { otherServices: [] },
             shipmentDetail: { shipments },
@@ -1388,8 +1390,32 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
       timeout: 20000,
     });
 
-    const respBody = response.data?.body?.response;
-    const quotations = respBody?.data?.quotations;
+    let respBody = response.data?.body?.response;
+    let quotations = respBody?.data?.quotations;
+
+    // Antes de dar el CP por "sin domicilio", reintentar con las colonias REALES
+    // del CP. La consulta iba siempre con colonia "CENTRO" y Paquetexpress puede
+    // no reconocerla (en el 49000 la colonia es "Ciudad Guzmán Centro"); ese
+    // falso "sin cobertura" mandaba la guía a Ocurre (tarea 589, S342).
+    if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
+      try {
+        const port = process.env.PORT || 3001;
+        const cp = await axios.get(`http://localhost:${port}/api/zipcode/${destZipCode}`, { timeout: 6000 });
+        const yaProbada = String(body.body.request.data.clientAddrDest.colonyName || '').toUpperCase();
+        const colonias: string[] = Array.from(new Set(((cp.data?.colonies || cp.data?.neighborhoods || []) as any[])
+          .map((c: any) => String(c).trim().toUpperCase()).filter((c: string) => c && c !== yaProbada))).slice(0, 3);
+        for (const col of colonias) {
+          body.body.request.data.clientAddrDest.colonyName = col;
+          const r2 = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' }, timeout: 20000 });
+          const rb2 = r2.data?.body?.response;
+          if (rb2?.success && Array.isArray(rb2?.data?.quotations) && rb2.data.quotations.length > 0) {
+            console.log(`[PQTX-CLIENT] ZIP=${destZipCode}: sí hay domicilio con colonia "${col}"`);
+            respBody = rb2; quotations = rb2.data.quotations;
+            break;
+          }
+        }
+      } catch (e: any) { console.warn('[PQTX-CLIENT] reintento con colonias reales:', e?.message); }
+    }
 
     if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
       console.log(`[PQTX-CLIENT] Sin cobertura domicilio para ZIP=${destZipCode}, intentando Ocurre...`);
@@ -1841,6 +1867,24 @@ export async function generateOnePqtxGuide(params: {
     );
   } catch (e: any) {
     console.error(`No se pudo actualizar ${persistTable}.national_tracking (master):`, e.message);
+  }
+
+  // Guía generada como OCURRE: queda escrito en el envío. Antes la instrucción
+  // seguía mostrando el domicilio y nadie sabía por qué la etiqueta decía
+  // "recoge en sucursal" (tarea 589, S342, guía 191251970163).
+  if (params.addr.is_ocurre === true) {
+    const notaOcurre = `📦 Guía Paquetexpress ${guiaNo} generada como OCURRE: el destinatario recoge en sucursal `
+      + `(C.P. ${params.addr.zip_code || '?'}${params.addr.ocurre_branch_city ? ', ' + params.addr.ocurre_branch_city : ''}). `
+      + `No hubo entrega a domicilio para la dirección registrada.`;
+    try {
+      await pool.query(
+        `UPDATE ${persistTable}
+            SET delivery_notes = CASE WHEN COALESCE(delivery_notes,'') ILIKE '%' || $2 || '%' THEN delivery_notes
+                                      ELSE TRIM(BOTH E'\\n' FROM COALESCE(delivery_notes,'') || E'\\n' || $1) END
+          WHERE id = ANY($3::int[])`,
+        [notaOcurre, guiaNo, [params.pkgId, ...(params.childIds || [])]]
+      );
+    } catch (e: any) { console.warn('[PQTX] nota de Ocurre:', e?.message); }
   }
 
   // Persistir el MISMO national_tracking en todas las hijas (multipieza)

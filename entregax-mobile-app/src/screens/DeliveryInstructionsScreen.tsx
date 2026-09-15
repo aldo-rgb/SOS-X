@@ -1096,6 +1096,21 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       return;
     }
 
+    // Ocurre = recoger en sucursal: confirmación explícita (tarea 589).
+    if (pqtxOcurreInfo?.usedZip && selectedCarrier === 'paquete_express') {
+      const ciudad = (pqtxOcurreInfo as any).branch?.cityName;
+      const ok = await new Promise<boolean>((resolve) => Alert.alert(
+        'Entrega en sucursal (Ocurre)',
+        `Paquete Express no tiene entrega a domicilio para esta dirección. La guía saldrá como OCURRE: tendrás que RECOGER en la sucursal (C.P. ${pqtxOcurreInfo.usedZip}${ciudad ? ', ' + ciudad : ''}).`,
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continuar', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      ));
+      if (!ok) return;
+    }
+
     setSaving(true);
     let successCount = 0;
     let errors: string[] = [];

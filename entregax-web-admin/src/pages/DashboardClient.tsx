@@ -3964,6 +3964,16 @@ export default function DashboardClient() {
       return;
     }
 
+    // Ocurre = recoger en sucursal. Antes se aplicaba casi en silencio y la
+    // guía salía a sucursal aunque el cliente esperaba entrega a domicilio
+    // (tarea 589). Se pide confirmación explícita.
+    if (pqtxOcurreInfo?.usedZip && selectedCarrierService === 'paquete_express') {
+      const ok = window.confirm(`Paquete Express no tiene entrega a domicilio para esta dirección.\n\n` +
+          `La guía saldrá como OCURRE: el destinatario tendrá que RECOGER en la sucursal (C.P. ${pqtxOcurreInfo.usedZip}${pqtxOcurreInfo.branch?.cityName ? ', ' + pqtxOcurreInfo.branch?.cityName : ''}).\n\n` +
+          `¿Continuar así?`);
+      if (!ok) return;
+    }
+
     setDeliveryLoading(true);
     try {
       const totalBoxes = applyToFullShipment ? shipmentTotalBoxes : selectedPackageIds.length;

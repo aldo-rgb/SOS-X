@@ -2447,7 +2447,17 @@ ${labelsHtml}
                                                         variant="contained"
                                                         color="warning"
                                                         startIcon={generatingPqtx ? <CircularProgress size={14} color="inherit" /> : <LocalShippingIcon />}
-                                                        onClick={() => handleGeneratePqtxLabel(pqtxOcurreOffer.usedZip)}
+                                                        onClick={() => {
+                                                            // El cliente pidió entrega a domicilio: generar a sucursal cambia
+                                                            // lo que va a recibir. Se confirma y se avisa que quede anotado
+                                                            // (tarea 589: la etiqueta salió Ocurre y nadie supo por qué).
+                                                            const ok = window.confirm(
+                                                                `La instrucción del cliente es ENTREGA A DOMICILIO, pero Paquete Express no la acepta en ese C.P.\n\n` +
+                                                                `Si generas en Ocurre, el cliente tendrá que RECOGER en la sucursal (C.P. ${pqtxOcurreOffer.usedZip}${pqtxOcurreOffer.cityName ? ', ' + pqtxOcurreOffer.cityName : ''}). ` +
+                                                                `Quedará anotado en el envío.\n\n¿Generar la guía en Ocurre?`
+                                                            );
+                                                            if (ok) handleGeneratePqtxLabel(pqtxOcurreOffer.usedZip);
+                                                        }}
                                                         disabled={generatingPqtx}
                                                     >
                                                         {generatingPqtx ? 'Generando…' : `Generar en Ocurre — C.P. ${pqtxOcurreOffer.usedZip}`}

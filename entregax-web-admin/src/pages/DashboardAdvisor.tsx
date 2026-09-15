@@ -2021,6 +2021,13 @@ export default function DashboardAdvisor() {
       setSnackbar({ open: true, message: 'Debes seleccionar una paquetería antes de guardar', severity: 'error' });
       return;
     }
+    // Ocurre = recoger en sucursal: se confirma explícitamente (tarea 589).
+    if (instrCarrierKey === 'paquete_express' && instrPriceEstimate?.type === 'ocurre' && instrPriceEstimate?.usedZip) {
+      const ok = window.confirm(`Paquete Express no tiene entrega a domicilio para esta dirección.\n\n` +
+          `La guía saldrá como OCURRE: el destinatario tendrá que RECOGER en la sucursal (C.P. ${instrPriceEstimate.usedZip}${(instrPriceEstimate as any).branch?.cityName ? ', ' + (instrPriceEstimate as any).branch?.cityName : ''}).\n\n` +
+          `¿Continuar así?`);
+      if (!ok) return;
+    }
     setInstrSaving(true);
     try {
       const uids = selectedUids.size > 0 ? Array.from(selectedUids) : instrShipment ? [instrShipment.uid] : [];
