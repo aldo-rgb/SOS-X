@@ -154,7 +154,11 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
 
   // Modal gestión de PINs
   const [pinMgmtDialog, setPinMgmtDialog] = useState(false);
-  const [supervisorList, setSupervisorList] = useState<{ id: number; full_name: string; email: string; role: string; supervisor_pin: string | null }[]>([]);
+  const [supervisorList, setSupervisorList] = useState<{ id: number; full_name: string; email: string; role: string; supervisor_pin: string | null; tiene_pin_corto?: boolean }[]>([]);
+  // PIN de 6 dígitos: se captura a mano y convive con el código largo (QR).
+  const [pinCorto, setPinCorto] = useState<{ id: number; nombre: string } | null>(null);
+  const [pinCortoValor, setPinCortoValor] = useState('');
+  const [pinCortoError, setPinCortoError] = useState('');
   const [loadingSupervisors, setLoadingSupervisors] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
   const [pinMgmtError, setPinMgmtError] = useState('');
@@ -999,7 +1003,10 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                     </TableCell>
                     <TableCell>
                       <Typography fontFamily="monospace">
-                        {sup.supervisor_pin ? '••••' : <em style={{ color: '#999' }}>Sin PIN</em>}
+                        {sup.supervisor_pin ? '••••' : <em style={{ color: '#999' }}>Sin código</em>}
+                      </Typography>
+                      <Typography variant="caption" color={sup.tiene_pin_corto ? 'success.main' : 'text.secondary'}>
+                        {sup.tiene_pin_corto ? '✓ PIN de 6 dígitos' : 'Sin PIN de 6 dígitos'}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -1013,6 +1020,15 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                           onClick={() => handleGenerateQrCode(sup.id)}
                         >
                           {sup.supervisor_pin ? 'Restaurar' : 'Generar'}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                          disabled={savingPin}
+                          onClick={() => { setPinCorto({ id: sup.id, nombre: sup.full_name }); setPinCortoValor(''); setPinCortoError(''); }}
+                        >
+                          PIN 6 dígitos
                         </Button>
                         <Button
                           size="small"
@@ -1037,6 +1053,45 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPinMgmtDialog(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔢 PIN de 6 dígitos para un supervisor */}
+      <Dialog open={!!pinCorto} onClose={() => setPinCorto(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>PIN de 6 dígitos · {pinCorto?.nombre}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Sirve igual que el código impreso para autorizar. Si ya tenía uno de 6 dígitos, se reemplaza; el código largo no cambia.
+          </Typography>
+          <TextField
+            autoFocus fullWidth type="password" label="PIN de 6 dígitos" value={pinCortoValor}
+            onChange={(e) => setPinCortoValor(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+            error={!!pinCortoError} helperText={pinCortoError || ' '}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPinCorto(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={pinCortoValor.length !== 6 || savingPin}
+            onClick={async () => {
+              if (!pinCorto) return;
+              try {
+                const token = localStorage.getItem('token');
+                await axios.put(`${API_URL}/api/warehouse/admin-set-supervisor-pin`,
+                  { target_user_id: pinCorto.id, new_pin: pinCortoValor, corto: true },
+                  { headers: { Authorization: `Bearer ${token}` } });
+                setPinMgmtSuccess(`PIN de 6 dígitos asignado a ${pinCorto.nombre}.`);
+                setPinCorto(null);
+                setSupervisorList((l) => l.map((s) => (s.id === pinCorto.id ? { ...s, tiene_pin_corto: true } : s)));
+              } catch (err: any) {
+                setPinCortoError(err?.response?.data?.error || 'No se pudo asignar el PIN');
+              }
+            }}
+          >
+            Guardar
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1335,7 +1390,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             <CrearPinSupervisor
               crear={async (pin) => {
                 const token = localStorage.getItem('token');
-                await axios.post(`${API_URL}/api/warehouse/update-supervisor-pin`, { new_pin: pin }, { headers: { Authorization: `Bearer ${token}` } });
+                await axios.post(`${API_URL}/api/warehouse/update-supervisor-pin`, { new_pin: pin, corto: true }, { headers: { Authorization: `Bearer ${token}` } });
               }}
               onCreado={(pin) => { setEditTypePin(pin); setEditTypeCrearPin(false); setEditTypeError('PIN creado. Presiona Actualizar para autorizar a tu nombre.'); }}
             />

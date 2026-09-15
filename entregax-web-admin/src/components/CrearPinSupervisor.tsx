@@ -19,7 +19,7 @@ export default function CrearPinSupervisor({ crear, onCreado }: {
 
   const guardar = async () => {
     setError('');
-    if (!/^\d{4,8}$/.test(pin)) { setError('El PIN debe ser de 4 a 8 números.'); return; }
+    if (!/^\d{6}$/.test(pin)) { setError('El PIN debe ser de 6 números.'); return; }
     if (pin !== pin2) { setError('Los dos PIN no coinciden.'); return; }
     setGuardando(true);
     try {
@@ -37,10 +37,10 @@ export default function CrearPinSupervisor({ crear, onCreado }: {
         Cada autorización quedará a tu nombre. El PIN de otra cuenta ya no sirve para autorizar por ti. No lo compartas.
       </Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <TextField size="small" type="password" label="Nuevo PIN" value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} inputProps={{ inputMode: 'numeric', maxLength: 8 }} />
+        <TextField size="small" type="password" label="Nuevo PIN (6 números)" value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} />
         <TextField size="small" type="password" label="Repite el PIN" value={pin2}
-          onChange={(e) => setPin2(e.target.value.replace(/\D/g, ''))} inputProps={{ inputMode: 'numeric', maxLength: 8 }}
+          onChange={(e) => setPin2(e.target.value.replace(/\D/g, ''))} inputProps={{ inputMode: 'numeric', maxLength: 6 }}
           error={!!error} helperText={error || ' '} />
         <Button size="small" variant="contained" onClick={guardar} disabled={guardando || !pin || !pin2}>
           {guardando ? 'Guardando…' : 'Crear mi PIN'}

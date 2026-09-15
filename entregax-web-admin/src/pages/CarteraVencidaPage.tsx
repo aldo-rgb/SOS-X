@@ -1738,7 +1738,7 @@ export default function CarteraVencidaPage() {
                       <TextField size="small" type="password" label="PIN de Supervisor" value={ptPin} onChange={(e) => setPtPin(e.target.value)} helperText="Requiere tu PIN de supervisor. El precio se recalcula si la guía no está pagada." />
                       {ptCrearPin && (
                         <CrearPinSupervisor
-                          crear={async (pin) => { await api.post('/warehouse/update-supervisor-pin', { new_pin: pin }); }}
+                          crear={async (pin) => { await api.post('/warehouse/update-supervisor-pin', { new_pin: pin, corto: true }); }}
                           onCreado={(pin) => { setPtPin(pin); setPtCrearPin(false); setSnackbar({ open: true, message: 'PIN creado. Presiona Actualizar para autorizar a tu nombre.', severity: 'success' }); }}
                         />
                       )}

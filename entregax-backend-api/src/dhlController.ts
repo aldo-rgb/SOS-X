@@ -1595,7 +1595,7 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
     const sup = await pool.query(
       `SELECT u.id, u.full_name, u.email, u.role
        FROM users u
-       WHERE u.supervisor_pin = $1
+       WHERE (u.supervisor_pin = $1 OR u.supervisor_pin_corto = $1)
          AND ${puedeTenerPinSql('u')}
        LIMIT 1`,
       [String(supervisor_pin).trim()]
@@ -1611,7 +1611,7 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
       // ¿Quien intenta puede tener PIN y todavía no lo creó? Se le dice cómo, en
       // vez de dejarlo seguir usando el PIN de otra cuenta.
       const yo = requesterId ? await pool.query(
-        `SELECT (u.supervisor_pin IS NOT NULL) AS tiene_pin, ${puedeTenerPinSql('u')} AS puede
+        `SELECT (u.supervisor_pin IS NOT NULL OR u.supervisor_pin_corto IS NOT NULL) AS tiene_pin, ${puedeTenerPinSql('u')} AS puede
            FROM users u WHERE u.id = $1`, [requesterId]).catch(() => ({ rows: [] as any[] })) : { rows: [] as any[] };
       if (yo.rows[0]?.puede && !yo.rows[0]?.tiene_pin) {
         return res.status(403).json({

@@ -2251,7 +2251,7 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
   try {
     // Verificar PIN de director/super_admin
     const pinResult = await pool.query(
-      `SELECT id, full_name, role FROM users WHERE supervisor_pin = $1 AND role IN ('director', 'super_admin')`,
+      `SELECT id, full_name, role FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND role IN ('director', 'super_admin')`,
       [pin]
     );
     if (pinResult.rows.length === 0) {
@@ -2516,7 +2516,7 @@ export const resolveSaldoFavorRequest = async (req: Request, res: Response) => {
   try {
     // Verificar PIN de director/super_admin
     const pinResult = await pool.query(
-      `SELECT id, full_name, role FROM users WHERE supervisor_pin = $1 AND role IN ('director', 'super_admin')`,
+      `SELECT id, full_name, role FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND role IN ('director', 'super_admin')`,
       [pin]
     );
     if (pinResult.rows.length === 0) {

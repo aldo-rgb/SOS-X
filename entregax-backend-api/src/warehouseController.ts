@@ -1688,7 +1688,7 @@ export const validateSupervisor = async (req: AuthRequest, res: Response): Promi
         const result = await pool.query(`
             SELECT u.id, u.full_name, u.email, u.role, u.branch_id
             FROM users u
-            WHERE u.supervisor_pin = $1
+            WHERE (u.supervisor_pin = $1 OR u.supervisor_pin_corto = $1)
               AND ${puedeTenerPinSql('u')}
             LIMIT 1
         `, [pin]);
@@ -1741,7 +1741,7 @@ export const updateSupervisorPin = async (req: AuthRequest, res: Response): Prom
         
         // Verificar que el usuario tiene rol de supervisor/gerente
         const userResult = await pool.query(`
-            SELECT id, full_name, role, supervisor_pin 
+            SELECT id, full_name, role, supervisor_pin, supervisor_pin_corto
             FROM users u WHERE u.id = $1 AND ${puedeTenerPinSql('u')}
         `, [userId]);
         
@@ -1751,6 +1751,29 @@ export const updateSupervisorPin = async (req: AuthRequest, res: Response): Prom
         }
         
         const user = userResult.rows[0];
+
+        // PIN corto de 6 dígitos: va en su propio campo para no borrar el código
+        // largo que se imprime como QR. Los dos sirven para autorizar.
+        if (req.body?.corto) {
+            if (!/^\d{6}$/.test(String(new_pin))) {
+                res.status(400).json({ error: 'El PIN debe ser de 6 dígitos' });
+                return;
+            }
+            if (user.supervisor_pin_corto && current_pin !== user.supervisor_pin_corto) {
+                res.status(400).json({ error: 'PIN actual incorrecto' });
+                return;
+            }
+            const dupCorto = await pool.query(
+                `SELECT id FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND id != $2`, [String(new_pin), userId]);
+            if (dupCorto.rows.length > 0) {
+                res.status(400).json({ error: 'Ese PIN no está disponible, elige otro' });
+                return;
+            }
+            await pool.query(`UPDATE users SET supervisor_pin_corto = $1 WHERE id = $2`, [String(new_pin), userId]);
+            console.log(`🔐 [PIN] ${user.full_name} creó su PIN de 6 dígitos`);
+            res.json({ success: true, message: 'PIN creado' });
+            return;
+        }
         
         // Si ya tiene PIN, verificar el actual
         if (user.supervisor_pin && current_pin !== user.supervisor_pin) {
@@ -1760,7 +1783,7 @@ export const updateSupervisorPin = async (req: AuthRequest, res: Response): Prom
         
         // Verificar que el nuevo PIN no esté en uso por otro supervisor
         const duplicateCheck = await pool.query(`
-            SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2
+            SELECT id FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND id != $2
         `, [new_pin, userId]);
         
         if (duplicateCheck.rows.length > 0) {
@@ -1865,7 +1888,7 @@ export const listSupervisors = async (req: AuthRequest, res: Response): Promise<
             return;
         }
         const result = await pool.query(`
-            SELECT id, full_name, email, role, supervisor_pin, branch_id
+            SELECT id, full_name, email, role, supervisor_pin, branch_id, (supervisor_pin_corto IS NOT NULL) AS tiene_pin_corto
             FROM users
             WHERE ${puedeTenerPinSql('users')}
             ORDER BY role, full_name
@@ -1887,7 +1910,23 @@ export const adminSetSupervisorPin = async (req: AuthRequest, res: Response): Pr
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
-        const { target_user_id, new_pin } = req.body;
+        const { target_user_id, new_pin, corto } = req.body;
+        // PIN de 6 dígitos en su propio campo: el código largo (QR) sigue sirviendo.
+        if (corto) {
+            if (!target_user_id || !/^\d{6}$/.test(String(new_pin || ''))) {
+                res.status(400).json({ error: 'El PIN debe ser de 6 dígitos' });
+                return;
+            }
+            const dupC = await pool.query(
+                `SELECT id FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND id != $2`, [String(new_pin), target_user_id]);
+            if (dupC.rows.length > 0) {
+                res.status(400).json({ error: 'Ese PIN no está disponible, elige otro' });
+                return;
+            }
+            await pool.query(`UPDATE users SET supervisor_pin_corto = $1 WHERE id = $2`, [String(new_pin), target_user_id]);
+            res.json({ success: true, message: 'PIN de 6 dígitos asignado' });
+            return;
+        }
         if (!target_user_id || !new_pin || String(new_pin).length < 4) {
             res.status(400).json({ error: 'Se requiere target_user_id y un PIN de al menos 4 dígitos' });
             return;
@@ -1896,7 +1935,7 @@ export const adminSetSupervisorPin = async (req: AuthRequest, res: Response): Pr
         await pool.query(`ALTER TABLE users ALTER COLUMN supervisor_pin TYPE VARCHAR(128)`).catch(() => { /* no-op si ya es 128 */ });
         // Verificar que no esté duplicado
         const dup = await pool.query(
-            'SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2',
+            'SELECT id FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND id != $2',
             [String(new_pin), target_user_id]
         );
         if (dup.rows.length > 0) {
@@ -1944,7 +1983,7 @@ export const adminGenerateSupervisorPin = async (req: AuthRequest, res: Response
         for (let i = 0; i < 5; i++) {
             const candidate = generate();
             const dup = await pool.query(
-                'SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2',
+                'SELECT id FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND id != $2',
                 [candidate, target_user_id]
             );
             if (dup.rows.length === 0) { newCode = candidate; break; }
