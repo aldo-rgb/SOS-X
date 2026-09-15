@@ -93,10 +93,13 @@ export const avisarDepositoSinAplicar = async (datos: {
     );
     if (nuevo.rowCount === 0) return;   // de este movimiento ya se avisó
 
+    // Este aviso es trabajo de Contabilidad (aplicar el depósito) y de Servicio
+    // a Cliente (preguntarle al cliente de qué es). Dirección y los admin no lo
+    // necesitan: lo ven en Cobranza cuando quieren.
     const quienes = await pool.query(
       `SELECT id FROM users
         WHERE COALESCE(is_active, TRUE) AND deleted_at IS NULL
-          AND role IN ('accountant', 'director', 'super_admin')`
+          AND role IN ('accountant', 'customer_service')`
     );
     const ids = quienes.rows.map((r: any) => Number(r.id)).filter(Boolean);
     if (!ids.length) return;
