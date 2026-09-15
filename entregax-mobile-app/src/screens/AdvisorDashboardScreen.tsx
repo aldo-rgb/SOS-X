@@ -382,6 +382,27 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     }
   };
 
+  // Tarifas vigentes para mandarle al cliente (TKT-2026-2689). El texto lo arma
+  // el backend con los precios del momento; aquí solo se abre compartir.
+  const [compartiendoTarifas, setCompartiendoTarifas] = useState(false);
+  const shareTarifas = async () => {
+    if (compartiendoTarifas) return;
+    setCompartiendoTarifas(true);
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/tarifas-compartir`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.texto) {
+        Alert.alert('No se pudieron cargar las tarifas', d?.error || 'Revisa tu conexión e intenta de nuevo.');
+        return;
+      }
+      await Share.share({ message: d.texto });
+    } catch {
+      Alert.alert('No se pudieron cargar las tarifas', 'Revisa tu conexión e intenta de nuevo.');
+    } finally {
+      setCompartiendoTarifas(false);
+    }
+  };
+
   const handleChangeLanguage = async (lang: string) => {
     await changeLanguage(lang);
     setCurrentLang(lang);
@@ -794,6 +815,12 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 <Text style={s.kpiUnit}>MXN/USD</Text>
               </View>
             </View>
+            <TouchableOpacity style={s.kpiShare} onPress={shareTarifas} disabled={compartiendoTarifas} activeOpacity={0.7}>
+              {compartiendoTarifas
+                ? <ActivityIndicator size={14} color={ORANGE} />
+                : <Ionicons name="logo-whatsapp" size={16} color={ORANGE} />}
+              <Text style={s.kpiShareText}>{compartiendoTarifas ? 'Preparando tarifas…' : 'Compartir tarifas vigentes'}</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -1727,6 +1754,12 @@ const s = StyleSheet.create({
   kpiValue: { fontSize: 16, fontWeight: '800', color: TEXT, letterSpacing: -0.3 },
   kpiUnit: { fontSize: 9, color: '#999', marginTop: 1 },
   kpiDivider: { width: 1, height: 32, backgroundColor: '#EEEEEE' },
+  kpiShare: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 10, marginHorizontal: 10, paddingVertical: 9,
+    borderTopWidth: 1, borderTopColor: '#EEEEEE',
+  },
+  kpiShareText: { fontSize: 13, fontWeight: '700', color: ORANGE },
 
 
   // Section header

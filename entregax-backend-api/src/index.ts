@@ -7512,6 +7512,88 @@ app.get('/api/advisor/rates', authenticateToken, async (req: Request, res: Respo
   }
 });
 
+// Mensaje de "tarifas vigentes" que el asesor comparte por WhatsApp desde su
+// app (TKT-2026-2689, lo pidió Christian y lo aprobó Juan Carlos). Se arma aquí
+// y no en la app para que salga siempre con los precios del momento y con las
+// mismas fuentes que el cotizador: rutas aéreas (+$8 genérico), marítimo
+// Genérico, niveles PO Box, DHL y los tipos de cambio vigentes.
+app.get('/api/advisor/tarifas-compartir', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const uid = (req as any).user?.userId;
+    const role = (req as any).user?.role || '';
+    if (!['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(role)) {
+      res.status(403).json({ success: false, error: 'Solo para asesores' });
+      return;
+    }
+    const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })} USD`;
+    const cbm = (n: number) => String(Number(n.toFixed(2)));
+    const lineas: string[] = [];
+    const fecha = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Monterrey', day: 'numeric', month: 'short', year: 'numeric' })
+      .format(new Date()).replace('.', '');
+    lineas.push(`📦 Tarifas vigentes EntregaX · ${fecha}`, '');
+
+    const rutas = (await pool.query(`SELECT code, cost_per_kg_usd FROM air_routes WHERE is_active = true ORDER BY id`)).rows;
+    const aereo = rutas.find((r: any) => r.code !== 'TDI-EXPRES');
+    const express = rutas.find((r: any) => r.code === 'TDI-EXPRES');
+    if (aereo && Number(aereo.cost_per_kg_usd) > 0) lineas.push(`✈️ Aéreo China: ${usd(Number(aereo.cost_per_kg_usd) + 8)}/kg`);
+    if (express && Number(express.cost_per_kg_usd) > 0) lineas.push(`⚡ TDI Express: ${usd(Number(express.cost_per_kg_usd) + 8)}/kg`);
+
+    const mar = (await pool.query(
+      `SELECT pt.min_cbm, pt.max_cbm, pt.price FROM pricing_tiers pt
+         JOIN pricing_categories pc ON pt.category_id = pc.id
+        WHERE pc.name = 'Generico' AND pt.is_active = true ORDER BY pt.min_cbm`)).rows;
+    if (mar.length) {
+      lineas.push('🚢 Marítimo China (por m³)');
+      mar.forEach((t: any, i: number) => {
+        const min = Number(t.min_cbm), max = Number(t.max_cbm);
+        const rango = i === mar.length - 1 || max >= 9999 ? `+${cbm(Math.floor(min))} m³` : `${cbm(Math.floor(min))}–${cbm(Math.round(max))} m³`;
+        lineas.push(`   ${rango}: ${usd(Number(t.price))}`);
+      });
+    }
+
+    const pobox = (await pool.query(
+      `SELECT cbm_min, cbm_max, costo, tipo_cobro FROM pobox_tarifas_volumen WHERE estado = true ORDER BY nivel`)).rows;
+    if (pobox.length) {
+      lineas.push('🇺🇸 PO Box USA');
+      pobox.forEach((t: any, i: number) => {
+        const min = Number(t.cbm_min), max = t.cbm_max != null ? Number(t.cbm_max) : null;
+        const rango = max == null ? `+${min.toFixed(2)} m³` : i === 0 ? `hasta ${max.toFixed(2)} m³` : `${min.toFixed(2)}–${max.toFixed(2)} m³`;
+        lineas.push(`   ${rango}: ${usd(Number(t.costo))}${t.tipo_cobro === 'por_unidad' ? ' por m³' : ''}`);
+      });
+    }
+
+    const dhl = (await pool.query(`SELECT LOWER(rate_type) AS t, price_usd FROM dhl_rates WHERE is_active = true`)).rows;
+    const dhlStd = dhl.find((r: any) => r.t === 'standard');
+    const dhlHv = dhl.find((r: any) => r.t === 'high_value');
+    if (dhlStd) lineas.push(`📮 DHL Monterrey: ${usd(Number(dhlStd.price_usd))}${dhlHv ? ` · alto valor ${usd(Number(dhlHv.price_usd))}` : ''}`);
+
+    const tc = (await pool.query(
+      `SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc
+         FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1`)).rows[0]?.tc;
+    if (Number(tc) > 0) lineas.push(`💱 Tipo de cambio hoy: $${Number(tc).toFixed(2)} MXN`);
+    const tcXpay = (await pool.query(
+      `SELECT (COALESCE(tipo_cambio_usd, 0) + COALESCE(override_tipo_cambio_usd, 0))::float AS tc
+         FROM entangled_providers WHERE COALESCE(is_active, true) = true
+        ORDER BY is_default DESC NULLS LAST, id ASC LIMIT 1`).catch(() => ({ rows: [] as any[] }))).rows[0]?.tc;
+    if (Number(tcXpay) > 0) lineas.push(`💸 Envío de dinero X-Pay: $${Number(tcXpay).toFixed(2)} MXN por dólar`);
+
+    lineas.push('', 'Precios de referencia, sujetos a cambio.');
+    const a = (await pool.query(`SELECT full_name, referral_code FROM users WHERE id = $1`, [uid])).rows[0];
+    const nombre = String(a?.full_name || '').trim().split(/\s+/)[0] || '';
+    if (a?.referral_code) {
+      lineas.push(`Tu asesor: ${nombre} · código ${a.referral_code}`);
+      lineas.push(`Regístrate: https://entregax.app/register?ref=${a.referral_code}`);
+    } else if (nombre) {
+      lineas.push(`Tu asesor: ${nombre}`);
+    }
+    res.json({ success: true, texto: lineas.join('\n') });
+  } catch (err: any) {
+    console.error('[advisor/tarifas-compartir] error:', err?.message);
+    res.status(500).json({ success: false, error: 'No se pudieron armar las tarifas. Intenta de nuevo.' });
+  }
+});
+
+
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 // El asesor liquida credito de SU cliente con el saldo a favor de este. El
