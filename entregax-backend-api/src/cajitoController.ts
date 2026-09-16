@@ -481,7 +481,7 @@ export const TOOLS: ToolDef[] = [
     name: 'lookup_package',
     requiredCapability: 'cajito.read.packages',
     readOnly: true,
-    description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, CN-…, o tracking del transportista). Las guías aéreas de China (AIR…-001) también, que es como las escribe el asesor. Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96" — para eso usa search_clients.',
+    description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, CN-…, o tracking del transportista). Las guías aéreas de China (AIR…-001) también, que es como las escribe el asesor. Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96": para ver lo que tiene un casillero usa paquetes_de_casillero, y para sus datos de contacto search_clients.',
     parameters: {
       type: 'object',
       properties: {
@@ -820,6 +820,110 @@ export const TOOLS: ToolDef[] = [
           ORDER BY 2 DESC`
       );
       return { groups: r.rows };
+    }
+  },
+
+  // -------------------- PAQUETES DE UN CASILLERO --------------------
+  // Hasta aquí solo se podía buscar por número de guía. "¿Qué le llegó a S1?"
+  // no tenía con qué contestarse (lo preguntó ZAIA el 16-sep-2026 y antes quedó
+  // la CJD-2026-0016 con S96). Junta los cuatro servicios: PO Box y aéreo
+  // (packages), marítimo (maritime_orders) y DHL (dhl_shipments).
+  {
+    name: 'paquetes_de_casillero',
+    requiredCapability: 'cajito.read.packages',
+    readOnly: true,
+    description: 'Lista lo que ha recibido un CASILLERO de cliente (S1, S96, S2542, ETX-1516…): cada guía con su servicio (PO Box USA, aéreo China, TDI Express, marítimo, DHL), fecha en que entró, estado, cajas, peso y si ya está pagada. Úsala cuando pregunten "¿qué le llegó a S1?", "¿qué paquetes tiene este cliente?", "¿llegó algo esta semana?". Se puede filtrar por servicio, por fecha desde o por estado. Para una guía puntual usa lookup_package.',
+    parameters: {
+      type: 'object',
+      properties: {
+        casillero: { type: 'string', description: 'Casillero del cliente, p. ej. S1, S2542 o ETX-1516.' },
+        servicio: { type: 'string', description: 'Opcional: pobox, aereo, tdi, maritimo o dhl.' },
+        desde: { type: 'string', description: 'Opcional: fecha AAAA-MM-DD; solo lo que entró desde ese día.' },
+        solo_pendientes: { type: 'boolean', description: 'Opcional: true para dejar fuera lo ya entregado.' },
+        limite: { type: 'number', description: 'Cuántos traer por servicio (máx 50, por defecto 20).' },
+      },
+      required: ['casillero'],
+    },
+    handler: async ({ casillero, servicio, desde, solo_pendientes, limite }, ctx) => {
+      const box = String(casillero || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!box) return { error: 'Falta el casillero.' };
+      const cli = (await pool.query(
+        `SELECT id, box_id, full_name, advisor_id, referred_by_id FROM users
+          WHERE UPPER(box_id) = $1 AND deleted_at IS NULL LIMIT 1`, [box])).rows[0];
+      if (!cli) return { found: false, nota: `No existe un cliente con el casillero ${box}. Revisa el número o búscalo con search_clients.` };
+
+      // Un asesor solo ve a SUS clientes, como en su panel.
+      const rol = String(ctx?.role || '');
+      if (['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(rol)) {
+        const uid = Number(ctx?.userId) || 0;
+        if (Number(cli.advisor_id) !== uid && Number(cli.referred_by_id) !== uid) {
+          return { found: false, nota: `${box} no es cliente tuyo, así que no puedo mostrarte sus paquetes.` };
+        }
+      }
+
+      const lim = Math.min(Math.max(Number(limite) || 20, 1), 50);
+      const svc = String(servicio || '').toLowerCase();
+      const quiere = (k: string) => !svc || svc.includes(k);
+      const fechaDesde = /^\d{4}-\d{2}-\d{2}$/.test(String(desde || '')) ? String(desde) : null;
+      const pend = solo_pendientes === true;
+      const resultado: any = { casillero: cli.box_id, cliente: cli.full_name };
+
+      // PO Box USA, aéreo China y TDI Express: se lista la guía madre (o la suelta), no cada caja.
+      const tipos: string[] = [];
+      if (quiere('pobox') || quiere('usa')) tipos.push('POBOX_USA');
+      if (quiere('aereo') || quiere('air')) tipos.push('AIR_CHN_MX');
+      if (quiere('tdi')) tipos.push('tdi_express');
+      if (tipos.length) {
+        const p = await pool.query(
+          `SELECT p.tracking_internal AS guia, p.tracking_provider AS guia_origen, p.child_no,
+                  p.service_type AS servicio, p.status AS estado,
+                  TO_CHAR(p.created_at AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD HH24:MI') AS entro,
+                  GREATEST(COALESCE(p.total_boxes, 1), 1) AS cajas, p.weight AS peso_kg,
+                  COALESCE(p.client_paid, false) AS pagada, COALESCE(p.saldo_pendiente, 0) AS saldo_pendiente,
+                  p.national_carrier AS paqueteria
+             FROM packages p
+            WHERE (p.user_id = $1 OR UPPER(COALESCE(p.box_id, '')) = $2)
+              AND p.master_id IS NULL
+              AND p.service_type = ANY($3::text[])
+              AND ($4::date IS NULL OR p.created_at >= $4::date)
+              AND (NOT $5 OR p.status::text NOT IN ('delivered', 'cancelled'))
+            ORDER BY p.created_at DESC
+            LIMIT $6`, [cli.id, box, tipos, fechaDesde, pend, lim]);
+        resultado.paquetes = p.rows;
+      }
+      if (quiere('maritimo') || quiere('mar')) {
+        const m = await pool.query(
+          `SELECT ordersn AS guia, status AS estado, goods_name AS mercancia,
+                  TO_CHAR(created_at AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD HH24:MI') AS entro,
+                  COALESCE(NULLIF(received_boxes, 0), NULLIF(summary_boxes, 0), goods_num) AS cajas,
+                  COALESCE(NULLIF(summary_volume, 0), volume) AS volumen_m3,
+                  payment_status AS pago, container_number AS contenedor
+             FROM maritime_orders
+            WHERE user_id = $1
+              AND ($2::date IS NULL OR created_at >= $2::date)
+              AND (NOT $3 OR COALESCE(status, '') NOT IN ('delivered', 'cancelled'))
+            ORDER BY created_at DESC LIMIT $4`, [cli.id, fechaDesde, pend, lim]);
+        resultado.maritimo = m.rows;
+      }
+      if (quiere('dhl')) {
+        const d = await pool.query(
+          `SELECT COALESCE(secondary_tracking, inbound_tracking) AS guia, status AS estado,
+                  TO_CHAR(created_at AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD HH24:MI') AS entro,
+                  weight_kg AS peso_kg, product_type AS tipo, (paid_at IS NOT NULL) AS pagada
+             FROM dhl_shipments
+            WHERE (user_id = $1 OR UPPER(COALESCE(box_id, '')) = $2)
+              AND ($3::date IS NULL OR created_at >= $3::date)
+              AND (NOT $4 OR COALESCE(status, '') NOT IN ('delivered', 'cancelled'))
+            ORDER BY created_at DESC LIMIT $5`, [cli.id, box, fechaDesde, pend, lim]);
+        resultado.dhl = d.rows;
+      }
+      const total = ['paquetes', 'maritimo', 'dhl'].reduce((n, k) => n + (resultado[k]?.length || 0), 0);
+      resultado.total_listado = total;
+      if (total === 0) resultado.nota = 'No encontré nada con esos filtros.';
+      else if (['paquetes', 'maritimo', 'dhl'].some(k => (resultado[k]?.length || 0) >= lim)) {
+        resultado.nota = `Se muestran los ${lim} más recientes por servicio; puede haber más. Filtra por fecha o servicio.`;
+      }
+      return resultado;
     }
   },
 
