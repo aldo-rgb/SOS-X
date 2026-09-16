@@ -1399,6 +1399,8 @@ export default function CajitoFab() {
 
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
+  // El buzón de correo lo ven Dirección y Administración, no solo el super admin.
+  const veBuzon = ['super_admin', 'admin', 'director'].includes(String(user?.role || ''));
   // Mismo criterio que en la app: reportar un error levanta una tarea y le suena
   // el teléfono a quien la recibe, así que solo administración.
   const puedeReportar = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
@@ -1861,7 +1863,7 @@ export default function CajitoFab() {
                 </IconButton>
               </Tooltip>
             )}
-            {mode === 'chat' && isSuperAdmin && (
+            {mode === 'chat' && veBuzon && (
               <Tooltip title={correosSinRevisar > 0 ? `${correosSinRevisar} correo(s) sin revisar` : 'Buzón de Cajito'}>
                 <IconButton size="small" onClick={() => { setCorreosOpen(true); loadCorreos(); loadRemitentes(); }} sx={{ color: 'white', mr: 0.5 }}>
                   <Badge badgeContent={correosSinRevisar} color="error" max={99}>

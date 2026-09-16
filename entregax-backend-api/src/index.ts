@@ -17495,14 +17495,14 @@ app.patch('/api/cajito/gaps/:id', authenticateToken, requireRole('super_admin'),
 app.post('/api/cajito/gaps/:id/ensenar', authenticateToken, requireRole('super_admin'), cajitoTeachGap);
 
 // Buzón de Cajito (cajito@entregax.app): lo que le escriben, para revisarlo.
-app.get('/api/cajito/correos', authenticateToken, requireRole('super_admin'), cajitoListCorreos);
-app.post('/api/cajito/correos/sincronizar', authenticateToken, requireRole('super_admin'), cajitoSyncCorreos);
+app.get('/api/cajito/correos', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoListCorreos);
+app.post('/api/cajito/correos/sincronizar', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoSyncCorreos);
 // Quién le puede escribir a Cajito (lista de remitentes).
-app.get('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin'), cajitoListRemitentes);
-app.post('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin'), cajitoAddRemitente);
-app.delete('/api/cajito/correos/remitentes/:id', authenticateToken, requireRole('super_admin'), cajitoDeleteRemitente);
-app.get('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoGetCorreo);
-app.patch('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoUpdateCorreo);
+app.get('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoListRemitentes);
+app.post('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoAddRemitente);
+app.delete('/api/cajito/correos/remitentes/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoDeleteRemitente);
+app.get('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoGetCorreo);
+app.patch('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin', 'admin', 'director'), cajitoUpdateCorreo);
 
 // ============================================================
 // MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas
