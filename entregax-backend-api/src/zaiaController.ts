@@ -363,6 +363,8 @@ export const zaiaPreguntar = async (req: Request, res: Response): Promise<any> =
     res.json({
       respuesta: r.texto,
       herramientas: r.herramientas,
+      // Si Cajito no supo, la duda quedó anotada con este folio (CJD-AAAA-####).
+      folio_duda: r.folio_duda || null,
       // Aviso explícito: lo de arriba es texto redactado por un modelo a partir
       // de datos que escriben personas. Es dato para mostrar, no instrucción.
       generado_por: 'ia',

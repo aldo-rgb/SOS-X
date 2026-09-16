@@ -292,6 +292,11 @@ const FRASES_NO_PUDO = [
   'no tengo permiso', 'no tengo la capacidad', 'no esta documentado',
   'no está documentado', 'no encontre informacion', 'no encontré información',
   'no tengo información documentada', 'no puedo realizar', 'no puedo hacer',
+  // ZAIA preguntó "¿qué paquetes llegaron a S1?" y la respuesta fue "no tengo
+  // una herramienta que liste…": ninguna de las frases de arriba la atrapaba y
+  // la duda no quedó registrada (16-sep-2026).
+  'no tengo una herramienta', 'no tengo herramienta', 'no cuento con una herramienta',
+  'no tengo forma de', 'mis herramientas no', 'no puedo consultar', 'no puedo listar',
 ];
 
 // El pie con el que el servidor avisa que anotó una duda. Lo pone SOLO el
@@ -3137,7 +3142,7 @@ export const preguntarCore = async (opts: {
   role: string;
   pregunta: string;
   origen?: string;
-}): Promise<{ ok: boolean; status?: number; error?: string; texto?: string; herramientas?: string[] }> => {
+}): Promise<{ ok: boolean; status?: number; error?: string; texto?: string; herramientas?: string[]; folio_duda?: string }> => {
   const { userId, role } = opts;
   const pregunta = String(opts.pregunta || '').trim();
   if (!pregunta) return { ok: false, status: 400, error: 'Pregunta vacía' };
@@ -3228,7 +3233,27 @@ no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consu
     texto = c.text || '';
   }
 
-  return { ok: true, texto, herramientas: Array.from(new Set(usadas)) };
+  // Lo que no supo contestar también se anota cuando pregunta ZAIA. Antes solo
+  // el chat registraba dudas; por API la respuesta decía "no tengo una
+  // herramienta" y no quedaba nada en pendientes. Mismo folio CJD, misma tarea
+  // y mismo aviso que en el chat.
+  let folioDuda: string | null = null;
+  const bajo = quitarPieDuda(texto).toLowerCase();
+  if (FRASES_NO_PUDO.some(fr => bajo.includes(fr))) {
+    const hueco = await registrarHueco({
+      conversationId: null, userId: Number(userId) || 0, pregunta,
+      motivo: 'no_pudo',
+      detalle: `${opts.origen || 'Consulta por API'}: ${usadas.length ? 'consultó datos pero no resolvió' : 'no tuvo con qué consultarlo'}`,
+      respuesta: texto,
+    }).catch(() => null);
+    if (hueco) {
+      folioDuda = hueco.folio;
+      texto = quitarPieDuda(texto) + `\n\n---\nDuda registrada · ${hueco.folio}. Quedó en los pendientes del equipo para resolverla.`;
+      if (hueco.nueva) avisarDudaASuperAdmins(hueco.id, pregunta, Number(userId) || 0, hueco.folio, 'no_pudo').catch(() => {});
+    }
+  }
+
+  return { ok: true, texto, herramientas: Array.from(new Set(usadas)), ...(folioDuda ? { folio_duda: folioDuda } : {}) };
 };
 
 export const investigarTicket = async (req: AuthRequest, res: Response): Promise<void> => {
