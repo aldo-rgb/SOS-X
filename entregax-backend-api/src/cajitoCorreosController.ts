@@ -20,7 +20,7 @@ import { uploadToS3, signS3UrlIfNeeded } from './s3Service';
 
 const SIGNING_KEY = () => (process.env.MAILGUN_SIGNING_KEY || '').trim();
 const MAILGUN_API_KEY = () => (process.env.MAILGUN_API_KEY || '').trim();
-const BUZON = 'cajito@entregax.app';
+const BUZON = () => (process.env.CAJITO_MAILBOX || 'cajito@entregax.com').trim();
 
 export type CorreoAdjunto = { nombre: string; tipo: string; tamano: number; url: string | null };
 
@@ -129,7 +129,7 @@ export const handleCajitoInboundEmail = async (req: Request, res: Response): Pro
     const ins = await pool.query(
       `INSERT INTO cajito_correos (de_email, de_nombre, para_email, asunto, cuerpo, cuerpo_html, message_id, sospechoso)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [deEmail || 'desconocido', deNombre, String(b.recipient || BUZON).toLowerCase(), asunto,
+      [deEmail || 'desconocido', deNombre, String(b.recipient || BUZON()).toLowerCase(), asunto,
        String(b['body-plain'] || b['stripped-text'] || '').slice(0, 100000),
        String(b['body-html'] || '').slice(0, 200000) || null, messageId, !verificado]);
     const id = Number(ins.rows[0].id);
@@ -171,7 +171,7 @@ export const listarCorreos = async (opts: {
       ORDER BY recibido_at DESC
       LIMIT $${params.length}`, params);
   const pend = await pool.query(`SELECT COUNT(*)::int AS n FROM cajito_correos WHERE estado = 'nuevo'`);
-  return { buzon: BUZON, sin_revisar: Number(pend.rows[0]?.n || 0), correos: r.rows };
+  return { buzon: BUZON(), sin_revisar: Number(pend.rows[0]?.n || 0), correos: r.rows };
 };
 
 /** Un correo completo, con los adjuntos firmados para poder abrirlos. */
@@ -255,4 +255,143 @@ export const cajitoUpdateCorreo = async (req: Request, res: Response): Promise<a
     console.error('[cajito-correos] marcar:', e?.message);
     res.status(500).json({ error: 'No se pudo actualizar el correo.' });
   }
+};
+
+// ============================================================
+// Microsoft 365 — de aquí llegan de verdad los correos de Cajito.
+//
+// El dominio entregax.app no recibe correo (no tiene servidor de correo), y el
+// correo de la empresa vive en Microsoft 365 (entregax.com). Así que el buzón
+// es cajito@entregax.com, un buzón compartido, y EntregaX lo lee solo con
+// Microsoft Graph cada pocos minutos.
+//
+// Variables en Railway:
+//   MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET   (app de Entra ID)
+//   CAJITO_MAILBOX=cajito@entregax.com
+//
+// Permisos de la app (de aplicación, con consentimiento del administrador):
+//   Mail.Read y Mail.ReadWrite — conviene limitarlos SOLO a este buzón con una
+//   Application Access Policy de Exchange. Cada correo se marca como leído para
+//   no volver a bajarlo; además se descarta por Message-Id repetido.
+// ============================================================
+const MS = () => ({
+  tenant: (process.env.MS_TENANT_ID || '').trim(),
+  clientId: (process.env.MS_CLIENT_ID || '').trim(),
+  secret: (process.env.MS_CLIENT_SECRET || '').trim(),
+  buzon: (process.env.CAJITO_MAILBOX || 'cajito@entregax.com').trim(),
+});
+
+export const m365Configurado = (): boolean => {
+  const m = MS();
+  return !!(m.tenant && m.clientId && m.secret && m.buzon);
+};
+
+let tokenCache: { valor: string; expira: number } | null = null;
+const tokenGraph = async (): Promise<string> => {
+  if (tokenCache && tokenCache.expira > Date.now() + 60_000) return tokenCache.valor;
+  const m = MS();
+  const body = new URLSearchParams({
+    client_id: m.clientId, client_secret: m.secret,
+    scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials',
+  });
+  const r = await axios.post(`https://login.microsoftonline.com/${m.tenant}/oauth2/v2.0/token`, body.toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 20_000 });
+  tokenCache = { valor: String(r.data.access_token), expira: Date.now() + (Number(r.data.expires_in || 3600) * 1000) };
+  return tokenCache.valor;
+};
+
+const soloTexto = (html: string): string =>
+  String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
+/**
+ * Baja los correos nuevos del buzón y los guarda. Devuelve cuántos entraron.
+ * No lanza: si Microsoft no contesta, se reintenta en la siguiente vuelta.
+ */
+export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisados: number; error?: string }> => {
+  if (!m365Configurado()) return { nuevos: 0, revisados: 0, error: 'Faltan las variables de Microsoft 365 (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, CAJITO_MAILBOX).' };
+  try {
+    await ensureSchemaCorreos();
+    const m = MS();
+    const token = await tokenGraph();
+    const auth = { headers: { Authorization: `Bearer ${token}` }, timeout: 30_000 };
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/mailFolders/Inbox/messages`
+      + `?$filter=isRead eq false&$top=20&$orderby=receivedDateTime asc`
+      + `&$select=id,subject,from,receivedDateTime,internetMessageId,body,bodyPreview,hasAttachments,toRecipients`;
+    const lista = await axios.get(url, auth);
+    const mensajes: any[] = lista.data?.value || [];
+    let nuevos = 0;
+
+    for (const msg of mensajes) {
+      const messageId = String(msg.internetMessageId || msg.id || '').slice(0, 300);
+      const ya = await pool.query(`SELECT id FROM cajito_correos WHERE message_id = $1 LIMIT 1`, [messageId]);
+      if (ya.rows[0]) {
+        await axios.patch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/messages/${msg.id}`,
+          { isRead: true }, auth).catch(() => {});
+        continue;
+      }
+      const deEmail = String(msg.from?.emailAddress?.address || 'desconocido').toLowerCase();
+      const deNombre = String(msg.from?.emailAddress?.name || deEmail);
+      const esHtml = String(msg.body?.contentType || '').toLowerCase() === 'html';
+      const html = esHtml ? String(msg.body?.content || '') : '';
+      const texto = esHtml ? soloTexto(html) : String(msg.body?.content || msg.bodyPreview || '');
+
+      const ins = await pool.query(
+        `INSERT INTO cajito_correos (de_email, de_nombre, para_email, asunto, cuerpo, cuerpo_html, message_id, recibido_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [deEmail, deNombre, m.buzon, String(msg.subject || '(sin asunto)').slice(0, 500),
+         texto.slice(0, 100000), html.slice(0, 200000) || null, messageId,
+         msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date()]);
+      const id = Number(ins.rows[0].id);
+      await pool.query(
+        `UPDATE cajito_correos SET folio = 'CJM-' || to_char(recibido_at, 'YYYY') || '-' || LPAD(id::text, 4, '0') WHERE id = $1`, [id]);
+
+      if (msg.hasAttachments) {
+        try {
+          const adj = await axios.get(
+            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/messages/${msg.id}/attachments`, auth);
+          const guardados: CorreoAdjunto[] = [];
+          for (const a of (adj.data?.value || [])) {
+            if (a['@odata.type'] !== '#microsoft.graph.fileAttachment' || !a.contentBytes) continue;
+            try {
+              const buf = Buffer.from(a.contentBytes, 'base64');
+              const url2 = await uploadToS3(buf, `cajito-correos/${id}/${Date.now()}-${nombreLimpio(a.name)}`, a.contentType || 'application/octet-stream');
+              guardados.push({ nombre: a.name, tipo: a.contentType || '', tamano: Number(a.size) || buf.length, url: url2 });
+            } catch (e: any) {
+              console.warn('[cajito-correo] adjunto M365 no guardado:', e?.message);
+              guardados.push({ nombre: a.name, tipo: a.contentType || '', tamano: Number(a.size) || 0, url: null });
+            }
+          }
+          if (guardados.length) {
+            await pool.query(`UPDATE cajito_correos SET adjuntos = $2::jsonb WHERE id = $1`, [id, JSON.stringify(guardados)]);
+          }
+        } catch (e: any) {
+          console.warn('[cajito-correo] no se pudieron leer los adjuntos:', e?.message);
+        }
+      }
+
+      await axios.patch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/messages/${msg.id}`,
+        { isRead: true }, auth).catch(() => {});
+      nuevos++;
+      console.log(`📧 [cajito-correo] nuevo de ${deEmail}: "${msg.subject}"`);
+    }
+    return { nuevos, revisados: mensajes.length };
+  } catch (e: any) {
+    const detalle = e?.response?.data?.error?.message || e?.message || String(e);
+    console.warn('[cajito-correo] Microsoft 365:', detalle);
+    return { nuevos: 0, revisados: 0, error: detalle };
+  }
+};
+
+/** POST /api/cajito/correos/sincronizar — revisar el buzón en este momento. */
+export const cajitoSyncCorreos = async (_req: Request, res: Response): Promise<any> => {
+  const r = await sincronizarCorreosM365();
+  if (r.error) return res.status(r.error.includes('Faltan las variables') ? 409 : 502).json({ success: false, ...r });
+  res.json({ success: true, ...r });
 };

@@ -10,6 +10,17 @@ import { runMJCustomerFclSync } from './mjcustomerFclSync';
 import { runDatabaseBackup } from './dbBackupService';
 import { startResumenCompletadasCron } from './resumenCompletadas';
 
+// Buzón de Cajito: revisar el correo cada 3 minutos (solo si está configurado).
+const startCajitoCorreosCron = () => {
+  cron.schedule('*/3 * * * *', async () => {
+    const { m365Configurado, sincronizarCorreosM365 } = await import('./cajitoCorreosController');
+    if (!m365Configurado()) return;
+    const r = await sincronizarCorreosM365();
+    if (r.nuevos > 0) console.log(`📧 [CRON] Buzón de Cajito: ${r.nuevos} correo(s) nuevo(s)`);
+  });
+  console.log('📅 [CRON] Buzón de Cajito: cada 3 minutos');
+};
+
 /**
  * CRON JOB: Detección automática de clientes en riesgo
  * Se ejecuta todos los días a las 00:00 hrs
@@ -2290,6 +2301,7 @@ export const initCronJobs = () => {
   startPurgaVideosCron();
   startAvisosProgramadosCron();
   startResumenCompletadasCron();
+  startCajitoCorreosCron();
 };
 
 export default initCronJobs;

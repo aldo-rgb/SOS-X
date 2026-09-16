@@ -8887,7 +8887,7 @@ import {
 // } from './vizionController';
 
 // MJCustomer FCL Sync (sustituye a Vizion)
-import { handleCajitoInboundEmail, cajitoListCorreos, cajitoGetCorreo, cajitoUpdateCorreo } from './cajitoCorreosController';
+import { handleCajitoInboundEmail, cajitoListCorreos, cajitoGetCorreo, cajitoUpdateCorreo, cajitoSyncCorreos } from './cajitoCorreosController';
 
 import {
     triggerMJCustomerFclSync,
@@ -17495,6 +17495,7 @@ app.post('/api/cajito/gaps/:id/ensenar', authenticateToken, requireRole('super_a
 
 // Buzón de Cajito (cajito@entregax.app): lo que le escriben, para revisarlo.
 app.get('/api/cajito/correos', authenticateToken, requireRole('super_admin'), cajitoListCorreos);
+app.post('/api/cajito/correos/sincronizar', authenticateToken, requireRole('super_admin'), cajitoSyncCorreos);
 app.get('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoGetCorreo);
 app.patch('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoUpdateCorreo);
 

@@ -1303,6 +1303,8 @@ export default function CajitoFab() {
   const [correosSinRevisar, setCorreosSinRevisar] = useState(0);
   const [correosFiltro, setCorreosFiltro] = useState<string>('todos');
   const [correoAbierto, setCorreoAbierto] = useState<any | null>(null);
+  const [correosBuzon, setCorreosBuzon] = useState('cajito@entregax.com');
+  const [correosSync, setCorreosSync] = useState<string | null>(null);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
@@ -1520,6 +1522,7 @@ export default function CajitoFab() {
       const r = await api.get(`/cajito/correos?estado=${correosFiltro}&limite=40`);
       setCorreosList(r.data?.correos || []);
       setCorreosSinRevisar(Number(r.data?.sin_revisar) || 0);
+      if (r.data?.buzon) setCorreosBuzon(String(r.data.buzon));
     } catch { /* */ } finally { setCorreosLoading(false); }
   };
   const openCorreo = async (folio: string) => {
@@ -1530,6 +1533,18 @@ export default function CajitoFab() {
       loadCorreos();
     } catch {
       setCorreoAbierto({ folio, cargando: false, error: 'No se pudo abrir el correo.' });
+    }
+  };
+  // Revisar el correo en este momento, sin esperar a la revisión automática.
+  const revisarCorreoAhora = async () => {
+    setCorreosSync('Revisando el correo…');
+    try {
+      const r = await api.post('/cajito/correos/sincronizar', {});
+      const n = Number(r.data?.nuevos) || 0;
+      setCorreosSync(n > 0 ? `Llegaron ${n} correo(s).` : 'Sin correos nuevos.');
+      loadCorreos();
+    } catch (e: any) {
+      setCorreosSync(e?.response?.data?.error || 'No se pudo revisar el correo.');
     }
   };
   const marcarCorreo = async (folio: string, estado: string) => {
@@ -2165,7 +2180,8 @@ export default function CajitoFab() {
       <Dialog open={correosOpen} onClose={() => { setCorreosOpen(false); setCorreoAbierto(null); }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
           <MailOutlineIcon sx={{ color: CAJITO_RING }} /> Buzón de Cajito
-          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>cajito@entregax.app</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, flex: 1 }}>{correosBuzon}</Typography>
+          <Button size="small" onClick={revisarCorreoAhora}>Revisar ahora</Button>
         </DialogTitle>
         <DialogContent dividers>
           {correoAbierto ? (
@@ -2217,11 +2233,14 @@ export default function CajitoFab() {
                     onClick={() => { setCorreosFiltro(k); setTimeout(loadCorreos, 0); }} />
                 ))}
               </Box>
+              {correosSync && (
+                <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>{correosSync}</Typography>
+              )}
               {correosLoading ? (
                 <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
               ) : correosList.length === 0 ? (
                 <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                  Todavía no llega ningún correo a cajito@entregax.app.
+                  Todavía no llega ningún correo a {correosBuzon}.
                 </Typography>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
