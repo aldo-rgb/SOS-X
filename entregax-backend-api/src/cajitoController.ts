@@ -436,14 +436,33 @@ export const TOOLS: ToolDef[] = [
     handler: async ({ query }) => {
       const q = String(query || '').trim();
       if (!q) return { results: [], note: 'Consulta vacía.' };
+      // Por PALABRAS y sin acentos. Antes se buscaba la frase completa como
+      // texto literal: preguntar "cómo agrego un correo a la lista del buzón"
+      // no encontraba la entrada que explicaba justo eso, y Cajito contestaba
+      // que no tenía nada documentado teniéndolo.
+      const VACIAS = ['como', 'donde', 'cual', 'cuales', 'que', 'para', 'por', 'los', 'las', 'del', 'con',
+        'una', 'uno', 'unos', 'unas', 'the', 'hago', 'hacer', 'puedo', 'quiero', 'necesito', 'favor'];
+      const sinAcentos = (t: string) => t.toLowerCase()
+        .replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i')
+        .replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u').replace(/ñ/g, 'n');
+      const palabras = Array.from(new Set(
+        sinAcentos(q).split(/[^a-z0-9@._-]+/).filter(w => w.length >= 3 && !VACIAS.includes(w))
+      )).slice(0, 8);
+      const campo = "translate(lower(k.title || ' ' || k.content || ' ' || COALESCE(k.tags, '')), 'áéíóúüñ', 'aeiouun')";
+      const params: any[] = [];
+      const puntos = palabras.length
+        ? palabras.map(w => { params.push('%' + w + '%'); return `(CASE WHEN ${campo} LIKE $${params.length} THEN 1 ELSE 0 END)`; }).join(' + ')
+        : '0';
+      params.push('%' + sinAcentos(q) + '%');
+      const frase = params.length;
       const r = await pool.query(
-        `SELECT id, title, content, tags
-           FROM cajito_knowledge
-          WHERE is_active = TRUE
-            AND (title ILIKE $1 OR content ILIKE $1 OR COALESCE(tags,'') ILIKE $1)
-          ORDER BY (title ILIKE $1) DESC, updated_at DESC
+        `SELECT k.id, k.title, k.content, k.tags, (${puntos}) AS puntos
+           FROM cajito_knowledge k
+          WHERE k.is_active = TRUE
+            AND ((${puntos}) > 0 OR ${campo} LIKE $${frase})
+          ORDER BY puntos DESC, k.updated_at DESC
           LIMIT 5`,
-        [`%${q}%`]
+        params
       );
       if (r.rows.length === 0) {
         return { results: [], note: 'No hay conocimiento registrado sobre esto. Dile al usuario que no tienes esa información documentada y NO inventes pasos.' };
