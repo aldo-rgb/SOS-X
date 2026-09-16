@@ -66,6 +66,63 @@ const sugerirEnTicket = async (ticketId: number, v: any): Promise<void> => {
     [ticketId, texto]);
 };
 
+/**
+ * Lo que es de OPERACIÓN no es de desarrollo.
+ *
+ * Una guía que llegó a la bodega y nadie capturó no la arregla un programador:
+ * la captura quien recibe. Antes eso salía como ERROR_SISTEMA y aterrizaba en
+ * el tablero de errores, urgente, en la bandeja de Aldo (TKT-2026-2734). Ahora
+ * queda como nota en el ticket, con el CEDIS que parece tocarle; quien asigna
+ * es Servicio a Cliente, no Cajito.
+ */
+const CEDIS_POR_TEXTO: Array<[RegExp, string]> = [
+  [/\b(usa|hidalgo|laredo|mcallen|texas)\b/i, 'HGO'],
+  [/\b(mty|monterrey)\b/i, 'MTY'],
+  [/\b(cdmx|mexico|méxico)\b/i, 'CDMX'],
+  [/\b(gdl|guadalajara)\b/i, 'GDL'],
+];
+
+const responsableDeOperacion = async (ticketId: number): Promise<{ id: number; nombre: string; cedis: string } | null> => {
+  const m = await pool.query(
+    `SELECT string_agg(message, ' ') AS texto FROM ticket_messages WHERE ticket_id = $1 AND COALESCE(is_internal, false) = false`,
+    [ticketId]);
+  const texto = String(m.rows[0]?.texto || '');
+  const cedis = CEDIS_POR_TEXTO.find(([re]) => re.test(texto))?.[1];
+  if (!cedis) return null;
+  const r = await pool.query(
+    `SELECT u.id, u.full_name FROM users u
+       JOIN branches b ON b.id = u.branch_id
+      WHERE UPPER(b.code) = $1 AND u.role = 'branch_manager'
+        AND COALESCE(u.is_active, true) AND u.deleted_at IS NULL
+      ORDER BY u.id LIMIT 1`, [cedis]);
+  const u = r.rows[0];
+  return u ? { id: Number(u.id), nombre: String(u.full_name), cedis } : null;
+};
+
+const notaDeOperacion = async (ticketId: number, v: any): Promise<void> => {
+  const t = (await pool.query(`SELECT ticket_folio FROM support_tickets WHERE id = $1`, [ticketId])).rows[0];
+  const folio = t?.ticket_folio || `ticket ${ticketId}`;
+  const ya = await pool.query(
+    `SELECT 1 FROM ticket_messages WHERE ticket_id = $1 AND is_internal = TRUE AND message LIKE '📦 Cajito%' LIMIT 1`,
+    [ticketId]);
+  if (ya.rows.length) return;
+
+  const quien = await responsableDeOperacion(ticketId);
+  const texto = [
+    '📦 Cajito: esto NO es un error del sistema. Falta que alguien haga o registre algo.',
+    v.reclamo ? `Lo que reportan: ${v.reclamo}` : '',
+    v.explicacion || '',
+    quien
+      ? `Por lo que dice el ticket, le toca al CEDIS ${quien.cedis} (${quien.nombre}). Ustedes deciden a quién se lo asignan y le levantan la tarea desde el tablero.`
+      : 'No alcancé a identificar a qué CEDIS o área le toca: ustedes deciden a quién asignárselo y le levantan la tarea.',
+  ].filter(Boolean).join('\n\n');
+
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+    [ticketId, texto]).catch(() => {});
+  console.warn(`[JUEZ] ${folio}: OPERACION → nota para Servicio a Cliente${quien ? ` (sugerido: ${quien.cedis})` : ''}`);
+};
+
 /** Guarda el veredicto en el ticket para que la pantalla lo pueda mostrar. */
 const guardarVeredicto = async (ticketId: number, v: any): Promise<void> => {
   await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS metadata JSONB`).catch(() => {});
@@ -149,6 +206,11 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
     // casos reales resultó que ahí se le van varios: el cobro de impuesto por
     // caja (TKT-2026-2620) lo llamó CAPTURA y era código nuestro multiplicando
     // la nota.
+    if (String(v.conclusion) === 'OPERACION') {
+      // No se asigna solo: Servicio a Cliente decide a quién se lo manda.
+      await notaDeOperacion(ticketId, v).catch((e) => console.error('[JUEZ] nota de operación:', e?.message));
+    }
+
     if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))) {
       // El reporte lo levanta el sistema con el mismo camino del botón, para que
       // la tarea salga idéntica a la que crearía una persona.

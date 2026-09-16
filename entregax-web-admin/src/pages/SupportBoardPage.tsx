@@ -1786,6 +1786,7 @@ export default function SupportBoardPage() {
                   CORRECTO: 'El sistema está bien · hay que explicárselo',
                   DECISION: 'Requiere decisión',
                   NO_PUDE: 'Cajito no alcanzó a determinarlo',
+                  OPERACION: 'Es de operación · falta hacerlo o registrarlo',
                 };
                 return (
                   <Box sx={{
