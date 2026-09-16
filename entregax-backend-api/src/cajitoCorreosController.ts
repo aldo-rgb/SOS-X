@@ -55,7 +55,7 @@ export const ensureSchemaCorreos = async (): Promise<void> => {
 
 const firmaValida = (timestamp?: string, token?: string, signature?: string): boolean => {
   const key = SIGNING_KEY();
-  if (!key) return true;                       // sin llave configurada no se puede verificar
+  if (!key) return false;                      // sin llave no hay forma de verificar: no se acepta
   if (!timestamp || !token || !signature) return false;
   const esperada = crypto.createHmac('sha256', key).update(String(timestamp) + String(token)).digest('hex');
   return esperada === signature;
@@ -68,6 +68,26 @@ const partirRemitente = (from: string): { email: string; nombre: string } => {
   return { email, nombre: nombre || email };
 };
 
+/** 25 MB por archivo: más que eso no es un correo de trabajo. */
+const TOPE_ADJUNTO = 25 * 1024 * 1024;
+
+/**
+ * Con qué tipo se guarda un adjunto.
+ *
+ * Solo las fotos y los PDF conservan su tipo real, que es lo que el navegador
+ * puede abrir sin riesgo. TODO lo demás —HTML, SVG, scripts, ejecutables,
+ * Office con macros— se guarda como archivo binario: al abrirlo el navegador lo
+ * DESCARGA en vez de ejecutarlo o pintarlo. Un HTML o un SVG servidos con su
+ * tipo real corren JavaScript en el dominio donde viven; así no.
+ */
+const TIPOS_QUE_SE_VEN = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+const tipoParaGuardar = (nombre: string, tipo: string): string => {
+  const t = String(tipo || '').toLowerCase().split(';')[0]!.trim();
+  const ext = String(nombre || '').toLowerCase().split('.').pop() || '';
+  const extSegura = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(ext);
+  return TIPOS_QUE_SE_VEN.includes(t) && extSegura ? t : 'application/octet-stream';
+};
+
 const nombreLimpio = (n: string): string =>
   String(n || 'adjunto').replace(/[^a-zA-Z0-9_.\- ]/g, '_').replace(/\s+/g, '_').slice(0, 80);
 
@@ -77,32 +97,21 @@ const guardarAdjuntos = async (correoId: number, req: Request): Promise<CorreoAd
   const archivos = (req as any).files as Array<any> | undefined;
   for (const f of archivos || []) {
     try {
+      if ((f.size || 0) > TOPE_ADJUNTO) {
+        out.push({ nombre: f.originalname, tipo: f.mimetype || '', tamano: f.size || 0, url: null });
+        continue;
+      }
       const nombre = nombreLimpio(f.originalname);
-      const url = await uploadToS3(f.buffer, `cajito-correos/${correoId}/${Date.now()}-${nombre}`, f.mimetype || 'application/octet-stream');
+      const url = await uploadToS3(f.buffer, `cajito-correos/${correoId}/${Date.now()}-${nombre}`, tipoParaGuardar(f.originalname, f.mimetype));
       out.push({ nombre: f.originalname, tipo: f.mimetype || '', tamano: f.size || 0, url });
     } catch (e: any) {
       console.warn('[cajito-correo] adjunto no guardado:', e?.message);
       out.push({ nombre: f.originalname, tipo: f.mimetype || '', tamano: f.size || 0, url: null });
     }
   }
-  let porUrl: any[] = [];
-  try { porUrl = req.body?.attachments ? JSON.parse(req.body.attachments) : []; } catch { porUrl = []; }
-  for (const a of porUrl) {
-    try {
-      const r = await axios.get(a.url, {
-        responseType: 'arraybuffer',
-        timeout: 30_000,
-        // Las URLs de Mailgun (modo "store") piden la llave de la API.
-        ...(MAILGUN_API_KEY() ? { auth: { username: 'api', password: MAILGUN_API_KEY() } } : {}),
-      });
-      const nombre = nombreLimpio(a.name);
-      const url = await uploadToS3(Buffer.from(r.data), `cajito-correos/${correoId}/${Date.now()}-${nombre}`, a['content-type'] || 'application/octet-stream');
-      out.push({ nombre: a.name, tipo: a['content-type'] || '', tamano: Number(a.size) || 0, url });
-    } catch (e: any) {
-      console.warn('[cajito-correo] no se pudo bajar el adjunto de Mailgun:', e?.message);
-      out.push({ nombre: a?.name || 'adjunto', tipo: a?.['content-type'] || '', tamano: Number(a?.size) || 0, url: null });
-    }
-  }
+  // Los adjuntos que llegan como URL (Mailgun modo "store") NO se bajan: sería
+  // pedirle a nuestro servidor que abra una dirección que puso un tercero.
+  // Solo se guardan los archivos que vienen en la misma petición.
   return out;
 };
 
@@ -115,10 +124,20 @@ export const handleCajitoInboundEmail = async (req: Request, res: Response): Pro
   try {
     await ensureSchemaCorreos();
     const b = req.body || {};
+    // Esta puerta está abierta a internet: sin la llave de firma configurada, o
+    // con una firma que no cuadra, NO se guarda nada. Antes cualquiera que
+    // supiera la dirección podía meter correos falsos al buzón de Cajito.
+    if (!SIGNING_KEY()) {
+      console.warn('[cajito-correo] webhook llamado sin MAILGUN_SIGNING_KEY configurada: descartado');
+      return res.status(503).json({ status: 'sin_configurar' });
+    }
+    if (!firmaValida(b.timestamp, b.token, b.signature)) {
+      console.warn('[cajito-correo] firma inválida, correo descartado');
+      return res.status(403).json({ status: 'firma_invalida' });
+    }
+    const verificado = true;
     const { email: deEmail, nombre: deNombre } = partirRemitente(b.from || b.sender || '');
     const asunto = String(b.subject || '(sin asunto)').slice(0, 500);
-    const verificado = firmaValida(b.timestamp, b.token, b.signature);
-    if (!verificado) console.warn('[cajito-correo] firma de Mailgun inválida, se guarda como sospechoso:', deEmail);
 
     const messageId = String(b['Message-Id'] || b['message-id'] || '').slice(0, 300) || null;
     if (messageId) {
@@ -329,7 +348,7 @@ export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisa
     const auth = { headers: { Authorization: `Bearer ${token}` }, timeout: 30_000 };
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/mailFolders/Inbox/messages`
       + `?$filter=isRead eq false&$top=20&$orderby=receivedDateTime asc`
-      + `&$select=id,subject,from,receivedDateTime,internetMessageId,body,bodyPreview,hasAttachments,toRecipients`;
+      + `&$select=id,subject,from,receivedDateTime,internetMessageId,body,bodyPreview,hasAttachments,toRecipients,internetMessageHeaders`;
     const lista = await axios.get(url, auth);
     const mensajes: any[] = lista.data?.value || [];
     let nuevos = 0;
@@ -344,16 +363,25 @@ export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisa
       }
       const deEmail = String(msg.from?.emailAddress?.address || 'desconocido').toLowerCase();
       const deNombre = String(msg.from?.emailAddress?.name || deEmail);
+      // ¿El correo se pudo verificar? Microsoft escribe el resultado de SPF,
+      // DKIM y DMARC en las cabeceras. Si alguno falla, el remitente puede estar
+      // suplantado (alguien "escribiendo" como si fuera de la empresa) y el
+      // correo se marca para leerlo con cuidado.
+      const cabeceras: any[] = Array.isArray(msg.internetMessageHeaders) ? msg.internetMessageHeaders : [];
+      const resultadosAuth = cabeceras
+        .filter(h => String(h?.name || '').toLowerCase() === 'authentication-results')
+        .map(h => String(h?.value || '').toLowerCase()).join(' ');
+      const sospechoso = /spf=(fail|softfail|permerror)|dkim=fail|dmarc=fail/.test(resultadosAuth);
       const esHtml = String(msg.body?.contentType || '').toLowerCase() === 'html';
       const html = esHtml ? String(msg.body?.content || '') : '';
       const texto = esHtml ? soloTexto(html) : String(msg.body?.content || msg.bodyPreview || '');
 
       const ins = await pool.query(
-        `INSERT INTO cajito_correos (de_email, de_nombre, para_email, asunto, cuerpo, cuerpo_html, message_id, recibido_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        `INSERT INTO cajito_correos (de_email, de_nombre, para_email, asunto, cuerpo, cuerpo_html, message_id, recibido_at, sospechoso)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
         [deEmail, deNombre, m.buzon, String(msg.subject || '(sin asunto)').slice(0, 500),
          texto.slice(0, 100000), html.slice(0, 200000) || null, messageId,
-         msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date()]);
+         msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(), sospechoso]);
       const id = Number(ins.rows[0].id);
       await pool.query(
         `UPDATE cajito_correos SET folio = 'CJM-' || to_char(recibido_at, 'YYYY') || '-' || LPAD(id::text, 4, '0') WHERE id = $1`, [id]);
@@ -365,9 +393,13 @@ export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisa
           const guardados: CorreoAdjunto[] = [];
           for (const a of (adj.data?.value || [])) {
             if (a['@odata.type'] !== '#microsoft.graph.fileAttachment' || !a.contentBytes) continue;
+            if (Number(a.size) > TOPE_ADJUNTO) {
+              guardados.push({ nombre: a.name, tipo: a.contentType || '', tamano: Number(a.size) || 0, url: null });
+              continue;
+            }
             try {
               const buf = Buffer.from(a.contentBytes, 'base64');
-              const url2 = await uploadToS3(buf, `cajito-correos/${id}/${Date.now()}-${nombreLimpio(a.name)}`, a.contentType || 'application/octet-stream');
+              const url2 = await uploadToS3(buf, `cajito-correos/${id}/${Date.now()}-${nombreLimpio(a.name)}`, tipoParaGuardar(a.name, a.contentType));
               guardados.push({ nombre: a.name, tipo: a.contentType || '', tamano: Number(a.size) || buf.length, url: url2 });
             } catch (e: any) {
               console.warn('[cajito-correo] adjunto M365 no guardado:', e?.message);

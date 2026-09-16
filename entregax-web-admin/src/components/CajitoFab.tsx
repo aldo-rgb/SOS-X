@@ -2198,8 +2198,11 @@ export default function CajitoFab() {
                     {correoAbierto.de_nombre} &lt;{correoAbierto.de}&gt; · {new Date(correoAbierto.recibido).toLocaleString('es-MX')}
                   </Typography>
                   {correoAbierto.sospechoso && (
-                    <Chip size="small" color="warning" label="Remitente sin verificar: léelo con cuidado" sx={{ mb: 1 }} />
+                    <Chip size="small" color="warning" label="Remitente sin verificar (SPF/DKIM): puede estar suplantado" sx={{ mb: 1 }} />
                   )}
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
+                    Correo de fuera: los archivos se descargan, nunca se abren en el sistema.
+                  </Typography>
                   <Box sx={{ p: 1.5, bgcolor: '#FAFAFA', border: '1px solid #eee', borderRadius: 1.5, whiteSpace: 'pre-wrap', fontSize: 14, maxHeight: 360, overflow: 'auto' }}>
                     {correoAbierto.cuerpo || '(El correo llegó sin texto)'}
                   </Box>
