@@ -1305,6 +1305,10 @@ export default function CajitoFab() {
   const [correoAbierto, setCorreoAbierto] = useState<any | null>(null);
   const [correosBuzon, setCorreosBuzon] = useState('cajito@entregax.com');
   const [correosSync, setCorreosSync] = useState<string | null>(null);
+  const [remitentes, setRemitentes] = useState<any[]>([]);
+  const [remitenteNuevo, setRemitenteNuevo] = useState('');
+  const [remitenteError, setRemitenteError] = useState<string | null>(null);
+  const [verRemitentes, setVerRemitentes] = useState(false);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
@@ -1546,6 +1550,26 @@ export default function CajitoFab() {
     } catch (e: any) {
       setCorreosSync(e?.response?.data?.error || 'No se pudo revisar el correo.');
     }
+  };
+  // Quién le puede escribir a Cajito.
+  const loadRemitentes = async () => {
+    try { const r = await api.get('/cajito/correos/remitentes'); setRemitentes(r.data?.remitentes || []); }
+    catch { /* */ }
+  };
+  const agregarRemitente = async () => {
+    const patron = remitenteNuevo.trim();
+    if (!patron) return;
+    setRemitenteError(null);
+    try {
+      await api.post('/cajito/correos/remitentes', { patron });
+      setRemitenteNuevo('');
+      loadRemitentes();
+    } catch (e: any) {
+      setRemitenteError(e?.response?.data?.error || 'No se pudo agregar.');
+    }
+  };
+  const quitarRemitente = async (id: number) => {
+    try { await api.delete(`/cajito/correos/remitentes/${id}`); loadRemitentes(); } catch { /* */ }
   };
   const marcarCorreo = async (folio: string, estado: string) => {
     try { await api.patch(`/cajito/correos/${folio}`, { estado }); setCorreoAbierto(null); loadCorreos(); } catch { /* */ }
@@ -1835,7 +1859,7 @@ export default function CajitoFab() {
             )}
             {mode === 'chat' && isSuperAdmin && (
               <Tooltip title={correosSinRevisar > 0 ? `${correosSinRevisar} correo(s) sin revisar` : 'Buzón de Cajito'}>
-                <IconButton size="small" onClick={() => { setCorreosOpen(true); loadCorreos(); }} sx={{ color: 'white', mr: 0.5 }}>
+                <IconButton size="small" onClick={() => { setCorreosOpen(true); loadCorreos(); loadRemitentes(); }} sx={{ color: 'white', mr: 0.5 }}>
                   <Badge badgeContent={correosSinRevisar} color="error" max={99}>
                     <MailOutlineIcon fontSize="small" />
                   </Badge>
@@ -2228,8 +2252,42 @@ export default function CajitoFab() {
             </Box>
           ) : (
             <Box>
+              <Box sx={{ mb: 1.5, p: 1.25, border: '1px solid #eee', borderRadius: 1.5, bgcolor: remitentes.length === 0 ? '#FFF7ED' : 'transparent' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 800, flex: 1 }}>
+                    {remitentes.length === 0
+                      ? 'Hoy le puede escribir cualquiera'
+                      : `Solo le pueden escribir ${remitentes.length} remitente(s)`}
+                  </Typography>
+                  <Button size="small" onClick={() => { setVerRemitentes(v => !v); loadRemitentes(); }}>
+                    {verRemitentes ? 'Ocultar' : 'Quién puede escribirle'}
+                  </Button>
+                </Box>
+                {verRemitentes && (
+                  <Box sx={{ mt: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                      <TextField size="small" fullWidth placeholder="juan@proveedor.com o @entregax.com"
+                        value={remitenteNuevo}
+                        onChange={(e) => setRemitenteNuevo(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') agregarRemitente(); }} />
+                      <Button size="small" variant="contained" onClick={agregarRemitente}
+                        sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>Agregar</Button>
+                    </Box>
+                    {remitenteError && <Typography variant="caption" color="error" sx={{ display: 'block', mb: 0.5 }}>{remitenteError}</Typography>}
+                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                      {remitentes.map((r: any) => (
+                        <Chip key={r.id} size="small" label={r.patron} onDelete={() => quitarRemitente(r.id)} />
+                      ))}
+                    </Box>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.75 }}>
+                      Un correo completo o un dominio con arroba. Lo que llegue de alguien fuera de la lista se guarda
+                      como rechazado: se ve quién escribió y con qué asunto, pero no se guarda el contenido ni sus archivos.
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
               <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
-                {[['todos', 'Todos'], ['nuevo', 'Sin revisar'], ['atendido', 'Atendidos'], ['ignorado', 'Ignorados']].map(([k, l]) => (
+                {[['todos', 'Todos'], ['nuevo', 'Sin revisar'], ['atendido', 'Atendidos'], ['rechazado', 'Rechazados'], ['ignorado', 'Ignorados']].map(([k, l]) => (
                   <Chip key={k} size="small" label={l} clickable
                     color={correosFiltro === k ? 'primary' : 'default'}
                     variant={correosFiltro === k ? 'filled' : 'outlined'}
@@ -2256,6 +2314,7 @@ export default function CajitoFab() {
                         {c.estado === 'nuevo' && <Chip size="small" color="error" label="Sin revisar" />}
                         {c.estado === 'atendido' && <Chip size="small" color="success" label="Atendido" />}
                         {c.estado === 'ignorado' && <Chip size="small" variant="outlined" label="Ignorado" />}
+                        {c.estado === 'rechazado' && <Chip size="small" color="warning" label="Remitente no autorizado" />}
                         {Number(c.adjuntos) > 0 && <Chip size="small" variant="outlined" icon={<AttachFileIcon />} label={c.adjuntos} />}
                       </Box>
                       <Typography variant="body2" fontWeight={700}>{c.asunto}</Typography>

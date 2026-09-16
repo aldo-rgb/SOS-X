@@ -49,8 +49,39 @@ export const ensureSchemaCorreos = async (): Promise<void> => {
       atendido_por  INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_cajito_correos_estado ON cajito_correos(estado, recibido_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_cajito_correos_de ON cajito_correos(LOWER(de_email));`);
+    CREATE INDEX IF NOT EXISTS idx_cajito_correos_de ON cajito_correos(LOWER(de_email));
+
+    -- Quien le puede escribir a Cajito. Un patron es un correo completo
+    -- ("juan@proveedor.com") o un dominio entero ("@entregax.com").
+    -- Mientras la lista este VACIA, cualquiera puede escribir: asi no se pierde
+    -- correo antes de que alguien la configure.
+    CREATE TABLE IF NOT EXISTS cajito_correos_remitentes (
+      id          SERIAL PRIMARY KEY,
+      patron      TEXT NOT NULL UNIQUE,
+      nota        TEXT,
+      activo      BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by  INTEGER
+    );`);
   esquemaListo = true;
+};
+
+/**
+ * ¿Este remitente puede escribirle a Cajito?
+ *
+ * Con la lista vacía pasa cualquiera (para no perder correo antes de
+ * configurarla). Con al menos un patrón activo, solo pasa lo que empate: el
+ * correo completo, o el dominio cuando el patrón empieza con "@".
+ */
+export const remitentePermitido = async (email: string): Promise<{ permitido: boolean; lista_vacia: boolean }> => {
+  const e = String(email || '').toLowerCase().trim();
+  const r = await pool.query('SELECT LOWER(patron) AS p FROM cajito_correos_remitentes WHERE activo');
+  const patrones = r.rows.map((x: any) => String(x.p || '').trim()).filter(Boolean);
+  if (patrones.length === 0) return { permitido: true, lista_vacia: true };
+  const dominio = e.includes('@') ? e.slice(e.lastIndexOf('@')) : '';
+  const permitido = patrones.some(p =>
+    p.startsWith('@') ? dominio === p : (p.startsWith('*@') ? dominio === p.slice(1) : e === p));
+  return { permitido, lista_vacia: false };
 };
 
 const firmaValida = (timestamp?: string, token?: string, signature?: string): boolean => {
@@ -137,6 +168,11 @@ export const handleCajitoInboundEmail = async (req: Request, res: Response): Pro
     }
     const verificado = true;
     const { email: deEmail, nombre: deNombre } = partirRemitente(b.from || b.sender || '');
+    const permiso = await remitentePermitido(deEmail);
+    if (!permiso.permitido) {
+      console.warn('[cajito-correo] remitente fuera de la lista, descartado:', deEmail);
+      return res.status(200).json({ status: 'remitente_no_autorizado' });
+    }
     const asunto = String(b.subject || '(sin asunto)').slice(0, 500);
 
     const messageId = String(b['Message-Id'] || b['message-id'] || '').slice(0, 300) || null;
@@ -363,6 +399,24 @@ export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisa
       }
       const deEmail = String(msg.from?.emailAddress?.address || 'desconocido').toLowerCase();
       const deNombre = String(msg.from?.emailAddress?.name || deEmail);
+      // Fuera de la lista de remitentes: queda constancia de quién escribió y
+      // con qué asunto, pero NO se guarda el cuerpo ni se bajan sus archivos.
+      const permiso = await remitentePermitido(deEmail);
+      if (!permiso.permitido) {
+        const rech = await pool.query(
+          `INSERT INTO cajito_correos (de_email, de_nombre, para_email, asunto, cuerpo, message_id, recibido_at, estado)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'rechazado') RETURNING id`,
+          [deEmail, deNombre, m.buzon, String(msg.subject || '(sin asunto)').slice(0, 500),
+           '(Remitente fuera de la lista: no se guardó el contenido.)', messageId,
+           msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date()]);
+        await pool.query(
+          `UPDATE cajito_correos SET folio = 'CJM-' || to_char(recibido_at, 'YYYY') || '-' || LPAD(id::text, 4, '0') WHERE id = $1`,
+          [Number(rech.rows[0].id)]);
+        await axios.patch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/messages/${msg.id}`,
+          { isRead: true }, auth).catch(() => {});
+        console.log(`📧 [cajito-correo] rechazado, fuera de la lista: ${deEmail}`);
+        continue;
+      }
       // ¿El correo se pudo verificar? Microsoft escribe el resultado de SPF,
       // DKIM y DMARC en las cabeceras. Si alguno falla, el remitente puede estar
       // suplantado (alguien "escribiendo" como si fuera de la empresa) y el
@@ -432,4 +486,54 @@ export const cajitoSyncCorreos = async (_req: Request, res: Response): Promise<a
   const r = await sincronizarCorreosM365();
   if (r.error) return res.status(r.error.includes('Faltan las variables') ? 409 : 502).json({ success: false, ...r });
   res.json({ success: true, ...r });
+};
+
+// ---- Lista de remitentes -------------------------------------------------
+/** GET /api/cajito/correos/remitentes */
+export const cajitoListRemitentes = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSchemaCorreos();
+    const r = await pool.query(
+      `SELECT r.id, r.patron, r.nota, r.activo, r.created_at, u.full_name AS agregado_por
+         FROM cajito_correos_remitentes r LEFT JOIN users u ON u.id = r.created_by
+        ORDER BY r.patron`);
+    res.json({ success: true, remitentes: r.rows, buzon: BUZON(), abierto_a_todos: r.rows.filter((x: any) => x.activo).length === 0 });
+  } catch (e: any) {
+    console.error('[cajito-correos] remitentes:', e?.message);
+    res.status(500).json({ error: 'No se pudo leer la lista de remitentes.' });
+  }
+};
+
+/** POST /api/cajito/correos/remitentes — { patron, nota? } */
+export const cajitoAddRemitente = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSchemaCorreos();
+    const patron = String(req.body?.patron || '').trim().toLowerCase();
+    const valido = /^@[^@\s]+\.[^@\s]+$/.test(patron) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(patron);
+    if (!valido) {
+      return res.status(400).json({ error: 'Escribe un correo completo (juan@proveedor.com) o un dominio con arroba (@entregax.com).' });
+    }
+    const r = await pool.query(
+      `INSERT INTO cajito_correos_remitentes (patron, nota, created_by) VALUES ($1, $2, $3)
+       ON CONFLICT (patron) DO UPDATE SET activo = TRUE, nota = COALESCE(EXCLUDED.nota, cajito_correos_remitentes.nota)
+       RETURNING id, patron, nota, activo`,
+      [patron, req.body?.nota ? String(req.body.nota).slice(0, 200) : null, Number((req as any).user?.userId) || null]);
+    res.json({ success: true, remitente: r.rows[0] });
+  } catch (e: any) {
+    console.error('[cajito-correos] agregar remitente:', e?.message);
+    res.status(500).json({ error: 'No se pudo agregar el remitente.' });
+  }
+};
+
+/** DELETE /api/cajito/correos/remitentes/:id */
+export const cajitoDeleteRemitente = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSchemaCorreos();
+    const r = await pool.query('DELETE FROM cajito_correos_remitentes WHERE id = $1 RETURNING patron', [Number(req.params.id)]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Ese remitente ya no está en la lista.' });
+    res.json({ success: true, patron: r.rows[0].patron });
+  } catch (e: any) {
+    console.error('[cajito-correos] quitar remitente:', e?.message);
+    res.status(500).json({ error: 'No se pudo quitar el remitente.' });
+  }
 };

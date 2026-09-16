@@ -8887,7 +8887,8 @@ import {
 // } from './vizionController';
 
 // MJCustomer FCL Sync (sustituye a Vizion)
-import { handleCajitoInboundEmail, cajitoListCorreos, cajitoGetCorreo, cajitoUpdateCorreo, cajitoSyncCorreos } from './cajitoCorreosController';
+import { handleCajitoInboundEmail, cajitoListCorreos, cajitoGetCorreo, cajitoUpdateCorreo, cajitoSyncCorreos,
+         cajitoListRemitentes, cajitoAddRemitente, cajitoDeleteRemitente } from './cajitoCorreosController';
 
 import {
     triggerMJCustomerFclSync,
@@ -17496,6 +17497,10 @@ app.post('/api/cajito/gaps/:id/ensenar', authenticateToken, requireRole('super_a
 // Buzón de Cajito (cajito@entregax.app): lo que le escriben, para revisarlo.
 app.get('/api/cajito/correos', authenticateToken, requireRole('super_admin'), cajitoListCorreos);
 app.post('/api/cajito/correos/sincronizar', authenticateToken, requireRole('super_admin'), cajitoSyncCorreos);
+// Quién le puede escribir a Cajito (lista de remitentes).
+app.get('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin'), cajitoListRemitentes);
+app.post('/api/cajito/correos/remitentes', authenticateToken, requireRole('super_admin'), cajitoAddRemitente);
+app.delete('/api/cajito/correos/remitentes/:id', authenticateToken, requireRole('super_admin'), cajitoDeleteRemitente);
 app.get('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoGetCorreo);
 app.patch('/api/cajito/correos/:folio', authenticateToken, requireRole('super_admin'), cajitoUpdateCorreo);
 
