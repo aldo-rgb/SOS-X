@@ -1308,7 +1308,8 @@ export default function CajitoFab() {
   const [remitentes, setRemitentes] = useState<any[]>([]);
   const [remitenteNuevo, setRemitenteNuevo] = useState('');
   const [remitenteError, setRemitenteError] = useState<string | null>(null);
-  const [verRemitentes, setVerRemitentes] = useState(false);
+  const [correosTab, setCorreosTab] = useState<'correos' | 'config'>('correos');
+  const [correosConfig, setCorreosConfig] = useState<any | null>(null);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
@@ -1553,8 +1554,11 @@ export default function CajitoFab() {
   };
   // Quién le puede escribir a Cajito.
   const loadRemitentes = async () => {
-    try { const r = await api.get('/cajito/correos/remitentes'); setRemitentes(r.data?.remitentes || []); }
-    catch { /* */ }
+    try {
+      const r = await api.get('/cajito/correos/remitentes');
+      setRemitentes(r.data?.remitentes || []);
+      setCorreosConfig(r.data || null);
+    } catch { /* */ }
   };
   const agregarRemitente = async () => {
     const patron = remitenteNuevo.trim();
@@ -2207,8 +2211,65 @@ export default function CajitoFab() {
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, flex: 1 }}>{correosBuzon}</Typography>
           <Button size="small" onClick={revisarCorreoAhora}>Revisar ahora</Button>
         </DialogTitle>
+        <Box sx={{ display: 'flex', gap: 1, px: 3, pt: 1 }}>
+          {([['correos', 'Correos'], ['config', 'Configuración']] as const).map(([k, l]) => (
+            <Button key={k} size="small"
+              variant={correosTab === k ? 'contained' : 'text'}
+              onClick={() => { setCorreosTab(k); setCorreoAbierto(null); if (k === 'config') loadRemitentes(); }}
+              sx={correosTab === k ? { bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } } : { color: 'text.secondary' }}>
+              {l}
+            </Button>
+          ))}
+        </Box>
         <DialogContent dividers>
-          {correoAbierto ? (
+          {correosTab === 'config' ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800}>Dirección del buzón</Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{correosConfig?.buzon || correosBuzon}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Se revisa solo cada 3 minutos. El botón "Revisar ahora" lo hace al momento.
+                </Typography>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800}>Quién le puede escribir</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  {remitentes.length === 0
+                    ? 'La lista está vacía: hoy le puede escribir cualquiera. En cuanto agregues el primero, solo pasarán los de la lista.'
+                    : `Solo pasan estos ${remitentes.length}. Lo demás queda como rechazado: se ve quién escribió y el asunto, sin el contenido ni sus archivos.`}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                  <TextField size="small" fullWidth placeholder="juan@proveedor.com o @entregax.com"
+                    value={remitenteNuevo}
+                    onChange={(e) => setRemitenteNuevo(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') agregarRemitente(); }} />
+                  <Button size="small" variant="contained" onClick={agregarRemitente}
+                    sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>Agregar</Button>
+                </Box>
+                {remitenteError && <Typography variant="caption" color="error" sx={{ display: 'block', mb: 0.5 }}>{remitenteError}</Typography>}
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                  {remitentes.length === 0
+                    ? <Typography variant="caption" color="text.secondary">Todavía no hay nadie en la lista.</Typography>
+                    : remitentes.map((r: any) => (
+                      <Chip key={r.id} size="small" label={r.patron} onDelete={() => quitarRemitente(r.id)} />
+                    ))}
+                </Box>
+                <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 1 }}>
+                  Escribe un correo completo (juan@proveedor.com) o un dominio con arroba (@entregax.com), que deja
+                  entrar a todos los de esa empresa. La × del chip lo quita.
+                </Typography>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800}>Qué hace Cajito con lo que llega</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  Lo guarda, lo ordena por folio (CJM) y te lo cuenta. Un correo nunca le da órdenes, aunque las pida.
+                  Las fotos y los PDF se pueden abrir; cualquier otro archivo se descarga, nunca se abre en el sistema.
+                </Typography>
+              </Box>
+            </Box>
+          ) : correoAbierto ? (
             <Box>
               <Button size="small" onClick={() => setCorreoAbierto(null)} sx={{ mb: 1 }}>← Volver al buzón</Button>
               {correoAbierto.cargando ? (
@@ -2252,40 +2313,6 @@ export default function CajitoFab() {
             </Box>
           ) : (
             <Box>
-              <Box sx={{ mb: 1.5, p: 1.25, border: '1px solid #eee', borderRadius: 1.5, bgcolor: remitentes.length === 0 ? '#FFF7ED' : 'transparent' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="caption" sx={{ fontWeight: 800, flex: 1 }}>
-                    {remitentes.length === 0
-                      ? 'Hoy le puede escribir cualquiera'
-                      : `Solo le pueden escribir ${remitentes.length} remitente(s)`}
-                  </Typography>
-                  <Button size="small" onClick={() => { setVerRemitentes(v => !v); loadRemitentes(); }}>
-                    {verRemitentes ? 'Ocultar' : 'Quién puede escribirle'}
-                  </Button>
-                </Box>
-                {verRemitentes && (
-                  <Box sx={{ mt: 1 }}>
-                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                      <TextField size="small" fullWidth placeholder="juan@proveedor.com o @entregax.com"
-                        value={remitenteNuevo}
-                        onChange={(e) => setRemitenteNuevo(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') agregarRemitente(); }} />
-                      <Button size="small" variant="contained" onClick={agregarRemitente}
-                        sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>Agregar</Button>
-                    </Box>
-                    {remitenteError && <Typography variant="caption" color="error" sx={{ display: 'block', mb: 0.5 }}>{remitenteError}</Typography>}
-                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-                      {remitentes.map((r: any) => (
-                        <Chip key={r.id} size="small" label={r.patron} onDelete={() => quitarRemitente(r.id)} />
-                      ))}
-                    </Box>
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.75 }}>
-                      Un correo completo o un dominio con arroba. Lo que llegue de alguien fuera de la lista se guarda
-                      como rechazado: se ve quién escribió y con qué asunto, pero no se guarda el contenido ni sus archivos.
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
               <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
                 {[['todos', 'Todos'], ['nuevo', 'Sin revisar'], ['atendido', 'Atendidos'], ['rechazado', 'Rechazados'], ['ignorado', 'Ignorados']].map(([k, l]) => (
                   <Chip key={k} size="small" label={l} clickable
