@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
     Box,
     Paper,
@@ -146,11 +146,14 @@ export default function SettingsPage() {
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
             setLocalReqInstrPobox(requireInstructionsToLoadPobox);
-            setPorServicio({
-                pago: requirePaymentByService,
-                etiqueta: requireLabelByService,
-                instrucciones: requireInstructionsByService,
-            });
+            if (!porServicioCargado.current) {
+                porServicioCargado.current = true;
+                setPorServicio({
+                    pago: requirePaymentByService,
+                    etiqueta: requireLabelByService,
+                    instrucciones: requireInstructionsByService,
+                });
+            }
             setLocalExternalSync(externalSyncEnabled);
             setLocalPaymentQuery(entregaxPaymentQueryEnabled);
             setLocalCajito(cajitoEnabled);
@@ -350,6 +353,10 @@ export default function SettingsPage() {
         instrucciones: { aereo: false, maritimo: false },
     });
     const [guardandoServicio, setGuardandoServicio] = useState<string | null>(null);
+    // Los interruptores por servicio se leen del servidor UNA vez, al cargar.
+    // El estado del hook se cachea, así que al volver a aplicarlo pisaba lo que
+    // el usuario acababa de prender: se guardaba bien y se veía apagado.
+    const porServicioCargado = useRef(false);
     const handleTogglePorServicio = async (
         requisito: 'pago' | 'etiqueta' | 'instrucciones',
         servicio: 'aereo' | 'maritimo',
