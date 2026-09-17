@@ -3947,7 +3947,7 @@ export const reportarErrorCore = async (opts: {
   try {
     const { createCustomNotification } = await import('./notificationController');
     for (const id of superAdminIds) {
-      await createCustomNotification(id, `🐛 Error reportado desde Cajito`,
+      await createCustomNotification(id, `🐛 Error reportado desde Cajito · Tarea #${taskId}`,
         `${quien}: ${trimText(respuesta.replace(/\s+/g, ' '), 110)}`,
         'task', 'checkbox', { task_id: taskId }, '/tareas');
     }
@@ -3955,8 +3955,8 @@ export const reportarErrorCore = async (opts: {
     const conPush = await filterRecipientsForPush(superAdminIds, true);
     if (conPush.length) {
       await sendPushToUsers(conPush, {
-        title: '🐛 Error reportado desde Cajito',
-        body: `${quien} reportó un hallazgo. Revísalo en Mis Tareas.`,
+        title: `🐛 Error reportado desde Cajito · Tarea #${taskId}`,
+        body: `${quien} reportó un hallazgo. Revisa la tarea #${taskId} en Mis Tareas.`,
         data: { screen: 'MyTasks', task_id: String(taskId) },
       });
     }

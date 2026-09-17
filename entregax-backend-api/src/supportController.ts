@@ -2648,13 +2648,14 @@ export const reportarErrorDeTicket = async (
     try {
       const { createCustomNotification } = await import('./notificationController');
       for (const saId of superAdminIds) {
-        await createCustomNotification(saId, `🐛 Error reportado · ${folio}`, `${title}. Revísalo en Mis Tareas.`, 'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
+        // Con el número de tarea: sin él había que buscarla a mano en Mis Tareas (Aldo, 17-sep-2026).
+        await createCustomNotification(saId, `🐛 Error reportado · ${folio}`, `Tarea #${taskId} · ${title}. Revísala en Mis Tareas.`, 'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
       }
       const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
       // Push topado a horario laboral (super_admin no está en la lista 24/7). El in-app ya quedó creado arriba.
       const pushIds = await filterRecipientsForPush(superAdminIds, true);
       if (pushIds.length) {
-        await sendPushToUsers(pushIds, { title: `🐛 Error reportado · ${folio}`, body: `${title}. Revísalo en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });
+        await sendPushToUsers(pushIds, { title: `🐛 Error reportado · ${folio}`, body: `Tarea #${taskId} · ${title}. Revísala en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });
       }
     } catch (e) { console.error('[support] reportTicketError notif:', e); }
 
