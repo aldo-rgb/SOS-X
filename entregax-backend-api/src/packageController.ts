@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 import { cobroDhlMxn } from './dhlCosting';
 import { isMtyMetroZip } from './mtyMetroController';
 import { PoolClient, Pool } from 'pg';
@@ -8206,7 +8206,7 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     const anchorBoxNumber = anchorIsMaster ? 0 : 1;
 
     if (isBroker) {
-      await client.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS broker_receipt_id INTEGER`).catch(() => {});
+      await asegurarColumna('packages', 'broker_receipt_id', 'INTEGER');
     }
 
     await client.query('BEGIN');
@@ -8369,7 +8369,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     // el nombre del courier que entregó el paquete a nuestra bodega
     // Hidalgo TX (Amazon, DHL, UPS, FedEx, Walmart...). Diferente de
     // tracking_provider, que es el número de guía del courier.
-    await client.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS origin_carrier TEXT`).catch(() => {});
+    await asegurarColumna('packages', 'origin_carrier', 'TEXT');
 
     const cleanOriginCarrier = (originCarrier || '').trim() || null;
 

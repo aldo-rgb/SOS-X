@@ -15,7 +15,7 @@
  *  - super_admin, admin, director, branch_manager, accountant (finanzas)
  */
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 import crypto from 'crypto';
 import { signS3UrlIfNeeded } from './s3Service';
 import { crossDhlTaxNote } from './dhlController';
@@ -952,7 +952,7 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
       }
     }
 
-    await client.query(`ALTER TABLE petty_cash_movements ADD COLUMN IF NOT EXISTS pieces INTEGER DEFAULT 1`).catch(() => {});
+    await asegurarColumna('petty_cash_movements', 'pieces', 'INTEGER DEFAULT 1');
 
     // ── La misma nota de impuestos, capturada dos veces ──────────────────────
     // El concepto de una nota DHL es el número de guía, y una guía tiene una

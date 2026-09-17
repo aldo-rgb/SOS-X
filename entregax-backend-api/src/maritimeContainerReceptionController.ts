@@ -4,7 +4,7 @@
 // ============================================
 
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 
 interface AuthRequest extends Request {
   user?: { userId: number; role: string };
@@ -628,9 +628,9 @@ export const reportPartialBoxes = async (req: AuthRequest, res: Response): Promi
     await client.query('BEGIN');
 
     // Asegurar columnas (auto-migración idempotente)
-    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS received_boxes INTEGER`);
-    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_on_arrival BOOLEAN DEFAULT FALSE`);
-    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_reported_at TIMESTAMP`);
+    await asegurarColumna('maritime_orders', 'received_boxes', 'INTEGER');
+    await asegurarColumna('maritime_orders', 'missing_on_arrival', 'BOOLEAN DEFAULT FALSE');
+    await asegurarColumna('maritime_orders', 'missing_reported_at', 'TIMESTAMP');
 
     // Cargar órdenes actuales del contenedor
     const ordersRes = await client.query(

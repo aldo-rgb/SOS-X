@@ -80,6 +80,25 @@ async function correrMigracionConEspera(args: any[]): Promise<any> {
     return correrMigracionConEspera(args);
 };
 
+/**
+ * Agrega una columna SOLO si falta.
+ *
+ * "ALTER TABLE … ADD COLUMN IF NOT EXISTS" no es gratis aunque la columna ya
+ * exista: pide el candado EXCLUSIVO de la tabla, y si alguien está leyendo, el
+ * ALTER se forma y detrás de él se forma TODO lo demás. En packages —millones
+ * de lecturas al día— eso se siente como "el sistema está lento" (17-sep-2026,
+ * con origin_carrier en la captura de bodega). Preguntar al catálogo cuesta
+ * microsegundos y no toma candado.
+ */
+export const asegurarColumna = async (tabla: string, columna: string, definicion: string): Promise<void> => {
+    const r = await pool.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 LIMIT 1`,
+        [tabla, columna]
+    ).catch(() => ({ rows: [] as any[] }));
+    if (r.rows.length) return;
+    await pool.query(`ALTER TABLE ${tabla} ADD COLUMN IF NOT EXISTS ${columna} ${definicion}`).catch(() => {});
+};
+
 // Manejar errores de conexiones idle para que no maten el proceso
 pool.on('error', (err: Error) => {
     console.error('⚠️ Error en conexión idle del pool PostgreSQL:', err.message);
