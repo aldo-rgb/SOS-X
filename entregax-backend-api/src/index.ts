@@ -16016,7 +16016,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'advisor_xpay_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled', 'notif_caja_recibida', 'notif_recordatorio_pago')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'advisor_xpay_enabled', 'require_payment_to_load', 'require_payment_to_load_by_service', 'require_label_to_load', 'require_label_to_load_by_service', 'require_instructions_to_load_pobox', 'require_instructions_to_load_by_service', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled', 'notif_caja_recibida', 'notif_recordatorio_pago')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -16085,6 +16085,19 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     // — es una feature nueva que se habilita explícitamente)
     const advisorXpayEnabled = byKey['advisor_xpay_enabled']?.enabled === true;
 
+    // Excepciones por servicio: aéreo y marítimo se pueden cargar sin pago sin
+    // tocar PO Box ni DHL. Lo que no viene en el objeto sigue exigiendo pago.
+    // Los dos servicios que se controlan aparte: TDI Aéreo (guías AIR) y
+    // Marítimo. Lo que no esté configurado sigue exigiendo el requisito.
+    const porServicio = (clave: string, porDefecto: boolean) => ({
+      aereo: byKey[clave]?.aereo !== undefined ? byKey[clave].aereo === true : porDefecto,
+      maritimo: byKey[clave]?.maritimo !== undefined ? byKey[clave].maritimo === true : porDefecto,
+    });
+    const requirePaymentByService = porServicio('require_payment_to_load_by_service', true);
+    const requireLabelByService = porServicio('require_label_to_load_by_service', true);
+    // Instrucciones: hoy solo se exigen en PO Box, así que aéreo y marítimo
+    // arrancan apagados mientras nadie los prenda.
+    const requireInstructionsByService = porServicio('require_instructions_to_load_by_service', false);
     // require_payment_to_load: si está desactivado, el chofer puede cargar sin que el cliente haya pagado
     const requirePaymentToLoad = byKey['require_payment_to_load'] !== undefined
       ? byKey['require_payment_to_load']?.enabled !== false
@@ -16162,6 +16175,9 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
         advisor_payment_order_enabled: true,
         advisor_xpay_enabled: advisorXpayEnabled,
         require_payment_to_load: requirePaymentToLoad,
+        require_payment_to_load_by_service: requirePaymentByService,
+        require_label_to_load_by_service: requireLabelByService,
+        require_instructions_to_load_by_service: requireInstructionsByService,
         require_label_to_load: requireLabelToLoad,
         require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
         external_sync_enabled: externalSyncEnabled,
@@ -16188,6 +16204,9 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       advisor_payment_order_enabled: advisorPaymentOrderEnabled,
       advisor_xpay_enabled: advisorXpayEnabled,
       require_payment_to_load: requirePaymentToLoad,
+      require_payment_to_load_by_service: requirePaymentByService,
+      require_label_to_load_by_service: requireLabelByService,
+      require_instructions_to_load_by_service: requireInstructionsByService,
       require_label_to_load: requireLabelToLoad,
       require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
       external_sync_enabled: externalSyncEnabled,
@@ -16201,7 +16220,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       notif_recordatorio_pago: notifRecordatorioPago,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, advisor_xpay_enabled: false, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false, notif_caja_recibida: true, notif_recordatorio_pago: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, advisor_xpay_enabled: false, require_payment_to_load: true, require_payment_to_load_by_service: { aereo: true, maritimo: true }, require_label_to_load_by_service: { aereo: true, maritimo: true }, require_instructions_to_load_by_service: { aereo: false, maritimo: false }, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false, notif_caja_recibida: true, notif_recordatorio_pago: true });
   }
 });
 
@@ -16545,6 +16564,42 @@ app.post('/api/admin/system/advisor-instructions-toggle', authenticateToken, req
   } catch (err: any) {
     console.error('[ADVISOR-INSTRUCTIONS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de instrucciones de asesores' });
+  }
+});
+
+// POST /api/admin/system/require-payment-to-load-service-toggle — la misma
+// regla, pero solo para un servicio (aéreo o marítimo). Apagarla ahí deja
+// cargar esas guías sin pago; PO Box y DHL siguen como estén.
+app.post('/api/admin/system/loading-requirement-service-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const CLAVES: Record<string, { key: string; desc: string }> = {
+      pago: { key: 'require_payment_to_load_by_service', desc: 'Exigir pago para cargar, por servicio' },
+      etiqueta: { key: 'require_label_to_load_by_service', desc: 'Exigir etiqueta impresa para cargar, por servicio' },
+      instrucciones: { key: 'require_instructions_to_load_by_service', desc: 'Exigir instrucciones asignadas para cargar, por servicio' },
+    };
+    const requisito = String(req.body?.requisito || '').toLowerCase();
+    const servicio = String(req.body?.service || '').toLowerCase();
+    if (!CLAVES[requisito]) return res.status(400).json({ error: 'Requisito no válido: usa "pago", "etiqueta" o "instrucciones".' });
+    if (!['aereo', 'maritimo'].includes(servicio)) return res.status(400).json({ error: 'Servicio no válido: usa "aereo" o "maritimo".' });
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    const { key, desc } = CLAVES[requisito]!;
+    const actual = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = $1 LIMIT 1`, [key]
+    ).catch(() => ({ rows: [] as any[] }));
+    const valor = { ...(actual.rows[0]?.config_value || {}), [servicio]: enabled };
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ($1, $2::jsonb, $3, TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $2::jsonb, updated_at = NOW(), updated_by = $4`,
+      [key, JSON.stringify(valor), desc, userId]
+    );
+    console.log(`🚚 [CARGA · ${requisito} · ${servicio}] ${enabled ? '✅ Requerido' : '🔴 No requerido'} por user #${userId}`);
+    res.json({ success: true, requisito, [key]: valor });
+  } catch (err: any) {
+    console.error('[LOADING-REQUIREMENT-SERVICE-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar el requisito por servicio' });
   }
 });
 

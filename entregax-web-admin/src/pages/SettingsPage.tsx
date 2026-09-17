@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, toggleNotifCajaRecibida, toggleNotifPago, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, toggleNotifCajaRecibida, toggleNotifPago, invalidatePaymentStatusCache, toggleLoadingRequirementByService } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import NotificationSoundsManager from '../components/NotificationSoundsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
@@ -87,7 +87,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, requirePaymentByService, requireLabelByService, requireInstructionsByService, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [localFacturas, setLocalFacturas] = useState<boolean | null>(null);
@@ -146,6 +146,11 @@ export default function SettingsPage() {
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
             setLocalReqInstrPobox(requireInstructionsToLoadPobox);
+            setPorServicio({
+                pago: requirePaymentByService,
+                etiqueta: requireLabelByService,
+                instrucciones: requireInstructionsByService,
+            });
             setLocalExternalSync(externalSyncEnabled);
             setLocalPaymentQuery(entregaxPaymentQueryEnabled);
             setLocalCajito(cajitoEnabled);
@@ -153,7 +158,7 @@ export default function SettingsPage() {
             setLocalNotifCaja(notifCajaRecibida);
             setLocalNotifPago(notifRecordatorioPago);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, requirePaymentByService, requireLabelByService, requireInstructionsByService, externalSyncEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago]);
 
     // Cargar health de Cajito (provider actual, modelo, readOnly) — solo super_admin
     useEffect(() => {
@@ -338,6 +343,32 @@ export default function SettingsPage() {
             setTogglingAdvisorXpay(false);
         }
     };
+    // Excepciones por servicio: TDI Aéreo (guías AIR) y Marítimo.
+    const [porServicio, setPorServicio] = useState<Record<string, { aereo: boolean; maritimo: boolean }>>({
+        pago: { aereo: true, maritimo: true },
+        etiqueta: { aereo: true, maritimo: true },
+        instrucciones: { aereo: false, maritimo: false },
+    });
+    const [guardandoServicio, setGuardandoServicio] = useState<string | null>(null);
+    const handleTogglePorServicio = async (
+        requisito: 'pago' | 'etiqueta' | 'instrucciones',
+        servicio: 'aereo' | 'maritimo',
+        checked: boolean,
+    ) => {
+        setGuardandoServicio(`${requisito}:${servicio}`);
+        const antes = porServicio[requisito]!;
+        setPorServicio(p => ({ ...p, [requisito]: { ...antes, [servicio]: checked } }));
+        try {
+            await toggleLoadingRequirementByService(requisito, servicio, checked);
+            setSnackbar({ open: true, message: `${servicio === 'aereo' ? 'TDI Aéreo' : 'Marítimo'}: requisito ${checked ? 'activado' : 'desactivado'}`, severity: 'success' });
+        } catch (err: any) {
+            setPorServicio(p => ({ ...p, [requisito]: antes }));
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setGuardandoServicio(null);
+        }
+    };
+
     const handleToggleReqPayment = async (checked: boolean) => {
         setTogglingReqPayment(true);
         const prev = localReqPayment;
@@ -1130,6 +1161,29 @@ export default function SettingsPage() {
                                     />
                                 )}
                             </Paper>
+                            <Paper variant="outlined" sx={{ px: 2, py: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                    Exigir el pago en estos servicios (si lo apagas, sus guías se cargan aunque no estén pagadas):
+                                </Typography>
+                                <Stack direction="row" spacing={2} flexWrap="wrap">
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                        <FormControlLabel
+                                            key={svc}
+                                            control={
+                                                <Switch
+                                                    size="small"
+                                                    color="success"
+                                                    checked={!!porServicio['pago']?.[svc]}
+                                                    disabled={guardandoServicio === `pago:${svc}` || paymentsStatusLoading}
+                                                    onChange={(e) => handleTogglePorServicio('pago', svc, e.target.checked)}
+                                                />
+                                            }
+                                            label={<Typography variant="body2">{etiqueta}</Typography>}
+                                            sx={{ m: 0 }}
+                                        />
+                                    ))}
+                                </Stack>
+                            </Paper>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                                 <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography variant="subtitle1" fontWeight={600}>
@@ -1157,6 +1211,29 @@ export default function SettingsPage() {
                                         sx={{ m: 0 }}
                                     />
                                 )}
+                            </Paper>
+                            <Paper variant="outlined" sx={{ px: 2, py: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                    Exigir la etiqueta en estos servicios (si lo apagas, sus guías se cargan sin etiqueta):
+                                </Typography>
+                                <Stack direction="row" spacing={2} flexWrap="wrap">
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                        <FormControlLabel
+                                            key={svc}
+                                            control={
+                                                <Switch
+                                                    size="small"
+                                                    color="success"
+                                                    checked={!!porServicio['etiqueta']?.[svc]}
+                                                    disabled={guardandoServicio === `etiqueta:${svc}` || paymentsStatusLoading}
+                                                    onChange={(e) => handleTogglePorServicio('etiqueta', svc, e.target.checked)}
+                                                />
+                                            }
+                                            label={<Typography variant="body2">{etiqueta}</Typography>}
+                                            sx={{ m: 0 }}
+                                        />
+                                    ))}
+                                </Stack>
                             </Paper>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, borderColor: '#F05A28', borderStyle: 'dashed' }}>
                                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1187,6 +1264,29 @@ export default function SettingsPage() {
                                         sx={{ m: 0 }}
                                     />
                                 )}
+                            </Paper>
+                            <Paper variant="outlined" sx={{ px: 2, py: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                    Exigir instrucciones también en estos servicios (apagado = no se piden):
+                                </Typography>
+                                <Stack direction="row" spacing={2} flexWrap="wrap">
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                        <FormControlLabel
+                                            key={svc}
+                                            control={
+                                                <Switch
+                                                    size="small"
+                                                    color="success"
+                                                    checked={!!porServicio['instrucciones']?.[svc]}
+                                                    disabled={guardandoServicio === `instrucciones:${svc}` || paymentsStatusLoading}
+                                                    onChange={(e) => handleTogglePorServicio('instrucciones', svc, e.target.checked)}
+                                                />
+                                            }
+                                            label={<Typography variant="body2">{etiqueta}</Typography>}
+                                            sx={{ m: 0 }}
+                                        />
+                                    ))}
+                                </Stack>
                             </Paper>
                         </Stack>
                     </CardContent>

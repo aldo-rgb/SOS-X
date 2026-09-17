@@ -140,7 +140,55 @@ export const invalidateRouteCache = (driverId: number) => {
     }
 };
 
-interface LoadingFlags { requirePayment: boolean; requireLabel: boolean; requirePoboxInstructions: boolean; }
+interface LoadingFlags {
+    requirePayment: boolean;
+    requireLabel: boolean;
+    requirePoboxInstructions: boolean;
+    // Excepciones por servicio a cada requisito: { aereo: false } deja cargar
+    // aéreo sin ese requisito, sin tocar PO Box ni DHL (Aldo, 17-sep-2026).
+    pagoPorServicio: Record<string, boolean>;
+    etiquetaPorServicio: Record<string, boolean>;
+    instruccionesPorServicio: Record<string, boolean>;
+}
+
+/** Nombre corto del servicio, como lo maneja la pantalla de Ajustes. */
+export const servicioCorto = (serviceType: string | null | undefined): string | null => {
+    const s = String(serviceType || '').toLowerCase();
+    if (['air_chn_mx', 'china_air', 'aereo', 'air'].includes(s)) return 'aereo';
+    if (['sea_chn_mx', 'china_sea', 'maritime', 'maritimo', 'fcl'].includes(s)) return 'maritimo';
+    if (['pobox_usa', 'usa_pobox', 'pobox', 'usa'].includes(s)) return 'pobox';
+    if (['aa_dhl', 'dhl'].includes(s)) return 'dhl';
+    if (['tdi_express'].includes(s)) return 'tdi_express';
+    return null;
+};
+
+/** ¿Hay que exigir el pago para cargar ESTA guía? */
+export const exigePago = (flags: LoadingFlags, serviceType: string | null | undefined): boolean => {
+    if (!flags.requirePayment) return false;
+    const corto = servicioCorto(serviceType);
+    if (corto && flags.pagoPorServicio[corto] === false) return false;
+    return true;
+};
+
+/** ¿Hay que exigir la etiqueta impresa para cargar ESTA guía? */
+export const exigeEtiqueta = (flags: LoadingFlags, serviceType: string | null | undefined): boolean => {
+    if (!flags.requireLabel) return false;
+    const corto = servicioCorto(serviceType);
+    if (corto && flags.etiquetaPorServicio[corto] === false) return false;
+    return true;
+};
+
+/**
+ * ¿Hay que exigir instrucciones de entrega para cargar ESTA guía?
+ *
+ * Por servicio manda lo que diga el interruptor; si no hay nada configurado se
+ * conserva la regla vieja: solo PO Box, y solo si su interruptor está prendido.
+ */
+export const exigeInstrucciones = (flags: LoadingFlags, serviceType: string | null | undefined): boolean => {
+    const corto = servicioCorto(serviceType);
+    if (corto && flags.instruccionesPorServicio[corto] !== undefined) return flags.instruccionesPorServicio[corto] === true;
+    return corto === 'pobox' ? flags.requirePoboxInstructions : false;
+};
 let loadingFlagsCache: LoadingFlags | null = null;
 let loadingFlagsCacheAt: number | null = null;
 const LOADING_FLAGS_TTL_MS = 15_000;
@@ -153,7 +201,8 @@ const getLoadingFlags = async (): Promise<LoadingFlags> => {
     try {
         const r = await pool.query(
             `SELECT config_key, config_value FROM system_configurations
-             WHERE config_key IN ('require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox') AND is_active = TRUE`
+             WHERE config_key IN ('require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'require_payment_to_load_by_service',
+                    'require_label_to_load_by_service', 'require_instructions_to_load_by_service') AND is_active = TRUE`
         );
         const byKey: Record<string, any> = {};
         r.rows.forEach((row: any) => { byKey[row.config_key] = row.config_value; });
@@ -161,10 +210,13 @@ const getLoadingFlags = async (): Promise<LoadingFlags> => {
             requirePayment:          byKey['require_payment_to_load']              !== undefined ? byKey['require_payment_to_load']?.enabled              !== false : true,
             requireLabel:            byKey['require_label_to_load']                !== undefined ? byKey['require_label_to_load']?.enabled                !== false : true,
             requirePoboxInstructions: byKey['require_instructions_to_load_pobox']  !== undefined ? byKey['require_instructions_to_load_pobox']?.enabled    === true  : false,
+            pagoPorServicio: (byKey['require_payment_to_load_by_service'] || {}) as Record<string, boolean>,
+            etiquetaPorServicio: (byKey['require_label_to_load_by_service'] || {}) as Record<string, boolean>,
+            instruccionesPorServicio: (byKey['require_instructions_to_load_by_service'] || {}) as Record<string, boolean>,
         };
         loadingFlagsCacheAt = now;
     } catch {
-        loadingFlagsCache = { requirePayment: true, requireLabel: true, requirePoboxInstructions: false };
+        loadingFlagsCache = { requirePayment: true, requireLabel: true, requirePoboxInstructions: false, pagoPorServicio: {}, etiquetaPorServicio: {}, instruccionesPorServicio: {} };
         loadingFlagsCacheAt = now;
     }
     return loadingFlagsCache;
@@ -729,10 +781,14 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         );
         const hasPrintedLabel = hasExternalLabel || (isLocalDelivery && hasInstructions);
 
-        const { requirePayment, requireLabel } = await getLoadingFlags();
-        if ((requirePayment && !isPaid) || (requireLabel && !hasPrintedLabel)) {
+        const flags = await getLoadingFlags();
+        const requirePayment = exigePago(flags, pkg.service_type);
+        const requireLabel = exigeEtiqueta(flags, pkg.service_type);
+        const requireInstrucciones = exigeInstrucciones(flags, pkg.service_type);
+        if ((requirePayment && !isPaid) || (requireLabel && !hasPrintedLabel) || (requireInstrucciones && !hasInstructions)) {
             const missing: string[] = [];
             if (requirePayment && !isPaid) missing.push('pago del cliente');
+            if (requireInstrucciones && !hasInstructions && !requireLabel) missing.push('instrucciones de entrega');
             if (requireLabel && !hasPrintedLabel) {
                 missing.push(hasInstructions ? 'etiqueta impresa (la guía tiene instrucciones pero aún no se imprimió la etiqueta)' : 'instrucciones de entrega y etiqueta');
             }
@@ -925,12 +981,32 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
         // (pagados + etiquetados) tal como se ve en panel de etiquetado.
         // IMPORTANTE: excluimos masters (no son cajas físicas). Las hijas heredan
         // payment/label/carrier del master via LEFT JOIN.
-        const { requirePayment: reqPay, requireLabel: reqLabel, requirePoboxInstructions: reqPobox } = await getLoadingFlags();
+        const flagsRuta = await getLoadingFlags();
+        const { requirePayment: reqPay, requireLabel: reqLabel, requirePoboxInstructions: reqPobox } = flagsRuta;
+        // Servicios a los que se les quitó el requisito de pago: sus guías
+        // aparecen en la lista aunque no estén pagadas.
+        const SERVICIOS_SQL: Record<string, string[]> = {
+            aereo: ['AIR_CHN_MX', 'china_air', 'aereo', 'air'],
+            maritimo: ['SEA_CHN_MX', 'china_sea', 'maritime', 'maritimo', 'fcl'],
+            pobox: ['POBOX_USA', 'usa_pobox', 'pobox', 'usa'],
+            dhl: ['AA_DHL', 'dhl'],
+            tdi_express: ['tdi_express'],
+        };
+        const exentosDe = (mapa: Record<string, boolean>) => {
+            const tipos = Object.entries(mapa).filter(([, v]) => v === false).flatMap(([k]) => SERVICIOS_SQL[k] || []);
+            return tipos.length
+                ? ` OR COALESCE(to_jsonb(p)->>'service_type', to_jsonb(m)->>'service_type') IN (${tipos.map(x => `'${x}'`).join(', ')})`
+                : '';
+        };
+        const exentosSql = exentosDe(flagsRuta.pagoPorServicio);
+        const exentosEtiquetaSql = exentosDe(flagsRuta.etiquetaPorServicio);
         const paymentWhereClause = reqPay ? `AND (
                         LOWER(COALESCE(to_jsonb(p)->>'payment_status', '')) = 'paid'
                      OR LOWER(COALESCE(to_jsonb(m)->>'payment_status', '')) = 'paid'
+                     ${exentosSql}
                   )` : '';
         const labelWhereClause = reqLabel ? `AND (
+                        ${exentosEtiquetaSql ? exentosEtiquetaSql.replace(/^ OR /, '') + ' OR' : ''}
                         to_jsonb(p)->>'national_label_url' IS NOT NULL
                      OR to_jsonb(p)->>'national_tracking' IS NOT NULL
                      OR to_jsonb(p)->>'skydropx_label_id' IS NOT NULL
@@ -1219,10 +1295,21 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 };
                 const isPoBox = (p: any) => /^US-/i.test(String(p.tracking_number || ''));
 
-                // Requerir Instrucciones Asignadas (solo PO Box): ocultar US- sin assigned_address_id
-                const visiblePending = reqPobox
-                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
-                    : allPendingRows;
+                // Cada servicio decide si exige instrucciones para aparecer aquí.
+                // La consulta de pendientes no trae service_type, así que se
+                // deduce de la guía: US- es PO Box, AIR/CN- es TDI Aéreo, TDX-
+                // es TDI Express. Sin esto, quitar el requisito de PO Box se
+                // habría llevado por delante su filtro de siempre.
+                const servicioDeFila = (p: any): string => {
+                    const t = String(p.tracking_number || '').toUpperCase();
+                    if (t.startsWith('US-')) return 'POBOX_USA';
+                    if (t.startsWith('TDX-')) return 'tdi_express';
+                    if (t.startsWith('AIR') || t.startsWith('CN-')) return 'AIR_CHN_MX';
+                    if (t.startsWith('LOG')) return 'SEA_CHN_MX';
+                    return String(p.service_type || '');
+                };
+                const visiblePending = allPendingRows.filter(p =>
+                    !exigeInstrucciones(flagsRuta, p.service_type || servicioDeFila(p)) || !!p.assigned_address_id);
 
                 // Un envío es HANDOFF a paquetería (Salidas Paqueterías) si su carrier
                 // nacional es un courier externo. Paquetes normales: carrier presente y
