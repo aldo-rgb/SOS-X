@@ -2018,9 +2018,14 @@ export const TOOLS: ToolDef[] = [
           `SELECT id, full_name, role FROM users
             WHERE COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
               AND role NOT IN ('client', 'external_partner')
+              -- Cuentas que existen para operar, no para recibir trabajo:
+              -- "Aldo Usuario Asesor" es la de pruebas del panel de asesor y
+              -- competía con Aldo Campos cada vez que alguien decía "a Aldo"
+              -- (17-sep-2026). Sigue activa; solo no se le asignan tareas.
+              AND NOT (LOWER(full_name) = ANY($3::text[]))
               AND (full_name ~* ALL($1::text[]) OR email ILIKE $2)
             ORDER BY full_name LIMIT 6`,
-          [palabras, texto]
+          [palabras, texto, CUENTAS_SIN_TAREAS]
         );
         if (r.rows.length === 0) return { error: `No encontré a nadie del equipo con el nombre "${texto}". Pregúntale el nombre completo.` };
         const exacto = r.rows.find((x: any) => String(x.full_name || '').toLowerCase() === texto.toLowerCase());
@@ -2537,6 +2542,9 @@ export const TOOLS: ToolDef[] = [
  * esa persona manda una sucursal y no la empresa. Saber CON QUIEN habla es lo
  * que le permite decidir que informacion dar — y sobre todo cual no.
  */
+/** Cuentas que nunca reciben una tarea, aunque el nombre empate. */
+const CUENTAS_SIN_TAREAS = ['aldo usuario asesor', 'warehouse staff', 'bodega'];
+
 const PERFIL_POR_ROL: Record<string, { titulo: string; alcance: string }> = {
   super_admin:     { titulo: 'Super Admin (dueño del sistema)', alcance: 'Ve todo, sin restriccion.' },
   admin:           { titulo: 'Administrador',                   alcance: 'Ve casi todo lo operativo de la empresa.' },
