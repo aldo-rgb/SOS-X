@@ -787,6 +787,71 @@ export const startXpayStatusSyncCron = () => {
  * espera. ENTANGLED cancela por su lado y, si llega, el webhook orden.cancelada
  * lo confirma.
  */
+/**
+ * Recordatorio antes de que una operación X-Pay se cancele sola.
+ *
+ * El congelamiento del tipo de cambio dura 24 h + 12 h de gracia; pasadas esas
+ * 36 h, la operación se cancela y hay que rehacerla con otro TC. La clienta
+ * S2368 ya había transferido, pero como nadie subió el comprobante la operación
+ * murió sola y se enteraron después (TKT-2026-2735). Ahora se avisa al cliente
+ * Y a su asesor: primero cuando faltan ~4 h para el vencimiento, y una última
+ * llamada cuando faltan ~2 h para que se acabe la gracia.
+ */
+export const startXpayRecordatorioCron = () => {
+  const avisar = async (etapa: 'porVencer' | 'ultimaLlamada') => {
+    const col = etapa === 'porVencer' ? 'recordatorio_1_at' : 'recordatorio_2_at';
+    const ventana = etapa === 'porVencer'
+      ? `payment_deadline_at BETWEEN NOW() AND NOW() + INTERVAL '4 hours'`
+      : `payment_deadline_at + (COALESCE((SELECT gracia_horas FROM entangled_service_config WHERE id = 1), 12) || ' hours')::interval
+           BETWEEN NOW() AND NOW() + INTERVAL '2 hours'`;
+    const r = await pool.query(
+      `SELECT epr.id, epr.referencia_pago, epr.user_id, epr.advisor_id,
+              COALESCE(epr.monto_mxn_total, 0) AS total,
+              TO_CHAR(epr.payment_deadline_at AT TIME ZONE 'America/Monterrey', 'DD/MM HH24:MI') AS vence
+         FROM entangled_payment_requests epr
+        WHERE epr.estatus_global IN ('pendiente', 'esperando_comprobante', 'solicitada')
+          AND epr.comprobante_subido_at IS NULL
+          AND epr.payment_deadline_at IS NOT NULL
+          AND epr.${col} IS NULL
+          AND ${ventana}
+        LIMIT 50`);
+    if (!r.rows.length) return 0;
+    const { createCustomNotification } = await import('./notificationController');
+    const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
+    for (const o of r.rows) {
+      const monto = Number(o.total).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+      const titulo = etapa === 'porVencer' ? '⏳ Tu envío X-Pay está por vencer' : '⚠️ Última llamada: tu envío X-Pay se cancela';
+      const cuerpo = etapa === 'porVencer'
+        ? `${o.referencia_pago} por $${monto} vence el ${o.vence}. Si ya transferiste, sube el comprobante para conservar el tipo de cambio.`
+        : `${o.referencia_pago} por $${monto} se cancela en unas horas y habría que rehacerla con otro tipo de cambio. Si ya transferiste, sube el comprobante ahora.`;
+      const destinos = [Number(o.user_id), Number(o.advisor_id)].filter(Boolean);
+      for (const uid of destinos) {
+        await createCustomNotification(uid, titulo, cuerpo, 'warning', 'cash', { screen: 'Xpay', referencia: o.referencia_pago }, '/xpay').catch(() => {});
+      }
+      const conPush = await filterRecipientsForPush(destinos, true);
+      if (conPush.length) {
+        await sendPushToUsers(conPush, { title: titulo, body: cuerpo, data: { screen: 'Xpay' }, notificationType: 'xpay_por_vencer' }).catch(() => {});
+      }
+      await pool.query(`UPDATE entangled_payment_requests SET ${col} = NOW() WHERE id = $1`, [o.id]).catch(() => {});
+    }
+    return r.rows.length;
+  };
+
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const { asegurarColumna } = await import('./db');
+      await asegurarColumna('entangled_payment_requests', 'recordatorio_1_at', 'TIMESTAMPTZ');
+      await asegurarColumna('entangled_payment_requests', 'recordatorio_2_at', 'TIMESTAMPTZ');
+      const a = await avisar('porVencer');
+      const b = await avisar('ultimaLlamada');
+      if (a || b) console.log(`⏳ [CRON] X-Pay recordatorios: ${a} por vencer, ${b} última llamada`);
+    } catch (e: any) {
+      console.error('❌ [CRON] X-Pay recordatorios:', e?.message);
+    }
+  });
+  console.log('📅 [CRON] Recordatorio X-Pay antes de cancelar: cada 15 min');
+};
+
 export const startXpayExpiryCron = () => {
   cron.schedule('*/15 * * * *', async () => {
     try {
@@ -2289,6 +2354,7 @@ export const initCronJobs = () => {
   startEntangledSyncCron();
   startXpayStatusSyncCron();
   startXpayExpiryCron();
+  startXpayRecordatorioCron();
   startSyncfyAutoSyncCron();
   startChartbackIPromotionCron();
   startStaleRatesNotifyCron();
