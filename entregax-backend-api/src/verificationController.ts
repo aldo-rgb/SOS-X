@@ -375,9 +375,19 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
             });
         }
 
-    } catch (error) {
-        console.error('Error en verificación:', error);
-        res.status(500).json({ error: 'Error al procesar verificación' });
+    } catch (error: any) {
+        // Con "Error al procesar verificación" nadie sabía qué pasó: ni el
+        // cliente, ni el asesor, ni nosotros al revisar el ticket. Se registra
+        // el detalle en el log y se devuelve algo accionable (TKT-2026-2747).
+        const detalle = String(error?.message || error).slice(0, 300);
+        console.error(`❌ [verificacion] usuario ${(req as AuthRequest).user?.userId}: ${detalle}`, error);
+        const esImagen = /image|heic|sharp|formato|base64/i.test(detalle);
+        res.status(500).json({
+            error: esImagen
+                ? 'No pudimos leer alguna de tus fotos. Tómalas de nuevo (que se vean completas y sin destellos) e intenta otra vez.'
+                : 'No se pudo completar la verificación. Intenta de nuevo en unos minutos; si vuelve a fallar, avísale a tu asesor.',
+            detalle,
+        });
     }
 };
 

@@ -529,7 +529,14 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
     } catch (error: any) {
       setSnackbar({ 
         open: true, 
-        message: error.response?.data?.message || 'Error en la verificación', 
+        // El backend responde { error: "..." }; leer solo { message } hacía que
+        // SIEMPRE se viera "Error en la verificación" y nadie supiera la causa
+        // (TKT-2026-2747).
+        message: error.response?.data?.error
+          || error.response?.data?.message
+          || (error.response?.status === 413
+            ? 'Las fotos pesan demasiado. Tómalas de nuevo con menos calidad e inténtalo otra vez.'
+            : 'No se pudo completar la verificación. Revisa tu conexión e intenta de nuevo.'), 
         severity: 'error' 
       });
     } finally {
