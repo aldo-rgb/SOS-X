@@ -941,10 +941,20 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
         (!!nombreChinoIn && (nombreChinoIn === exNombre || nombreChinoIn === exNombreChino));
 
       if (!nombreCoincide) {
+        // Se dice A NOMBRE DE QUIÉN está la cuenta: con "otro beneficiario" a
+        // secas, quien la captura no sabe si se equivocó de número, de nombre o
+        // si de verdad es otra empresa, y el alta se atora (TKT-2026-2729).
+        // El dato es la razón social del proveedor —una empresa—, no datos
+        // personales del otro cliente.
+        const titular = [ex.nombre_beneficiario, ex.nombre_chino].filter(Boolean).join(' / ');
         return res.status(409).json({
           error: 'CUENTA_REGISTRADA_NOMBRE_DISTINTO',
-          message:
-            'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.',
+          message: titular
+            ? `La cuenta ${ex.numero_cuenta} ya está dada de alta a nombre de ${titular}. `
+              + `Si el beneficiario es el mismo, captúralo tal cual; si de verdad es otra empresa, valida el alta con tu asesor.`
+            : 'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.',
+          titular_registrado: titular || null,
+          cuenta: ex.numero_cuenta,
           existing_holder_hint: ex.nombre_beneficiario
             ? `${String(ex.nombre_beneficiario).slice(0, 1)}***`
             : null,
