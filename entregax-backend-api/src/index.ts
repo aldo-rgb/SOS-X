@@ -12908,7 +12908,25 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
           is_master: false, children_count: 0, previous_status: d.status, new_status: 'received_mty',
         });
       }
-      return res.status(404).json({ error: `Guía no encontrada: ${norm}` });
+      // "Guía no encontrada" a secas dejaba a CEDIS sin saber qué hacer: Jorge
+      // escaneó el waybill de DHL de unas cajas que nunca se capturaron en
+      // China y el mensaje parecía una falla del sistema (17-sep-2026). Aquí se
+      // dice qué pasa y cuál es el siguiente paso.
+      const enOtroServicio = await pool.query(
+        `SELECT p.tracking_internal, p.service_type FROM packages p
+          WHERE REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $1
+             OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $1
+             OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $1
+          LIMIT 1`, [compact]).catch(() => ({ rows: [] as any[] }));
+      if (enOtroServicio.rows[0]) {
+        const o = enOtroServicio.rows[0];
+        return res.status(404).json({
+          error: `${norm} existe, pero es de ${o.service_type} (${o.tracking_internal}), no de TDI Express. Recíbela en el módulo de ese servicio.`,
+        });
+      }
+      return res.status(404).json({
+        error: `${norm} no está registrada en TDI Express. Si es la etiqueta de DHL o del proveedor y la caja está aquí, primero hay que capturarla en TDI Express → Recepción en serie; si ya se capturó en China, escanea su guía TDX o la del proveedor (SY…).`,
+      });
     }
     const pkg = pkgRes.rows[0];
 
