@@ -524,6 +524,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const [suppliersDialogOpen, setSuppliersDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<SavedSupplier | null>(null);
   const [savingSupplier, setSavingSupplier] = useState(false);
+  // Motivo real del último error al guardar un proveedor (lo llena persistSupplier).
+  const motivoErrorProveedor = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     rfc: '',
@@ -1130,16 +1132,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       return r.data?.id ?? null;
     } catch (err: any) {
       console.error('[ENTANGLED] persistSupplier:', err);
-      // 409 → cuenta ya registrada con otro nombre: pedir contactar al asesor
+      // El motivo real se guarda aquí porque quien llama tapaba este mensaje con
+      // "No se pudo enviar la solicitud" y nadie sabía qué corregir
+      // (TKT-2026-2729): la cuenta ya registrada, un campo faltante o un permiso.
       const status = err?.response?.status;
       const code = err?.response?.data?.error;
-      if (status === 409 && code === 'CUENTA_REGISTRADA_NOMBRE_DISTINTO') {
-        const message = err?.response?.data?.message
-          || 'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.';
-        setSnack({ open: true, severity: 'error', message });
-      } else {
-        setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
-      }
+      const message = (status === 409 && code === 'CUENTA_REGISTRADA_NOMBRE_DISTINTO')
+        ? (err?.response?.data?.message
+          || 'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.')
+        : (err?.response?.data?.message || err?.response?.data?.error || t('entangled.messages.error'));
+      motivoErrorProveedor.current = message;
+      setSnack({ open: true, severity: 'error', message });
       return null;
     }
   };
@@ -1186,12 +1189,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const id = await persistSupplier({ ...supplierForm, ...(editingSupplier ? { id: editingSupplier.id } : {}) });
     setSavingSupplier(false);
     if (id) {
+      motivoErrorProveedor.current = null;
       setSnack({ open: true, severity: 'success', message: t('entangled.messages.success') });
       setEditingSupplier(null);
       setSupplierForm(EMPTY_SUPPLIER);
       loadSuppliers();
     } else {
-      setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
+      // Ya se mostró el motivo real arriba; solo se repite si no hubo ninguno.
+      const motivo = motivoErrorProveedor.current;
+      motivoErrorProveedor.current = null;
+      if (!motivo) setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
     }
   };
 
