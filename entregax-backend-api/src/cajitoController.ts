@@ -299,6 +299,20 @@ const FRASES_NO_PUDO = [
   'no tengo forma de', 'mis herramientas no', 'no puedo consultar', 'no puedo listar',
 ];
 
+/**
+ * Cuando Cajito dice que NO por alcance —"eso lo ve Dirección", "no te
+ * corresponde"— no es una duda que haya que enseñarle: es el permiso
+ * funcionando. Sin esto, cada vez que alguien preguntaba algo que no le toca se
+ * levantaba una duda y una tarea urgente (le pasó al gerente de ventas con
+ * "¿cuánto facturamos?", 17-sep-2026).
+ */
+const FRASES_FUERA_DE_ALCANCE = [
+  'lo ve dirección', 'lo ve direccion', 'lo maneja dirección', 'lo maneja direccion',
+  'lo ve contabilidad', 'lo maneja contabilidad', 'la maneja dirección', 'la maneja direccion',
+  'no te corresponde', 'no me corresponde', 'fuera de tu alcance', 'no está dentro de tu alcance',
+  'esa información la maneja', 'esa informacion la maneja', 'eso lo ve ', 'lo autoriza dirección',
+];
+
 // El pie con el que el servidor avisa que anotó una duda. Lo pone SOLO el
 // servidor y solo cuando la duda de verdad quedó registrada. Si el modelo lo ve
 // en el historial lo imita, y le da a la persona un folio que no existe (pasó
@@ -1945,7 +1959,7 @@ export const TOOLS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        para: { type: 'string', description: 'Nombre o correo de la persona a quien se le asigna. "yo" si es para quien te habla.' },
+        para: { type: 'string', description: 'Nombre o correo de la persona a quien se le asigna. "yo" si es para quien te habla. "sistemas" (o "desarrollo") para pedirle algo al equipo que desarrolla el sistema.' },
         titulo: { type: 'string', description: 'Título corto y claro.' },
         descripcion: { type: 'string', description: 'Qué se necesita, con el detalle que dio la persona y lo que se ve en sus archivos: qué pasa, dónde, con qué datos y qué espera que se haga.' },
         urgente: { type: 'boolean', description: 'true solo si la persona dijo que es urgente.' },
@@ -1965,6 +1979,17 @@ export const TOOLS: ToolDef[] = [
       let asignado: { id: number; full_name: string } | null = null;
       if (!texto || /^(yo|m[ií]|a m[ií]|para m[ií])$/i.test(texto)) {
         asignado = { id: ctx.userId, full_name: quienPide };
+      } else if (/^(sistemas?|desarrollo|ti|soporte t[eé]cnico|equipo t[eé]cnico|programaci[oó]n)$/i.test(texto)) {
+        // "Ponle una tarea a Sistemas": no es una persona con ese nombre, es el
+        // equipo que desarrolla. Va al super admin con dispositivo, el mismo
+        // criterio con el que se reportan los errores de sistema.
+        const sa = await pool.query(
+          `SELECT u.id, u.full_name FROM users u
+            WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) AND u.deleted_at IS NULL
+            ORDER BY EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active) DESC, u.id
+            LIMIT 1`);
+        if (!sa.rows[0]) return { error: 'No hay nadie de Sistemas activo para asignarle la tarea.' };
+        asignado = { id: Number(sa.rows[0].id), full_name: String(sa.rows[0].full_name) };
       } else {
         // Por inicio de palabra: "Aldo" no debe traer a "Osvaldo".
         const palabras = texto.split(/\s+/).filter(Boolean).map(p => '\\m' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -2536,6 +2561,12 @@ export function buildSystemPrompt(
     '=== CON QUIÉN ESTÁS HABLANDO (léelo antes de contestar) ===',
     `Es ${user.full_name || 'un usuario'}, ${perfil.titulo}.${user.sucursal ? ` Sucursal: ${user.sucursal}.` : ''}`,
     `Alcance de esta persona: ${perfil.alcance}`,
+    // A quien no se le dieron capacidades de dinero, no se le habla de dinero:
+    // ni saldos, ni comisiones, ni facturación, ni márgenes, ni "en general".
+    // Es el caso del gerente de ventas (Aldo, 17-sep-2026).
+    ...(!hasCap(caps, 'cajito.read.payments') && !hasCap(caps, 'cajito.read.invoices') && !hasCap(caps, 'cajito.read.financial_kpis')
+      ? ['A esta persona NO le corresponde información financiera: nada de saldos, cobranza, comisiones, facturación, costos ni márgenes, ni siquiera aproximado o "en general". Si lo pide, dile que eso lo ve Dirección o Contabilidad y ofrécele lo que sí puedes darle.']
+      : []),
     `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
     'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
     '',
@@ -3343,7 +3374,8 @@ no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consu
   // y mismo aviso que en el chat.
   let folioDuda: string | null = null;
   const bajo = quitarPieDuda(texto).toLowerCase();
-  if (FRASES_NO_PUDO.some(fr => bajo.includes(fr))) {
+  const fueraDeAlcance = FRASES_FUERA_DE_ALCANCE.some(fr => bajo.includes(fr));
+  if (!fueraDeAlcance && FRASES_NO_PUDO.some(fr => bajo.includes(fr))) {
     const hueco = await registrarHueco({
       conversationId: null, userId: Number(userId) || 0, pregunta,
       motivo: 'no_pudo',
@@ -3688,7 +3720,8 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       });
     } else {
       const respLower = finalReply.toLowerCase();
-      if (!rechazoEscritura && FRASES_NO_PUDO.some(f => respLower.includes(f))) {
+      const fueraDeAlcance = FRASES_FUERA_DE_ALCANCE.some(f => respLower.includes(f));
+      if (!rechazoEscritura && !fueraDeAlcance && FRASES_NO_PUDO.some(f => respLower.includes(f))) {
         hueco = await registrarHueco({
           conversationId, userId, pregunta: message, motivo: 'no_pudo',
           detalle: usoHerramientas ? 'Consultó datos pero no resolvió' : 'No consultó ninguna herramienta',
