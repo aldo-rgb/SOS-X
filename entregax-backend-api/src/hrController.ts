@@ -828,7 +828,10 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         u.branch_id, b.name AS branch_name
       FROM users u
       LEFT JOIN branches b ON b.id = u.branch_id
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
+      -- Dirección y administración también son personal: sin ellos, el
+      -- organigrama no puede asignar a quien manda (buscar "aldo" no devolvía
+      -- al super admin, Aldo 17-sep-2026).
+      WHERE u.role IN ('super_admin', 'admin', 'abogado', 'warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
         ${showInactive ? '' : 'AND COALESCE(u.is_active, TRUE) = TRUE AND COALESCE(u.is_blocked, FALSE) = FALSE'}
       ORDER BY u.role, u.full_name
     `);
