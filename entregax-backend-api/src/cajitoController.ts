@@ -866,15 +866,26 @@ export const TOOLS: ToolDef[] = [
           WHERE UPPER(box_id) = $1 AND deleted_at IS NULL LIMIT 1`, [box])).rows[0];
       if (!cli) return { found: false, nota: `No existe un cliente con el casillero ${box}. Revisa el número o búscalo con search_clients.` };
 
-      // Un asesor solo ve a SUS clientes, como en su panel.
+      // Un asesor solo ve a SUS clientes, como en su panel. Salvo que tenga el
+      // alcance de equipo (un gerente de ventas sigue siendo "asesor" en el
+      // sistema, pero ve a todos).
       const rol = String(ctx?.role || '');
-      if (['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(rol)) {
+      const capsCtx = await getUserCapabilities(Number(ctx?.userId) || 0, rol);
+      if (!hasCap(capsCtx, 'cajito.alcance.equipo') && ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(rol)) {
         const uid = Number(ctx?.userId) || 0;
         if (Number(cli.advisor_id) !== uid && Number(cli.referred_by_id) !== uid) {
           return { found: false, nota: `${box} no es cliente tuyo, así que no puedo mostrarte sus paquetes.` };
         }
       }
 
+      // Quien no tiene capacidad de ver dinero, no ve dinero: la lista sale sin
+      // saldos ni "pagada". Si no, el gerente de ventas veía el saldo de cada
+      // guía aunque tuviera prohibido lo financiero (17-sep-2026).
+      const veDinero = hasCap(capsCtx, 'cajito.read.payments') || hasCap(capsCtx, 'cajito.read.financial_kpis');
+      const sinDinero = (filas: any[]) => veDinero ? filas : filas.map((x: any) => {
+        const { pagada, saldo_pendiente, pago, ...resto } = x;
+        return resto;
+      });
       const lim = Math.min(Math.max(Number(limite) || 20, 1), 50);
       const svc = String(servicio || '').toLowerCase();
       const quiere = (k: string) => !svc || svc.includes(k);
@@ -903,7 +914,7 @@ export const TOOLS: ToolDef[] = [
               AND (NOT $5 OR p.status::text NOT IN ('delivered', 'cancelled'))
             ORDER BY p.created_at DESC
             LIMIT $6`, [cli.id, box, tipos, fechaDesde, pend, lim]);
-        resultado.paquetes = p.rows;
+        resultado.paquetes = sinDinero(p.rows);
       }
       if (quiere('maritimo') || quiere('mar')) {
         const m = await pool.query(
@@ -917,7 +928,7 @@ export const TOOLS: ToolDef[] = [
               AND ($2::date IS NULL OR created_at >= $2::date)
               AND (NOT $3 OR COALESCE(status, '') NOT IN ('delivered', 'cancelled'))
             ORDER BY created_at DESC LIMIT $4`, [cli.id, fechaDesde, pend, lim]);
-        resultado.maritimo = m.rows;
+        resultado.maritimo = sinDinero(m.rows);
       }
       if (quiere('dhl')) {
         const d = await pool.query(
@@ -929,7 +940,7 @@ export const TOOLS: ToolDef[] = [
               AND ($3::date IS NULL OR created_at >= $3::date)
               AND (NOT $4 OR COALESCE(status, '') NOT IN ('delivered', 'cancelled'))
             ORDER BY created_at DESC LIMIT $5`, [cli.id, box, fechaDesde, pend, lim]);
-        resultado.dhl = d.rows;
+        resultado.dhl = sinDinero(d.rows);
       }
       const total = ['paquetes', 'maritimo', 'dhl'].reduce((n, k) => n + (resultado[k]?.length || 0), 0);
       resultado.total_listado = total;
@@ -2560,7 +2571,9 @@ export function buildSystemPrompt(
     '',
     '=== CON QUIÉN ESTÁS HABLANDO (léelo antes de contestar) ===',
     `Es ${user.full_name || 'un usuario'}, ${perfil.titulo}.${user.sucursal ? ` Sucursal: ${user.sucursal}.` : ''}`,
-    `Alcance de esta persona: ${perfil.alcance}`,
+    hasCap(caps, 'cajito.alcance.equipo')
+      ? 'Alcance de esta persona: manda un ÁREA completa, no solo su cartera. Ve a TODOS los clientes, guías, recepciones y tickets de la empresa, no únicamente los suyos.'
+      : `Alcance de esta persona: ${perfil.alcance}`,
     // A quien no se le dieron capacidades de dinero, no se le habla de dinero:
     // ni saldos, ni comisiones, ni facturación, ni márgenes, ni "en general".
     // Es el caso del gerente de ventas (Aldo, 17-sep-2026).

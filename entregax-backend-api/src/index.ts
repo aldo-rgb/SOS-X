@@ -17222,6 +17222,7 @@ const CAJITO_CAPABILITIES: {
   // proponer y autorizar están reservados al super admin en el dispatch, y un
   // borrador no sale hasta que alguien lo autoriza a mano.
   { key: 'cajito.avisos',               label: 'Redactar comunicados',               description: 'Leer los cambios del sistema y PROPONER comunicados en borrador. No los envía: el envío lo autoriza un super admin y queda margen para cancelar.', category: 'write',     risk: 'high' },
+  { key: 'cajito.alcance.equipo',      label: 'Ver a todos los clientes (no solo los suyos)', description: 'Para quien manda un área —un gerente de ventas, por ejemplo— aunque en el sistema tenga rol de asesor. No incluye información financiera: eso se concede aparte.', category: 'read',      risk: 'medium' },
   { key: 'cajito.correos',             label: 'Buzón de correo de Cajito',          description: 'Leer los correos que llegan a cajito@entregax.app y dejar anotado en qué quedó cada uno. No responde correos.', category: 'read',      risk: 'medium' },
   { key: 'cajito.read.tasks',           label: 'Ver mis tareas',                     description: 'Cuántas tareas tiene el usuario, cuáles están vencidas o vencen hoy, y cómo se reparten en la matriz. Solo las suyas.', category: 'read',      risk: 'low' },
   // Escritura por rutas que una persona también sigue, con los mismos candados.
