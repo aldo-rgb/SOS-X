@@ -2483,6 +2483,68 @@ const nombrePaqueteria = (c: any): string => {
     return String(c);
 };
 
+/**
+ * ¿Salió por una paquetería PREPAGADA una guía marcada como POR COBRAR?
+ *
+ * Si el cliente eligió "por cobrar", su flete nacional se guarda en $0 porque lo
+ * paga él al recibir. Cuando la caja termina saliendo por una paquetería que sí
+ * nos cuesta (Evisa Prepagado, Estafeta…), ese costo se queda sin cobrar y nadie
+ * se entera: US-0004828505 salió por EVISA PREPAGADO y los $6,000 se detectaron
+ * a mano, días después (TKT-2026-2709).
+ *
+ * No cobra solo —un cargo sobre una guía pagada va como CEX y eso lo autoriza
+ * una persona—: avisa a Servicio a Cliente y a Contabilidad con el monto ya
+ * calculado, y se lo devuelve a quien está despachando.
+ */
+const avisarSalidaPrepagadaEnPorCobrar = async (
+    packageId: number, carrierUsado: string, quienDespacha: number | null
+): Promise<{ aviso: string; monto: number } | null> => {
+    try {
+        const p = (await pool.query(
+            `SELECT p.id, p.tracking_internal, p.is_collect, p.collect_carrier, p.national_carrier,
+                    COALESCE(p.national_shipping_cost, 0) AS flete, COALESCE(p.total_boxes, 1) AS cajas,
+                    p.user_id, u.full_name AS cliente, u.box_id
+               FROM packages p LEFT JOIN users u ON u.id = p.user_id
+              WHERE p.id = $1`, [packageId])).rows[0];
+        if (!p) return null;
+        // Solo interesa cuando la guía se pactó por cobrar y no se le cobró flete.
+        if (p.is_collect !== true || Number(p.flete) > 0.01) return null;
+
+        const clave = String(carrierUsado || '').toLowerCase().replace(/[\s_-]+/g, '');
+        const opciones = await pool.query(
+            `SELECT carrier_key, name, price_label, COALESCE(allows_collect, false) AS collect
+               FROM carrier_service_options WHERE is_active = TRUE`);
+        const usada = opciones.rows.find((o: any) =>
+            String(o.carrier_key || '').toLowerCase().replace(/[\s_-]+/g, '') === clave
+            || String(o.name || '').toLowerCase().replace(/[\s_-]+/g, '') === clave);
+        // Si salió por una "por cobrar", todo en orden: no hay nada que cobrar.
+        if (!usada || usada.collect === true) return null;
+        const precio = parseFloat(String(usada.price_label || '').replace(/[^0-9.]/g, '')) || 0;
+        if (precio <= 0) return null;
+
+        const esRepack = String(p.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
+        const cajas = esRepack ? 1 : (Number(p.cajas) || 1);
+        const monto = Math.round(precio * cajas * 100) / 100;
+        const texto = `${p.tracking_internal} salió por ${usada.name} (prepagada) pero está marcada como POR COBRAR, `
+            + `así que su flete nacional quedó en $0. Cargo extra sugerido: $${monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} `
+            + `(${cajas} caja(s) × $${precio}). Cliente ${p.box_id || ''} ${p.cliente || ''}.`;
+
+        const destinos = await pool.query(
+            `SELECT id FROM users WHERE role IN ('customer_service', 'accountant')
+               AND COALESCE(is_active, TRUE) AND deleted_at IS NULL`);
+        const { createCustomNotification } = await import('./notificationController');
+        for (const d of destinos.rows) {
+            await createCustomNotification(Number(d.id), '💸 Salió prepagada una guía por cobrar', texto, 'warning', 'cash',
+                { screen: 'MyPackages', tracking: p.tracking_internal }, '/cobranza').catch(() => {});
+        }
+        console.warn(`[paqHandoff] ${texto} (despachó user #${quienDespacha ?? '—'})`);
+        return { aviso: texto, monto };
+    } catch (e: any) {
+        console.warn('[paqHandoff] aviso de prepagada en por cobrar:', e?.message);
+        return null;
+    }
+};
+
 export const paqueteriaHandoffScan = async (req: Request, res: Response): Promise<any> => {
     const { barcode, carrier, mode, phase, packageId: confirmedId, externalTracking } = req.body;
     const driverId = getAuthUserId(req);
@@ -2988,10 +3050,12 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                      driverId]
                 );
             } catch { /* no crítico */ }
+            const cobroPendiente = await avisarSalidaPrepagadaEnPorCobrar(Number(confirmedId), String(carrier || ''), driverId);
             return res.json({
                 success: true, phase: 'complete', mode, packageId: confirmedId,
                 newStatus: sentStatus, externalTracking: extTracking,
-                message: '✅ Enviado correctamente'
+                message: '✅ Enviado correctamente',
+                ...(cobroPendiente ? { avisoCobro: cobroPendiente.aviso, montoSugerido: cobroPendiente.monto } : {}),
             });
         }
 

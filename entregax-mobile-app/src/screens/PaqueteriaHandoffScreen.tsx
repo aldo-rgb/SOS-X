@@ -316,7 +316,11 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
             tracking: res.data.tracking,
             externalTracking: res.data.tracking,
           }]);
-          showFeedback('ok', res.data.message || `✅ ${res.data.tracking} — Salida registrada`);
+          if (res.data?.avisoCobro) {
+            showFeedback('warn', `⚠️ ${res.data.tracking} — Salida registrada, falta cobrar el flete`, res.data.avisoCobro);
+          } else {
+            showFeedback('ok', res.data.message || `✅ ${res.data.tracking} — Salida registrada`);
+          }
           setManualCode('');
           setTimeout(() => inputRef.current?.focus(), 100);
         } else if (mode === 'cargar_unidad') {
@@ -365,7 +369,14 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           tracking: destinoTracking,
           externalTracking: code.trim(),
         }]);
-        showFeedback('ok', `✅ ${destinoTracking} → ${code.trim()} — Enviado`);
+        // Si la guía iba "por cobrar" y salió por una paquetería prepagada, el
+        // servidor devuelve el cargo que falta por cobrar: hay que verlo aquí,
+        // no enterarse días después (TKT-2026-2709).
+        if (res.data?.avisoCobro) {
+          showFeedback('warn', `⚠️ ${destinoTracking} — Enviado, pero falta cobrar el flete`, res.data.avisoCobro);
+        } else {
+          showFeedback('ok', `✅ ${destinoTracking} → ${code.trim()} — Enviado`);
+        }
         resetToInternal();
       }
     } catch (e: any) {
