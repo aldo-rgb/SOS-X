@@ -936,9 +936,15 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
       const ex = existing.rows[0];
       const exNombre = normNombre(ex.nombre_beneficiario);
       const exNombreChino = normNombre(ex.nombre_chino);
+      // La comparación ignora puntos, comas y espacios: el mismo proveedor se
+      // captura como "CO., LIMITED", "CO.,LIMITED" o "CO..LIMITED" según quien
+      // lo escriba, y esa diferencia dejaba el alta bloqueada para siempre
+      // aunque fuera la misma empresa (TKT-2026-2729).
+      const soloTexto = (v: string) => v.replace(/[^A-Z0-9\u4e00-\u9fff]/gi, '');
+      const mismo = (a: string, b: string) => !!a && !!b && soloTexto(a) === soloTexto(b);
       const nombreCoincide =
-        (!!nombreIn && (nombreIn === exNombre || nombreIn === exNombreChino)) ||
-        (!!nombreChinoIn && (nombreChinoIn === exNombre || nombreChinoIn === exNombreChino));
+        mismo(nombreIn, exNombre) || mismo(nombreIn, exNombreChino) ||
+        mismo(nombreChinoIn, exNombre) || mismo(nombreChinoIn, exNombreChino);
 
       if (!nombreCoincide) {
         // Se dice A NOMBRE DE QUIÉN está la cuenta: con "otro beneficiario" a
