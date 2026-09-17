@@ -2217,7 +2217,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
       const sinTc = motivoDivisaNoDisponible(form.divisa_destino);
       if (sinTc) return sinTc;
-      if (!quote) return 'No se pudo calcular la cotización';
+      // Casi siempre no hay cotización porque las comercializadoras están
+      // cerradas a esa hora, no porque el monto esté mal. Decirlo así evita que
+      // el asesor lo reporte como falla (TKT-2026-2740).
+      if (!quote) return providersError
+        || `No hay tipo de cambio disponible en este momento. Vuelve a intentar después de las ${proximaRevision()}.`;
       if (xpayBelowMin) return `La comisión al cliente no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;
     }

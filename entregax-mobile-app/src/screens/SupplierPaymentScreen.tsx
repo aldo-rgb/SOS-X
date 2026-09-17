@@ -1288,7 +1288,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
       const sinTc = motivoDivisaNoDisponible(divisa);
       if (sinTc) return sinTc;
-      if (!quote) return 'No se pudo calcular la cotización';
+      // Lo normal es que no haya cotización porque las comercializadoras están
+      // cerradas a esa hora (TKT-2026-2740): se dice eso, no "no se pudo".
+      if (!quote) return !pricing
+        ? `Las comercializadoras no están disponibles en este momento. Vuelve a intentar después de las ${proximaRevision()}.`
+        : 'Captura un monto válido para continuar.';
       if (advisorBelowMin) return `La comisión no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;
     }
