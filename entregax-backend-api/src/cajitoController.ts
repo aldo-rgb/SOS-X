@@ -1970,7 +1970,7 @@ export const TOOLS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        para: { type: 'string', description: 'Nombre o correo de la persona a quien se le asigna. "yo" si es para quien te habla. "sistemas" (o "desarrollo") para pedirle algo al equipo que desarrolla el sistema.' },
+        para: { type: 'string', description: 'Nombre o correo de la persona a quien se le asigna. "yo" si es para quien te habla. Áreas: "sistemas" (o "desarrollo") para el equipo que desarrolla el sistema, y "operaciones" para el área de operaciones.' },
         titulo: { type: 'string', description: 'Título corto y claro.' },
         descripcion: { type: 'string', description: 'Qué se necesita, con el detalle que dio la persona y lo que se ve en sus archivos: qué pasa, dónde, con qué datos y qué espera que se haga.' },
         urgente: { type: 'boolean', description: 'true solo si la persona dijo que es urgente.' },
@@ -1990,7 +1990,17 @@ export const TOOLS: ToolDef[] = [
       let asignado: { id: number; full_name: string } | null = null;
       if (!texto || /^(yo|m[ií]|a m[ií]|para m[ií])$/i.test(texto)) {
         asignado = { id: ctx.userId, full_name: quienPide };
-      } else if (/^(sistemas?|desarrollo|ti|soporte t[eé]cnico|equipo t[eé]cnico|programaci[oó]n)$/i.test(texto)) {
+      } else if (/^(operaciones?|operaci[oó]n|log[ií]stica|equipo de operaciones)$/i.test(texto)) {
+        // "Ponle una tarea a Operaciones": es el área, no una persona. Va a la
+        // cuenta de Operaciones (operaciones@entregax.com).
+        const op = await pool.query(
+          `SELECT id, full_name FROM users
+            WHERE (LOWER(full_name) = 'operaciones' OR LOWER(email) = 'operaciones@entregax.com')
+              AND COALESCE(is_active, true) AND deleted_at IS NULL
+            ORDER BY id LIMIT 1`);
+        if (!op.rows[0]) return { error: 'No encontré la cuenta de Operaciones para asignarle la tarea.' };
+        asignado = { id: Number(op.rows[0].id), full_name: String(op.rows[0].full_name) };
+      } else if (/^(sistemas?|desarrollo|ti|soporte t[eé]cnico|equipo t[eé]cnico|programaci[oó]n|direcci[oó]n)$/i.test(texto)) {
         // "Ponle una tarea a Sistemas": no es una persona con ese nombre, es el
         // equipo que desarrolla. Va al super admin con dispositivo, el mismo
         // criterio con el que se reportan los errores de sistema.
