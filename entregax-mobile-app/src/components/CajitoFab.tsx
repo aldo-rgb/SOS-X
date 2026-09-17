@@ -72,7 +72,23 @@ export default function CajitoFab({ user, token }: Props) {
   // atiende: no es algo que deba poder disparar cualquiera desde el chat.
   const puedeReportar = role === 'super_admin' || role === 'admin';
   const isTrackOnly = TRACK_ONLY_ROLES.includes(role);
-  const canUse = isSuperAdmin || isTrackOnly;
+
+  // El chat se abre por PERMISO, no por rol. Antes solo el super admin lo veía
+  // en la app, así que a quien se le concedía "Acceder al chat de Cajito" desde
+  // Permisos le seguía apareciendo únicamente "Rastrear guía" (le pasó al
+  // gerente de ventas, 17-sep-2026). La web ya lo resolvía así.
+  const [tieneChat, setTieneChat] = useState(isSuperAdmin);
+  useEffect(() => {
+    if (isSuperAdmin || !token) return;
+    let vivo = true;
+    fetch(`${API_URL}/api/cajito/my-access`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (vivo && d?.access === true) { setTieneChat(true); setTab('chat'); } })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [token, isSuperAdmin]);
+
+  const canUse = isSuperAdmin || isTrackOnly || tieneChat;
 
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'chat' | 'track'>(isSuperAdmin ? 'chat' : 'track');
@@ -587,7 +603,7 @@ export default function CajitoFab({ user, token }: Props) {
 
             {/* Tabs */}
             <View style={styles.tabs}>
-              {isSuperAdmin && (
+              {tieneChat && (
                 <TouchableOpacity style={[styles.tab, tab === 'chat' && styles.tabActive]} onPress={() => setTab('chat')}>
                   <Ionicons name="sparkles-outline" size={16} color={tab === 'chat' ? ORANGE : '#6b7280'} />
                   <Text style={[styles.tabText, tab === 'chat' && styles.tabTextActive]}>Chat IA</Text>
@@ -601,7 +617,7 @@ export default function CajitoFab({ user, token }: Props) {
 
             {/* Content */}
             <View style={{ flex: 1 }}>
-              {tab === 'chat' && isSuperAdmin ? renderChat() : (
+              {tab === 'chat' && tieneChat ? renderChat() : (
                 <View style={{ flex: 1, padding: 12 }}>
                   <View style={styles.searchBar}>
                     <TextInput
