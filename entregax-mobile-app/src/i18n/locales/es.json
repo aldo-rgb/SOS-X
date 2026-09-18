@@ -756,6 +756,18 @@
           "💰 Ahorra en envíos combinados",
           "🛒 Compra en Amazon, eBay, etc."
         ]
+      },
+      "tdi_express": {
+        "name": "TDI Express",
+        "tagline": "La ruta más rápida desde China",
+        "timeframe": "5-8 días",
+        "idealFor": "Pedidos urgentes, muestras, reposiciones de inventario",
+        "benefits": [
+          "🚀 Llegada en 5-8 días",
+          "📦 Ideal para pedidos urgentes",
+          "💰 Precio competitivo por kg",
+          "🛡️ Seguimiento en tiempo real"
+        ]
       }
     }
   }

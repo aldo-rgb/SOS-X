@@ -33,7 +33,7 @@ type RootStackParamList = {
   ServicesGuide: {
     user: User;
     token: string;
-    preselectedServiceType?: 'china_air' | 'china_sea' | 'mx_cedis' | 'usa_pobox';
+    preselectedServiceType?: 'china_air' | 'tdi_express' | 'china_sea' | 'mx_cedis' | 'usa_pobox';
   };
   RequestAdvisor: { user: User; token: string };
 };
@@ -80,6 +80,7 @@ interface ServiceCard {
 // Static accent colors (not translated)
 const SERVICE_ACCENTS: Record<string, string> = {
   china_air: '#1565C0',
+  tdi_express: '#C62828',
   china_sea: '#00695C',
   mx_cedis:  '#2E7D32',
   usa_pobox: '#6A1B9A',
@@ -97,6 +98,7 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
 
   const SERVICES_I18N: ServiceCard[] = [
     { id: 'china_air', name: sg('services.china_air.name'), emoji: '🇨🇳', tagline: sg('services.china_air.tagline'), timeframe: sg('services.china_air.timeframe'), idealFor: sg('services.china_air.idealFor'), benefits: (t as any)('servicesGuide.services.china_air.benefits', { returnObjects: true }) as string[], serviceType: 'china_air', accentColor: SERVICE_ACCENTS.china_air },
+    { id: 'tdi_express', name: sg('services.tdi_express.name'), emoji: '🚀', tagline: sg('services.tdi_express.tagline'), timeframe: sg('services.tdi_express.timeframe'), idealFor: sg('services.tdi_express.idealFor'), benefits: (t as any)('servicesGuide.services.tdi_express.benefits', { returnObjects: true }) as string[], serviceType: 'tdi_express', accentColor: SERVICE_ACCENTS.tdi_express },
     { id: 'china_sea', name: sg('services.china_sea.name'), emoji: '🇨🇳', tagline: sg('services.china_sea.tagline'), timeframe: sg('services.china_sea.timeframe'), idealFor: sg('services.china_sea.idealFor'), benefits: (t as any)('servicesGuide.services.china_sea.benefits', { returnObjects: true }) as string[], serviceType: 'china_sea', accentColor: SERVICE_ACCENTS.china_sea },
     { id: 'mx_cedis', name: sg('services.mx_cedis.name'), emoji: '🌍', tagline: sg('services.mx_cedis.tagline'), timeframe: sg('services.mx_cedis.timeframe'), idealFor: sg('services.mx_cedis.idealFor'), benefits: (t as any)('servicesGuide.services.mx_cedis.benefits', { returnObjects: true }) as string[], serviceType: 'mx_cedis', accentColor: SERVICE_ACCENTS.mx_cedis },
     { id: 'usa_pobox', name: sg('services.usa_pobox.name'), emoji: '🇺🇸', tagline: sg('services.usa_pobox.tagline'), timeframe: sg('services.usa_pobox.timeframe'), idealFor: sg('services.usa_pobox.idealFor'), benefits: (t as any)('servicesGuide.services.usa_pobox.benefits', { returnObjects: true }) as string[], serviceType: 'usa_pobox', accentColor: SERVICE_ACCENTS.usa_pobox },
@@ -147,7 +149,7 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
     if (selected?.id === 'usa_pobox') {
       return `${addr.address_line1.replace('(S-Numero de Cliente)', box)}\nATTN: ${name}\n${addr.city}, ${addr.state} ${addr.zip_code}\n${addr.contact_phone || ''}`;
     }
-    if (selected?.id === 'china_air' || selected?.id === 'china_sea') {
+    if (selected?.id === 'china_air' || selected?.id === 'china_sea' || selected?.id === 'tdi_express') {
       return `${addr.address_line1}\n${addr.address_line2 ? addr.address_line2 + '\n' : ''}Shipping Mark / 唛头: ${box}\nContacto: ${addr.contact_name || ''}\n${addr.contact_phone || ''}`;
     }
     return `${addr.address_line1}\n${addr.city}, ${addr.state} ${addr.zip_code}\nA nombre de: ${name} (${box})\n${addr.contact_phone || ''}`;
@@ -163,6 +165,15 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
         '并提供完整装箱单（Packing List），以获取装运单（S/O）。',
         `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
         '⚠️ 未提前联系确认，仓库将无法收货。',
+      ].join('\n');
+    }
+    if (selected?.id === 'tdi_express') {
+      return [
+        '🇨🇳 中文说明（请转发给您的供应商）:',
+        '发货前，请供应商联系 KEVAN LI',
+        '电话 / 微信：13560452668',
+        `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+        '⚠️ 不接受无唛头货物及到付件。',
       ].join('\n');
     }
     if (selected?.id === 'china_air') {
