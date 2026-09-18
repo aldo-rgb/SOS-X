@@ -8687,6 +8687,41 @@ app.delete('/api/pobox/payment-references/:id', authenticateToken, requireMinLev
   }
 });
 
+// ── CANCELAR una referencia sin pagarla ──────────────────────────────────────
+// Una referencia se puede duplicar: se genera, algo sale mal, se vuelve a
+// generar y se paga la segunda. La primera se queda en "pendiente" para
+// siempre y el único camino era pagarla —registrando un egreso por dinero que
+// ya se pagó— o borrarla, perdiendo el rastro. Pasó con REF-24, gemela de
+// REF-25: mismas 148 guías, mismo monto, 22 minutos de diferencia (tarea 585).
+//
+// Cancelar NO mueve dinero ni toca las guías: solo la saca de pendientes y
+// deja escrito por qué.
+app.post('/api/pobox/payment-references/:id/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
+  const refId = Number(req.params.id);
+  const motivo = String(req.body?.motivo || '').trim();
+  if (motivo.length < 5) return res.status(400).json({ error: 'Escribe por qué se cancela, para que quede el registro.' });
+  try {
+    const r = await pool.query(`SELECT id, status, notas FROM pobox_payment_references WHERE id = $1`, [refId]);
+    const ref = r.rows[0];
+    if (!ref) return res.status(404).json({ error: 'Referencia no encontrada' });
+    if (ref.status === 'pagada') return res.status(409).json({ error: 'Esa referencia ya se pagó: no se puede cancelar.' });
+    if (ref.status === 'cancelada') return res.status(409).json({ error: 'Esa referencia ya estaba cancelada.' });
+    const quien = (req as any).user?.userId ?? null;
+    const sello = `[Cancelada ${new Date().toISOString().slice(0, 10)}] ${motivo}`;
+    await pool.query(
+      `UPDATE pobox_payment_references
+          SET status = 'cancelada', paid_by = $1,
+              notas = CASE WHEN COALESCE(notas, '') = '' THEN $2 ELSE notas || E'\n' || $2 END
+        WHERE id = $3`,
+      [quien, sello, refId]
+    );
+    return res.json({ ok: true, reference_id: refId, status: 'cancelada' });
+  } catch (err: any) {
+    console.error('[payment-references/cancel]', err?.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PAGAR por Referencia ─────────────────────────────────────────────────────
 // La referencia es el snapshot autoritativo: el monto y los paquetes a pagar
 // se determinan por lo que se capturó al generarla (packages_data con
