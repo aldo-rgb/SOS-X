@@ -972,6 +972,8 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
                ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado,
                ds.import_cost_usd, ds.exchange_rate, ds.import_tax_mxn, ds.national_cost_mxn,
                ds.import_cost_mxn,
+               COALESCE(ds.length_cm, 0) AS length_cm, COALESCE(ds.width_cm, 0) AS width_cm,
+               COALESCE(ds.height_cm, 0) AS height_cm,
                COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier
         FROM dhl_shipments ds
         LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -983,6 +985,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         items.push({
           id: d.id, tracking: d.secondary_tracking || d.tracking, service_type: 'AA_DHL',
           description: d.description, weight: parseFloat(d.weight) || 0,
+          // Medidas: faltaban en esta consulta y la columna salía siempre en "—".
+          lengthCm: parseFloat(d.length_cm) || 0,
+          widthCm: parseFloat(d.width_cm) || 0,
+          heightCm: parseFloat(d.height_cm) || 0,
           // Paquetería nacional real (Paquete Express, etc.), no el fijo "DHL".
           tipo: carrierLabel(d.national_carrier),
           national_carrier: d.national_carrier || null,
