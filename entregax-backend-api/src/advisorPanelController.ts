@@ -379,13 +379,13 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
         (
           (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0 AND COALESCE(p.client_paid, false) = false AND COALESCE(p.payment_status, '') <> 'paid' AND p.status::text NOT IN ('delivered','cancelled','returned')) +
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0 AND COALESCE(mo.payment_status, '') <> 'paid' AND mo.status NOT IN ('delivered','cancelled')) +
-          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled'))
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.costo_retenido, FALSE) = FALSE AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled'))
         ) as pending_payment_count,
         -- Suma total pendiente de pago (MXN) — mismos filtros.
         (
           COALESCE((SELECT SUM(COALESCE(p.saldo_pendiente, 0)) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0 AND COALESCE(p.client_paid, false) = false AND COALESCE(p.payment_status, '') <> 'paid' AND p.status::text NOT IN ('delivered','cancelled','returned')), 0) +
           COALESCE((SELECT SUM(COALESCE(mo.saldo_pendiente, 0)) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0 AND COALESCE(mo.payment_status, '') <> 'paid' AND mo.status NOT IN ('delivered','cancelled')), 0) +
-          COALESCE((SELECT SUM(COALESCE(ds.saldo_pendiente, 0)) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled')), 0)
+          COALESCE((SELECT SUM(COALESCE(ds.saldo_pendiente, 0)) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.costo_retenido, FALSE) = FALSE AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled')), 0)
         ) as pending_payment_total,
         -- Sin instrucciones (excluye entregados)
         (
@@ -766,7 +766,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COALESCE(NULLIF(mo.summary_boxes,0), NULLIF(mo.received_boxes,0), NULLIF(mo.goods_num,0), 1)::int as boxes_count
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
+      -- Guía con proceso especial y costo retenido: tampoco la ve el asesor,
+      -- porque cotizaría sobre un número que no es el real (tarea 573).
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
+        AND COALESCE(ds.costo_retenido, FALSE) = FALSE
     `;
 
     // 3) dhl_shipments (AA_DHL)
@@ -2987,7 +2990,7 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END AS has_instructions
          FROM dhl_shipments ds
          LEFT JOIN users u ON ds.user_id = u.id
-         WHERE ds.id = $1`,
+         WHERE ds.id = $1 AND COALESCE(ds.costo_retenido, FALSE) = FALSE`,
         [id]
       );
       if (r.rows.length === 0) return res.status(404).json({ error: 'Envío DHL no encontrado' });

@@ -1714,7 +1714,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                a.zip_code as addr_zip, a.phone as addr_phone,
                                a.reference as addr_reference, a.carrier_config as addr_carrier_config,
                    a.is_ocurre as addr_is_ocurre,
-                               ds.paid_at, ds.cost_payment_status, ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado
+                               ds.paid_at, ds.cost_payment_status,
+                               -- Retenida por proceso especial: se rastrea, pero
+                               -- sin costo hasta que le asignen el real (tarea 573).
+                               CASE WHEN ds.costo_retenido THEN NULL ELSE ds.total_cost_mxn END AS total_cost_mxn,
+                               CASE WHEN ds.costo_retenido THEN NULL ELSE ds.saldo_pendiente END AS saldo_pendiente,
+                               ds.monto_pagado
                         FROM dhl_shipments ds
                         LEFT JOIN users u ON ds.user_id = u.id
                         LEFT JOIN addresses a ON ds.delivery_address_id = a.id
@@ -1896,8 +1901,13 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 if (masterTk) {
                     const sib = await pool.query(`
                         SELECT id, inbound_tracking, weight_kg, status, length_cm, width_cm, height_cm,
-                               total_cost_mxn, import_cost_mxn, import_tax_mxn, import_cost_usd, exchange_rate,
-                               saldo_pendiente, monto_pagado, paid_at
+                               CASE WHEN costo_retenido THEN NULL ELSE total_cost_mxn END AS total_cost_mxn,
+                               CASE WHEN costo_retenido THEN NULL ELSE import_cost_mxn END AS import_cost_mxn,
+                               CASE WHEN costo_retenido THEN NULL ELSE import_tax_mxn END AS import_tax_mxn,
+                               CASE WHEN costo_retenido THEN NULL ELSE import_cost_usd END AS import_cost_usd,
+                               exchange_rate,
+                               CASE WHEN costo_retenido THEN NULL ELSE saldo_pendiente END AS saldo_pendiente,
+                               monto_pagado, paid_at
                         FROM dhl_shipments WHERE secondary_tracking = $1 ORDER BY id
                     `, [masterTk]);
                     if (sib.rows.length > 1) boxes = sib.rows;
@@ -4564,7 +4574,11 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
               ELSE 0 END as gex_cost
             FROM dhl_shipments ds
             LEFT JOIN users u ON ds.user_id = u.id
+            -- Guía con proceso especial: no aparece hasta que operaciones le
+            -- asigna su costo real; si no, el cliente vería uno de tarifa que
+            -- no corresponde (tarea 573).
             WHERE ds.user_id = $1
+              AND COALESCE(ds.costo_retenido, FALSE) = FALSE
             ORDER BY ds.created_at DESC
         `, [userId]);
 

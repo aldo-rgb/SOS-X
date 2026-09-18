@@ -817,7 +817,10 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             UNION ALL
             SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'dhl' as source
              FROM dhl_shipments
+             -- Guía con proceso especial y costo retenido: no se puede cobrar
+             -- hasta que operaciones le asigne el suyo (tarea 573).
              WHERE id = ANY($1)
+               AND COALESCE(costo_retenido, FALSE) = FALSE
                AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))`,
             [packageIds, userId, userBoxId]
         );
@@ -2007,7 +2010,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         COALESCE(length_cm, 0) AS length_cm, COALESCE(width_cm, 0) AS width_cm, COALESCE(height_cm, 0) AS height_cm,
                         total_cost_mxn, saldo_pendiente, import_tax_mxn, national_cost_mxn,
                         import_cost_usd, exchange_rate, import_cost_mxn
-                   FROM dhl_shipments WHERE id = ANY($1)`,
+                   FROM dhl_shipments WHERE id = ANY($1) AND COALESCE(costo_retenido, FALSE) = FALSE`,
                 [Array.from(dhlIdSet)]
             ).catch(() => ({ rows: [] as any[] }));
             for (const d of dRes.rows) dhlById.set(Number(d.id), d);

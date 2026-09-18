@@ -8,6 +8,7 @@ import { pool } from './db';
 import * as skydropx from './services/skydropxService';
 import { createNotification } from './notificationController';
 import { signS3UrlIfNeeded } from './s3Service';
+import { prealertaPendienteDe, ensureSchemaPrealertas } from './dhlPrealertas';
 
 // =========================================
 // TARIFAS DHL
@@ -913,7 +914,26 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     // (caja chica) y su monto es >= al default, se aplica ese monto; si no, el default.
     const importTaxMxn = await resolveDhlTaxForNewBox(
       [inbound_tracking, secondary_tracking], secondary_tracking, userId || null);
-    const totalWithTax = importCostMxn !== null ? importCostMxn + importTaxMxn : importTaxMxn;
+    let totalWithTax = importCostMxn !== null ? importCostMxn + importTaxMxn : importTaxMxn;
+
+    // Guía con proceso especial (pedimento individual, agencia externa): su
+    // costo no sale de la tarifa, lo determina quien hizo el trámite (tarea 573).
+    //
+    // Si la prealerta ya trae el costo, la guía sigue su curso normal: entra con
+    // ese número en vez del de tarifa y al cliente se le avisa como siempre.
+    // Si todavía no lo trae, se captura igual —para que la caja no quede sin
+    // registro en bodega— pero SIN costo y sin avisarle al cliente: si no,
+    // vería un número que no es.
+    const prealerta = await prealertaPendienteDe([inbound_tracking, secondary_tracking]);
+    const costoPrealerta = prealerta && prealerta.costo_mxn != null ? Number(prealerta.costo_mxn) : null;
+    const retenida = !!prealerta && costoPrealerta === null;
+    let costoUsdFinal = importCostUsd;
+    if (costoPrealerta !== null) {
+      totalWithTax = costoPrealerta;
+      costoUsdFinal = exchangeRate > 0 ? Math.round((costoPrealerta / exchangeRate) * 100) / 100 : importCostUsd;
+    } else if (prealerta) {
+      totalWithTax = 0;
+    }
 
     // Insertar registro con costo interno auto-asignado
     const result = await pool.query(`
@@ -933,10 +953,23 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       userId || null, effectiveBoxId, priceType, description,
       weight_kg, length_cm, width_cm, height_cm, volWeight,
       JSON.stringify(photos || []), inspectorId,
-      exchangeRate, importCostUsd, totalWithTax,
+      exchangeRate, costoUsdFinal, totalWithTax,
       internalCost, internalCost ? priceType : null, internalCost ? inspectorId : null,
       importTaxMxn
     ]);
+
+    // La guía queda retenida: existe y se puede rastrear, pero su costo no se
+    // muestra al cliente ni a su asesor hasta que operaciones asigne el real.
+    if (prealerta) {
+      if (retenida) {
+        await pool.query(`UPDATE dhl_shipments SET costo_retenido = TRUE WHERE id = $1`, [result.rows[0].id]);
+      }
+      await pool.query(
+        `UPDATE dhl_prealertas
+            SET shipment_id = $2, llego_at = NOW()${retenida ? '' : ', estado = \'liberada\', liberada_at = NOW()'}
+          WHERE id = $1`,
+        [prealerta.id, result.rows[0].id]);
+    }
 
     // Con nota de impuestos ya registrada, la caja nueva cambia el reparto: se
     // vuelve a cruzar para que todas las cajas no pagadas lleven su parte y la
@@ -950,7 +983,8 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
 
     // Enviar notificación al usuario (solo si tiene cuenta; los legacy sin
     // cuenta no tienen a quién notificar hasta que activen su usuario).
-    if (userId) {
+    // Con prealerta el aviso se guarda para cuando tenga su costo real.
+    if (userId && !retenida) {
     await createNotification(
       userId,
       'PACKAGE_RECEIVED',
@@ -965,7 +999,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     }
 
     // ===== Notificación Push + WhatsApp según preferencias del cliente =====
-    if (userId) try {
+    if (userId && !retenida) try {
       const prefRow = await pool.query(
         `SELECT notif_push, notif_whatsapp, notif_dhl, phone, phone_verified, whatsapp_verified, full_name
          FROM users WHERE id = $1`,
@@ -1280,6 +1314,9 @@ export const getClientDhlPending = async (req: Request, res: Response) => {
       FROM dhl_shipments ds
       LEFT JOIN addresses a ON ds.delivery_address_id = a.id
       WHERE ds.user_id = $1
+        -- Guía con proceso especial: no se le enseña al cliente mientras su
+        -- costo siga retenido, para que no vea un número que no es (tarea 573).
+        AND COALESCE(ds.costo_retenido, FALSE) = FALSE
         AND ds.status IN ('received_mty', 'quoted')
       ORDER BY ds.created_at DESC
     `, [userId]);
@@ -1305,6 +1342,8 @@ export const getClientDhlHistory = async (req: Request, res: Response) => {
       FROM dhl_shipments ds
       LEFT JOIN addresses a ON ds.delivery_address_id = a.id
       WHERE ds.user_id = $1
+        -- Retenida por proceso especial: todavía no es suya de cara al cliente.
+        AND COALESCE(ds.costo_retenido, FALSE) = FALSE
       ORDER BY ds.created_at DESC
       LIMIT 50
     `, [userId]);

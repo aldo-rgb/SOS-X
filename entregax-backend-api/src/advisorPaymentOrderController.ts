@@ -344,6 +344,21 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       else if (prefix === 'DHL')  dhlIds.push(numId);
     }
 
+    // Guía con proceso especial: mientras su costo esté retenido no se puede
+    // armar la orden, porque se cobraría un monto que todavía no es el real
+    // (tarea 573). Se para aquí y se dice cuál es.
+    if (dhlIds.length > 0) {
+      const ret = await pool.query(
+        `SELECT COALESCE(secondary_tracking, inbound_tracking) AS guia
+           FROM dhl_shipments WHERE id = ANY($1::int[]) AND costo_retenido = TRUE`,
+        [dhlIds]);
+      if (ret.rowCount) {
+        return res.status(409).json({
+          error: `Esta guía lleva un proceso especial y todavía no tiene su costo asignado: ${ret.rows.map((r: any) => r.guia).join(', ')}. Operaciones tiene que ponerlo antes de poder cobrarla.`,
+        });
+      }
+    }
+
     // ── 1a. DHL multicaja: expandir a TODAS las cajas que el panel cotizó ──
     // El panel agrupa por secondary_tracking y cotiza la GUÍA COMPLETA (SUM
     // sobre el grupo), pero manda un solo uid por guía: el MIN(id) sin pagar.
@@ -977,7 +992,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
                COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier
         FROM dhl_shipments ds
         LEFT JOIN addresses a ON a.id = ds.delivery_address_id
-        WHERE ds.id = ANY($1::int[])
+        -- Con el costo retenido no entra a la cotización: el número todavía no
+        -- es el real (tarea 573).
+        WHERE ds.id = ANY($1::int[]) AND COALESCE(ds.costo_retenido, FALSE) = FALSE
       `, [dhlIds]);
       const carrierMap: Record<string, string> = { paquete_express: 'Paquete Express', paquete_express_pc: 'Paquete Express (PC)', pqtx_cod: 'Paquete Express (PC)', dhl: 'DHL', estafeta: 'Estafeta', fedex: 'FedEx', local: 'EntregaX Local', entregax_local: 'EntregaX Local', entregax_local_mty: 'EntregaX Local MTY', entregax_local_cdmx: 'EntregaX Local CDMX', pickup: 'Pick Up', ocurre: 'Ocurre' };
       const carrierLabel = (c: any): string => { const k = String(c || '').toLowerCase().trim(); if (!k) return 'DHL'; return carrierMap[k] || String(c).replace(/[_-]+/g, ' ').replace(/\b\w/g, (mm: string) => mm.toUpperCase()); };

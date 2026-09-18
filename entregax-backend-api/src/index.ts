@@ -1304,6 +1304,10 @@ import {
   updateDhlShipmentStatus
 } from './dhlController';
 import {
+  crearPrealerta, listarPrealertas, asignarCostoPrealerta, cancelarPrealerta,
+  prealertaPendienteDe, avisoDePrealerta,
+} from './dhlPrealertas';
+import {
   getPrivacyNotice,
   getAdvisorPrivacyNotice,
   acceptPrivacyNotice,
@@ -3634,7 +3638,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           COUNT(*) FILTER (WHERE status IN ('received_mty', 'inspected', 'pending_payment', 'pending_inspection')) as en_bodega,
           COALESCE(SUM(COALESCE(import_cost_usd, 0)) FILTER (WHERE paid_at IS NULL AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
         FROM dhl_shipments
-        WHERE user_id = $1 OR box_id = $2
+        -- Retenidas por proceso especial: no cuentan ni suman al saldo del
+        -- cliente hasta que operaciones les asigne su costo (tarea 573).
+        WHERE (user_id = $1 OR box_id = $2)
+          AND COALESCE(costo_retenido, FALSE) = FALSE
       `, [userId, boxId]);
       dhlStats = dhlStatsQuery.rows[0] || dhlStats;
     } catch (err) {
@@ -4044,6 +4051,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         FROM dhl_shipments ds
         LEFT JOIN addresses addr ON addr.id = ds.delivery_address_id
         WHERE (ds.user_id = $1 OR ds.box_id = $2)
+          AND COALESCE(ds.costo_retenido, FALSE) = FALSE
           AND ds.status NOT IN ('delivered', 'cancelled')
         ORDER BY ds.created_at DESC
         LIMIT 50
@@ -7201,6 +7209,13 @@ app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLe
 // Operaciones de bodega
 app.get('/api/admin/dhl/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlShipments);
 app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receiveDhlPackage);
+
+// Prealertas de guías DHL con proceso especial (tarea 573). Las levanta y las
+// libera quien lleva la operación; bodega solo las ve al escanear.
+app.get('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listarPrealertas);
+app.post('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), crearPrealerta);
+app.put('/api/admin/dhl/prealertas/:id/costo', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), asignarCostoPrealerta);
+app.delete('/api/admin/dhl/prealertas/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), cancelarPrealerta);
 // Lookup del master corto (secondary_tracking / international_tracking) para
 // detectar si la guía escaneada en el wizard DHL corresponde a otro servicio
 // (p.ej. TDX / tdi_express). Devuelve el service_type detectado o 'unknown'.
@@ -7252,6 +7267,15 @@ app.get('/api/admin/shipments/lookup-master', authenticateToken, requireMinLevel
         code: raw,
         inbound_tracking: dhl.rows[0].inbound_tracking,
         secondary_tracking: dhl.rows[0].secondary_tracking,
+      });
+    }
+
+    // Guía con proceso especial: el aviso sale al escanear, antes de capturar.
+    const pre = await prealertaPendienteDe([raw]);
+    if (pre) {
+      return res.json({
+        service_type: 'dhl', found: false, code: raw,
+        prealerta: { motivo: pre.motivo, nota: pre.nota, aviso: avisoDePrealerta(pre) },
       });
     }
 
