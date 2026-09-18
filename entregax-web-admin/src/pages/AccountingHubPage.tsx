@@ -2691,6 +2691,43 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                     >
                       Emitir CFDI
                     </Button>
+                    {/* Cliente con datos fiscales equivocados que no quiere factura:
+                        se timbra a público en general en vez de quedarse atorado en
+                        pendientes (tarea 543). El RFC genérico obliga al SAT a usar
+                        régimen 616, uso S01, razón social "PÚBLICO EN GENERAL" y el CP
+                        del emisor; de eso ya se encarga el servidor al timbrar. */}
+                    <Tooltip title="Timbrar a PÚBLICO EN GENERAL (RFC genérico XAXX010101000). Úsalo cuando el cliente no quiere factura o sus datos fiscales están mal.">
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!emitter.perms.can_emit_invoice}
+                          onClick={() => {
+                            if (!window.confirm(`¿Timbrar ${r.payment_reference} a PÚBLICO EN GENERAL?\n\nLa factura NO saldrá a nombre de ${r.razon_social || r.full_name || 'el cliente'}, y el cliente no la podrá deducir.`)) return;
+                            setPrefill({
+                              payment_id: r.id,
+                              reference: r.payment_reference,
+                              amount: parseFloat(r.amount),
+                              receptor: {
+                                rfc: 'XAXX010101000',
+                                razon_social: 'PÚBLICO EN GENERAL',
+                                regimen_fiscal: '616',
+                                // Con RFC genérico el SAT exige que el CP del receptor
+                                // sea el del emisor; el servidor lo fuerza igual, pero
+                                // el formulario pide uno para habilitar el botón.
+                                cp: /^\d{5}$/.test(String(emitter.zip_code || '')) ? emitter.zip_code : undefined,
+                                uso_cfdi: 'S01',
+                                email: r.email || '',
+                                user_id: r.user_id || null,
+                              },
+                            });
+                          }}
+                          sx={{ borderColor: ORANGE, color: ORANGE, textTransform: 'none', whiteSpace: 'nowrap' }}
+                        >
+                          Público en general
+                        </Button>
+                      </span>
+                    </Tooltip>
                     {isSuperAdmin && (
                       <Tooltip title="Descartar — quitar de Pendientes sin facturar (solo super admin)">
                         <IconButton
