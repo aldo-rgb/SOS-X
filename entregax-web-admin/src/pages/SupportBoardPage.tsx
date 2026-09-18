@@ -673,6 +673,21 @@ export default function SupportBoardPage() {
   }, [departments, currentUserRole, isSoporteTecnico]);
 
   // Abrir ticket específico cuando se navega desde el Dashboard
+  // Trae un ticket por su folio aunque esté archivado. El tablero solo carga
+  // los tickets vivos —hoy son 97 de 1,722— así que buscarlo en la lista
+  // fallaba casi siempre al venir desde una tarea (tarea 515).
+  const buscarPorFolio = useCallback(async (folio: string): Promise<SupportTicket | null> => {
+    try {
+      const res = await fetch(`${API_URL}/admin/support/tickets?folio=${encodeURIComponent(folio)}&limit=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const lista = Array.isArray(data) ? data : (data.tickets || []);
+      return lista[0] || null;
+    } catch { return null; }
+  }, [token]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
@@ -693,25 +708,13 @@ export default function SupportBoardPage() {
       (async () => {
         let list = await loadTickets();
         let t2 = list.find(match);
-        if (!t2 && folio) {
-          try {
-            const res = await fetch(`${API_URL}/admin/support/tickets?limit=200`, { headers: { Authorization: `Bearer ${token}` } });
-            if (res.ok) {
-              const all = await res.json();
-              if (Array.isArray(all)) {
-                setTickets(all);
-                if (deptFilter !== 'all') setDeptFilter('all');
-                t2 = all.find(match);
-              }
-            }
-          } catch { /* ignore */ }
-        }
+        if (!t2 && folio) t2 = (await buscarPorFolio(folio)) || undefined;
         if (t2) handleOpenTicket(t2);
       })();
     };
     window.addEventListener('open-support-ticket', handler);
     return () => window.removeEventListener('open-support-ticket', handler);
-  }, [tickets, loadTickets, deptFilter, token]);
+  }, [tickets, loadTickets, deptFilter, token, buscarPorFolio]);
 
   // Fallback: cuando SupportBoardPage monta o cuando termina de cargar los
   // tickets, revisamos si hay un folio pendiente en localStorage (dejado por
@@ -730,24 +733,16 @@ export default function SupportBoardPage() {
       handleOpenTicket(match);
       return;
     }
-    // No está en la lista actual: si el usuario tiene filtro por depto, se lo
-    // quitamos para poder mostrarle el ticket sin importar el depto.
+    // No está entre los tickets vivos: se pide por folio, que sí alcanza a los
+    // archivados.
     (async () => {
-      try {
-        const res = await fetch(`${API_URL}/admin/support/tickets?limit=200`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) return;
-        const all = await res.json();
-        if (!Array.isArray(all)) return;
-        setTickets(all);
-        if (deptFilter !== 'all') setDeptFilter('all');
-        const found = all.find((t: SupportTicket) => String(t.ticket_folio || '').toUpperCase() === folio);
-        if (found) {
-          try { localStorage.removeItem('pending_open_ticket_folio'); } catch { /* ignore */ }
-          handleOpenTicket(found);
-        }
-      } catch { /* ignore */ }
+      const encontrado = await buscarPorFolio(folio);
+      if (encontrado) {
+        try { localStorage.removeItem('pending_open_ticket_folio'); } catch { /* ignore */ }
+        handleOpenTicket(encontrado);
+      }
     })();
-  }, [tickets, token, deptFilter]);
+  }, [tickets, token, deptFilter, buscarPorFolio]);
 
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
