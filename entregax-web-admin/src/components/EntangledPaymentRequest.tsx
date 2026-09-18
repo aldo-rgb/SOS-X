@@ -69,6 +69,7 @@ import jsPDF from 'jspdf';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
 import CsfPanel, { type CsfStatus } from './CsfPanel';
+import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
 
 import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, Card, CardContent } from '@mui/material';
 
@@ -1331,6 +1332,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     state: 'idle' | 'uploading' | 'success' | 'error';
     message: string;
   }>({ open: false, requestId: null, referencia: null, file: null, state: 'idle', message: '' });
+
+  // La caja ya decía "Haz clic o arrastra" pero soltar el comprobante no hacía
+  // nada: el navegador lo abría en otra pestaña (tarea 516).
+  const { arrastrando: arrastrandoComprobante, props: propsSoltarComprobante } = useSoltarArchivos(
+    (archivos) => setUploadModal(s => ({ ...s, file: archivos[0], state: 'idle', message: '' })),
+    { desactivado: uploadModal.state === 'uploading', soloUno: true }
+  );
 
   const openUploadModal = (requestId: number, referencia: string) => {
     setUploadModal({ open: true, requestId, referencia, file: null, state: 'idle', message: '' });
@@ -4580,13 +4588,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             {uploadModal.state !== 'success' && (
               <Box
                 component="label"
+                {...propsSoltarComprobante}
                 sx={{
                   border: `2px dashed ${ORANGE}`,
                   borderRadius: 2,
                   p: 3,
                   textAlign: 'center',
                   cursor: uploadModal.state === 'uploading' ? 'not-allowed' : 'pointer',
-                  bgcolor: 'rgba(255,102,0,0.06)',
+                  bgcolor: arrastrandoComprobante ? 'rgba(255,102,0,0.2)' : 'rgba(255,102,0,0.06)',
                   '&:hover': {
                     bgcolor: uploadModal.state === 'uploading' ? 'rgba(255,102,0,0.06)' : 'rgba(255,102,0,0.12)',
                   },

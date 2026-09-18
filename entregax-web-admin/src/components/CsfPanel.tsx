@@ -16,6 +16,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import CloseIcon from '@mui/icons-material/Close';
 import api from '../services/api';
+import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
 
 const ORANGE = '#F05A28';
 
@@ -62,6 +63,12 @@ export const CsfPanel: React.FC<Props> = ({ mode, clientUserId, title, compact, 
   const [needsManualDate, setNeedsManualDate] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // La caja ya decía "Haz clic o arrastra" pero soltar el archivo no hacía nada:
+  // el navegador lo abría en otra pestaña (tarea 516).
+  const { arrastrando: arrastrandoCsf, props: propsSoltarCsf } = useSoltarArchivos(
+    (archivos) => { setFile(archivos[0]); setErr(null); setNeedsManualDate(false); setManualDate(''); },
+    { desactivado: uploading, soloUno: true }
+  );
 
   const load = async () => {
     setLoading(true);
@@ -239,8 +246,10 @@ export const CsfPanel: React.FC<Props> = ({ mode, clientUserId, title, compact, 
             </Alert>
             <Box
               component="label"
+              {...propsSoltarCsf}
               sx={{
                 border: `2px dashed ${ORANGE}`,
+                ...(arrastrandoCsf ? { bgcolor: 'rgba(240,90,40,0.16)' } : {}),
                 borderRadius: 2,
                 p: 3,
                 textAlign: 'center',

@@ -40,6 +40,7 @@ import EmailIcon from '@mui/icons-material/Email';
 import SaveIcon from '@mui/icons-material/Save';
 import axios from 'axios';
 import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
+import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -2290,6 +2291,12 @@ function UploadXmlDialog({ open, emitterId, onClose, onUploaded }: any) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // La caja ya decía "Haz clic o arrastra" pero soltar el XML no hacía nada:
+  // el navegador lo abría en otra pestaña (tarea 516).
+  const { arrastrando: arrastrandoXml, props: propsSoltarXml } = useSoltarArchivos(
+    (archivos) => setFile(archivos[0]),
+    { soloUno: true }
+  );
 
   useEffect(() => { if (open) { setFile(null); setErr(null); setImportInv(false); } }, [open]);
 
@@ -2317,7 +2324,8 @@ function UploadXmlDialog({ open, emitterId, onClose, onUploaded }: any) {
         <Stack spacing={2}>
           <Box
             onClick={() => inputRef.current?.click()}
-            sx={{ border: `2px dashed ${ORANGE}`, borderRadius: 2, p: 4, textAlign: 'center', cursor: 'pointer', bgcolor: '#fff8f5', '&:hover': { bgcolor: '#fff0e8' } }}
+            {...propsSoltarXml}
+            sx={{ border: `2px dashed ${ORANGE}`, borderRadius: 2, p: 4, textAlign: 'center', cursor: 'pointer', bgcolor: arrastrandoXml ? '#ffe3d3' : '#fff8f5', '&:hover': { bgcolor: '#fff0e8' } }}
           >
             <UploadFileIcon sx={{ fontSize: 48, color: ORANGE, mb: 1 }} />
             <Typography variant="body2" fontWeight="bold">{file ? file.name : 'Haz clic o arrastra el archivo .xml del CFDI'}</Typography>

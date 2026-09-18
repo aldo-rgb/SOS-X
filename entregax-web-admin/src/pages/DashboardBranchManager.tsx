@@ -53,6 +53,7 @@ import {
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
 import ServiceVolumeWidgets from './ServiceVolumeWidgets';
+import { useSoltarArchivos, estiloZonaSoltar } from '../hooks/useSoltarArchivos';
 
 interface BranchStats {
   sucursal: {
@@ -181,6 +182,10 @@ export default function DashboardBranchManager() {
   const [newTicketCategory, setNewTicketCategory] = useState<string>('systemError');
   const [newTicketDescription, setNewTicketDescription] = useState('');
   const [newTicketFiles, setNewTicketFiles] = useState<File[]>([]);
+  // Soltar archivos sobre la caja de adjuntos del ticket (tarea 516).
+  const { arrastrando: arrastrandoTicket, props: propsSoltarTicket } = useSoltarArchivos(
+    (archivos) => setNewTicketFiles(prev => [...prev, ...archivos])
+  );
   const [newTicketSubmitting, setNewTicketSubmitting] = useState(false);
   const [newTicketSuccessFolio, setNewTicketSuccessFolio] = useState('');
   // Aviso del backend cuando ese cliente ya tiene otro ticket abierto de las
@@ -1819,6 +1824,7 @@ export default function DashboardBranchManager() {
               />
 
               <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Adjuntos (fotos o PDF)</Typography>
+              <Box sx={{ p: 1, ...estiloZonaSoltar(arrastrandoTicket) }} {...propsSoltarTicket}>
               <Button
                 component="label"
                 variant="outlined"
@@ -1862,6 +1868,7 @@ export default function DashboardBranchManager() {
                   ))}
                 </Box>
               )}
+              </Box>
             </>
           )}
         </DialogContent>

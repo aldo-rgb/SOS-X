@@ -67,6 +67,7 @@ import {
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 import VideosAdjuntos from '../components/VideosAdjuntos';
+import { useSoltarArchivos, estiloZonaSoltar } from '../hooks/useSoltarArchivos';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -419,6 +420,10 @@ export default function SupportBoardPage() {
 
   // Adjuntos
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  // Soltar archivos sobre el area de respuesta los adjunta al mensaje (tarea 516).
+  const { arrastrando: arrastrandoTicket, props: propsSoltarTicket } = useSoltarArchivos(
+    (archivos) => setAttachedFiles(prev => [...prev, ...archivos])
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // IA Mejorar
@@ -1892,7 +1897,12 @@ export default function SupportBoardPage() {
                 </Box>
               )}
               {selectedTicket.status !== 'resolved' && (
-                <Box sx={{ px: 2, pb: 2 }}>
+                <Box sx={{ px: 2, pb: 2, ...estiloZonaSoltar(arrastrandoTicket) }} {...propsSoltarTicket}>
+                  {arrastrandoTicket && (
+                    <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: '#F05A28', fontWeight: 600, py: 0.5 }}>
+                      Suelta aquí para adjuntar
+                    </Typography>
+                  )}
                   {/* Previews de adjuntos */}
                   {attachedFiles.length > 0 && (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>

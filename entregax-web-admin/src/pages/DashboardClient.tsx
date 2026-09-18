@@ -123,6 +123,7 @@ import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
 import CorporateFooter from '../components/CorporateFooter';
 import CsfPanel from '../components/CsfPanel';
+import { useSoltarArchivos, estiloZonaSoltar } from '../hooks/useSoltarArchivos';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -621,6 +622,13 @@ export default function DashboardClient() {
   const [supportClientNumber, setSupportClientNumber] = useState('');
   const [supportCedis, setSupportCedis] = useState('');
   const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
+  // Soltar archivos sobre la caja de adjuntos del ticket (tarea 516).
+  const { arrastrando: arrastrandoSoporte, props: propsSoltarSoporte } = useSoltarArchivos(
+    (archivos) => setSupportImages(prev => [...prev, ...archivos.map(file => ({
+      file,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+    }))])
+  );
   const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   
   // Chat Virtual con Orlando (asesor IA)
@@ -13006,7 +13014,7 @@ export default function DashboardClient() {
             }}
           />
           
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2, p: 1, ...estiloZonaSoltar(arrastrandoSoporte) }} {...propsSoltarSoporte}>
             {/* Botón para agregar imágenes */}
             <label htmlFor="support-image-upload">
               <Box

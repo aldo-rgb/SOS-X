@@ -128,6 +128,7 @@ import {
 import api from '../services/api';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
+import { useSoltarArchivos, estiloZonaSoltar } from '../hooks/useSoltarArchivos';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 import AdvisorQuoteRequestModal from '../components/AdvisorQuoteRequestModal';
@@ -848,6 +849,10 @@ export default function DashboardAdvisor() {
   const [ticketMessages, setTicketMessages] = useState<any[]>([]);
   const [ticketReply, setTicketReply] = useState('');
   const [ticketReplyFiles, setTicketReplyFiles] = useState<File[]>([]);
+  // Soltar archivos sobre la caja de respuesta del ticket los adjunta (tarea 516).
+  const { arrastrando: arrastrandoRespuesta, props: propsSoltarRespuesta } = useSoltarArchivos(
+    (archivos) => setTicketReplyFiles(prev => [...prev, ...archivos])
+  );
   const [ticketReplySending, setTicketReplySending] = useState(false);
 
   // ── Cotizaciones formales (asesor) ──
@@ -6315,7 +6320,7 @@ export default function DashboardAdvisor() {
                         ))}
                       </Box>
                     )}
-                    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, p: 0.5, ...estiloZonaSoltar(arrastrandoRespuesta) }} {...propsSoltarRespuesta}>
                       <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar imagen">
                         <ImageIcon />
                         <input
@@ -8522,7 +8527,7 @@ export default function DashboardAdvisor() {
                     ))}
                   </Box>
                 )}
-                <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, p: 0.5, ...estiloZonaSoltar(arrastrandoRespuesta) }} {...propsSoltarRespuesta}>
                   <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar imagen">
                     <ImageIcon />
                     <input

@@ -36,6 +36,7 @@ import ReplyIcon from '@mui/icons-material/Reply';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ComentarioAdjunto from '../components/ComentarioAdjunto';
 import VideosAdjuntos from '../components/VideosAdjuntos';
+import { useSoltarArchivos, estiloZonaSoltar } from '../hooks/useSoltarArchivos';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -255,6 +256,10 @@ export default function TareasPage() {
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: '', assignee_id: '', due_at: '', column_id: '' });
   const [involvedIds, setInvolvedIds] = useState<number[]>([]);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
+  // Soltar archivos sobre la caja de adjuntos de la nueva tarea (tarea 516).
+  const { arrastrando: arrastrandoNueva, props: propsSoltarNueva } = useSoltarArchivos(
+    (archivos) => setNewPhotos(prev => [...prev, ...archivos])
+  );
   const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
   const [subInput, setSubInput] = useState('');
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -1111,8 +1116,9 @@ export default function TareasPage() {
               </Box>
             )}
           </Box>
-          {/* Archivos adjuntos (fotos, PDF, Excel…) */}
-          <Box sx={{ mt: 2 }}>
+          {/* Archivos adjuntos (fotos, PDF, Excel…). Tambien se pueden soltar
+              encima, sin abrir el explorador (tarea 516). */}
+          <Box sx={{ mt: 2, p: 1, ...estiloZonaSoltar(arrastrandoNueva) }} {...propsSoltarNueva}>
             <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
               Agregar archivos (fotos, PDF, Excel)
               <input hidden type="file" accept={ACCEPT_FILES} multiple
@@ -1280,7 +1286,11 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), ...cita }, H()); setComment(''); setCitando(null); reload(); }
     catch { notify('Error al comentar', 'error'); }
   };
-  const uploadPhotos = async (files: FileList | null) => {
+  // Soltar archivos sobre la tarea abierta los adjunta (tarea 516).
+  const { arrastrando: arrastrandoTarea, props: propsSoltarTarea } = useSoltarArchivos(
+    (archivos) => uploadPhotos(archivos)
+  );
+  const uploadPhotos = async (files: FileList | File[] | null) => {
     if (!files || !files.length) return;
     setBusy(true);
     try {
@@ -1345,7 +1355,12 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             </Typography>
             <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
           </DialogTitle>
-          <DialogContent dividers>
+          <DialogContent dividers sx={estiloZonaSoltar(arrastrandoTarea)} {...propsSoltarTarea}>
+            {arrastrandoTarea && (
+              <Typography sx={{ textAlign: 'center', color: '#F05A28', fontWeight: 700, py: 1 }}>
+                Suelta aquí para adjuntar a la tarea
+              </Typography>
+            )}
             {!editing ? (
               <>
                 {/* pre-wrap respeta los saltos de linea y los espacios con que se
