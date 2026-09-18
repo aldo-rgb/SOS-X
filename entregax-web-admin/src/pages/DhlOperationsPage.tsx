@@ -125,13 +125,22 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   dispatched: { label: 'Despachado', color: '#9c27b0', icon: <SendIcon /> },
 };
 
-const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count'];
+const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count', 'dhl_prealertas'];
+// Quien solo lleva las guías con proceso especial no tiene por qué ver el
+// movimiento diario del CEDIS (tarea 573).
+const MODULOS_OPERACION = CEDIS_MODULES.filter(m => m !== 'dhl_prealertas');
 
 export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?: () => void; autoOpenRecibir?: boolean } = {}) {
   const navigate = useNavigate();
-  const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
+  const { allowedModules, loading: permLoading, canEdit, canView } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
   const [prealertasPendientes, setPrealertasPendientes] = useState(0);
+  const veOperacion = allowedModules.some(m => MODULOS_OPERACION.includes(m));
+  const vePrealertas = canView('dhl_prealertas');
+  // Las pestañas que de verdad puede abrir, en orden.
+  const pestanas: string[] = [...(veOperacion ? ['recibidos', 'despachados'] : []), ...(vePrealertas ? ['prealertas'] : [])];
+  const pestanaActiva = pestanas[tabValue] || pestanas[0];
+
   const [shipments, setShipments] = useState<DhlShipment[]>([]);
   const [stats, setStats] = useState<DhlStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -533,11 +542,9 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
 
   // Filter by tab - Solo Recibidos y Despachados
   const getFilteredShipments = () => {
-    switch (tabValue) {
-      case 0: return shipments.filter(s => s.status === 'received_mty');
-      case 1: return shipments.filter(s => s.status === 'dispatched');
-      default: return shipments;
-    }
+    if (pestanaActiva === 'recibidos') return shipments.filter(s => s.status === 'received_mty');
+    if (pestanaActiva === 'despachados') return shipments.filter(s => s.status === 'dispatched');
+    return shipments;
   };
 
   const formatDate = (dateStr: string) => {
@@ -609,7 +616,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
       </Box>
 
       {/* Stats Cards */}
-      {stats && (
+      {stats && veOperacion && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid size={{ xs: 6, md: 2.4 }}>
             <Card sx={{ bgcolor: '#e3f2fd' }}>
@@ -670,6 +677,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             '& .Mui-selected': { color: DHL_COLOR }
           }}
         >
+          {veOperacion && (
           <Tab 
             label={
               <Badge badgeContent={stats?.today_received || 0} color="primary">
@@ -677,6 +685,8 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
               </Badge>
             } 
           />
+          )}
+          {veOperacion && (
           <Tab 
             label={
               <Badge badgeContent={stats?.today_dispatched || 0} color="success">
@@ -684,8 +694,10 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
               </Badge>
             } 
           />
+          )}
           {/* Guías que no siguen el camino normal: su costo lo pone quien hizo
               el trámite, no la tarifa (tarea 573). */}
+          {vePrealertas && (
           <Tab
             label={
               <Badge badgeContent={prealertasPendientes} color="warning">
@@ -693,13 +705,14 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
               </Badge>
             }
           />
+          )}
         </Tabs>
 
-        {tabValue === 2 && (
-          <PanelPrealertas onCambio={setPrealertasPendientes} />
+        {pestanaActiva === 'prealertas' && (
+          <PanelPrealertas onCambio={setPrealertasPendientes} soloLectura={!canEdit('dhl_prealertas')} />
         )}
 
-        {tabValue !== 2 && (
+        {pestanaActiva !== 'prealertas' && (
         <>
         {/* Filters */}
         <Box sx={{ p: 2, bgcolor: '#f5f5f5', display: 'flex', gap: 2 }}>
@@ -1619,7 +1632,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
 // externa, y su costo no sale de ninguna tarifa. Aquí se avisa cuáles son
 // antes de que lleguen y se les pone el costo real (tarea 573).
 // ============================================
-function PanelPrealertas({ onCambio }: { onCambio: (n: number) => void }) {
+function PanelPrealertas({ onCambio, soloLectura }: { onCambio: (n: number) => void; soloLectura?: boolean }) {
   const [lista, setLista] = useState<any[]>([]);
   const [motivos, setMotivos] = useState<Record<string, string>>({});
   const [cargando, setCargando] = useState(true);
@@ -1702,6 +1715,7 @@ function PanelPrealertas({ onCambio }: { onCambio: (n: number) => void }) {
       </Alert>
 
       {/* Levantar la prealerta */}
+      {!soloLectura && (
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Typography fontWeight={700} sx={{ mb: 1.5 }}>Avisar de una guía</Typography>
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -1722,6 +1736,7 @@ function PanelPrealertas({ onCambio }: { onCambio: (n: number) => void }) {
           </Button>
         </Box>
       </Paper>
+      )}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Button size="small" onClick={() => setVerLiberadas(v => !v)}>
@@ -1765,7 +1780,7 @@ function PanelPrealertas({ onCambio }: { onCambio: (n: number) => void }) {
                   </TableCell>
                   <TableCell>{money(p.costo_mxn)}</TableCell>
                   <TableCell align="right">
-                    {p.estado === 'pendiente' ? (
+                    {p.estado === 'pendiente' && !soloLectura ? (
                       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
                         <TextField size="small" placeholder="Costo MXN" sx={{ width: 130 }}
                           value={costos[p.id] || ''} onChange={e => setCostos(c => ({ ...c, [p.id]: e.target.value }))} />
