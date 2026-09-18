@@ -1716,8 +1716,16 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
     const params: any[] = [];
     let idx = 1;
 
-    // Por defecto excluir archivados; con ?archived=true traer solo archivados
-    if (archived === 'true') {
+    // Abrir un ticket por su folio, tal cual. Va aparte de los demás filtros
+    // porque tiene que encontrarlo AUNQUE esté archivado: hoy 94% de los
+    // tickets lo están, así que al dar clic en el folio desde una tarea el
+    // tablero se abría y el ticket nunca aparecía (tarea 515).
+    const folioExacto = String(req.query.folio || '').trim();
+    if (folioExacto) {
+      conditions.push(`UPPER(t.ticket_folio) = UPPER($${idx++})`);
+      params.push(folioExacto);
+    } else if (archived === 'true') {
+      // Por defecto excluir archivados; con ?archived=true traer solo archivados
       conditions.push('t.archived_at IS NOT NULL');
     } else {
       conditions.push('t.archived_at IS NULL');
