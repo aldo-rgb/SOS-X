@@ -782,6 +782,18 @@ export default function DashboardAdvisor() {
   const [instrIsCollect, setInstrIsCollect] = useState(false);
   const [instrFacturaFile, setInstrFacturaFile] = useState<File | null>(null);
   const [instrGuiaFile, setInstrGuiaFile] = useState<File | null>(null);
+  // Archivos ya cargados de la guía. Se subían y no se volvían a ver, así que
+  // el asesor no sabía si ya los había mandado y los cargaba otra vez (tarea 606).
+  const [instrDocs, setInstrDocs] = useState<any[]>([]);
+  const [instrDocsCargando, setInstrDocsCargando] = useState(false);
+  const cargarInstrDocs = async (uid: string) => {
+    setInstrDocs([]); setInstrDocsCargando(true);
+    try {
+      const r = await api.get(`/advisor/shipments/${uid}/documentos`);
+      setInstrDocs(r.data?.documentos || []);
+    } catch { /* si falla, la carga sigue funcionando igual */ }
+    finally { setInstrDocsCargando(false); }
+  };
   const [instrWantsFactura, setInstrWantsFactura] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
@@ -1942,6 +1954,7 @@ export default function DashboardAdvisor() {
     setInstrWantsFactura(false);
     setInstrPriceEstimate(null);
     setInstrDialogOpen(true);
+    cargarInstrDocs(target.uid);
     setInstrLoading(true);
     setInstrCarriersLoading(true);
     const carrierServiceType = SHIPMENT_TYPE_TO_CARRIER_SERVICE[target.serviceType] ?? null;
@@ -2084,7 +2097,17 @@ export default function DashboardAdvisor() {
       }
 
       const count = uids.length;
-      setSnackbar({ open: true, message: count > 1 ? `${count} envíos actualizados` : 'Instrucciones asignadas correctamente', severity: 'success' });
+      // El aviso dice EXPLÍCITAMENTE si se subieron archivos: antes sólo decía
+      // 'instrucciones asignadas' y el asesor no sabía si la guía había subido,
+      // así que la volvía a cargar (tarea 606).
+      const subidos = [instrFacturaFile ? 'la factura' : '', instrGuiaFile ? 'la guía de paquetería' : '']
+        .filter(Boolean).join(' y ');
+      const base = count > 1 ? `${count} envíos actualizados` : 'Instrucciones asignadas correctamente';
+      setSnackbar({
+        open: true,
+        message: subidos ? `${base}. Se cargó ${subidos}.` : base,
+        severity: 'success',
+      });
       setInstrDialogOpen(false);
       setSelectedUids(new Set());
       setInstrIsCollect(false);
@@ -8109,6 +8132,33 @@ export default function DashboardAdvisor() {
 
                   {/* Guía externa */}
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Guía de paquetería (opcional)</Typography>
+                  {instrDocsCargando && (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                      Revisando si ya hay archivos cargados…
+                    </Typography>
+                  )}
+                  {instrDocs.length > 0 && (
+                    <Box sx={{ mb: 1, p: 1, borderRadius: 1, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7' }}>
+                      <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 700, display: 'block', mb: 0.5 }}>
+                        ✓ Ya cargaste {instrDocs.length} {instrDocs.length === 1 ? 'archivo' : 'archivos'} en esta guía
+                      </Typography>
+                      {instrDocs.map((d: any) => (
+                        <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                          <AttachFileIcon sx={{ fontSize: 14, color: '#2E7D32' }} />
+                          <Box component="a" href={d.url} target="_blank" rel="noopener noreferrer"
+                            sx={{ fontSize: 12, color: '#1565C0', wordBreak: 'break-all' }}>
+                            {d.nombre}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                            · {new Date(d.fecha).toLocaleDateString('es-MX')}
+                          </Typography>
+                        </Box>
+                      ))}
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        Solo sube otro si falta alguno: no reemplaza a los anteriores.
+                      </Typography>
+                    </Box>
+                  )}
                   <Button
                     component="label"
                     variant="outlined"
