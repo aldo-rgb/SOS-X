@@ -1304,6 +1304,10 @@ import {
   updateDhlShipmentStatus
 } from './dhlController';
 import {
+  listarDirectorioFiscal, crearEnDirectorioFiscal,
+  actualizarEnDirectorioFiscal, quitarDeDirectorioFiscal,
+} from './directorioFiscal';
+import {
   crearPrealerta, listarPrealertas, asignarCostoPrealerta, cancelarPrealerta,
   prealertaPendienteDe, avisoDePrealerta,
 } from './dhlPrealertas';
@@ -5702,6 +5706,14 @@ app.post('/api/accounting/:emitterId/pending-stamp/:paymentId/archive', authenti
 // fiscales que ya no coinciden con el SAT.
 app.post('/api/accounting/:emitterId/pending-stamp/:paymentId/request-constancia', authenticateToken, requestConstanciaForStamp);
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
+
+// Directorio fiscal: la libreta de razones sociales a las que se factura
+// (tarea 582). Contabilidad y dirección; no lo ve servicio a cliente.
+const soloFacturacion = requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT);
+app.get('/api/accounting/directorio-fiscal', authenticateToken, soloFacturacion, listarDirectorioFiscal);
+app.post('/api/accounting/directorio-fiscal', authenticateToken, soloFacturacion, crearEnDirectorioFiscal);
+app.put('/api/accounting/directorio-fiscal/:id', authenticateToken, soloFacturacion, actualizarEnDirectorioFiscal);
+app.delete('/api/accounting/directorio-fiscal/:id', authenticateToken, soloFacturacion, quitarDeDirectorioFiscal);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
 app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);
 app.post('/api/accounting/:emitterId/invoices/:invoiceId/cancel', authenticateToken, cancelEmittedInvoice);
