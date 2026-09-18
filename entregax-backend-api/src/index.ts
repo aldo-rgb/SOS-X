@@ -639,7 +639,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import {
   requestAdvisor,
@@ -17498,7 +17498,8 @@ app.get('/api/zaia/tareas', zaiaTareas);
 app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
-app.post('/api/zaia/cerrar-tarea', zaiaCerrarTarea);   // única escritura: solo tareas de Aldo
+app.post('/api/zaia/cerrar-tarea', zaiaCerrarTarea);
+app.post('/api/zaia/apuntar-pendiente', zaiaApuntarPendiente);  // tareas SOLO para Aldo   // única escritura: solo tareas de Aldo
 app.post('/api/zaia/avisos/prueba', zaiaAvisoPrueba);
 app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse al día
 

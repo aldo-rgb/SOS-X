@@ -508,3 +508,61 @@ export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any>
     res.status(500).json({ error: 'No se pudo cerrar la tarea.' });
   }
 };
+
+// ============================================================
+// POST /api/zaia/apuntar-pendiente — ZAIA le anota un pendiente a Aldo.
+//
+// Segunda y última escritura del canal. La tarea se crea SIEMPRE para la cuenta
+// de ZAIA_ACTOR_ID, a su nombre: ZAIA es su asistente y apunta lo suyo, nunca le
+// reparte trabajo a otra persona. Nació porque Cajito redactó un pendiente que
+// Aldo pidió por ZAIA y no pudo levantarlo —por API no escribe—, así que el
+// pendiente se perdió (17-sep-2026).
+//
+// Body: { titulo, descripcion, urgente?, vence? (YYYY-MM-DD) }.
+// ============================================================
+export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    const titulo = String(req.body?.titulo || '').trim().slice(0, 200);
+    const descripcion = String(req.body?.descripcion || '').trim();
+    if (!titulo || descripcion.length < 10) {
+      return res.status(400).json({ error: 'Manda "titulo" y una "descripcion" de al menos 10 caracteres: quien la lea tiene que entender qué se necesita.' });
+    }
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const vence = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.vence || ''))
+      ? new Date(`${req.body.vence}T12:00:00Z`).toISOString() : null;
+
+    const { createAssignedTaskInternal } = await import('./tasksController');
+    const taskId = await createAssignedTaskInternal({
+      creatorId: a.id, assigneeId: a.id,
+      title: titulo,
+      description: `${descripcion}\n\n(Apuntada desde ZAIA, a petición de ${a.nombre}.)`,
+      eisenhower: req.body?.urgente === true ? 'fuego' : 'estrella',
+      notifyAssignee: false,   // es suya: no se avisa a sí mismo
+      ...(vence ? { dueAt: vence } : {}),
+    });
+    if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea.' });
+
+    await registrar({
+      endpoint: 'POST /api/zaia/apuntar-pendiente',
+      pregunta: JSON.stringify({ titulo, urgente: req.body?.urgente === true, vence }),
+      respuesta: `tarea ${taskId}`, ip: ipDe(req), ms: Date.now() - t0,
+    });
+    res.json({
+      task_id: taskId, folio: `Tarea #${taskId}`, titulo,
+      responsable: a.nombre,
+      urgente: req.body?.urgente === true,
+      vence: vence ? vence.slice(0, 10) : null,
+      mensaje: `Quedó anotado como la tarea #${taskId} de ${a.nombre}.`,
+    });
+  } catch (e: any) {
+    console.error('[zaia] apuntar-pendiente:', e);
+    await registrar({ endpoint: 'POST /api/zaia/apuntar-pendiente', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo anotar el pendiente.' });
+  }
+};
