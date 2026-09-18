@@ -2294,13 +2294,43 @@ export default function CajitoFab() {
                     {correoAbierto.cuerpo || '(El correo llegó sin texto)'}
                   </Box>
                   {(correoAbierto.adjuntos || []).length > 0 && (
-                    <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      {(correoAbierto.adjuntos || []).map((a: any, i: number) => (
-                        <Button key={i} size="small" variant="outlined" startIcon={<AttachFileIcon />}
-                          disabled={!a.url} onClick={() => a.url && window.open(a.url, '_blank')}>
-                          {a.nombre}
-                        </Button>
-                      ))}
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>
+                        Archivos adjuntos
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {(correoAbierto.adjuntos || []).map((a: any, i: number) => (
+                          <Button key={i} size="small" variant="outlined" startIcon={<AttachFileIcon />}
+                            disabled={!a.url} onClick={() => a.url && window.open(a.url, '_blank')}>
+                            {a.nombre}
+                          </Button>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                  {/* Muchos proveedores no adjuntan el archivo: mandan la liga.
+                      El cuerpo se pinta como texto plano, así que los enlaces se
+                      sacan aparte, con su dominio, porque llevan fuera del sistema. */}
+                  {(correoAbierto.enlaces || []).length > 0 && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>
+                        Enlaces del correo — abren un sitio de fuera
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        {(correoAbierto.enlaces || []).map((e: any, i: number) => (
+                          <Box key={i} sx={{ display: 'flex', alignItems: 'baseline', gap: 1, minWidth: 0 }}>
+                            <Box component="a" href={e.url} target="_blank" rel="noopener noreferrer"
+                              sx={{ fontSize: 13, color: '#1565C0', wordBreak: 'break-all' }}>
+                              {e.texto}
+                            </Box>
+                            {e.dominio && (
+                              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                ({e.dominio})
+                              </Typography>
+                            )}
+                          </Box>
+                        ))}
+                      </Box>
                     </Box>
                   )}
                   <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
