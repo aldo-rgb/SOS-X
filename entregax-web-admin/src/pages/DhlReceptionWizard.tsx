@@ -181,6 +181,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const [tracking2, setTracking2] = useState('');
   const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
   const [tracking2Warning, setTracking2Warning] = useState<string | null>(null);
+  // Guía con proceso especial: el aviso sale al escanear, antes de capturar (tarea 573).
+  const [prealertaAviso, setPrealertaAviso] = useState<string | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [productType, setProductType] = useState<'standard' | 'high_value' | null>(null);
   const [weight, setWeight] = useState<number>(0);
@@ -409,6 +411,9 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
         headers: { Authorization: `Bearer ${token}` },
         params: { code: clean },
       });
+      if (res.data?.prealerta?.aviso) {
+        setPrealertaAviso(res.data.prealerta.aviso);
+      }
       const svc = String(res.data?.service_type || '').toLowerCase();
       if (svc === 'tdi_express') {
         setTracking2Warning(
@@ -466,6 +471,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       if (isJJDCode(value) && value.length >= 14) {
         playSuccessBeep();
         checkDuplicateLarga(value);
+        checkMasterServiceType(value);
         setTimeout(() => tracking2InputRef.current?.focus(), 200);
       }
     }, 220);
@@ -1070,6 +1076,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left', fontWeight: 600 }}
                   >
                     {tracking2Warning}
+                  </Alert>
+                )}
+                {prealertaAviso && (
+                  <Alert
+                    severity="warning"
+                    sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left', fontWeight: 600 }}
+                  >
+                    {prealertaAviso}
                   </Alert>
                 )}
               </Box>

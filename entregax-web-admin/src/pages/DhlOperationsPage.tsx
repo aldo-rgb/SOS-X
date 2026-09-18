@@ -131,6 +131,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   const navigate = useNavigate();
   const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
+  const [prealertasPendientes, setPrealertasPendientes] = useState(0);
   const [shipments, setShipments] = useState<DhlShipment[]>([]);
   const [stats, setStats] = useState<DhlStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -683,8 +684,23 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
               </Badge>
             } 
           />
+          {/* Guías que no siguen el camino normal: su costo lo pone quien hizo
+              el trámite, no la tarifa (tarea 573). */}
+          <Tab
+            label={
+              <Badge badgeContent={prealertasPendientes} color="warning">
+                Proceso especial
+              </Badge>
+            }
+          />
         </Tabs>
 
+        {tabValue === 2 && (
+          <PanelPrealertas onCambio={setPrealertasPendientes} />
+        )}
+
+        {tabValue !== 2 && (
+        <>
         {/* Filters */}
         <Box sx={{ p: 2, bgcolor: '#f5f5f5', display: 'flex', gap: 2 }}>
           <TextField
@@ -903,6 +919,8 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             </TableBody>
           </Table>
         </TableContainer>
+        </>
+        )}
       </Paper>
 
       {/* ===== DIALOGS ===== */}
@@ -1589,6 +1607,191 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
         <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
           {snackbar.message}
         </Alert>
+      </Snackbar>
+    </Box>
+  );
+}
+
+// ============================================
+// GUÍAS CON PROCESO ESPECIAL (prealertas)
+//
+// Hay guías que se tramitan con pedimento individual o por una agencia
+// externa, y su costo no sale de ninguna tarifa. Aquí se avisa cuáles son
+// antes de que lleguen y se les pone el costo real (tarea 573).
+// ============================================
+function PanelPrealertas({ onCambio }: { onCambio: (n: number) => void }) {
+  const [lista, setLista] = useState<any[]>([]);
+  const [motivos, setMotivos] = useState<Record<string, string>>({});
+  const [cargando, setCargando] = useState(true);
+  const [verLiberadas, setVerLiberadas] = useState(false);
+  const [aviso, setAviso] = useState<{ texto: string; tipo: 'success' | 'error' } | null>(null);
+
+  // Alta
+  const [guia, setGuia] = useState('');
+  const [motivo, setMotivo] = useState('agencia_externa');
+  const [nota, setNota] = useState('');
+  const [costoInicial, setCostoInicial] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  // Asignar costo
+  const [costos, setCostos] = useState<Record<number, string>>({});
+
+  const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const r = await axios.get(`${API_URL}/api/admin/dhl/prealertas?estado=${verLiberadas ? 'todas' : 'pendiente'}`, auth());
+      const filas = r.data?.prealertas || [];
+      setLista(filas);
+      setMotivos(r.data?.motivos || {});
+      onCambio(filas.filter((p: any) => p.estado === 'pendiente').length);
+    } catch (e: any) {
+      setAviso({ texto: e?.response?.data?.error || 'No se pudieron cargar las prealertas', tipo: 'error' });
+    } finally { setCargando(false); }
+  }, [verLiberadas, onCambio]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const levantar = async () => {
+    if (!guia.trim()) return;
+    setGuardando(true);
+    try {
+      const r = await axios.post(`${API_URL}/api/admin/dhl/prealertas`,
+        { tracking: guia.trim(), motivo, nota: nota.trim() || null, costo_mxn: costoInicial.trim() || null }, auth());
+      setGuia(''); setNota(''); setCostoInicial('');
+      setAviso({ texto: r.data?.aviso || 'Prealerta levantada', tipo: 'success' });
+      cargar();
+    } catch (e: any) {
+      setAviso({ texto: e?.response?.data?.error || 'No se pudo levantar', tipo: 'error' });
+    } finally { setGuardando(false); }
+  };
+
+  const asignar = async (p: any) => {
+    const monto = costos[p.id];
+    if (!monto || !Number(monto)) return;
+    try {
+      const r = await axios.put(`${API_URL}/api/admin/dhl/prealertas/${p.id}/costo`, { costo_mxn: Number(monto) }, auth());
+      setCostos(c => ({ ...c, [p.id]: '' }));
+      setAviso({ texto: r.data?.aviso || `Costo asignado a ${r.data?.tracking || p.tracking}`, tipo: 'success' });
+      cargar();
+    } catch (e: any) {
+      setAviso({ texto: e?.response?.data?.error || 'No se pudo asignar el costo', tipo: 'error' });
+    }
+  };
+
+  const cancelar = async (p: any) => {
+    try {
+      await axios.delete(`${API_URL}/api/admin/dhl/prealertas/${p.id}`, auth());
+      setAviso({ texto: 'Prealerta cancelada', tipo: 'success' });
+      cargar();
+    } catch (e: any) {
+      setAviso({ texto: e?.response?.data?.error || 'No se pudo cancelar', tipo: 'error' });
+    }
+  };
+
+  const money = (n: any) => n == null ? '—' : '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+
+  return (
+    <Box sx={{ p: 2 }}>
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Estas guías no siguen el camino normal: su costo lo determina quien hizo el trámite, no la tarifa.
+        Si le pones el costo <strong>antes de que llegue</strong>, la guía sigue su proceso de siempre.
+        Si llega sin costo, se captura igual pero queda <strong>retenida</strong>: no la ve el cliente ni su
+        asesor, ni se puede cobrar, hasta que le asignes el suyo aquí.
+      </Alert>
+
+      {/* Levantar la prealerta */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Typography fontWeight={700} sx={{ mb: 1.5 }}>Avisar de una guía</Typography>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <TextField size="small" label="Número de guía" value={guia}
+            onChange={e => setGuia(e.target.value)} sx={{ width: 240 }} />
+          <TextField size="small" select label="Motivo" value={motivo}
+            onChange={e => setMotivo(e.target.value)} sx={{ width: 210 }}>
+            {Object.entries(motivos).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+          </TextField>
+          <TextField size="small" label="Costo al cliente (opcional)" value={costoInicial}
+            onChange={e => setCostoInicial(e.target.value)} sx={{ width: 210 }}
+            helperText="Si ya lo sabes, la guía no se retiene" />
+          <TextField size="small" label="Nota para bodega" value={nota}
+            onChange={e => setNota(e.target.value)} sx={{ flex: 1, minWidth: 220 }} />
+          <Button variant="contained" onClick={levantar} disabled={!guia.trim() || guardando}
+            sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a10410' }, height: 40 }}>
+            Avisar
+          </Button>
+        </Box>
+      </Paper>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Button size="small" onClick={() => setVerLiberadas(v => !v)}>
+          {verLiberadas ? 'Ver solo pendientes' : 'Ver también las liberadas'}
+        </Button>
+        {cargando && <CircularProgress size={18} />}
+      </Box>
+
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: '#fafafa' }}>
+              <TableCell>Guía</TableCell>
+              <TableCell>Motivo</TableCell>
+              <TableCell>Cliente</TableCell>
+              <TableCell>Estado</TableCell>
+              <TableCell>Costo</TableCell>
+              <TableCell align="right">Acciones</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {lista.length === 0 ? (
+              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                No hay guías con proceso especial.
+              </TableCell></TableRow>
+            ) : lista.map(p => {
+              const retenida = p.estado === 'pendiente' && p.llego_at && p.costo_mxn == null;
+              return (
+                <TableRow key={p.id} sx={retenida ? { bgcolor: '#FFF4E5' } : undefined}>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    {p.tracking}
+                    {p.nota && <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>{p.nota}</Typography>}
+                  </TableCell>
+                  <TableCell>{p.motivo_label}</TableCell>
+                  <TableCell>{p.cliente || p.box_id || '—'}</TableCell>
+                  <TableCell>
+                    {p.estado === 'liberada' ? <Chip size="small" color="success" label="Liberada" />
+                      : retenida ? <Chip size="small" color="warning" label="Llegó — retenida" />
+                      : p.llego_at ? <Chip size="small" color="info" label="Llegó" />
+                      : <Chip size="small" variant="outlined" label="Por llegar" />}
+                  </TableCell>
+                  <TableCell>{money(p.costo_mxn)}</TableCell>
+                  <TableCell align="right">
+                    {p.estado === 'pendiente' ? (
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <TextField size="small" placeholder="Costo MXN" sx={{ width: 130 }}
+                          value={costos[p.id] || ''} onChange={e => setCostos(c => ({ ...c, [p.id]: e.target.value }))} />
+                        <Button size="small" variant="contained" onClick={() => asignar(p)}
+                          disabled={!costos[p.id] || !Number(costos[p.id])}
+                          sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a10410' } }}>
+                          {p.costo_mxn == null ? 'Asignar' : 'Cambiar'}
+                        </Button>
+                        <Button size="small" color="inherit" onClick={() => cancelar(p)}>Cancelar</Button>
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        {p.liberada_por_nombre ? `Liberó ${p.liberada_por_nombre}` : '—'}
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Snackbar open={!!aviso} autoHideDuration={5000} onClose={() => setAviso(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={aviso?.tipo || 'success'} onClose={() => setAviso(null)}>{aviso?.texto}</Alert>
       </Snackbar>
     </Box>
   );
