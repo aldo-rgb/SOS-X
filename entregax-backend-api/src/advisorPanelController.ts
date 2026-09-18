@@ -766,10 +766,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COALESCE(NULLIF(mo.summary_boxes,0), NULLIF(mo.received_boxes,0), NULLIF(mo.goods_num,0), 1)::int as boxes_count
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
-      -- Guía con proceso especial y costo retenido: tampoco la ve el asesor,
-      -- porque cotizaría sobre un número que no es el real (tarea 573).
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
-        AND COALESCE(ds.costo_retenido, FALSE) = FALSE
     `;
 
     // 3) dhl_shipments (AA_DHL)
@@ -862,7 +859,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         0::int as boxes_count
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
+      -- Guía con proceso especial y costo retenido: tampoco la ve el asesor,
+      -- porque cotizaría sobre un número que no es el real (tarea 573).
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
+        AND COALESCE(ds.costo_retenido, FALSE) = FALSE
     `;
     // GROUP BY master tracking key — appended after dhlWhere so filters apply before grouping
     const dhlGroupBy = `
