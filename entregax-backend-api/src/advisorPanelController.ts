@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { cobroDhlSql } from './dhlCosting';
 import { signS3UrlIfNeeded } from './s3Service';
+import { asegurarColumna } from './db';
 import { AEREO_PAID_ORDER_SQL, XPAY_COMPLETED_SQL, GEX_PAID_SQL } from './commissionController';
 import { isMtyMetroZip } from './mtyMetroController';
 
@@ -2575,13 +2576,13 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
         if (files?.factura?.[0]) {
           await pool.query(
-            `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'factura_embarque', $3, $4)`,
+            `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, 'PKG', $2, 'factura_embarque', $3, $4)`,
             [shipmentId, advisorId, fileUrl(files.factura[0]), files.factura[0].originalname]
           );
         }
         if (files?.guiaExterna?.[0]) {
           await pool.query(
-            `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
+            `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, 'PKG', $2, 'guia_externa', $3, $4)`,
             [shipmentId, advisorId, fileUrl(files.guiaExterna[0]), files.guiaExterna[0].originalname]
           );
         }
@@ -2751,6 +2752,56 @@ export const assignClientToPackage = async (req: Request, res: Response): Promis
  * GET /api/advisor/shipment/:uid
  * Detalle unificado para PKG / MAR / DHL
  */
+/**
+ * GET /api/advisor/shipments/:uid/documentos
+ *
+ * Los archivos ya cargados de una guia. Se subian y no se volvian a ver: el
+ * asesor no tenia como saber si ya habia subido la guia de paqueteria y las
+ * cargaba otra vez (tarea 606).
+ */
+export const getAdvisorShipmentDocs = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+    await asegurarColumna('package_documents', 'shipment_type', "VARCHAR(8) NOT NULL DEFAULT 'PKG'");
+
+    const uid = String(req.params.uid || '');
+    const [tipo, idTxt] = uid.split('-');
+    const id = parseInt(idTxt || '', 10);
+    if (!id || !tipo) return res.status(400).json({ error: 'Guia no valida' });
+
+    // Que la guia sea de un cliente suyo: los documentos llevan datos del envio.
+    const tabla = tipo === 'DHL' ? 'dhl_shipments' : tipo === 'MAR' ? 'maritime_orders' : 'packages';
+    const dueno = await pool.query(
+      `SELECT 1 FROM ${tabla} t JOIN users u ON u.id = t.user_id
+        WHERE t.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) LIMIT 1`,
+      [id, advisorId]);
+    if (!dueno.rowCount) return res.status(403).json({ error: 'Guia no encontrada o sin permiso' });
+
+    const r = await pool.query(
+      `SELECT d.id, d.doc_type, d.original_filename, d.file_url, d.created_at,
+              u.full_name AS subido_por
+         FROM package_documents d
+         LEFT JOIN users u ON u.id = d.uploaded_by
+        WHERE d.package_id = $1 AND COALESCE(d.shipment_type, 'PKG') = $2
+        ORDER BY d.created_at DESC`,
+      [id, tipo === 'DHL' ? 'DHL' : tipo === 'MAR' ? 'MAR' : 'PKG']);
+
+    const documentos = await Promise.all(r.rows.map(async (d) => ({
+      id: d.id,
+      tipo: d.doc_type,
+      // El nombre venia con %20 y demas de la URL; se muestra legible.
+      nombre: decodeURIComponent(String(d.original_filename || '')).replace(/\+/g, ' '),
+      url: await signS3UrlIfNeeded(d.file_url, 3600),
+      subido_por: d.subido_por,
+      fecha: d.created_at,
+    })));
+    res.json({ documentos });
+  } catch (e: any) {
+    console.error('[advisor] documentos de la guia:', e?.message);
+    res.status(500).json({ error: 'No se pudieron cargar los archivos' });
+  }
+};
 export const getAdvisorShipmentDetail = async (req: Request, res: Response): Promise<any> => {
   try {
     const rawUid: string = (Array.isArray(req.params.uid) ? req.params.uid[0] : req.params.uid) as string;

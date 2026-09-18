@@ -636,6 +636,7 @@ import {
   getAdvisorUnreadCount,
   getAdvisorPackages,
   assignAdvisorShipmentInstructions,
+  getAdvisorShipmentDocs,
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
@@ -7641,6 +7642,9 @@ app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAd
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
 app.delete('/api/advisor/clients/:clientId/addresses/:addressId', authenticateToken, deleteAdvisorClientAddress);
 app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDeliveryDocs, assignAdvisorShipmentInstructions);
+// Archivos ya cargados de una guia, para que el asesor vea que ya los subio y
+// no los vuelva a cargar (tarea 606).
+app.get('/api/advisor/shipments/:uid/documentos', authenticateToken, getAdvisorShipmentDocs);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
 
 // ========== COTIZACIONES FORMALES POR ASESOR (PDF) ==========
