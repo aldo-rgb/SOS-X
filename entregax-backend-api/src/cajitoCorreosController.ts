@@ -122,6 +122,41 @@ const tipoParaGuardar = (nombre: string, tipo: string): string => {
 const nombreLimpio = (n: string): string =>
   String(n || 'adjunto').replace(/[^a-zA-Z0-9_.\- ]/g, '_').replace(/\s+/g, '_').slice(0, 80);
 
+/**
+ * Los enlaces que traía el correo.
+ *
+ * El cuerpo se muestra como texto plano —a propósito: el HTML de fuera no se
+ * pinta— pero al quitarle las etiquetas se perdían los `href`. Muchos avisos de
+ * proveedores no mandan el archivo adjunto: mandan la liga, y en pantalla
+ * quedaba el nombre del archivo sin forma de abrirlo. Aquí se rescatan, se
+ * muestran aparte y con su dominio a la vista, para que quien los abra sepa a
+ * dónde va: el correo pudo venir suplantado.
+ */
+export type EnlaceCorreo = { texto: string; url: string; dominio: string };
+
+const dominioDe = (url: string): string => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+};
+
+const extraerEnlaces = (html: string, texto: string): EnlaceCorreo[] => {
+  const vistos = new Set<string>();
+  const out: EnlaceCorreo[] = [];
+  const agregar = (url: string, etiqueta: string) => {
+    const limpia = String(url || '').trim().replace(/[.,;)\]]+$/, '');
+    // Solo http(s): `javascript:`, `data:` y demás no son enlaces que abrir.
+    if (!/^https?:\/\//i.test(limpia) || vistos.has(limpia) || out.length >= 30) return;
+    vistos.add(limpia);
+    const nombre = etiqueta.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    out.push({ texto: nombre || limpia, url: limpia, dominio: dominioDe(limpia) });
+  };
+  const conEtiqueta = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = conEtiqueta.exec(String(html || ''))) !== null) agregar(m[1]!, m[2] || '');
+  // Los que venían escritos a secas en el texto, sin etiqueta.
+  for (const suelto of String(texto || '').match(/https?:\/\/[^\s<>"')]+/gi) || []) agregar(suelto, '');
+  return out;
+};
+
 /** Guarda en S3 los adjuntos, vengan como archivo (forward) o como URL (store). */
 const guardarAdjuntos = async (correoId: number, req: Request): Promise<CorreoAdjunto[]> => {
   const out: CorreoAdjunto[] = [];
@@ -255,7 +290,11 @@ export const leerCorreo = async (folioOId: string): Promise<any> => {
     folio: c.folio, de: c.de_email, de_nombre: c.de_nombre, para: c.para_email,
     asunto: c.asunto, recibido: c.recibido_at, estado: c.estado === 'nuevo' ? 'leido' : c.estado,
     sospechoso: c.sospechoso, cuerpo: String(c.cuerpo || '').slice(0, 20000),
-    adjuntos: conLink, nota: c.nota, task_id: c.task_id, ticket_id: c.ticket_id,
+    adjuntos: conLink,
+    // Muchos proveedores no adjuntan el archivo: mandan la liga. Sin esto, en
+    // pantalla quedaba el nombre del archivo y nada que abrir.
+    enlaces: extraerEnlaces(String(c.cuerpo_html || ''), String(c.cuerpo || '')),
+    nota: c.nota, task_id: c.task_id, ticket_id: c.ticket_id,
   };
 };
 
