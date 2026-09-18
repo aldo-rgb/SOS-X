@@ -1331,7 +1331,10 @@
       "usa_pobox_tutorial": "Use this address for purchases on Amazon, eBay, Walmart USA. Your Suite is your unique identifier. We consolidate multiple packages.",
       "mx_cedis": "📍 DHL Monterrey",
       "mx_cedis_time": "24-48 hrs",
-      "mx_cedis_tutorial": "Ship DHL packages to our CEDIS in Monterrey. Include your name and Suite. Quick clearance without complicated procedures."
+      "mx_cedis_tutorial": "Ship DHL packages to our CEDIS in Monterrey. Include your name and Suite. Quick clearance without complicated procedures.",
+      "tdi_express": "🚀 TDI Express",
+      "tdi_express_time": "5-8 days",
+      "tdi_express_tutorial": "Ship your products to our express warehouse in Guangzhou. Include your Shipping Mark on each box. The fastest option from China."
     },
     "steps": {
       "ordered": "Ordered",

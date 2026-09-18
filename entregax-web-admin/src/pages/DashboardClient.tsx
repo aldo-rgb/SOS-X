@@ -442,6 +442,7 @@ export default function DashboardClient() {
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
     { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
+    { type: 'tdi_express', name: t('cd.services.tdi_express'), icon: '🚀', timeframe: t('cd.services.tdi_express_time'), tutorial: t('cd.services.tdi_express_tutorial') },
     { type: 'china_sea', name: t('cd.services.china_sea'), icon: '🚢', timeframe: t('cd.services.china_sea_time'), tutorial: t('cd.services.china_sea_tutorial') },
     { type: 'usa_pobox', name: t('cd.services.usa_pobox'), icon: '📦', timeframe: t('cd.services.usa_pobox_time'), tutorial: t('cd.services.usa_pobox_tutorial') },
     { type: 'mx_cedis', name: t('cd.services.mx_cedis'), icon: '📍', timeframe: t('cd.services.mx_cedis_time'), tutorial: t('cd.services.mx_cedis_tutorial') },
@@ -5008,7 +5009,7 @@ export default function DashboardClient() {
       // PO Box USA - reemplazar placeholder con Suite
       const addressLine = address.address_line1.replace(/\(S-Numero de Cliente\)/gi, suite);
       return `${clientName}\n${addressLine}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
-    } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
+    } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {
       // China - incluir Shipping Mark
       return `${address.address_line1}\n${address.address_line2 || ''}\n📦 Shipping Mark / 唛头: ${suite}\n${t('cd.address.contact')}: ${address.contact_name || ''}\nTel: ${address.contact_phone || ''}`;
     } else {
@@ -5032,7 +5033,7 @@ export default function DashboardClient() {
           <span style={{ color: '#90CAF9' }}>USA</span>
         </>
       );
-    } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
+    } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {
       return (
         <>
           {address.address_line1}<br />

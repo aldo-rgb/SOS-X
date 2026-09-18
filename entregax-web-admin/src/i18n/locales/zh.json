@@ -1189,7 +1189,10 @@
       "usa_pobox_tutorial": "在Amazon、eBay、Walmart USA购物时使用此地址。您的Suite是唯一标识符。我们合并多个包裹。",
       "mx_cedis": "📍 DHL蒙特雷",
       "mx_cedis_time": "24-48小时",
-      "mx_cedis_tutorial": "将DHL包裹寄到我们在蒙特雷的配送中心。注明您的姓名和Suite。快速清关，无需复杂手续。"
+      "mx_cedis_tutorial": "将DHL包裹寄到我们在蒙特雷的配送中心。注明您的姓名和Suite。快速清关，无需复杂手续。",
+      "tdi_express": "🚀 TDI 特快",
+      "tdi_express_time": "5-8天",
+      "tdi_express_tutorial": "将产品运送到我们在广州的特快仓库。在每个箱子上注明您的唛头。从中国出发最快的选择。"
     },
     "steps": {
       "ordered": "已下单",

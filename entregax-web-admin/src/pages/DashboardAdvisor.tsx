@@ -1763,6 +1763,7 @@ export default function DashboardAdvisor() {
 
   const SHIP_INSTR_SERVICES = [
     { type: 'china_air',  label: '✈️ Aéreo China',   icon: '✈️' },
+    { type: 'tdi_express', label: '🚀 TDI Express',   icon: '🚀' },
     { type: 'china_sea',  label: '🚢 Marítimo China', icon: '🚢' },
     { type: 'usa_pobox',  label: '📦 PO Box USA',     icon: '📦' },
     { type: 'mx_cedis',   label: '📍 DHL Monterrey',  icon: '📍' },
@@ -1796,7 +1797,7 @@ export default function DashboardAdvisor() {
     if (serviceType === 'usa_pobox') {
       const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
       return `${name}\n${line}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
-    } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
+    } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {
       return `${address.address_line1 || ''}\n${address.address_line2 || ''}\nShipping Mark: ${suite}\n${address.contact_name || ''}\n${address.contact_phone || ''}`;
     } else {
       return `${address.address_line1 || ''}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nMéxico\nA nombre de: ${name} (${suite})`;
@@ -7487,7 +7488,7 @@ export default function DashboardAdvisor() {
                     <span style={{ color: '#1976d2' }}>USA</span>
                   </Typography>
                 );
-              } else if (shipInstrServiceType === 'china_air' || shipInstrServiceType === 'china_sea') {
+              } else if (shipInstrServiceType === 'china_air' || shipInstrServiceType === 'china_sea' || shipInstrServiceType === 'tdi_express') {
                 return (
                   <Typography variant="body2" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
                     {address.address_line1}<br />
