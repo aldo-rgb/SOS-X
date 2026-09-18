@@ -864,12 +864,31 @@ const CajaChicaPage: React.FC = () => {
     try {
       const r = await api.get('/pobox/payment-references', { params: { supplier_id: pagoProveedorSel.id } });
       const all: any[] = r.data.references || [];
-      setRefPagoList(all.filter((x: any) => x.status !== 'pagada'));
+      setRefPagoList(all.filter((x: any) => x.status !== 'pagada' && x.status !== 'cancelada'));
     } catch {
       setSnackbar({ open: true, message: 'Error cargando referencias pendientes', severity: 'error' });
     } finally {
       setRefPagoLoading(false);
     }
+  };
+
+  // Cancelar una referencia duplicada. NO mueve dinero ni toca las guías: solo
+  // la saca de pendientes y deja escrito por qué (tarea 585).
+  const handleCancelarRef = async () => {
+    if (!refPagoData) return;
+    const motivo = window.prompt(
+      `¿Por qué se cancela REF-${refPagoData.id}? Esto NO registra ningún egreso.\n\nEjemplo: "Duplicada — estas guías se pagaron en REF-25".`
+    );
+    if (!motivo || motivo.trim().length < 5) return;
+    setRefPagoProcesando(true);
+    try {
+      await api.post(`/pobox/payment-references/${refPagoData.id}/cancel`, { motivo: motivo.trim() });
+      setSnackbar({ open: true, message: `REF-${refPagoData.id} cancelada. No se registró ningún movimiento de dinero.`, severity: 'success' });
+      setRefPagoData(null);
+      handleIniciarPagoMultiple();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cancelar la referencia', severity: 'error' });
+    } finally { setRefPagoProcesando(false); }
   };
 
   const handleConfirmarRefPago = async () => {
@@ -2550,12 +2569,16 @@ const CajaChicaPage: React.FC = () => {
           {refPagoData && (
             <Alert severity="info" sx={{ mt: 1 }}>
               Se marcará el pago de <strong>{(refPagoData.consolidation_ids || []).length}</strong> consolidación(es) por <strong>{formatCurrency(Number(refPagoData.total_mxn || 0))}</strong> y se registrará el egreso en Caja CC.
+              <br />Si esta referencia está duplicada y ya se pagó en otra, usa <strong>Cancelar referencia</strong>: la saca de pendientes sin mover dinero.
             </Alert>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoList([]); }} disabled={refPagoProcesando}>
-            Cancelar
+            Cerrar
+          </Button>
+          <Button color="inherit" onClick={handleCancelarRef} disabled={!refPagoData || refPagoProcesando}>
+            Cancelar referencia
           </Button>
           <Button
             variant="contained" color="warning"
