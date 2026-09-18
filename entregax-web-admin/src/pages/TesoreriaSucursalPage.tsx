@@ -61,6 +61,7 @@ import {
 } from '@mui/icons-material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import api from '../services/api';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 // Interfaces
 interface Billetera {
@@ -459,6 +460,9 @@ const TesoreriaSucursalPage: React.FC = () => {
   const handleUploadEvidence = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    return subirEvidencia(file);
+  };
+  const subirEvidencia = async (file: File) => {
 
     setUploadingEvidence(true);
     const formData = new FormData();
@@ -1443,7 +1447,9 @@ const TesoreriaSucursalPage: React.FC = () => {
                   onChange={handleUploadEvidence}
                 />
                 
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <ZonaSoltar sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }} soloUno
+                  desactivado={uploadingEvidence} alSoltar={(a) => subirEvidencia(a[0])}
+                  texto="Suelta aquí la foto del ticket o factura">
                   <Button
                     variant="outlined"
                     startIcon={uploadingEvidence ? <CircularProgress size={20} /> : <CameraIcon />}
@@ -1467,7 +1473,7 @@ const TesoreriaSucursalPage: React.FC = () => {
                       </IconButton>
                     </Box>
                   )}
-                </Box>
+                </ZonaSoltar>
               </Grid>
             )}
           </Grid>

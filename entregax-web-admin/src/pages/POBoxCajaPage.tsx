@@ -61,6 +61,7 @@ import {
   QrCodeScanner as QrCodeIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 // ============================================
 // INTERFACES
@@ -398,8 +399,8 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
   // MANEJO DE EVIDENCIA
   // ============================================
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => tomarEvidencia(event.target.files?.[0]);
+  const tomarEvidencia = (file?: File | null) => {
     if (file) {
       setEvidenciaFile(file);
       // Crear preview
@@ -1150,6 +1151,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                 style={{ display: 'none' }}
               />
 
+              <ZonaSoltar soloUno alSoltar={(a) => tomarEvidencia(a[0])} texto="Suelta aquí la foto del ticket o factura">
               {!evidenciaPreview ? (
                 <Button
                   variant="outlined"
@@ -1192,6 +1194,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                   </Typography>
                 </Box>
               )}
+              </ZonaSoltar>
             </Grid>
           </Grid>
         </DialogContent>

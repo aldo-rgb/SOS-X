@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import ZonaSoltar from '../components/ZonaSoltar';
 import {
   Box, Paper, Typography, Button, Card, CardContent, Grid, Tabs, Tab,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -436,12 +437,12 @@ export default function PettyCashHubPage() {
     setGastoOpen(true);
   };
 
-  const onGastoPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] || null;
+  const tomarFotoGasto = (f: File | null) => {
     setGastoPhoto(f);
     if (gastoPhotoPreview) URL.revokeObjectURL(gastoPhotoPreview);
     setGastoPhotoPreview(f ? URL.createObjectURL(f) : null);
   };
+  const onGastoPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => tomarFotoGasto(e.target.files?.[0] || null);
 
   const submitGasto = async () => {
     const amount = Number(String(gastoAmount).replace(',', '.'));
@@ -1422,7 +1423,7 @@ export default function PettyCashHubPage() {
               inputProps={{ min: 1, step: 1 }}
             />
           )}
-          <Box sx={{ mt: 2 }}>
+          <ZonaSoltar sx={{ mt: 2 }} soloUno alSoltar={(a) => tomarFotoGasto(a[0])} texto="Suelta aquí la foto del ticket">
             <Button
               variant="outlined"
               component="label"
@@ -1447,7 +1448,7 @@ export default function PettyCashHubPage() {
                 sx={{ mt: 1, width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 1, border: '1px solid #ddd' }}
               />
             )}
-          </Box>
+          </ZonaSoltar>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setGastoOpen(false)} disabled={gastoBusy}>Cancelar</Button>
