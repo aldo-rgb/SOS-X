@@ -109,7 +109,10 @@ const notaDeOperacion = async (ticketId: number, v: any): Promise<void> => {
 
   const quien = await responsableDeOperacion(ticketId);
   const texto = [
-    '📦 Cajito: esto NO es un error del sistema. Falta que alguien haga o registre algo.',
+    // El encabezado era una afirmación tajante ("esto NO es un error del sistema")
+    // y quien lo leía dejaba de buscar. Cuando se equivoca, manda a todos por el
+    // camino falso (TKT-2026-2767). Ahora dice de quién es la lectura.
+    '📦 Cajito: por lo que alcanzo a ver, aquí no hay nada roto que reparar; falta que alguien haga o registre algo. Si al revisarlo resulta que sí es del sistema, repórtenlo.',
     v.reclamo ? `Lo que reportan: ${v.reclamo}` : '',
     v.explicacion || '',
     quien

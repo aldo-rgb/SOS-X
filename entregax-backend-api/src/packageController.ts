@@ -5153,7 +5153,21 @@ export const dispatchConsolidation = async (req: Request, res: Response): Promis
  */
 export const assignDeliveryInstructions = async (req: Request, res: Response) => {
     try {
-        const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
+        const { packageId, packageType: packageTypeRaw } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
+        // El id manda sobre el tipo. Las guias DHL viajan con el id +300000 y
+        // las marítimas con +100000: si el id trae ese offset, la guia es de esa
+        // tabla aunque el tipo diga otra cosa.
+        //
+        // La app arma el tipo con `shipment_type || 'usa'`, asi que una guia DHL
+        // a la que no le llegue el shipment_type se manda como 'usa', se busca en
+        // la tabla equivocada y falla aunque exista (TKT-2026-2767).
+        const idNum = Number(packageId);
+        const packageType = (packageTypeRaw !== 'dhl' && packageTypeRaw !== 'maritime' && idNum >= 300000)
+            ? 'dhl'
+            : packageTypeRaw;
+        if (packageType !== packageTypeRaw) {
+            console.warn(`[Instrucciones Entrega] Tipo corregido por el id: llego '${packageTypeRaw}' para ${packageId}, se trata como '${packageType}'`);
+        }
         const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName, ocurreZip } = req.body;
         // 🚚 Por cobrar: el cliente le paga el flete a la paquetería al recibir,
         // así que nuestro cargo nacional es 0 y hay que dejar marcado con quién
