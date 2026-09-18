@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Paper, Grid, Card, CardContent, CardActionArea, Avatar,
-  Button, Chip, CircularProgress, Alert, Tabs, Tab, Table, TableHead, TableRow, TableCell,
+  Button, Chip, CircularProgress, Alert, Tabs, Tab, Table, TableContainer, TableHead, TableRow, TableCell,
   TableBody, IconButton, TextField, InputAdornment, Menu, MenuItem, Divider, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select,
   FormControlLabel, Switch, Stack, Snackbar, Stepper, Step, StepLabel, Autocomplete,
@@ -480,7 +480,8 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
       ) : rows.length === 0 ? (
         <Alert severity="info">No hay facturas con los filtros actuales.</Alert>
       ) : (
-        <Table size="small">
+        <TableContainer sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+        <Table size="small" sx={{ minWidth: 1180 }}>
           <TableHead>
             <TableRow>
               <TableCell>Folio</TableCell>
@@ -494,7 +495,10 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
               <TableCell>Fecha del pago</TableCell>
               <TableCell>Estado</TableCell>
               <TableCell>Fecha factura</TableCell>
-              <TableCell align="center">Acciones</TableCell>
+              {/* Las acciones se quedan pegadas a la derecha: con la tabla ancha
+                  se salían de la pantalla y no se podían descargar las facturas
+                  (Leonardo, 17-sep-2026). */}
+              <TableCell align="center" sx={{ position: 'sticky', right: 0, zIndex: 3, bgcolor: 'background.paper', boxShadow: '-6px 0 6px -6px rgba(0,0,0,0.2)' }}>Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -546,7 +550,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                   )}
                 </TableCell>
                 <TableCell>{fmtDate(r.created_at)}</TableCell>
-                <TableCell align="center">
+                <TableCell align="center" sx={{ position: 'sticky', right: 0, zIndex: 2, bgcolor: 'background.paper', boxShadow: '-6px 0 6px -6px rgba(0,0,0,0.2)' }}>
                   <Tooltip title={r.facturama_id ? 'Descargar PDF' : 'Sin archivo en Facturama (CFDI no timbrado)'}>
                     <span>
                       <IconButton size="small" disabled={!r.facturama_id} onClick={() => downloadInvoiceFile(r, 'pdf')}>
@@ -601,6 +605,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
             ))}
           </TableBody>
         </Table>
+        </TableContainer>
       )}
       <NewInvoiceDialog open={newOpen} emitter={emitter} onClose={() => setNewOpen(false)} onCreated={load} />
 
