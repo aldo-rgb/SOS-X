@@ -9,7 +9,7 @@
 // ============================================
 
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 
 // ============================================
 // Idempotent migration + seed
@@ -78,6 +78,9 @@ export const ensureOrgTables = async () => {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_org_task_item_task ON org_position_task_items(task_id);`);
 
+  // Puestos que se llenan solos (ver PUESTOS_AUTOMATICOS más abajo).
+  await asegurarColumna('org_chart_nodes', 'auto_key', 'VARCHAR(30)');
+
   migrated = true;
 
   // Seed inicial solo si está vacío.
@@ -85,6 +88,8 @@ export const ensureOrgTables = async () => {
   if (rows[0].n === 0) {
     await seedOrgChart();
   }
+
+  await marcarPuestosAutomaticos();
 };
 
 // Estructura del documento maestro EntregaX.
@@ -185,13 +190,115 @@ const seedOrgChart = async () => {
 };
 
 // ============================================
+// PUESTOS QUE SE LLENAN SOLOS
+//
+// Hay puestos donde el sistema ya sabe quién está y no tiene caso mantener la
+// lista a mano: los líderes de equipo salen de la relación asesor→líder, los
+// asesores comerciales del rol, y los choferes del rol repartidor. Esos puestos
+// se marcan con `auto_key` y su gente se calcula al momento de abrir el
+// organigrama, así que las altas y bajas se reflejan solas.
+//
+// Se puede seguir agregando gente a mano a un puesto automático (por ejemplo
+// alguien que apoya al equipo sin tener el rol); esas asignaciones se suman.
+// ============================================
+const PUESTOS_AUTOMATICOS: { patron: RegExp; clave: string }[] = [
+  { patron: /l[ií]deres?\s+de\s+equipo/i, clave: 'lideres' },
+  { patron: /asesores?\s+comerciales?/i, clave: 'asesores' },
+  { patron: /choferes|repartidores/i, clave: 'repartidores' },
+];
+
+// Cuentas genéricas o de prueba: no son personas y no deben salir en el organigrama.
+const CUENTAS_GENERICAS = [
+  'aldo usuario asesor', 'repartidor', 'repartidor cdmx', 'repartidor mty',
+  'warehouse staff', 'bodega', 'asesor', 'aserso 4', 'subasesor2',
+];
+
+const CAMPOS_PERSONA = `u.id AS user_id, u.full_name, u.role, u.profile_photo_url, u.employee_number`;
+const ES_ASESOR = `('advisor','asesor','sub_advisor')`;
+
+// Un líder es un asesor que tiene asesores colgando de él (users.referred_by_id),
+// que es la misma relación con la que se calcula el override de comisión.
+const CONSULTAS_AUTOMATICAS: Record<string, string> = {
+  lideres: `
+    SELECT ${CAMPOS_PERSONA}
+      FROM users u
+     WHERE u.is_active IS NOT FALSE
+       AND u.role IN ('advisor', 'asesor', 'asesor_lider')
+       AND LOWER(TRIM(u.full_name)) <> ALL($1::text[])
+       AND (u.role = 'asesor_lider' OR EXISTS (
+             SELECT 1 FROM users s
+              WHERE s.referred_by_id = u.id
+                AND s.role IN ${ES_ASESOR}
+                AND s.is_active IS NOT FALSE))
+     ORDER BY u.full_name`,
+  asesores: `
+    SELECT ${CAMPOS_PERSONA}
+      FROM users u
+     WHERE u.is_active IS NOT FALSE
+       AND u.role IN ${ES_ASESOR}
+       AND LOWER(TRIM(u.full_name)) <> ALL($1::text[])
+       AND NOT EXISTS (
+             SELECT 1 FROM users s
+              WHERE s.referred_by_id = u.id
+                AND s.role IN ${ES_ASESOR}
+                AND s.is_active IS NOT FALSE)
+     ORDER BY u.full_name`,
+  repartidores: `
+    SELECT ${CAMPOS_PERSONA}
+      FROM users u
+     WHERE u.is_active IS NOT FALSE
+       AND u.role IN ('repartidor', 'chofer', 'driver')
+       AND LOWER(TRIM(u.full_name)) <> ALL($1::text[])
+     ORDER BY u.full_name`,
+};
+
+// Marca los puestos del organigrama que se llenan solos. Respeta lo que ya
+// esté marcado, para que quien edite el organigrama pueda desactivarlo después.
+const marcarPuestosAutomaticos = async () => {
+  for (const { patron, clave } of PUESTOS_AUTOMATICOS) {
+    await pool.query(
+      `UPDATE org_chart_nodes SET auto_key = $1
+        WHERE auto_key IS NULL AND node_type = 'position' AND title ~* $2`,
+      [clave, patron.source]
+    );
+  }
+};
+
+// Gente de cada puesto automático, una consulta por clave usada.
+const personalAutomatico = async (claves: string[]): Promise<Record<string, any[]>> => {
+  const salida: Record<string, any[]> = {};
+  for (const clave of claves) {
+    const sql = CONSULTAS_AUTOMATICAS[clave];
+    if (!sql) continue;
+    const r = await pool.query(sql, [CUENTAS_GENERICAS]);
+    salida[clave] = r.rows.map(p => ({ ...p, auto: true }));
+  }
+  return salida;
+};
+
+// Gente de un puesto: primero la que trae el sistema, luego la asignada a mano.
+const asignadosDeNodo = async (nodeId: number): Promise<any[]> => {
+  const nodo = await pool.query(`SELECT auto_key FROM org_chart_nodes WHERE id = $1`, [nodeId]);
+  const clave = nodo.rows[0]?.auto_key || null;
+  const delSistema = clave ? (await personalAutomatico([clave]))[clave] || [] : [];
+  const yaEsta = new Set(delSistema.map(p => p.user_id));
+  const aMano = await pool.query(
+    `SELECT a.user_id, u.full_name, u.role, u.profile_photo_url, u.employee_number
+       FROM org_chart_assignments a JOIN users u ON u.id = a.user_id
+      WHERE a.node_id = $1 ORDER BY u.full_name`,
+    [nodeId]
+  );
+  return [...delSistema, ...aMano.rows.filter(p => !yaEsta.has(p.user_id))];
+};
+
+// ============================================
 // GET /api/admin/hr/org-chart  → árbol completo + asignados + conteo de tareas
 // ============================================
 export const getOrgChart = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureOrgTables();
     const nodesRes = await pool.query(`
-      SELECT n.id, n.parent_id, n.node_type, n.title, n.description, n.sort_order,
+      SELECT n.id, n.parent_id, n.node_type, n.title, n.description, n.sort_order, n.auto_key,
              COALESCE((SELECT COUNT(*)::int FROM org_position_tasks t WHERE t.node_id = n.id), 0) AS task_count
         FROM org_chart_nodes n
        ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.id
@@ -209,7 +316,20 @@ export const getOrgChart = async (_req: Request, res: Response): Promise<any> =>
         profile_photo_url: r.profile_photo_url, employee_number: r.employee_number,
       });
     }
-    const nodes = nodesRes.rows.map(n => ({ ...n, assignees: assignByNode[n.id] || [] }));
+    // Los puestos automáticos traen su gente del propio sistema; lo asignado a
+    // mano se suma encima, sin repetir a nadie.
+    const claves = Array.from(new Set(nodesRes.rows.map(n => n.auto_key).filter(Boolean)));
+    const auto = await personalAutomatico(claves as string[]);
+
+    const nodes = nodesRes.rows.map(n => {
+      const aMano = assignByNode[n.id] || [];
+      const delSistema = n.auto_key ? (auto[n.auto_key] || []) : [];
+      const yaEsta = new Set(delSistema.map(p => p.user_id));
+      return {
+        ...n,
+        assignees: [...delSistema, ...aMano.filter(p => !yaEsta.has(p.user_id))],
+      };
+    });
     res.json({ nodes });
   } catch (error) {
     console.error('Error getOrgChart:', error);
@@ -308,13 +428,7 @@ export const assignPersonToNode = async (req: Request, res: Response): Promise<a
        VALUES ($1, $2, $3) ON CONFLICT (node_id, user_id) DO NOTHING`,
       [nodeId, parseInt(user_id), (req as any).user?.id || null]
     );
-    const r = await pool.query(
-      `SELECT a.user_id, u.full_name, u.role, u.profile_photo_url, u.employee_number
-         FROM org_chart_assignments a JOIN users u ON u.id = a.user_id
-        WHERE a.node_id = $1 ORDER BY u.full_name`,
-      [nodeId]
-    );
-    res.json({ assignees: r.rows });
+    res.json({ assignees: await asignadosDeNodo(nodeId) });
   } catch (error) {
     console.error('Error assignPersonToNode:', error);
     res.status(500).json({ error: 'Error al asignar personal' });
