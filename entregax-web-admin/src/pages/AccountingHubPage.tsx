@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Grid, Card, CardContent, CardActionArea, Avatar,
   Button, Chip, CircularProgress, Alert, Tabs, Tab, Table, TableContainer, TableHead, TableRow, TableCell,
@@ -25,6 +25,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import MoveToInboxIcon from '@mui/icons-material/MoveToInbox';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import ContactsIcon from '@mui/icons-material/Contacts';
 import SyncIcon from '@mui/icons-material/Sync';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -334,6 +335,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           <Tab label="Facturas Recibidas" icon={<MoveToInboxIcon />} iconPosition="start" />
           <Tab label="Cuentas por Pagar" icon={<PaidIcon />} iconPosition="start" />
           <Tab label="Movimientos Banco" icon={<AccountBalanceIcon />} iconPosition="start" />
+          <Tab label="Directorio Fiscal" icon={<ContactsIcon />} iconPosition="start" />
         </Tabs>
 
         <Box sx={{ p: 2 }}>
@@ -343,6 +345,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           {tab === 3 && <ReceivedInvoicesTab emitter={emitter} />}
           {tab === 4 && <AccountsPayableTab emitter={emitter} />}
           {tab === 5 && <BankMovementsTab emitter={emitter} />}
+          {tab === 6 && <DirectorioFiscalTab />}
         </Box>
       </Paper>
     </Box>
@@ -1116,6 +1119,8 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
 
   // Receptor
   const [clientQuery, setClientQuery] = useState('');
+  const [guardandoDirectorio, setGuardandoDirectorio] = useState(false);
+  const [avisoDirectorio, setAvisoDirectorio] = useState<string | null>(null);
   const [clientOptions, setClientOptions] = useState<any[]>([]);
   const [selectedClient, setSelectedClient] = useState<any | null>(null);
   const [receptor, setReceptor] = useState({
@@ -1222,7 +1227,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
     if (c) {
       const rfcUpper = (c.rfc || '').toUpperCase();
       const regimen = c.regimen_fiscal || '616';
-      let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : 'G03';
+      let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : (c.uso_cfdi || 'G03');
       let hasIncompatibility = false;
       // Regímenes de personas físicas: usar S01 en lugar de G03
       // Solo cambiar a S01 si el régimen realmente NO admite G03 según el catálogo
@@ -1389,11 +1394,46 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
               onChange={(_, v) => applyClient(v)}
               onInputChange={(_, v) => setClientQuery(v)}
               getOptionLabel={(o) => `${o.box_id ? `[${o.box_id}] ` : ''}${o.razon_social || o.full_name || ''} (${o.rfc})`}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              renderInput={(p) => <TextField {...p} size="small" label="Buscar cliente existente (No. cliente, RFC, razón social, email)" />}
-              noOptionsText="Sin resultados — escribe los datos manualmente abajo"
+              isOptionEqualToValue={(a, b) => (a.key || a.id) === (b.key || b.id)}
+              renderInput={(p) => <TextField {...p} size="small" label="Buscar en el directorio fiscal (RFC, razón social, cliente o casillero)" />}
+              noOptionsText="No está en el directorio — captúralo abajo y guárdalo"
             />
             <Divider><Chip label="Datos fiscales del receptor" size="small" /></Divider>
+            {/* Alta directa desde la facturación: lo que se captura aquí se
+                guarda en el directorio para que la próxima vez sólo se busque
+                (tarea 582). */}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -1 }}>
+              <Button
+                size="small" startIcon={<SaveIcon fontSize="small" />}
+                disabled={!receptorValid || guardandoDirectorio}
+                onClick={async () => {
+                  setGuardandoDirectorio(true);
+                  try {
+                    const r = await api.post('/accounting/directorio-fiscal', {
+                      razon_social: receptor.razon_social,
+                      rfc: receptor.rfc,
+                      codigo_postal: receptor.cp,
+                      regimen_fiscal: receptor.regimen_fiscal,
+                      uso_cfdi: receptor.uso_cfdi,
+                      email: receptor.email,
+                      user_id: receptor.user_id || null,
+                    });
+                    setAvisoDirectorio(r.data?.id ? 'Guardado en el directorio fiscal' : 'Guardado');
+                  } catch (e: any) {
+                    setAvisoDirectorio(e?.response?.data?.error || 'No se pudo guardar en el directorio');
+                  } finally { setGuardandoDirectorio(false); }
+                }}
+                sx={{ textTransform: 'none', color: ORANGE }}
+              >
+                {guardandoDirectorio ? 'Guardando…' : 'Guardar en el directorio fiscal'}
+              </Button>
+            </Box>
+            {avisoDirectorio && (
+              <Alert severity={/no se pudo|ya está/i.test(avisoDirectorio) ? 'warning' : 'success'}
+                onClose={() => setAvisoDirectorio(null)} sx={{ mt: -1 }}>
+                {avisoDirectorio}
+              </Alert>
+            )}
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 4 }}>
                 <TextField fullWidth size="small" label="RFC *" value={receptor.rfc}
@@ -3780,5 +3820,269 @@ function CounterAccessManager({ emitters, onClose }: { emitters: Emitter[]; onCl
         <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
       </Snackbar>
     </Paper>
+  );
+}
+
+// ============================================
+// DIRECTORIO FISCAL
+//
+// La libreta de razones sociales a las que se factura (tarea 582). Trae las de
+// los clientes ya dados de alta y deja guardar las que no son de nadie: la
+// razón social de un tercero, o una factura que no pasó por el sistema.
+// No da de alta clientes.
+// ============================================
+function DirectorioFiscalTab() {
+  const [registros, setRegistros] = useState<any[]>([]);
+  const [buscar, setBuscar] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [editando, setEditando] = useState<any | null>(null);
+  const [aviso, setAviso] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
+
+  const cargar = useCallback(async (texto?: string) => {
+    setCargando(true);
+    try {
+      const r = await api.get('/accounting/directorio-fiscal', { params: texto ? { buscar: texto } : {} });
+      setRegistros(r.data?.registros || []);
+    } catch (e: any) {
+      setAviso({ msg: e?.response?.data?.error || 'No se pudo cargar el directorio', sev: 'error' });
+    } finally { setCargando(false); }
+  }, []);
+
+  useEffect(() => { cargar(); }, [cargar]);
+  useEffect(() => {
+    const t = setTimeout(() => cargar(buscar.trim() || undefined), 350);
+    return () => clearTimeout(t);
+  }, [buscar, cargar]);
+
+  const quitar = async (r: any) => {
+    if (!window.confirm(`¿Quitar ${r.razon_social} (${r.rfc}) del directorio?\n\nDeja de aparecer al facturar. No se borra: las facturas ya emitidas a ese RFC no se tocan.`)) return;
+    try {
+      await api.delete(`/accounting/directorio-fiscal/${r.id}`);
+      setAviso({ msg: 'Quitado del directorio', sev: 'success' });
+      cargar(buscar.trim() || undefined);
+    } catch (e: any) {
+      setAviso({ msg: e?.response?.data?.error || 'No se pudo quitar', sev: 'error' });
+    }
+  };
+
+  return (
+    <Box>
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Las razones sociales a las que se factura. Aquí están las de los clientes dados de alta y las que
+        agregues a mano — la razón social de un tercero, o una factura que no pasó por el sistema.
+        Al emitir un CFDI las buscas aquí en vez de volver a capturarlas. <strong>Esto no da de alta clientes.</strong>
+      </Alert>
+
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <TextField
+          size="small" sx={{ flex: 1, minWidth: 260 }}
+          placeholder="Buscar por RFC, razón social, cliente o casillero…"
+          value={buscar} onChange={(e) => setBuscar(e.target.value)}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+        />
+        <Button variant="contained" startIcon={<AddIcon />}
+          onClick={() => setEditando({ nuevo: true, razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '601', uso_cfdi: 'G03', email: '', alias: '', notas: '' })}
+          sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}>
+          Agregar razón social
+        </Button>
+        {cargando && <CircularProgress size={20} />}
+      </Box>
+
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 900 }}>
+          <TableHead>
+            <TableRow sx={{ bgcolor: '#fafafa' }}>
+              <TableCell>Razón social</TableCell>
+              <TableCell>RFC</TableCell>
+              <TableCell>Régimen / Uso</TableCell>
+              <TableCell>CP</TableCell>
+              <TableCell>Cliente</TableCell>
+              <TableCell align="right">Acciones</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {registros.length === 0 ? (
+              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                {buscar ? 'Nada con esa búsqueda.' : 'El directorio está vacío.'}
+              </TableCell></TableRow>
+            ) : registros.map((r) => (
+              <TableRow key={r.id} hover>
+                <TableCell>
+                  <Typography fontSize={14} fontWeight={600}>{r.razon_social}</Typography>
+                  {r.alias && <Typography variant="caption" color="text.secondary">{r.alias}</Typography>}
+                </TableCell>
+                <TableCell sx={{ fontFamily: 'monospace', fontSize: 13 }}>{r.rfc}</TableCell>
+                <TableCell><Typography variant="caption">{r.regimen_fiscal} / {r.uso_cfdi || '—'}</Typography></TableCell>
+                <TableCell>{r.codigo_postal}</TableCell>
+                <TableCell>
+                  {r.user_id ? (
+                    <Box>
+                      <Typography fontSize={13}>{r.cliente_nombre}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {r.cliente_casillero}{r.is_default ? ' · principal' : ''}
+                      </Typography>
+                    </Box>
+                  ) : <Chip size="small" variant="outlined" label="Sin cliente" />}
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Editar">
+                    <IconButton size="small" onClick={() => setEditando({ ...r })}><EditIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  <Tooltip title={r.user_id && r.is_default ? 'Es la razón social principal del cliente: se cambia desde su ficha' : 'Quitar del directorio'}>
+                    <span>
+                      <IconButton size="small" disabled={!!(r.user_id && r.is_default)} onClick={() => quitar(r)}
+                        sx={{ color: '#9E9E9E', '&:hover': { color: '#C62828' } }}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {editando && (
+        <EditarRazonSocialDialog
+          registro={editando}
+          onClose={() => setEditando(null)}
+          onGuardado={(msg) => { setEditando(null); setAviso({ msg, sev: 'success' }); cargar(buscar.trim() || undefined); }}
+        />
+      )}
+
+      <Snackbar open={!!aviso} autoHideDuration={5000} onClose={() => setAviso(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={aviso?.sev || 'success'} onClose={() => setAviso(null)}>{aviso?.msg}</Alert>
+      </Snackbar>
+    </Box>
+  );
+}
+
+/** Alta y edición de una razón social del directorio. */
+function EditarRazonSocialDialog({ registro, onClose, onGuardado }: {
+  registro: any; onClose: () => void; onGuardado: (msg: string) => void;
+}) {
+  const esNuevo = !!registro.nuevo;
+  const [d, setD] = useState({
+    razon_social: registro.razon_social || '',
+    rfc: registro.rfc || '',
+    codigo_postal: registro.codigo_postal || '',
+    regimen_fiscal: registro.regimen_fiscal || '601',
+    uso_cfdi: registro.uso_cfdi || 'G03',
+    email: registro.email || '',
+    alias: registro.alias || '',
+    notas: registro.notas || '',
+  });
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Cambiar la principal de un cliente le cambia también su ficha: es la que ve
+  // en su portal y la que usan las órdenes de pago de su asesor.
+  const tocaFichaDelCliente = !esNuevo && !!registro.user_id && !!registro.is_default;
+
+  const valido = !!d.razon_social.trim()
+    && /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(d.rfc.trim().toUpperCase())
+    && /^\d{5}$/.test(d.codigo_postal.trim())
+    && !!d.regimen_fiscal;
+
+  const guardar = async () => {
+    if (tocaFichaDelCliente && !window.confirm(
+      `Vas a cambiar los datos fiscales de ${registro.cliente_nombre} (${registro.cliente_casillero}).\n\n` +
+      'Es su razón social principal: los va a ver en su portal y se van a usar en sus próximas órdenes de pago.\n\n¿Continuar?'
+    )) return;
+    setGuardando(true); setError(null);
+    try {
+      if (esNuevo) {
+        await api.post('/accounting/directorio-fiscal', d);
+        onGuardado('Razón social agregada al directorio');
+      } else {
+        const r = await api.put(`/accounting/directorio-fiscal/${registro.id}`, d);
+        onGuardado(r.data?.ficha_actualizada
+          ? 'Guardado. También se actualizó la ficha del cliente.'
+          : 'Guardado');
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'No se pudo guardar');
+    } finally { setGuardando(false); }
+  };
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 700 }}>
+        {esNuevo ? 'Agregar razón social' : 'Editar razón social'}
+      </DialogTitle>
+      <DialogContent>
+        {esNuevo && (
+          <Alert severity="info" sx={{ mt: 1, mb: 2 }}>
+            Se guarda solo para facturar. No se crea ningún cliente ni cuenta.
+          </Alert>
+        )}
+        {tocaFichaDelCliente && (
+          <Alert severity="warning" sx={{ mt: 1, mb: 2 }}>
+            Es la razón social <strong>principal</strong> de {registro.cliente_nombre} ({registro.cliente_casillero}).
+            Lo que cambies aquí le cambia su ficha: lo verá en su portal y se usará en sus órdenes de pago.
+          </Alert>
+        )}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Grid container spacing={2} sx={{ mt: 0 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <TextField fullWidth size="small" label="RFC *" value={d.rfc}
+              onChange={(e) => setD({ ...d, rfc: e.target.value.toUpperCase() })}
+              inputProps={{ style: { fontFamily: 'monospace' }, maxLength: 13 }} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 8 }}>
+            <TextField fullWidth size="small" label="Razón social *" value={d.razon_social}
+              onChange={(e) => setD({ ...d, razon_social: e.target.value })} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Régimen fiscal *</InputLabel>
+              <Select label="Régimen fiscal *" value={d.regimen_fiscal}
+                onChange={(e) => {
+                  const reg = String(e.target.value);
+                  const permitidos = USO_CFDI_BY_REGIMEN[reg];
+                  const arregla = permitidos && !permitidos.includes(d.uso_cfdi);
+                  setD({ ...d, regimen_fiscal: reg, uso_cfdi: arregla ? pickFallbackUsoCfdi(reg) : d.uso_cfdi });
+                }}>
+                {REGIMEN_FISCAL_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <TextField fullWidth size="small" label="CP *" value={d.codigo_postal}
+              onChange={(e) => setD({ ...d, codigo_postal: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Uso CFDI</InputLabel>
+              <Select label="Uso CFDI" value={d.uso_cfdi}
+                onChange={(e) => setD({ ...d, uso_cfdi: String(e.target.value) })}>
+                {filterUsoCfdiByRegimen(d.regimen_fiscal).map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <TextField fullWidth size="small" label="Correo para enviar la factura" value={d.email}
+              onChange={(e) => setD({ ...d, email: e.target.value })} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <TextField fullWidth size="small" label="Alias (para encontrarla rápido)" value={d.alias}
+              onChange={(e) => setD({ ...d, alias: e.target.value })} />
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <TextField fullWidth size="small" label="Notas" value={d.notas} multiline rows={2}
+              onChange={(e) => setD({ ...d, notas: e.target.value })} />
+          </Grid>
+        </Grid>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={guardando}>Cancelar</Button>
+        <Button variant="contained" onClick={guardar} disabled={!valido || guardando}
+          sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}>
+          {guardando ? 'Guardando…' : 'Guardar'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
