@@ -118,10 +118,27 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   // Servicio real (era fijo "PO Box USA - Carga Aérea" incluso para DHL).
   const isDhlQuote = (data.packages || []).some((p: any) => /DHL/i.test(String(p.service_type || p.servicio || p.shipment_type || '')) ) || String((data as any).service_type || '').toUpperCase() === 'AA_DHL';
   const svcLabel = isDhlQuote ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
-  // Sub-renglón informativo de una guía DHL (mismo estilo que el PDF del asesor).
-  const subRow = (etiqueta: string, valor: number): string => Number(valor) > 0
-    ? `<tr style="background:#FFF8F0"><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td colspan="4" style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#555">&nbsp;↳ ${etiqueta}</td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#555">${formatCurrency(Number(valor))}</td></tr>`
-    : '';
+  // Columnas de desglose de una guía DHL: importación, impuestos, envío y total.
+  // La importación se saca restando, para que los renglones siempre sumen lo que
+  // se está cobrando aunque el tipo de cambio traiga redondeos (tarea 282).
+  const montoGuia = (pkg: any): number => Number(pkg.venta_mxn ?? (pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
+  const celdasDhl = (pkg: any): string => {
+    const celda = (contenido: string, extra = '') => `<td style="padding:6px 5px;border-bottom:1px solid #eee;font-size:10.5px;text-align:right;white-space:nowrap;${extra}">${contenido}</td>`;
+    const chica = (t: string) => `<br><span style="font-size:8.5px;color:#666;">${t}</span>`;
+    const total = montoGuia(pkg);
+    const impuestos = Number(pkg.import_tax_mxn) || 0;
+    const envio = Number(pkg.national_cost_mxn) || 0;
+    const importacion = Math.max(0, total - impuestos - envio);
+    const usd = Number(pkg.import_cost_usd) || 0;
+    const tc = Number(pkg.exchange_rate) || 0;
+    const paqueteria = carrierLabel(pkg.national_carrier);
+    return celda(formatCurrency(importacion) + (usd > 0 && tc > 0 ? chica(`${usd.toFixed(2)} USD × $${tc.toFixed(2)}`) : ''))
+      + celda(impuestos > 0 ? formatCurrency(impuestos) : '—')
+      + celda((envio > 0 ? formatCurrency(envio) : '—') + (envio > 0 && paqueteria !== '—' ? chica(paqueteria) : ''))
+      + celda(formatCurrency(total), 'font-weight:600;');
+  };
+  // En DHL la tabla abre el desglose en columnas, así que lleva dos más.
+  const totalCols = isDhlQuote ? 8 : 6;
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
@@ -133,25 +150,21 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       const carrier = carrierLabel(pkg.national_carrier);
       // En DHL el costo de PO Box no existe y saldo_pendiente queda en 0 al
       // pagarse: por eso las guías salían en $0.00 (tarea 282).
-      const cost = formatCurrency(Number(pkg.venta_mxn ?? (pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0)));
-      const fila = `
-        <tr>
+      const cost = formatCurrency(montoGuia(pkg));
+      const comunes = `
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}${intTrk}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${weight}</td>
-          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${dims}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${dims}</td>`;
+      // DHL: el monto de la guía junta importación, impuesto y paquetería. Cada
+      // concepto va en su columna para que el cliente lea de corrido de qué se
+      // compone lo que paga (tarea 282).
+      if (isDhlQuote) return `<tr>${comunes}${celdasDhl(pkg)}</tr>`;
+      return `
+        <tr>${comunes}
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${carrier}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: right; font-weight: 600;">${cost}</td>
         </tr>`;
-      if (!isDhlQuote) return fila;
-      // DHL: el monto de la guía junta importación, impuesto y paquetería. Se abre
-      // para que el cliente vea de qué se compone (tarea 282).
-      const tc = Number(pkg.exchange_rate) || 0;
-      const impo = (Number(pkg.import_cost_usd) || 0) * tc;
-      return fila
-        + subRow(`Importación${Number(pkg.import_cost_usd) > 0 && tc > 0 ? ` (${Number(pkg.import_cost_usd).toFixed(2)} USD × TC $${tc.toFixed(2)})` : ''}`, impo)
-        + subRow('Impuestos de importación', Number(pkg.import_tax_mxn) || 0)
-        + subRow(`Paquetería nacional${carrier !== '—' ? ` — ${carrier}` : ''}`, Number(pkg.national_cost_mxn) || 0);
     }).join('');
   }
 
@@ -160,7 +173,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   const bd = data.cost_breakdown || {};
   const breakdownRow = (label: string, val: number, color?: string): string =>
     Number(val) !== 0
-      ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'};">${formatCurrency(Number(val))}</td></tr>`
+      ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="${totalCols - 2}" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'};">${formatCurrency(Number(val))}</td></tr>`
       : '';
   // DHL: cada guía ya trae su desglose arriba; aquí solo la suma y, si el cobro
   // no cuadra con las guías, el ajuste o descuento. Antes el remanente se
@@ -303,15 +316,20 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
           <th>Guía / Tracking</th>
           <th style="text-align:center;">Peso</th>
           <th style="text-align:center;">Medidas</th>
-          <th style="text-align:center;">Paquetería</th>
-          <th style="text-align:right;">Monto (MXN)</th>
+          ${isDhlQuote
+            ? `<th style="text-align:right;padding:8px 5px;">Importación</th>
+          <th style="text-align:right;padding:8px 5px;">Impuestos</th>
+          <th style="text-align:right;padding:8px 5px;">Envío</th>
+          <th style="text-align:right;padding:8px 5px;">Total (MXN)</th>`
+            : `<th style="text-align:center;">Paquetería</th>
+          <th style="text-align:right;">Monto (MXN)</th>`}
         </tr>
       </thead>
       <tbody>
         ${packageRows}
         ${breakdownRows}
         <tr class="total-row">
-          <td colspan="5" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
+          <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
           <td style="text-align:right; color: #E65100; font-size: 14px;">${totalFormatted} ${data.currency || 'MXN'}</td>
         </tr>
       </tbody>

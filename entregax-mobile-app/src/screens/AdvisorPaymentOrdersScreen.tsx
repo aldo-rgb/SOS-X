@@ -118,10 +118,25 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
     || String((order as any).service_type_cfg || '').toUpperCase() === 'AA_DHL';
   const svcLabel = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aerea';
 
-  // Sub-renglon informativo de una guia DHL (mismo estilo que el PDF de la web).
-  const subRow = (etiqueta: string, valor: number): string => Number(valor) > 0
-    ? `<tr style="background:#FFF8F0"><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td colspan="4" style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#555">&nbsp;↳ ${etiqueta}</td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#555">${fmt(valor)}</td></tr>`
-    : '';
+  // En DHL la tabla abre el desglose en columnas, asi que lleva dos mas.
+  const totalCols = isDhlOp ? 8 : 6;
+  // Columnas de desglose de una guia DHL: importacion, impuestos, envio y total.
+  // La importacion se saca restando, para que los renglones siempre sumen lo que
+  // se esta cobrando aunque el tipo de cambio traiga redondeos (tarea 282).
+  const celdasDhl = (it: any): string => {
+    const celda = (contenido: string, extra = '') => `<td style="padding:6px 5px;border-bottom:1px solid #eee;font-size:10.5px;text-align:right;white-space:nowrap;${extra}">${contenido}</td>`;
+    const chica = (t: string) => `<br><span style="font-size:8.5px;color:#666">${t}</span>`;
+    const total = Number(it.venta_mxn) || 0;
+    const impuestos = Number(it.import_tax_mxn) || 0;
+    const envio = Number(it.national_cost_mxn) || 0;
+    const importacion = Math.max(0, total - impuestos - envio);
+    const usd = Number(it.import_cost_usd) || 0;
+    const tc = Number(it.exchange_rate) || 0;
+    return celda(fmt(importacion) + (usd > 0 && tc > 0 ? chica(`${usd.toFixed(2)} USD x $${tc.toFixed(2)}`) : ''))
+      + celda(impuestos > 0 ? fmt(impuestos) : '—')
+      + celda((envio > 0 ? fmt(envio) : '—') + (envio > 0 && it.tipo && it.tipo !== '—' ? chica(it.tipo) : ''))
+      + celda(fmt(total), 'font-weight:600');
+  };
 
   let pkgRows = '';
   if (items.length > 0) {
@@ -129,23 +144,21 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
       const monto = Number(it.venta_mxn || 0);
       const peso  = it.weight ? `${Number(it.weight).toFixed(1)} kg` : '—';
       const tipo  = it.total_boxes ? `${it.tipo} (${it.total_boxes} cajas)` : (it.tipo || '—');
-      pkgRows += `<tr>
+      const dims = ((it as any).lengthCm || 0) > 0 || ((it as any).widthCm || 0) > 0 || ((it as any).heightCm || 0) > 0
+        ? `${(it as any).lengthCm}×${(it as any).widthCm}×${(it as any).heightCm} cm` : '—';
+      const comunes = `
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${it.tracking || '—'}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${peso}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">—</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${dims}</td>`;
+      // El monto de la guia DHL junta importacion, impuesto y paqueteria: cada
+      // concepto va en su columna para que se lea de que se compone (tarea 282).
+      pkgRows += isDhlOp
+        ? `<tr>${comunes}${celdasDhl(it)}</tr>`
+        : `<tr>${comunes}
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${tipo}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(monto)}</td>
       </tr>`;
-      if (String(it.service_type || '').toUpperCase() === 'AA_DHL') {
-        // El monto de la guia junta importacion, impuesto y paqueteria: se abre
-        // para que el cliente vea de que se compone (tarea 282).
-        const tc = Number(it.exchange_rate) || 0;
-        const impo = (Number(it.import_cost_usd) || 0) * tc;
-        pkgRows += subRow(`Importacion${Number(it.import_cost_usd) > 0 && tc > 0 ? ` (${Number(it.import_cost_usd).toFixed(2)} USD x TC $${tc.toFixed(2)})` : ''}`, impo);
-        pkgRows += subRow('Impuestos de importacion', Number(it.import_tax_mxn) || 0);
-        pkgRows += subRow(`Paqueteria nacional${it.tipo && it.tipo !== 'DHL' ? ` - ${it.tipo}` : ''}`, Number(it.national_cost_mxn) || 0);
-      }
       (it.children || []).forEach((c, ci) => {
         const cdims = (c.lengthCm || 0) > 0 || (c.widthCm || 0) > 0 || (c.heightCm || 0) > 0
           ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
@@ -156,6 +169,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cpeso}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
+          ${isDhlOp ? '<td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td>' : ''}
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">${fmt(c.venta_mxn)}</td>
         </tr>`;
@@ -163,7 +177,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
     });
   } else {
     (order.trackings || []).forEach((t, i) => {
-      pkgRows += `<tr><td style="padding:6px 8px;font-size:11px">${i + 1}</td><td colspan="5" style="padding:6px 8px;font-size:11px;font-family:monospace">${t}</td></tr>`;
+      pkgRows += `<tr><td style="padding:6px 8px;font-size:11px">${i + 1}</td><td colspan="${totalCols - 1}" style="padding:6px 8px;font-size:11px;font-family:monospace">${t}</td></tr>`;
     });
   }
 
@@ -171,7 +185,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   // Filas de desglose (Paquetería / GEX / Cargos Extra), igual que el PDF del
   // cliente. PO Box queda implícito en las filas por guía.
   const bd = costBreakdown || {};
-  const brkRow = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'}">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'}">${fmt(val)}</td></tr>` : '';
+  const brkRow = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="${totalCols - 2}" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'}">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'}">${fmt(val)}</td></tr>` : '';
   const ajusteDhl = Number(bd.dhl_ajuste) || 0;
   const breakdownRows = isDhlOp
     // DHL: las guias ya vienen abiertas arriba; aqui la suma y el ajuste.
@@ -220,14 +234,19 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
         <th>Guia / Tracking</th>
         <th style="text-align:center">Peso</th>
         <th style="text-align:center">Medidas</th>
-        <th style="text-align:center">Paqueteria</th>
-        <th style="text-align:right">Monto (MXN)</th>
+        ${isDhlOp
+          ? `<th style="text-align:right;padding:8px 5px">Importacion</th>
+        <th style="text-align:right;padding:8px 5px">Impuestos</th>
+        <th style="text-align:right;padding:8px 5px">Envio</th>
+        <th style="text-align:right;padding:8px 5px">Total (MXN)</th>`
+          : `<th style="text-align:center">Paqueteria</th>
+        <th style="text-align:right">Monto (MXN)</th>`}
       </tr></thead>
       <tbody>
         ${pkgRows}
         ${breakdownRows}
         <tr class="total-row">
-          <td colspan="5" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
+          <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
           <td style="text-align:right;color:#E65100;font-size:14px">${totalMxn} MXN</td>
         </tr>
       </tbody>
