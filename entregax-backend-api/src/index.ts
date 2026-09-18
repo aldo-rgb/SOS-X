@@ -639,7 +639,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaTareaDetalle } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import {
   requestAdvisor,
@@ -17496,6 +17496,8 @@ app.get('/api/zaia/health', zaiaHealth);
 app.get('/api/zaia/verify', zaiaVerify);   // diagnóstico de la llave, sin exponerla
 app.get('/api/zaia/tareas', zaiaTareas);
 app.get('/api/zaia/tarea/:id', zaiaTareaDetalle);   // detalle completo, con ligas firmadas
+app.get('/api/zaia/tickets', zaiaTickets);
+app.get('/api/zaia/ticket/:folio', zaiaTicketDetalle);
 app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
