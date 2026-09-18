@@ -907,44 +907,47 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
         const access = await checkEmitterAccess(userId!, role, emitterId);
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
+        // El buscador lee el DIRECTORIO FISCAL, no la ficha del cliente: ahí
+        // están todas las razones sociales, incluidas las adicionales de un
+        // cliente y las que no son de nadie (tarea 582). Antes salía una sola
+        // por cliente y lo demás había que escribirlo a mano cada vez.
+        const { ensureDirectorioFiscal, subirFichasDeClientes } = await import('./directorioFiscal');
+        await ensureDirectorioFiscal();
+        await subirFichasDeClientes();
+
         const search = String(req.query.search || '').trim();
         const params: any[] = [];
-        let where = `WHERE u.fiscal_rfc IS NOT NULL AND LENGTH(TRIM(u.fiscal_rfc)) >= 12`;
+        let where = `WHERE COALESCE(p.activo, TRUE) = TRUE AND LENGTH(TRIM(p.rfc)) >= 12`;
         if (search) {
             params.push(`%${search}%`);
             where += ` AND (
-              u.fiscal_rfc ILIKE $${params.length}
-              OR u.fiscal_razon_social ILIKE $${params.length}
-              OR u.full_name ILIKE $${params.length}
-              OR u.email ILIKE $${params.length}
-              OR u.box_id ILIKE $${params.length}
+              p.rfc ILIKE $${params.length}
+              OR p.razon_social ILIKE $${params.length}
+              OR COALESCE(p.alias, '') ILIKE $${params.length}
+              OR COALESCE(u.full_name, '') ILIKE $${params.length}
+              OR COALESCE(u.email, '') ILIKE $${params.length}
+              OR COALESCE(u.box_id, '') ILIKE $${params.length}
             )`;
         }
 
         const r = await pool.query(`
-            SELECT u.id, u.full_name, u.email, u.box_id,
-                   UPPER(TRIM(u.fiscal_rfc)) AS rfc,
-                   COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
-                   u.fiscal_regimen_fiscal AS regimen_fiscal,
-                   u.fiscal_codigo_postal AS cp,
-                   COALESCE(NULLIF(TRIM(u.fiscal_email), ''), NULLIF(TRIM(u.email), '')) AS billing_email
-              FROM users u
+            SELECT p.user_id AS id,
+                   'DIR-' || p.id::text AS key,
+                   COALESCE(u.full_name, p.razon_social) AS full_name,
+                   COALESCE(NULLIF(TRIM(p.email), ''), u.email) AS email,
+                   u.box_id,
+                   UPPER(TRIM(p.rfc)) AS rfc,
+                   p.razon_social,
+                   p.regimen_fiscal,
+                   p.codigo_postal AS cp,
+                   p.uso_cfdi,
+                   COALESCE(NULLIF(TRIM(p.email), ''), NULLIF(TRIM(u.email), '')) AS billing_email
+              FROM client_fiscal_profiles p
+              LEFT JOIN users u ON u.id = p.user_id
              ${where}
-             ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
+             ORDER BY (p.user_id IS NULL), COALESCE(u.full_name, p.razon_social) ASC
              LIMIT 25
-        `, params).catch(() => pool.query(`
-            SELECT u.id, u.full_name, u.email, u.box_id,
-                   UPPER(TRIM(u.fiscal_rfc)) AS rfc,
-                   COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
-                   u.fiscal_regimen_fiscal AS regimen_fiscal,
-                   u.fiscal_codigo_postal AS cp,
-                   u.email AS billing_email
-              FROM users u
-             ${where}
-             ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
-             LIMIT 25
-        `, params));
-
+        `, params);
         return res.json({ success: true, clients: r.rows });
     } catch (e: any) {
         console.error('searchFiscalClients:', e);
