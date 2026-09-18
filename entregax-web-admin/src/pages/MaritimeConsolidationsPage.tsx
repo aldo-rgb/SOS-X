@@ -58,6 +58,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -1252,6 +1253,8 @@ const MaritimeConsolidationsPage: React.FC = () => {
             <Alert severity="info">
               {t('maritimeConsolidations.plModal.formats')}
             </Alert>
+            <ZonaSoltar soloUno texto="Suelta aquí el packing list"
+              alSoltar={(archivos) => setPackingListDialog({ ...packingListDialog, file: archivos[0]! })}>
             <Button
               variant="outlined"
               component="label"
@@ -1272,6 +1275,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                 }}
               />
             </Button>
+            </ZonaSoltar>
           </Box>
         </DialogContent>
         <DialogActions>

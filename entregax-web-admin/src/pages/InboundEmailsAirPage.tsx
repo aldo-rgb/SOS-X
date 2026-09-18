@@ -5,6 +5,7 @@
 // ============================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import ZonaSoltar from '../components/ZonaSoltar';
 import {
     Box,
     Typography,
@@ -1337,7 +1338,8 @@ export default function InboundEmailsAirPage() {
                     <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
                         📄 Guía Aérea (AWB) - PDF *
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+                    <ZonaSoltar sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }} soloUno texto={null}
+                        alSoltar={(archivos) => setUploadAwbFile(archivos[0] || null)}>
                         <input
                             ref={awbInputRef}
                             type="file"
@@ -1360,13 +1362,14 @@ export default function InboundEmailsAirPage() {
                                 sx={{ bgcolor: AIR_BG, color: AIR_COLOR, maxWidth: 200 }}
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     {/* Packing List Excel */}
                     <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
                         📊 Packing List - Excel (opcional)
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+                    <ZonaSoltar sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }} soloUno texto={null}
+                        alSoltar={(archivos) => setUploadExcelFile(archivos[0] || null)}>
                         <input
                             ref={excelInputRef}
                             type="file"
@@ -1389,7 +1392,7 @@ export default function InboundEmailsAirPage() {
                                 sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', maxWidth: 200 }}
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     {/* Validation chips */}
                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>

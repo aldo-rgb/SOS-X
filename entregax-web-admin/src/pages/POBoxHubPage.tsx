@@ -98,6 +98,7 @@ import RepackPage from './RepackPage';
 import POBoxInventoryPage from './POBoxInventoryPage';
 import POBoxConsolidationReceptionWizard from './POBoxConsolidationReceptionWizard';
 import AssignClientPage from './AssignClientPage';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 // Interfaces para cotización
 interface CotizacionResultado {
@@ -2468,7 +2469,13 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                         </Box>
                                                     </Box>
                                                 ) : (
-                                                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                                                    <ZonaSoltar sx={{ display: 'flex', gap: 2, justifyContent: 'center', p: 1 }} soloUno
+                                                        texto="Suelta aquí la foto del paquete"
+                                                        alSoltar={(archivos) => {
+                                                            const reader = new FileReader();
+                                                            reader.onload = (ev) => setBulkImage(ev.target?.result as string);
+                                                            reader.readAsDataURL(archivos[0]!);
+                                                        }}>
                                                         <Button variant="contained" startIcon={<VideocamIcon />} onClick={openBulkCamera} sx={{ bgcolor: ORANGE }}>
                                                             Abrir Cámara
                                                         </Button>
@@ -2488,7 +2495,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                                 }}
                                                             />
                                                         </Button>
-                                                    </Box>
+                                                    </ZonaSoltar>
                                                 )}
                                             </Card>
                                         </Grid>

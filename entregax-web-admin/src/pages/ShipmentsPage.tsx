@@ -41,6 +41,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 // ============ CONSTANTES ============
 const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colombia', 'España', 'Otro'];
@@ -2316,7 +2317,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                           </IconButton>
                         </Box>
                       ) : (
-                        <Box sx={{ display: 'flex', gap: 2 }}>
+                        <ZonaSoltar sx={{ display: 'flex', gap: 2, p: 1 }} soloUno
+                          texto="Suelta aquí la foto del paquete"
+                          alSoltar={(archivos) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => setPackageImage(reader.result as string);
+                            reader.readAsDataURL(archivos[0]!);
+                          }}>
                           {/* Botón para abrir cámara */}
                           <Button
                             variant="contained"
@@ -2364,7 +2371,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                               }}
                             />
                           </Button>
-                        </Box>
+                        </ZonaSoltar>
                       )}
                       <Typography variant="caption" color="text.secondary">
                         {i18n.language === 'es' 

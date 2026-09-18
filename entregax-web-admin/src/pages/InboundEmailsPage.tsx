@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect } from 'react';
+import ZonaSoltar from '../components/ZonaSoltar';
 import {
     Box,
     Typography,
@@ -2127,7 +2128,8 @@ export default function InboundEmailsPage() {
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📄 Bill of Lading (BL) - PDF *
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setFclBlFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".pdf"
@@ -2142,12 +2144,13 @@ export default function InboundEmailsPage() {
                                 size="small" 
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📜 Telex / ISF - PDF
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setFclTelexFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png"
@@ -2162,12 +2165,13 @@ export default function InboundEmailsPage() {
                                 size="small"
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📝 ISF - Word
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setFclIsfFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".doc,.docx"
@@ -2182,12 +2186,13 @@ export default function InboundEmailsPage() {
                                 size="small"
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         🧾 Invoice - PDF
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setFclInvoiceFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".pdf"
@@ -2202,12 +2207,13 @@ export default function InboundEmailsPage() {
                                 size="small"
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📊 Packing List - Excel
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setFclPackingFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".xlsx,.xls"
@@ -2225,7 +2231,7 @@ export default function InboundEmailsPage() {
                         <Typography variant="caption" color="text.secondary" display="block">
                             Debe incluir: códigos de cliente, número de cajas, peso y descripción
                         </Typography>
-                    </Box>
+                    </ZonaSoltar>
 
                     {/* Indicador de progreso de subida */}
                     {uploadLoading && (
@@ -2491,7 +2497,8 @@ export default function InboundEmailsPage() {
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📄 Bill of Lading (BL) - PDF *
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setLclBlFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".pdf"
@@ -2506,12 +2513,13 @@ export default function InboundEmailsPage() {
                                 size="small" 
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📜 TELEX o ISF
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setLclTelexFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png"
@@ -2526,12 +2534,13 @@ export default function InboundEmailsPage() {
                                 size="small" 
                             />
                         )}
-                    </Box>
+                    </ZonaSoltar>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📊 SUMMARY - Excel *
                     </Typography>
-                    <Box sx={{ mb: 2 }}>
+                    <ZonaSoltar sx={{ mb: 2 }} soloUno texto="Suelta aquí el archivo"
+                        alSoltar={(archivos) => setLclSummaryFile(archivos[0] || null)}>
                         <input
                             type="file"
                             accept=".xlsx,.xls"
@@ -2549,7 +2558,7 @@ export default function InboundEmailsPage() {
                         <Typography variant="caption" color="text.secondary" display="block">
                             Columnas: C=LOG, D=Tipo Mercancía (S/B), M=Battery, N=Liquid, Q=Pick Up
                         </Typography>
-                    </Box>
+                    </ZonaSoltar>
 
                     {/* Indicador de progreso de subida LCL */}
                     {uploadProgress.status !== 'idle' && (

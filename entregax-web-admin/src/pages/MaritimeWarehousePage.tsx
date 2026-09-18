@@ -51,6 +51,7 @@ import {
   Lock as LockIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import ZonaSoltar from '../components/ZonaSoltar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -976,13 +977,14 @@ export default function MaritimeWarehousePage() {
           </Alert>
           
           {!extractedLogData ? (
-            <Box>
+            <ZonaSoltar soloUno texto="Suelta aquí el documento"
+              alSoltar={(archivos) => handleFileUpload(archivos[0]!)}>
               <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
-                style={{ display: 'none' }}
-                id="log-file-input"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+                  style={{ display: 'none' }}
+                  id="log-file-input"
               />
               <label htmlFor="log-file-input">
                 <Button
@@ -1010,7 +1012,7 @@ export default function MaritimeWarehousePage() {
                   </Button>
                 </Box>
               )}
-            </Box>
+            </ZonaSoltar>
           ) : (
             <Box>
               <Alert severity="success" sx={{ mb: 2 }}>
@@ -1115,13 +1117,14 @@ export default function MaritimeWarehousePage() {
           </Alert>
           
           {!extractedBlData ? (
-            <Box>
+            <ZonaSoltar soloUno texto="Suelta aquí el documento"
+              alSoltar={(archivos) => handleFileUpload(archivos[0]!)}>
               <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
-                style={{ display: 'none' }}
-                id="bl-file-input"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+                  style={{ display: 'none' }}
+                  id="bl-file-input"
               />
               <label htmlFor="bl-file-input">
                 <Button
@@ -1149,7 +1152,7 @@ export default function MaritimeWarehousePage() {
                   </Button>
                 </Box>
               )}
-            </Box>
+            </ZonaSoltar>
           ) : (
             <Box>
               <Alert severity="success" sx={{ mb: 2 }}>
