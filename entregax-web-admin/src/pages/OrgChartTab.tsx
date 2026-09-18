@@ -11,6 +11,7 @@ import {
   PersonAdd as PersonAddIcon, Assignment as TaskIcon, Groups as GroupsIcon,
   AccountTree as AccountTreeIcon, Close as CloseIcon, PlaylistAddCheck as ChecklistIcon,
   Print as PrintIcon, PersonOff as PersonOffIcon, ExpandMore as ExpandMoreIcon,
+  AutoMode as AutoIcon,
 } from '@mui/icons-material';
 
 const ORANGE = '#F05A28';
@@ -52,6 +53,8 @@ interface Assignee {
   role: string;
   profile_photo_url?: string | null;
   employee_number?: string | null;
+  /** La trae el sistema por su rol; no se asignó a mano. */
+  auto?: boolean;
 }
 interface OrgNode {
   id: number;
@@ -62,6 +65,8 @@ interface OrgNode {
   sort_order: number;
   task_count: number;
   assignees: Assignee[];
+  /** Puesto que se llena solo con la gente que el sistema ya conoce. */
+  auto_key?: string | null;
 }
 interface TaskItem { id: number; text: string; is_done: boolean; sort_order: number; }
 interface PositionTask { id: number; node_id: number; title: string; description: string | null; sort_order: number; items: TaskItem[]; }
@@ -284,6 +289,12 @@ export default function OrgChartTab() {
                   </AvatarGroup>
                 ) : (
                   <Chip size="small" variant="outlined" label="Sin asignar" sx={{ height: 22, fontSize: 11 }} />
+                )}
+                {node.auto_key && (
+                  <Tooltip title="Este puesto se llena solo con la gente que ya está dada de alta en el sistema">
+                    <Chip size="small" icon={<AutoIcon sx={{ fontSize: 15 }} />} label="Automático"
+                      sx={{ height: 22, fontSize: 11 }} variant="outlined" color="success" />
+                  </Tooltip>
                 )}
                 <Chip
                   size="small" icon={<TaskIcon sx={{ fontSize: 15 }} />}
@@ -535,6 +546,13 @@ function AssignDialog({ node, employees, onClose, onChanged, notify }: {
         <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
       </DialogTitle>
       <DialogContent>
+        {node.auto_key && (
+          <Alert severity="info" icon={<AutoIcon />} sx={{ mt: 1 }}>
+            Este puesto se llena solo: el sistema pone aquí a quien tenga el rol correspondiente.
+            Las altas y bajas se reflejan en cuanto se hacen. Abajo puedes agregar a alguien más que
+            no tenga ese rol pero sí ocupe el puesto.
+          </Alert>
+        )}
         <Stack direction="row" spacing={1} sx={{ mt: 1, mb: 2 }}>
           <Autocomplete
             sx={{ flex: 1 }} size="small" options={options} value={selected}
@@ -559,7 +577,14 @@ function AssignDialog({ node, employees, onClose, onChanged, notify }: {
                   <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{a.full_name}</Typography>
                   <Typography variant="caption" color="text.secondary">{roleLabel(a.role)}{a.employee_number ? ` · #${a.employee_number}` : ''}</Typography>
                 </Box>
-                <Tooltip title="Quitar del puesto"><IconButton size="small" color="error" onClick={() => remove(a.user_id)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                {a.auto ? (
+                  <Tooltip title="Está aquí por su rol en el sistema. Para quitarlo, cámbiale el rol o dale de baja en Personal.">
+                    <Chip size="small" icon={<AutoIcon sx={{ fontSize: 15 }} />} label="Por su rol"
+                      variant="outlined" color="success" sx={{ height: 22, fontSize: 11 }} />
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Quitar del puesto"><IconButton size="small" color="error" onClick={() => remove(a.user_id)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                )}
               </Paper>
             ))}
           </Stack>
