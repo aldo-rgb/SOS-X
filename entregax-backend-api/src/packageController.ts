@@ -5753,13 +5753,15 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             } else if (packageType === 'china_air' && Number(packageId) >= 200000) {
                 const realId = Number(packageId) - 200000;
                 existsQuery = await pool.query('SELECT id, user_id FROM china_receipts WHERE id = $1', [realId]);
+            } else if (packageType === 'dhl') {
+                // Las guias DHL viven en dhl_shipments y llegan con el id +300000.
+                // Se buscaban en la tabla packages, donde nunca estan, asi que
+                // cualquier fallo al asignar instrucciones respondia 'Paquete no
+                // encontrado' aunque la guia existiera (TKT-2026-2767).
+                const realDhlCheck = Number(packageId) >= 300000 ? Number(packageId) - 300000 : Number(packageId);
+                existsQuery = await pool.query('SELECT id, user_id FROM dhl_shipments WHERE id = $1', [realDhlCheck]);
             } else {
                 existsQuery = await pool.query('SELECT id, user_id FROM packages WHERE id = $1', [packageId]);
-            }
-            
-            if (!existsQuery && packageType === 'dhl') {
-                const realDhlCheck = Number(packageId) >= 300000 ? Number(packageId) - 300000 : Number(packageId);
-                existsQuery = await pool.query('SELECT id FROM dhl_shipments WHERE id = $1', [realDhlCheck]);
             }
             if (!existsQuery || existsQuery.rows.length === 0) {
                 console.log(`❌ Paquete ${packageId} no existe en la base de datos`);
