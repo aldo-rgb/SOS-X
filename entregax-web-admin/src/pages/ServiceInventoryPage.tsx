@@ -1319,7 +1319,9 @@ export default function ServiceInventoryPage() {
               </Button>
               {/* En modo sincronización el pago no es una acción aparte: va junto
                   con el status, porque la guía ya se cobró en el sistema anterior. */}
-              {!modoSincronizacion && (
+              {/* Marcar pagado sin que entre dinero es facultad de super_admin,
+                  igual que la ruta individual. El backend ya lo exige. */}
+              {!modoSincronizacion && isSuperAdmin && (
                 <Button variant="contained" size="small"
                   onClick={() => setBulkPaidOpen(true)}
                   disabled={bulkBusy}
