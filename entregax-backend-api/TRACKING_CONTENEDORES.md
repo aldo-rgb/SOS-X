@@ -104,6 +104,20 @@ El Paso**, con el asunto y el folio del correo, igual que los pulsos de ELP.
 Si estas dos equivalencias no son las correctas, se cambian en
 `ESTATUS_POR_PASO` dentro de `containerTimeline.ts`: es un solo lugar.
 
+### Pasos que no hace falta registrar
+
+Hay fechas que ya viven en el contenedor y estaban saliendo vacías:
+
+- **Paso 1** = la fecha de **alta del contenedor**. Así arranca el proceso en el
+  sistema: dar de alta el contenedor es cuando se manda la documentación para
+  el ISF. Los 46 la tienen.
+- **Paso 3** = la salida real del barco y, si no está, el ETD planeado. Hoy solo
+  2 de los 46 la tienen capturada.
+
+Lo registrado **siempre gana** sobre lo derivado: si alguien pone la fecha a
+mano o llega un pulso, esa es la buena. Se calcula al leer, no se guarda, así
+que no hay que migrar nada si cambia el criterio (ver `derivados()`).
+
 ### Pulsos de ELP → pasos 1, 2, 4 y 7
 
 Enganchados en `elpController.ts`, donde el proveedor manda su pulso. **Hoy no

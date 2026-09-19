@@ -119,6 +119,33 @@ export const registrarPaso = async (opts: {
   return r.rows[0]?.inserto ? 'nuevo' : 'ya_estaba';
 };
 
+/**
+ * Pasos que NO hace falta registrar porque su fecha ya vive en el contenedor.
+ *
+ * El paso 1 es la fecha de ALTA del contenedor: así arranca el proceso en el
+ * sistema, es cuando se manda la documentación para el ISF. Salía vacío aunque
+ * el dato estuviera ahí desde el principio.
+ *
+ * El paso 3 sale de la salida real del barco y, si no está, del ETD planeado.
+ *
+ * Lo registrado SIEMPRE gana sobre lo derivado: si alguien puso la fecha a
+ * mano o llegó un pulso, esa es la buena.
+ */
+const derivados = (c: any): Map<number, any> => {
+  const m = new Map<number, any>();
+  if (c?.created_at) m.set(1, { ocurrio_at: c.created_at, origen: 'alta del contenedor', fotos: [] });
+  const zarpo = c?.actual_departure || c?.planned_departure;
+  if (zarpo) m.set(3, { ocurrio_at: zarpo, origen: c?.actual_departure ? 'salida real' : 'ETD planeado', fotos: [] });
+  return m;
+};
+
+/** Une lo registrado con lo derivado. Lo registrado manda. */
+const mapaDePasos = (c: any, filas: any[]): Map<number, any> => {
+  const m = derivados(c);
+  for (const e of filas) m.set(e.paso, e);
+  return m;
+};
+
 const dias = (desde: any, hasta: any): number | null => {
   if (!desde || !hasta) return null;
   const a = new Date(desde).getTime(), b = new Date(hasta).getTime();
@@ -134,13 +161,13 @@ export const lineaDeTiempo = async (req: AuthRequest, res: Response): Promise<an
     await ensureLineaTiempo();
     const id = parseInt(String(req.params.id || ''), 10);
     const c = (await pool.query(
-      `SELECT id, container_number, status, eta, elp_notified_at, created_at FROM containers WHERE id = $1`, [id])).rows[0];
+      `SELECT id, container_number, status, eta, elp_notified_at, created_at, planned_departure, actual_departure FROM containers WHERE id = $1`, [id])).rows[0];
     if (!c) return res.status(404).json({ error: 'Contenedor no encontrado' });
 
     const ev = await pool.query(
       `SELECT paso, ocurrio_at, origen, detalle, fotos, correo_folio FROM container_timeline_events
         WHERE container_id = $1 ORDER BY paso`, [id]);
-    const registrados = new Map(ev.rows.map(e => [e.paso, e]));
+    const registrados = mapaDePasos(c, ev.rows);
 
     const ahora = new Date();
     let anterior: any = null;
@@ -385,7 +412,7 @@ export const lineaDeTiempoCliente = async (req: AuthRequest, res: Response): Pro
 
     // Que el contenedor de verdad lleve carga de este cliente.
     const c = (await pool.query(
-      `SELECT c.id, c.container_number, c.eta
+      `SELECT c.id, c.container_number, c.eta, c.created_at, c.planned_departure, c.actual_departure
          FROM containers c
         WHERE UPPER(TRIM(c.container_number)) = $1
           AND EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.container_id = c.id AND mo.user_id = $2)
@@ -395,7 +422,7 @@ export const lineaDeTiempoCliente = async (req: AuthRequest, res: Response): Pro
     const ev = await pool.query(
       `SELECT paso, ocurrio_at, detalle, fotos FROM container_timeline_events
         WHERE container_id = $1 ORDER BY paso`, [c.id]);
-    const reg = new Map(ev.rows.map(e => [e.paso, e]));
+    const reg = mapaDePasos(c, ev.rows);
 
     const ahora = new Date();
     let anterior: any = null;
@@ -443,7 +470,8 @@ export const buscarContenedor = async (req: AuthRequest, res: Response): Promise
     if (q.length < 3) return res.status(400).json({ error: 'Escribe al menos 3 caracteres.' });
 
     const c = (await pool.query(
-      `SELECT id, container_number, bl_number, reference_code, status, eta, elp_notified_at
+      `SELECT id, container_number, bl_number, reference_code, status, eta, elp_notified_at,
+              created_at, planned_departure, actual_departure
          FROM containers
         WHERE UPPER(TRIM(container_number)) = UPPER($1)
            OR UPPER(TRIM(COALESCE(bl_number, ''))) = UPPER($1)
@@ -454,7 +482,7 @@ export const buscarContenedor = async (req: AuthRequest, res: Response): Promise
     const ev = await pool.query(
       `SELECT paso, ocurrio_at, origen, detalle, fotos FROM container_timeline_events
         WHERE container_id = $1 ORDER BY paso`, [c.id]);
-    const reg = new Map(ev.rows.map(e => [e.paso, e]));
+    const reg = mapaDePasos(c, ev.rows);
 
     const ahora = new Date();
     let anterior: any = null;
