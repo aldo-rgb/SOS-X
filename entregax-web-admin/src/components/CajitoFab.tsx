@@ -2094,6 +2094,20 @@ export default function CajitoFab() {
                       {contenedorResult.contenedor.referencia ? ` · Ref ${contenedorResult.contenedor.referencia}` : ''}
                       {contenedorResult.contenedor.eta ? ` · ETA ${new Date(contenedorResult.contenedor.eta).toLocaleDateString('es-MX')}` : ''}
                     </Typography>
+                    {/* Lo primero que se pregunta de un contenedor detenido:
+                        cuánto lleva. Se cuenta desde que se dio de alta. */}
+                    {contenedorResult.dias_desde_alta != null && (
+                      <Box sx={{ bgcolor: '#FFF3E0', border: '1px solid #FFCC80', borderRadius: 1.5, px: 1.25, py: 0.75, mb: 1 }}>
+                        <Typography fontSize={13} fontWeight={800} sx={{ color: '#E65100' }}>
+                          {contenedorResult.dias_desde_alta} días desde que se dio de alta
+                        </Typography>
+                        {contenedorResult.alta && (
+                          <Typography variant="caption" color="text.secondary">
+                            Alta: {new Date(contenedorResult.alta).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
                     {contenedorResult.clientes?.length > 0 && (
                       <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
                         <strong>Carga de:</strong> {contenedorResult.clientes.map((c: any) => `${c.full_name} (${c.box_id})`).join(' · ')}
