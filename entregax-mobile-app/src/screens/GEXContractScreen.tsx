@@ -860,9 +860,16 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
       </Card>
 
       {/* Opciones de pago */}
+      {/* Las dos tarjetas llamaban a setPaymentOption, que NO existe: el estado
+          se declaro como `const [paymentOption]`, sin setter. Tocar cualquiera
+          de las dos reventaba. Se quitan los onPress en vez de agregar el
+          setter a proposito: "Pagar ahora" no tiene pantalla de pago detras
+          -la app va directo a "exito"- y el backend deja la poliza en
+          pending_payment, asi que habilitarla dejaria polizas colgadas sin
+          forma de pagarlas. Queda como estaba: siempre con el embarque. */}
       <TouchableOpacity 
-        activeOpacity={0.7}
-        onPress={() => setPaymentOption('withShipment')}
+        activeOpacity={1}
+        disabled
       >
         <Card style={[styles.paymentOption, paymentOption === 'withShipment' && styles.paymentOptionSelected]}>
           <Card.Content style={styles.paymentOptionContent}>
@@ -882,8 +889,8 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
       </TouchableOpacity>
 
       <TouchableOpacity 
-        activeOpacity={0.7}
-        onPress={() => setPaymentOption('now')}
+        activeOpacity={1}
+        disabled
       >
         <Card style={[styles.paymentOption, paymentOption === 'now' && styles.paymentOptionSelected]}>
           <Card.Content style={styles.paymentOptionContent}>

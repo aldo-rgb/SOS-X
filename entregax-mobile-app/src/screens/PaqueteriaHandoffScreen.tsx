@@ -120,6 +120,12 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const confirmedIdRef = useRef<number | string | null>(null);
   const confirmedTrackingRef = useRef<string>('');
   const enVueloRef = useRef(false);
+  // Espejo de processCode. La camara lo llamaba ANTES de que estuviera
+  // declarado (se declara mas abajo con const), y leer una const antes de su
+  // declaracion revienta en JavaScript. Se usa el mismo recurso que ya usa
+  // esta pantalla para los demas valores: el ref siempre apunta a la version
+  // de AHORA, y ademas evita que la camara se quede con una copia vieja.
+  const processCodeRef = useRef<((rawCode: string) => Promise<void>) | null>(null);
 
   // Filtrar por modo:
   // recoleccion → solo paquetes en bodega (NO cargados en camioneta)
@@ -175,10 +181,10 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setScannerActive(false);
     const code = normalizeBarcode(result.data);
     setManualCode(code);
-    processCode(code).finally(() => {
+    (processCodeRef.current?.(code) ?? Promise.resolve()).finally(() => {
       setTimeout(() => setScannerActive(true), 1500);
     });
-  }, [scannerActive, loading, processCode]);
+  }, [scannerActive, loading]);
 
   /**
    * Candado de salida.
@@ -390,6 +396,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       setLoading(false);
     }
   }, [mode, carrier, token]);
+  processCodeRef.current = processCode;
 
   const handleTextChange = (text: string) => {
     setManualCode(text);
