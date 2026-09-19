@@ -65,6 +65,7 @@ import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin 
 import { miReferenciaDeFondeo, ensureFundingSchema } from './walletFundingController';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
+import { marcarSinComision, MOTIVO_SISTEMA_ANTERIOR } from './sinComision';
 import { translateTexts } from './translationController';
 import { 
   registerUser, 
@@ -3184,6 +3185,13 @@ app.post('/api/dashboard/notify-stale-rates', authenticateToken, async (req: Aut
 app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
     const service = String(req.query.service || 'tdi_aereo');
+    // Soporte Técnico entra a este panel solo para sincronizar con el sistema
+    // anterior, y eso vive en Marítimo y TDI Aéreo. El resto de los inventarios
+    // no le toca, y el filtro va aquí porque su nivel de rol ya pasa la ruta.
+    if (String(req.user?.role || '') === ROLES.SOPORTE_TECNICO
+        && service !== 'maritimo' && service !== 'tdi_aereo') {
+      return (res as any).status(403).json({ error: 'Solo tienes acceso a Marítimo y TDI Aéreo.' });
+    }
     const limit  = Math.min(5000, parseInt(String(req.query.limit  || '200')));
     const offset = parseInt(String(req.query.offset || '0'));
     const search = String(req.query.search || '').trim();
@@ -15889,6 +15897,19 @@ async function ensureRequiredColumns() {
           description = 'Liberación AA DHL y operaciones CEDIS Monterrey'
       WHERE panel_key = 'ops_mx_cedis'
     `);
+    // Sembrar panel de Inventario por Servicio. La pantalla existía desde antes
+    // pero su panel NUNCA se sembró, así que el único que podía verla era
+    // super_admin y no había forma de otorgarla desde Permisos: la lista de
+    // paneles sale de esta tabla. Sin esto no se le puede dar a nadie más.
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
+      VALUES ('ops_service_inventory', 'Inventario por Servicio', 'operations', 'Inventory', 'Inventario de guías por tipo de servicio y sincronización con el sistema anterior', TRUE, 24)
+      ON CONFLICT (panel_key) DO UPDATE SET
+        panel_name = EXCLUDED.panel_name,
+        description = EXCLUDED.description,
+        icon = EXCLUDED.icon,
+        category = EXCLUDED.category
+    `);
     // Sembrar panel de Consolidaciones PO Box
     await pool.query(`
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
@@ -17012,7 +17033,7 @@ app.post('/api/packages/save-guia-us', authenticateToken, requireMinLevel(ROLES.
 // POST /api/packages/sync-from-entregax — sincroniza pago, instrucciones y dirección desde EntregaX
 app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
-    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida, direccion_entrega, newStatus } = req.body as {
+    let { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida, direccion_entrega, newStatus } = req.body as {
       guia: string; service: string;
       hasPago: boolean; hasInstrucciones: boolean;
       paqueteria?: string; guia_salida?: string; newStatus?: string;
@@ -17024,6 +17045,58 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
     const VALID_STATUSES = ['received', 'received_china', 'received_mty', 'received_cdmx', 'received_gdl', 'received_qro', 'in_transit', 'customs', 'customs_mx', 'customs_cleared', 'at_port', 'consolidated', 'shipped', 'out_for_delivery', 'returned_to_warehouse', 'delivered'];
     const safeNewStatus = newStatus && VALID_STATUSES.includes(newStatus) ? newStatus : undefined;
     if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
+
+    // ---- Modo sincronización con el sistema anterior (Soporte Técnico) ----
+    // Muchas guías viejas ya se pagaron y salieron en el otro sistema. Soporte
+    // Técnico entra aquí SOLO a decirle eso a EntregaX, para que dejen de verse
+    // pendientes. Su nivel de rol (63) ya pasa el requireMinLevel(COUNTER_STAFF,
+    // 60) de la ruta, así que esconder botones en la pantalla no alcanzaría: el
+    // candado tiene que estar aquí, del lado del servidor.
+    const esSincronizador = String(req.user?.role || '') === ROLES.SOPORTE_TECNICO;
+    if (esSincronizador) {
+      if (service !== 'maritimo' && service !== 'tdi_aereo') {
+        return (res as any).status(403).json({ error: 'Solo puedes sincronizar Marítimo y TDI Aéreo.' });
+      }
+      if (safeNewStatus !== 'delivered' && safeNewStatus !== 'shipped') {
+        return (res as any).status(403).json({ error: 'Solo puedes marcar las guías como entregado o enviado.' });
+      }
+      // La guía ya se cobró allá: se marca pagada para que salga de pendientes,
+      // pero NO se registra monto — ese dinero ya lo reporta el sistema anterior
+      // y contarlo aquí lo duplicaría. Lo decidió Aldo.
+      hasPago = true;
+      // Nada más: ni instrucciones, ni paquetería, ni guía de salida, ni
+      // direcciones. Si el frontend los manda, se ignoran.
+      hasInstrucciones = false;
+      paqueteria = undefined;
+      guia_salida = undefined;
+      direccion_entrega = undefined;
+
+      // 🔒 La marca de "sin comisión" va ANTES de poner la bandera de pago.
+      // Marcar pagada es EXACTAMENTE lo que dispara la comisión, y no basta con
+      // no generarla aquí: el backfill de comisiones barre todo lo pagado sin
+      // comisión, así que meses después las generaría todas. Ver sinComision.ts.
+      const marcar = async (tipo: 'PKG' | 'MAR', ids: number[]) => {
+        for (const id of ids) {
+          await marcarSinComision(pool, tipo, id, MOTIVO_SISTEMA_ANTERIOR, req.user?.userId ?? null);
+        }
+      };
+      if (service === 'maritimo') {
+        const mo = await pool.query(`SELECT id FROM maritime_orders WHERE ordersn = $1`, [guia]);
+        await marcar('MAR', mo.rows.map((r: any) => r.id));
+        // El espejo en packages también, por si alguien lo cobra por ahí.
+        const esp = await pool.query(
+          `SELECT id FROM packages
+            WHERE UPPER(tracking_internal) = UPPER($1)
+               OR master_id IN (SELECT id FROM packages WHERE UPPER(tracking_internal) = UPPER($1))`, [guia]);
+        await marcar('PKG', esp.rows.map((r: any) => r.id));
+      } else {
+        const pk = await pool.query(
+          `SELECT id FROM packages
+            WHERE tracking_internal = $1 OR child_no = $1 OR child_no LIKE $1 || '-%'`, [guia]);
+        await marcar('PKG', pk.rows.map((r: any) => r.id));
+      }
+      console.log(`[sync-entregax] SINCRONIZACION sistema anterior por user ${req.user?.userId}: ${service} ${guia} -> ${safeNewStatus}, pagada sin comision.`);
+    }
     console.log(`[sync-entregax] guia=${guia} hasPago=${hasPago} hasInstr=${hasInstrucciones} guia_salida=${guia_salida} paqueteria=${paqueteria} direccion_entrega=${JSON.stringify(direccion_entrega)}`);
 
     const syncedFields: string[] = [];

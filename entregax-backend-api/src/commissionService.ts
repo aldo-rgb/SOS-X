@@ -6,6 +6,7 @@
 
 import { pool } from './db';
 import { expandDhlGroupIds } from './dhlGroup';
+import { envioSinComision } from './sinComision';
 
 // ── Esquema: columnas para comisiones "en crédito" (retenidas hasta que el cliente cobre) ──
 // awaiting_client_payment = TRUE  → la orden se pagó con crédito y el cliente aún no abona;
@@ -115,6 +116,16 @@ export async function generateCommissionForShipment(
 ): Promise<boolean> {
   try {
     await ensureCreditHoldSchema();
+
+    // 🔒 Envíos excluidos de comisión (sincronización con el sistema anterior).
+    // Va ANTES de todo: este es el embudo único de las 19 rutas de pago y del
+    // backfill, así que basta este candado para que una guía marcada no genere
+    // comisión hoy ni dentro de seis meses. Ver `sinComision.ts`.
+    if (await envioSinComision(shipmentType, shipmentId)) {
+      console.log(`[CommissionService] ${shipmentType}-${shipmentId}: marcado sin comisión, no se genera.`);
+      return false;
+    }
+
     // 1. Obtener datos del embarque según tipo
     let shipmentData: {
       userId: number;
