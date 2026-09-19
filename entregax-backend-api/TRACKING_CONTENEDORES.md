@@ -118,6 +118,19 @@ Lo registrado **siempre gana** sobre lo derivado: si alguien pone la fecha a
 mano o llega un pulso, esa es la buena. Se calcula al leer, no se guarda, así
 que no hay que migrar nada si cambia el criterio (ver `derivados()`).
 
+### `arrived_port` va al paso 7 (Cruce) — decidido por Aldo el 18-sep-2026
+
+El pulso `arrived_port` de ELP alimenta el **paso 7, Cruce internacional**.
+
+Se dejó anotado porque salta a la vista que no son el mismo evento: llegar al
+puerto y cruzar la frontera a México están separados por semanas y por todo el
+paso por El Paso. Pero el documento de Juan **no tiene un paso de arribo a
+puerto** —brinca de "Zarpó" a "Pick up en terminal"—, así que el pulso o se
+mapeaba al 7 o se perdía. Aldo decidió que al Cruce.
+
+Si algún día se quiere el arribo a puerto como paso propio, **no renumerar**:
+usar el paso 10, que está libre.
+
 ### Pulsos de ELP → pasos 1, 2, 4 y 7
 
 Enganchados en `elpController.ts`, donde el proveedor manda su pulso. **Hoy no
