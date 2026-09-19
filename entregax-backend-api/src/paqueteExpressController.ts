@@ -6,7 +6,7 @@
 
 import { Request, Response } from 'express';
 import axios from 'axios';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 
 // ============================================
 // CONFIGURACIÓN
@@ -1970,6 +1970,10 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // shipmentType='dhl' para que carguemos de la tabla correcta y persistamos ahí.
     const isDhl = String(shipmentType || '').toLowerCase() === 'dhl';
     const persistTable: 'packages' | 'dhl_shipments' = isDhl ? 'dhl_shipments' : 'packages';
+    // El CP de la sucursal Ocurre solo existia en packages. Sin esta columna, en
+    // un envio DHL el "generar en Ocurre con este CP" se perdia en silencio: el
+    // UPDATE tronaba y quedaba atrapado en un catch.
+    if (isDhl) await asegurarColumna('dhl_shipments', 'national_delivery_zip', 'TEXT');
 
     let pkg: any;
     if (isDhl) {
@@ -1979,7 +1983,10 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         `SELECT ds.*, ds.weight_kg AS weight, ds.length_cm AS pkg_length,
                 ds.width_cm AS pkg_width, ds.height_cm AS pkg_height,
                 ds.inbound_tracking AS tracking_internal,
-                NULL::text AS national_delivery_zip, NULL::text AS destination_zip,
+                -- Antes iba NULL fijo: el CP de la sucursal Ocurre no se podia
+                -- guardar ni leer en envios DHL, asi que "generar en Ocurre con
+                -- este CP" no servia para DHL. Es justo el caso del TKT-2026-2777.
+                ds.national_delivery_zip, NULL::text AS destination_zip,
                 u.full_name AS user_name, u.email AS user_email,
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
