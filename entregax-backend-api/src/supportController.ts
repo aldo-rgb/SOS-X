@@ -2593,7 +2593,12 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
 export const reportarErrorDeTicket = async (
   ticketId: number,
   uid: number,
-  hallazgoCajito?: string | null
+  hallazgoCajito?: string | null,
+  // true cuando la levanta el juez automático. El uid sigue siendo el de un
+  // super admin (hace falta para permisos y para que alguien pueda
+  // confirmarla), pero en pantalla tiene que decir Cajito y no el nombre de una
+  // persona que nunca apretó nada.
+  porCajito?: boolean
 ): Promise<any> => {
   try {
     if (!uid) return { error: 'No autenticado', status: 401 };
@@ -2649,7 +2654,7 @@ export const reportarErrorDeTicket = async (
     // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');
-    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false, boardId: errorBoardId });
+    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false, boardId: errorBoardId, porCajito: porCajito === true });
     if (!taskId) return { error: 'No se pudo crear la tarea', status: 500 };
 
     // Notificar a TODOS los super admin: in-app siempre + push solo en horario laboral.

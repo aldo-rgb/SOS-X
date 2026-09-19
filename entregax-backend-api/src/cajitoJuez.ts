@@ -227,7 +227,7 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
         origen === 'automatico'
           ? '(Lo revisó Cajito solo, al crearse el ticket. Nadie apretó el botón.)'
           : '(Lo investigó Cajito la primera vez que alguien apretó Investigar en este ticket.)',
-      ].filter(Boolean).join('\n'));
+      ].filter(Boolean).join('\n'), true);
 
       if (r?.already) console.log(`[JUEZ] ${v.folio}: ya existía la tarea del error`);
       else if (r?.task_id) console.warn(`[JUEZ] ${v.folio}: ERROR DE SISTEMA reportado solo → tarea ${r.task_id}`);

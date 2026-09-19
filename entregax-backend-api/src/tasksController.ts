@@ -6,7 +6,7 @@
 // Ver propuestas/tareas-diseno.html.
 // ============================================================
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
 import { emitTaskEventIfExternal, emitTaskDeleted, ingestExternalAttachment } from './syncService';
 import { normalizarImagen } from './imagenNormalizar';
@@ -241,6 +241,10 @@ export async function createAssignedTaskInternal(opts: {
   creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string; notifyAssignee?: boolean; boardId?: number;
   // Título del aviso al responsable. Por default el de metas.
   notifyTitle?: string;
+  // La levantó Cajito solo, no una persona. El creatorId sigue siendo el de un
+  // super admin —hace falta para los permisos y para que alguien pueda
+  // confirmarla—, pero en pantalla debe decir Cajito.
+  porCajito?: boolean;
 }): Promise<number | null> {
   try {
     // Tablero destino: el indicado (ej. "Error de Sistema") o el personal por default.
@@ -254,10 +258,12 @@ export async function createAssignedTaskInternal(opts: {
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
     const eis = ['fuego', 'estrella', 'delegar', 'eliminar'].includes(String(opts.eisenhower)) ? opts.eisenhower : 'estrella';
+    await asegurarColumna('tasks', 'creada_por_cajito', 'BOOLEAN DEFAULT FALSE');
     const r = await pool.query(
-      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$8,$7) RETURNING id`,
-      [boardId, columnId, String(opts.title).trim(), opts.description || null, opts.assigneeId, opts.dueAt || null, opts.creatorId, eis]);
+      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by, creada_por_cajito)
+       VALUES ($1,$2,$3,$4,$5,$6,$8,$7,$9) RETURNING id`,
+      [boardId, columnId, String(opts.title).trim(), opts.description || null, opts.assigneeId, opts.dueAt || null, opts.creatorId, eis,
+       opts.porCajito === true]);
     const taskId = r.rows[0]?.id;
     if (!taskId) return null;
     const parts = Array.from(new Set<number>([opts.creatorId, opts.assigneeId].filter(Boolean)));
@@ -1113,7 +1119,13 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
              au.full_name AS assignee_name,
              au.profile_photo_url AS assignee_photo,
-             cu.full_name AS created_by_name,
+             -- Quien la creó. Las tareas que levanta Cajito solo (el juez de
+             -- tickets) salían firmadas por el super admin cuyo id usa por
+             -- dentro, así que decían "Asignada por: Aldo Campos" sin que Aldo
+             -- hubiera hecho nada. El id se conserva para los permisos —alguien
+             -- tiene que poder confirmarla—, pero el nombre dice la verdad.
+             CASE WHEN COALESCE(t.creada_por_cajito, FALSE) THEN 'Cajito'
+                  ELSE cu.full_name END AS created_by_name,
              -- Comentarios de OTROS creados después de que este usuario leyó la tarea.
              (SELECT COUNT(*) FROM task_comments cc
                 WHERE cc.task_id = t.id AND cc.author_id <> $1
@@ -1202,7 +1214,13 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
     const id = parseInt(String(req.params.id));
     const t = await pool.query(`
       SELECT t.*, u.full_name AS assignee_name, u.referral_code AS assignee_referral_code,
-             cu.full_name AS created_by_name,
+             -- Quien la creó. Las tareas que levanta Cajito solo (el juez de
+             -- tickets) salían firmadas por el super admin cuyo id usa por
+             -- dentro, así que decían "Asignada por: Aldo Campos" sin que Aldo
+             -- hubiera hecho nada. El id se conserva para los permisos —alguien
+             -- tiene que poder confirmarla—, pero el nombre dice la verdad.
+             CASE WHEN COALESCE(t.creada_por_cajito, FALSE) THEN 'Cajito'
+                  ELSE cu.full_name END AS created_by_name,
              fc.full_name AS forced_close_name, col.name AS column_name,
              bd.board_key AS board_key
         FROM tasks t
