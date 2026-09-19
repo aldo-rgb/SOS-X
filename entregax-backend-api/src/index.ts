@@ -17053,6 +17053,20 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
     // 60) de la ruta, así que esconder botones en la pantalla no alcanzaría: el
     // candado tiene que estar aquí, del lado del servidor.
     const esSincronizador = String(req.user?.role || '') === ROLES.SOPORTE_TECNICO;
+
+    // Marcar una guía como PAGADA sin que entre un peso es una facultad de
+    // super_admin: así está en las rutas /mark-paid-manual y /unmark-paid-manual.
+    // Por aquí se colaba sin ese candado —el botón "Marcar pagado (n)" de la
+    // pantalla cae en esta ruta—, así que el mismo acto tenía dos puertas con
+    // llaves distintas y la de masa era la floja. El modo sincronización queda
+    // fuera: ahí el pago va amarrado a entregado/enviado, sin monto y sin
+    // comisión, que es un acto distinto y acotado.
+    if (hasPago && !esSincronizador && String(req.user?.role || '') !== 'super_admin') {
+      return (res as any).status(403).json({
+        error: 'Marcar una guía como pagada requiere permisos de super administrador.',
+      });
+    }
+
     if (esSincronizador) {
       if (service !== 'maritimo' && service !== 'tdi_aereo') {
         return (res as any).status(403).json({ error: 'Solo puedes sincronizar Marítimo y TDI Aéreo.' });
