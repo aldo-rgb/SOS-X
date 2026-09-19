@@ -383,18 +383,19 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                     <TableCell colSpan={10} sx={{ pt: 0, pb: 1.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                         {(hitos[c.id]?.hitos_operacion || []).map((h: any, i: number, arr: any[]) => (
-                          <Box key={h.hito} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box key={h.etiqueta} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Box sx={{ textAlign: 'center', minWidth: 74 }}>
                               <Box sx={{ width: 16, height: 16, borderRadius: '50%', mx: 'auto', mb: 0.3,
                                 bgcolor: h.fecha ? '#2E7D32' : '#D6D6D6', color: '#fff', fontSize: 10,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                                 {h.fecha ? '✓' : ''}
                               </Box>
-                              <Typography sx={{ fontSize: 10.5, fontWeight: h.fecha ? 700 : 400, color: h.fecha ? '#2E7D32' : '#999', lineHeight: 1.2 }}>
-                                {h.hito}
-                              </Typography>
-                              <Typography sx={{ fontSize: 9.5, color: '#999' }}>
+                              <Typography sx={{ fontSize: 9.5, fontWeight: h.fecha ? 700 : 400, color: h.fecha ? '#2E7D32' : '#BDBDBD', lineHeight: 1.1 }}>
                                 {h.fecha ? new Date(h.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' }) : '—'}
+                              </Typography>
+                              {/* La seña de que movimiento es: sin esto los puntos no dicen nada. */}
+                              <Typography sx={{ fontSize: 8, color: h.fecha ? '#555' : '#C4C4C4', lineHeight: 1.15, mt: 0.1, textTransform: 'uppercase', letterSpacing: 0.1 }}>
+                                {h.etiqueta}
                               </Typography>
                             </Box>
                             {i < arr.length - 1 && (
