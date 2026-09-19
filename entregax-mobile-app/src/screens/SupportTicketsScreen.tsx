@@ -128,6 +128,15 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [deptId, setDeptId] = useState<number | null>(null);
   const [defaultCsDeptId, setDefaultCsDeptId] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>(route.params?.initialFilter || 'open');
+  // Buscador. El backend ya busca en folio, asunto, cuerpo, guía, nombre y
+  // casillero del cliente y en TODOS los mensajes del hilo, así que aquí solo
+  // hay que mandarle el término. Se espera a que dejes de teclear.
+  const [busqueda, setBusqueda] = useState('');
+  const [busquedaFirme, setBusquedaFirme] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setBusquedaFirme(busqueda.trim()), 400);
+    return () => clearTimeout(t);
+  }, [busqueda]);
 
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showDetail, setShowDetail] = useState(false);
@@ -223,12 +232,15 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       let url = mesaCompleta
         ? `/api/admin/support/tickets?limit=100`
         : `/api/admin/support/tickets?department_id=${deptId}&limit=100`;
-      if (filter !== 'open') url += `&status=${filter}`;
+      if (busquedaFirme) url += `&search=${encodeURIComponent(busquedaFirme)}`;
+      else if (filter !== 'open') url += `&status=${filter}`;
       const res = await api.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const all: Ticket[] = Array.isArray(res.data) ? res.data : (res.data.tickets || []);
-      const filtered = filter === 'open'
+      // Buscando se ven todos los estatus: si tecleas un folio, aparece aunque
+      // esté resuelto y estés parado en "Abiertos".
+      const filtered = (!busquedaFirme && filter === 'open')
         ? all.filter(t => !['resolved', 'closed'].includes(t.status))
         : all;
       setTickets(filtered);
@@ -238,11 +250,11 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [deptId, token, filter, mesaCompleta]);
+  }, [deptId, token, filter, mesaCompleta, busquedaFirme]);
 
   useEffect(() => {
     if (deptId || mesaCompleta) loadTickets(true);
-  }, [deptId, filter, mesaCompleta]);
+  }, [deptId, filter, mesaCompleta, busquedaFirme]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -664,9 +676,31 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         </View>
       )}
 
-      {/* Filtros */}
+      {/* Buscador */}
       {!!deptName && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        <View style={styles.buscadorFila}>
+          <Ionicons name="search" size={17} color="#888" />
+          <TextInput
+            style={styles.buscadorInput}
+            placeholder="Buscar folio, casillero, cliente o texto…"
+            placeholderTextColor="#9A9A9A"
+            value={busqueda}
+            onChangeText={setBusqueda}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {busqueda.length > 0 && (
+            <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={17} color="#B0B0B0" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Filtros — se ocultan al buscar: la búsqueda va sobre todos los estatus */}
+      {!!deptName && !busquedaFirme && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8, alignItems: 'center' }}>
           {FILTERS.map(f => (
             <TouchableOpacity
               key={f.key}
@@ -925,10 +959,19 @@ const styles = StyleSheet.create({
   backBtn: { padding: 6 },
   headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
   headerSub: { color: '#fff9', fontSize: 12 },
-  filterBar: { maxHeight: 48, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  // Sin maxHeight: estaba en 48 y cada chip mide ~50 (8 de margen + 8 de padding
+  // + la linea de texto, arriba y abajo), asi que la barra recortaba las letras
+  // por arriba y por abajo. flexGrow:0 evita que ahora se estire de mas.
+  buscadorFila: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: '#eee',
+  },
+  buscadorInput: { flex: 1, fontSize: 14, color: '#222', padding: 0 },
+  filterBar: { flexGrow: 0, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   filterChip: {
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: '#F0F0F0', marginVertical: 8,
+    backgroundColor: '#F0F0F0',
   },
   filterChipActive: { backgroundColor: '#3F51B5' },
   filterChipText: { fontSize: 13, color: '#555', fontWeight: '600' },
