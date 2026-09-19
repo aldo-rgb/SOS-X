@@ -428,3 +428,66 @@ export const lineaDeTiempoCliente = async (req: AuthRequest, res: Response): Pro
     res.status(500).json({ error: 'No se pudo cargar el seguimiento' });
   }
 };
+
+// ============================================
+// GET /api/containers/lookup?q=  — buscar por contenedor, BL o referencia
+//
+// Lo usa el buscador de Cajito ("Rastrear guía"): antes escribir un número de
+// contenedor devolvía "no se encontró cliente ni guía", porque solo buscaba
+// entre clientes y guías (tarea 478).
+// ============================================
+export const buscarContenedor = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    await ensureLineaTiempo();
+    const q = String(req.query?.q || '').trim();
+    if (q.length < 3) return res.status(400).json({ error: 'Escribe al menos 3 caracteres.' });
+
+    const c = (await pool.query(
+      `SELECT id, container_number, bl_number, reference_code, status, eta, elp_notified_at
+         FROM containers
+        WHERE UPPER(TRIM(container_number)) = UPPER($1)
+           OR UPPER(TRIM(COALESCE(bl_number, ''))) = UPPER($1)
+           OR UPPER(TRIM(COALESCE(reference_code, ''))) = UPPER($1)
+        ORDER BY id DESC LIMIT 1`, [q])).rows[0];
+    if (!c) return res.status(404).json({ error: `No encontré ningún contenedor con "${q}".` });
+
+    const ev = await pool.query(
+      `SELECT paso, ocurrio_at, origen, detalle, fotos FROM container_timeline_events
+        WHERE container_id = $1 ORDER BY paso`, [c.id]);
+    const reg = new Map(ev.rows.map(e => [e.paso, e]));
+
+    const ahora = new Date();
+    let anterior: any = null;
+    const pasos = PASOS.map(p => {
+      const e = reg.get(p.paso);
+      const fila = {
+        paso: p.paso, etiqueta: p.etiqueta, fuente: p.fuente,
+        ocurrio_at: e?.ocurrio_at || null, origen: e?.origen || null, fotos: e?.fotos || [],
+        dias_desde_anterior: e ? dias(anterior, e.ocurrio_at) : null,
+        dias_esperando: !e && anterior ? dias(anterior, ahora) : null,
+      };
+      if (e) anterior = e.ocurrio_at;
+      return fila;
+    });
+
+    // Los clientes que llevan carga en ese contenedor: casi siempre es
+    // consolidado y esa es la pregunta que sigue ("¿de quién es?").
+    const clientes = await pool.query(
+      `SELECT DISTINCT u.full_name, u.box_id FROM maritime_orders mo
+         JOIN users u ON u.id = mo.user_id
+        WHERE mo.container_id = $1 ORDER BY u.full_name LIMIT 20`, [c.id]);
+
+    res.json({
+      contenedor: {
+        id: c.id, numero: c.container_number, bl: c.bl_number,
+        referencia: c.reference_code, estado: c.status, eta: c.eta, por_elp: !!c.elp_notified_at,
+      },
+      pasos,
+      clientes: clientes.rows,
+      con_registro: pasos.some(p => p.ocurrio_at),
+    });
+  } catch (e: any) {
+    console.error('[contenedor lookup]:', e?.message);
+    res.status(500).json({ error: 'No se pudo buscar el contenedor' });
+  }
+};
