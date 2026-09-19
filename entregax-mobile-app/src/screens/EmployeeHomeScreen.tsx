@@ -380,6 +380,21 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     requiresOnboarding: false,
   },
 
+  {
+    // Mesa de soporte. Estaba solo en la web: desde el celular no habia como
+    // abrir un ticket ni contestarlo, y es lo que mas se revisa fuera de
+    // escritorio. Lo pidio Aldo.
+    id: 'panel_support',
+    title: 'Tickets',
+    subtitle: 'Mesa de soporte: ver y responder',
+    icon: 'chatbubbles-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'SupportTickets',
+    roles: ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico', 'branch_manager'],
+    requiresOnboarding: false,
+  },
+
   // === SUPER ADMIN (exclusivos) ===
   {
     id: 'admin_rrhh',
