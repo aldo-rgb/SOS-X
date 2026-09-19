@@ -226,6 +226,18 @@ export default function ServiceInventoryPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
 
+  // Modo sincronización: Soporte Técnico entra solo a decirle al sistema qué
+  // guías viejas ya se pagaron y salieron en el sistema anterior. Ve Marítimo y
+  // TDI Aéreo, y su única acción es marcar entregado o enviado. Esto es lo que
+  // se VE; el candado de verdad está en el backend, porque su nivel de rol ya
+  // le alcanza para llamar a estas rutas aunque aquí se le escondan los botones.
+  const modoSincronizacion = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'soporte_tecnico'; } catch { return false; }
+  })();
+  const serviciosVisibles = modoSincronizacion
+    ? SERVICES.filter(s => s.key === 'tdi_aereo' || s.key === 'maritimo')
+    : SERVICES;
+
   // Edición manual del costo de venta PO Box (solo super admin). Guarda el id de
   // la guía que se está editando y el valor tecleado, para no re-renderizar toda
   // la tabla en cada tecla.
@@ -850,7 +862,7 @@ export default function ServiceInventoryPage() {
                 ⚠ Reintentar
               </Button>
             </Tooltip>
-          ) : desynced ? (
+          ) : desynced && !modoSincronizacion ? (
             <Tooltip title="EntregaX tiene datos más actualizados">
               <Button
                 size="small" variant="outlined"
@@ -1206,7 +1218,7 @@ export default function ServiceInventoryPage() {
         value={service} exclusive onChange={(_, v) => v && setService(v)}
         sx={{ mb: 2, flexWrap: 'wrap', gap: 0.5 }} size="small"
       >
-        {SERVICES.map(s => (
+        {serviciosVisibles.map(s => (
           <ToggleButton key={s.key} value={s.key} sx={{ borderRadius: '20px !important', px: 2, '&.Mui-selected': { bgcolor: s.color, color: '#fff', '&:hover': { bgcolor: s.color } } }}>
             <span style={{ marginRight: 6 }}>{s.emoji}</span>{s.label}
           </ToggleButton>
@@ -1278,6 +1290,7 @@ export default function ServiceInventoryPage() {
           </Button>
 
           {(() => {
+            if (modoSincronizacion) return null;
             const pendingSync = displayRows.filter(r => { const ex = exData[r.guia]; return selectedGuias.has(r.guia) && ex?.state === 'done' && needsSync(r, ex); }).length;
             if (pendingSync === 0) return null;
             return (
@@ -1300,16 +1313,22 @@ export default function ServiceInventoryPage() {
                 startIcon={bulkBusy ? <CircularProgress size={14} color="inherit" /> : <SyncIcon fontSize="small" />}
                 sx={{ bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4527A0' }, whiteSpace: 'nowrap' }}
               >
-                Cambiar status ({selectedGuias.size})
+                {modoSincronizacion
+                  ? `Marcar entregado o enviado (${selectedGuias.size})`
+                  : `Cambiar status (${selectedGuias.size})`}
               </Button>
-              <Button variant="contained" size="small"
-                onClick={() => setBulkPaidOpen(true)}
-                disabled={bulkBusy}
-                startIcon={<MonetizationOnIcon fontSize="small" />}
-                sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' }, whiteSpace: 'nowrap' }}
-              >
-                Marcar pagado ({selectedGuias.size})
-              </Button>
+              {/* En modo sincronización el pago no es una acción aparte: va junto
+                  con el status, porque la guía ya se cobró en el sistema anterior. */}
+              {!modoSincronizacion && (
+                <Button variant="contained" size="small"
+                  onClick={() => setBulkPaidOpen(true)}
+                  disabled={bulkBusy}
+                  startIcon={<MonetizationOnIcon fontSize="small" />}
+                  sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' }, whiteSpace: 'nowrap' }}
+                >
+                  Marcar pagado ({selectedGuias.size})
+                </Button>
+              )}
             </>
           )}
 
@@ -1464,11 +1483,19 @@ export default function ServiceInventoryPage() {
           <FormControl fullWidth size="small" sx={{ mt: 3 }}>
             <InputLabel>Nuevo status</InputLabel>
             <Select label="Nuevo status" value={bulkStatusVal} onChange={(e) => setBulkStatusVal(String(e.target.value))}>
-              {Object.entries(activeStatusLabels).map(([key, meta]: [string, any]) => (
-                <MenuItem key={key} value={key}>{meta.label}</MenuItem>
-              ))}
+              {Object.entries(activeStatusLabels)
+                .filter(([key]) => !modoSincronizacion || key === 'delivered' || key === 'shipped')
+                .map(([key, meta]: [string, any]) => (
+                  <MenuItem key={key} value={key}>{meta.label}</MenuItem>
+                ))}
             </Select>
           </FormControl>
+          {modoSincronizacion && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#E65100' }}>
+              Estas guías se van a marcar también como <b>pagadas</b>, porque ya se cobraron
+              en el sistema anterior. No generan comisión ni se cuentan como ingreso.
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkStatusOpen(false)} disabled={bulkBusy}>Cancelar</Button>
