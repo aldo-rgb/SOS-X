@@ -5,7 +5,7 @@
  */
 
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 import { markDhlGroupPaid } from './dhlGroup';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
@@ -489,6 +489,26 @@ export async function marcarOrdenesLiquidadasPorAbono(
   let restante = +Number(opts.monto || 0).toFixed(2);
   if (!(restante > 0) || !userId || !servicioCredito) return 0;
 
+  // El abono solo marca órdenes que quepan COMPLETAS y lo que sobraba se perdía:
+  // la deuda bajaba pero esas órdenes seguían diciendo "CRÉDITO" para siempre y
+  // sus comisiones seguían retenidas. A SANKIE GUO (S105) le dejó $22,782.95 de
+  // diferencia entre lo que debe y lo que sus órdenes dicen que debe. Ahora el
+  // sobrante se guarda y entra al siguiente abono, que es lo que haría una
+  // persona cuadrando la cuenta. Se respeta el orden FIFO.
+  await asegurarColumna('user_service_credits', 'abono_remanente', 'NUMERIC(12,2) DEFAULT 0');
+  const remPrevio = await db.query(
+    `SELECT COALESCE(abono_remanente, 0) AS rem FROM user_service_credits
+      WHERE user_id = $1 AND service = $2`,
+    [userId, servicioCredito]
+  );
+  const arrastre = +Number(remPrevio.rows[0]?.rem || 0).toFixed(2);
+  if (arrastre > 0) {
+    restante = +(restante + arrastre).toFixed(2);
+    console.log(
+      `[VOUCHER] Se arrastran $${arrastre.toFixed(2)} de abonos previos del cliente ${userId} en ${servicioCredito}.`
+    );
+  }
+
   // El servicio de cada orden sale del log de cobro, que es el autoritativo:
   // deducirlo del prefijo de la referencia falla en las ordenes heredadas.
   const candidatas = await db.query(
@@ -545,10 +565,18 @@ export async function marcarOrdenesLiquidadasPorAbono(
     } catch { /* el estatus ya quedo; las comisiones se pueden reintentar */ }
   }
 
+  // Lo que no alcanzó a cubrir una orden completa queda apuntado para el
+  // siguiente abono. Si no sobró nada, se limpia.
+  await db.query(
+    `UPDATE user_service_credits SET abono_remanente = $1, updated_at = NOW()
+      WHERE user_id = $2 AND service = $3`,
+    [restante > 0 ? restante : 0, userId, servicioCredito]
+  ).catch((e: any) => console.error('[VOUCHER] no pude guardar el remanente del abono:', e?.message));
+
   if (marcadas > 0) {
     console.log(
       `[VOUCHER] El abono de ${opts.referencia || ''} liquido ${marcadas} orden(es) previas ` +
-      `del cliente ${userId} en ${servicioCredito}. Quedan $${restante.toFixed(2)} en su deuda.`
+      `del cliente ${userId} en ${servicioCredito}. Quedan $${restante.toFixed(2)} sin asignar a una orden.`
     );
   }
   return marcadas;

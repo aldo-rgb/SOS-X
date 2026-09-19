@@ -1342,7 +1342,7 @@ export const TOOLS: ToolDef[] = [
     name: 'lookup_client_balance',
     requiredCapability: 'cajito.read.payments',
     readOnly: true,
-    description: 'Saldo a favor, cartera y crédito de un cliente, por casillero (S91) o por nombre. Devuelve el saldo disponible en su cartera, los saldos a favor por servicio, su línea de crédito y cuánto lleva usado, los excedentes pendientes de aplicar, y los últimos comprobantes con excedente. Úsalo cuando el ticket hable de saldo a favor, de un pago de más, de un excedente que no aparece, o de crédito.',
+    description: 'Saldo a favor, cartera y crédito de un cliente, por casillero (S91) o por nombre. Devuelve el saldo por servicio, la línea de crédito y lo usado, las órdenes con excedente y, en cada una, A DÓNDE FUE ese excedente: cuánto bajó la deuda de crédito y cuánto quedó como saldo a favor. Úsalo cuando el ticket hable de saldo a favor, de un pago de más, de un excedente que no aparece, o de crédito. Ojo: la cartera en $0.00 no significa que el dinero se perdió; lee destino_del_excedente antes de reportar una falla.',
     parameters: {
       type: 'object',
       properties: { cliente: { type: 'string', description: 'Casillero (S91) o nombre del cliente' } },
@@ -1370,6 +1370,13 @@ export const TOOLS: ToolDef[] = [
            FROM saldo_a_favor_pendientes WHERE cliente_id = $1
           ORDER BY created_at DESC LIMIT 10`, [c.id]).catch(() => ({ rows: [] }));
 
+      // El saldo a favor de verdad vive aquí, por servicio. La cartera
+      // (users.wallet_balance) es otra cosa y casi siempre está en cero.
+      const saldos = await pool.query(
+        `SELECT service_type, saldo, currency, updated_at
+           FROM billetera_servicio WHERE user_id = $1 ORDER BY service_type`, [c.id])
+        .catch(() => ({ rows: [] }));
+
       // Órdenes con excedente: es justo el caso de "pagué de más y no aparece".
       const excedentes = await pool.query(
         `SELECT payment_reference, amount, COALESCE(voucher_total,0) AS comprobantes,
@@ -1380,18 +1387,63 @@ export const TOOLS: ToolDef[] = [
           WHERE user_id = $1 AND COALESCE(surplus_amount,0) > 0
           ORDER BY created_at DESC LIMIT 10`, [c.id]).catch(() => ({ rows: [] }));
 
+      // A DÓNDE FUE CADA EXCEDENTE. Sin esto la herramienta enseñaba
+      // "acreditado = true" junto a "cartera = $0.00" y parecía dinero perdido,
+      // cuando la regla es que el excedente PRIMERO baja la deuda a crédito y
+      // solo el resto queda como saldo a favor. Así se abrió la tarea 624 por un
+      // caso que estaba bien (SANKIE GUO, UW-0958E839). El destino se lee, no se
+      // adivina: bitácora de crédito y movimientos de billetera.
+      const refs = excedentes.rows.map((x: any) => x.payment_reference).filter(Boolean);
+      const aDeuda = refs.length === 0 ? { rows: [] } : await pool.query(
+        `SELECT orden_ref, service, ABS(monto) AS monto, usado_antes, usado_despues, created_at
+           FROM credito_movimientos
+          WHERE user_id = $1 AND movimiento = 'excedente' AND orden_ref = ANY($2::text[])`,
+        [c.id, refs]).catch(() => ({ rows: [] }));
+      const aSaldo = refs.length === 0 ? { rows: [] } : await pool.query(
+        `SELECT p.payment_reference AS orden_ref, t.service_type, t.monto, t.created_at
+           FROM billetera_servicio_transacciones t
+           JOIN pobox_payments p ON p.id = t.payment_order_id
+          WHERE t.user_id = $1 AND t.tipo = 'excedente' AND p.payment_reference = ANY($2::text[])`,
+        [c.id, refs]).catch(() => ({ rows: [] }));
+
+      const ordenes = excedentes.rows.map((x: any) => {
+        const d = aDeuda.rows.find((r: any) => r.orden_ref === x.payment_reference);
+        const w = aSaldo.rows.find((r: any) => r.orden_ref === x.payment_reference);
+        const destino: string[] = [];
+        if (d) destino.push(`$${Number(d.monto).toFixed(2)} bajó la deuda de crédito ${d.service} (de $${Number(d.usado_antes).toFixed(2)} a $${Number(d.usado_despues).toFixed(2)})`);
+        if (w) destino.push(`$${Number(w.monto).toFixed(2)} quedó como saldo a favor de ${w.service_type}`);
+        return {
+          ...x,
+          destino_del_excedente: destino.length > 0 ? destino.join(' · ')
+            : (x.excedente_acreditado
+                ? 'Marcado como acreditado pero SIN movimiento de crédito ni de billetera: esto sí es un hueco real.'
+                : 'Todavía no se aplica.'),
+        };
+      });
+
+      // Solo cuenta como hueco el excedente que no aterrizó en ningún lado.
+      const huecos = ordenes.filter((x: any) =>
+        x.excedente_acreditado && String(x.destino_del_excedente).startsWith('Marcado'));
+      const sinAcreditar = ordenes.filter((x: any) => !x.excedente_acreditado);
+
       return {
         encontrado: true,
         cliente: { nombre: c.full_name, casillero: c.box_id, cartera_disponible: Number(c.cartera) },
         credito_por_servicio: creditos.rows,
+        saldo_a_favor_por_servicio: saldos.rows,
         saldos_a_favor_pendientes: pendientes.rows,
-        ordenes_con_excedente: excedentes.rows,
+        ordenes_con_excedente: ordenes,
+        como_leer_esto:
+          'La cartera del cliente (cartera_disponible) NO es donde caen los excedentes. ' +
+          'Un excedente primero abona a la deuda a crédito del servicio y solo el sobrante ' +
+          'pasa a saldo_a_favor_por_servicio. Que la cartera esté en $0.00 con excedentes ' +
+          'acreditados es lo normal, no una falla: revisa destino_del_excedente de cada orden.',
         resumen: {
-          // La señal del caso más común: hubo excedente y NO se acreditó.
-          excedentes_sin_acreditar: excedentes.rows.filter((x: any) => !x.excedente_acreditado).length,
-          monto_sin_acreditar: excedentes.rows
-            .filter((x: any) => !x.excedente_acreditado)
-            .reduce((a: number, x: any) => a + (Number(x.excedente) || 0), 0),
+          excedentes_sin_acreditar: sinAcreditar.length,
+          monto_sin_acreditar: sinAcreditar.reduce((a: number, x: any) => a + (Number(x.excedente) || 0), 0),
+          // La señal de verdad: acreditado pero sin rastro de a dónde fue.
+          excedentes_sin_rastro: huecos.length,
+          monto_sin_rastro: huecos.reduce((a: number, x: any) => a + (Number(x.excedente) || 0), 0),
         },
       };
     }
