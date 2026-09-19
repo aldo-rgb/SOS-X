@@ -524,3 +524,58 @@ export const buscarContenedor = async (req: AuthRequest, res: Response): Promise
     res.status(500).json({ error: 'No se pudo buscar el contenedor' });
   }
 };
+
+// ============================================
+// POST /api/containers/linea-tiempo/hitos
+//
+// Los 6 hitos de VARIOS contenedores de una vez. La tabla de API ELP los pinta
+// debajo de cada renglón: con 180 contenedores, pedirlos uno por uno serían 180
+// llamadas (tarea 478).
+// ============================================
+export const hitosEnLote = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    await ensureLineaTiempo();
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [])
+      .map((x: any) => Number(x)).filter((n: number) => Number.isFinite(n) && n > 0).slice(0, 300);
+    if (!ids.length) return res.json({ contenedores: {} });
+
+    const cs = await pool.query(
+      `SELECT id, created_at, planned_departure, actual_departure FROM containers WHERE id = ANY($1::int[])`, [ids]);
+    const ev = await pool.query(
+      `SELECT container_id, paso, ocurrio_at FROM container_timeline_events
+        WHERE container_id = ANY($1::int[]) ORDER BY container_id, paso`, [ids]);
+
+    const porContenedor = new Map<number, any[]>();
+    for (const e of ev.rows) {
+      const arr = porContenedor.get(e.container_id) || [];
+      arr.push(e);
+      porContenedor.set(e.container_id, arr);
+    }
+
+    const ahora = new Date();
+    const salida: Record<number, any> = {};
+    for (const c of cs.rows) {
+      const mapa = mapaDePasos(c, porContenedor.get(c.id) || []);
+      // Cada hito se prende con el paso que lo alimenta; si lo alimentan varios,
+      // manda el primero que ocurrió.
+      const hitos = HITOS_CLIENTE.map(nombre => {
+        const fechas = PASOS.filter(p => p.hito === nombre)
+          .map(p => mapa.get(p.paso)?.ocurrio_at).filter(Boolean)
+          .sort((a: any, b: any) => new Date(a).getTime() - new Date(b).getTime());
+        return { hito: nombre, fecha: fechas[0] || null };
+      });
+      salida[c.id] = {
+        hitos,
+        dias_desde_alta: dias(c.created_at, ahora),
+        // Cuántos pasos de los 11 ya tienen fecha: sirve para ver de un vistazo
+        // qué tan alimentado está cada contenedor.
+        pasos_registrados: PASOS.filter(p => mapa.get(p.paso)?.ocurrio_at).length,
+        pasos_totales: PASOS.length,
+      };
+    }
+    res.json({ contenedores: salida });
+  } catch (e: any) {
+    console.error('[linea-tiempo] hitos en lote:', e?.message);
+    res.status(500).json({ error: 'No se pudieron cargar los hitos' });
+  }
+};
