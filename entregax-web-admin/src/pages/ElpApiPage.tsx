@@ -3,7 +3,7 @@
 // Contenedores de rutas ELP + documentos + status
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -104,6 +104,24 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
       [c.container_number, (c as any).bl_number, (c as any).reference_code]
         .some((v) => String(v || '').toLowerCase().includes(q)));
   })();
+
+  // Los 6 hitos de cada contenedor, para pintar su linea debajo del renglon.
+  // Se piden en lote: uno por uno serian 180 llamadas.
+  const [hitos, setHitos] = useState<Record<number, any>>({});
+  useEffect(() => {
+    if (!containers.length) return;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const r = await fetch(`${API_URL}/api/containers/linea-tiempo/hitos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ ids: containers.map((c) => c.id) }),
+        });
+        if (r.ok) { const d = await r.json(); setHitos(d.contenedores || {}); }
+      } catch { /* la tabla funciona igual sin la linea */ }
+    })();
+  }, [containers]);
 
   // Movimientos del contenedor: se abre al dar clic en su estado.
   const [movsDe, setMovsDe] = useState<any | null>(null);
@@ -276,7 +294,8 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                 </TableRow>
               ) : (
                 visibles.map((c) => (
-                  <TableRow key={c.id} hover>
+                  <React.Fragment key={c.id}>
+                  <TableRow hover sx={{ '& td': { borderBottom: 'none' } }}>
                     <TableCell><Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>{c.container_number}</Typography></TableCell>
                     <TableCell>{c.bl_number || '—'}</TableCell>
                     <TableCell>{c.reference_code || '—'}</TableCell>
@@ -344,6 +363,42 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
+                  {/* Los 6 hitos del contenedor: la misma linea que ve el cliente. */}
+                  <TableRow>
+                    <TableCell colSpan={10} sx={{ pt: 0, pb: 1.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        {(hitos[c.id]?.hitos || []).map((h: any, i: number, arr: any[]) => (
+                          <Box key={h.hito} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ textAlign: 'center', minWidth: 92 }}>
+                              <Box sx={{ width: 16, height: 16, borderRadius: '50%', mx: 'auto', mb: 0.3,
+                                bgcolor: h.fecha ? '#2E7D32' : '#D6D6D6', color: '#fff', fontSize: 10,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                {h.fecha ? '✓' : ''}
+                              </Box>
+                              <Typography sx={{ fontSize: 10.5, fontWeight: h.fecha ? 700 : 400, color: h.fecha ? '#2E7D32' : '#999', lineHeight: 1.2 }}>
+                                {h.hito}
+                              </Typography>
+                              <Typography sx={{ fontSize: 9.5, color: '#999' }}>
+                                {h.fecha ? new Date(h.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' }) : '—'}
+                              </Typography>
+                            </Box>
+                            {i < arr.length - 1 && (
+                              <Box sx={{ width: 22, height: 2, bgcolor: h.fecha ? '#2E7D32' : '#E0E0E0' }} />
+                            )}
+                          </Box>
+                        ))}
+                        {hitos[c.id] && (
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#E65100', ml: 1 }}>
+                            {hitos[c.id].dias_desde_alta} días desde el alta
+                            <Typography component="span" sx={{ fontSize: 10.5, color: '#999', fontWeight: 400, ml: 0.5 }}>
+                              {' · '}{hitos[c.id].pasos_registrados}/{hitos[c.id].pasos_totales} pasos
+                            </Typography>
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  </React.Fragment>
                 ))
               )}
             </TableBody>
