@@ -505,7 +505,12 @@ export const buscarContenedor = async (req: AuthRequest, res: Response): Promise
          JOIN users u ON u.id = mo.user_id
         WHERE mo.container_id = $1 ORDER BY u.full_name LIMIT 20`, [c.id]);
 
+    const alta = c.created_at;
     res.json({
+      // Días desde que se dio de alta: es la pregunta de fondo de la tarea
+      // ("¿cuánto lleva esto?") y se responde sin tener que sumar a mano.
+      dias_desde_alta: dias(alta, new Date()),
+      alta: alta,
       contenedor: {
         id: c.id, numero: c.container_number, bl: c.bl_number,
         referencia: c.reference_code, estado: c.status, eta: c.eta, por_elp: !!c.elp_notified_at,
