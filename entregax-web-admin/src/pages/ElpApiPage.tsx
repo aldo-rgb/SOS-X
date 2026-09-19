@@ -33,7 +33,6 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmailIcon from '@mui/icons-material/Email';
-import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import SearchIcon from '@mui/icons-material/Search';
@@ -80,12 +79,12 @@ const STATUS_COLORS: Record<string, string> = {
   arrived_port: '#673AB7',
 };
 
-const DOC_LABELS: { key: keyof ElpDocuments; label: string }[] = [
-  { key: 'bl', label: 'BL' },
-  { key: 'telex_isf', label: 'Telex/ISF' },
-  { key: 'isf_word', label: 'ISF Word' },
-  { key: 'invoice', label: 'Invoice' },
-  { key: 'packing_list', label: 'Packing' },
+const DOC_LABELS: { key: keyof ElpDocuments; label: string; sigla: string }[] = [
+  { key: 'bl', label: 'BL', sigla: 'BL' },
+  { key: 'telex_isf', label: 'Telex/ISF', sigla: 'ISF/TL' },
+  { key: 'isf_word', label: 'ISF Word', sigla: 'ISFW' },
+  { key: 'invoice', label: 'Invoice', sigla: 'INV' },
+  { key: 'packing_list', label: 'Packing List', sigla: 'PL' },
 ];
 
 export default function ElpApiPage({ onBack }: { onBack: () => void }) {
@@ -318,22 +317,34 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       </Tooltip>
                     </TableCell>
                     <TableCell>
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', gap: 0.3, flexWrap: 'wrap', maxWidth: 120 }}>
                         {DOC_LABELS.map((d) => {
                           const url = c.documents?.[d.key];
-                          return url ? (
-                            <Tooltip key={d.key} title={`Abrir ${d.label}`}>
-                              <Chip
-                                icon={<DescriptionIcon />}
-                                label={d.label}
-                                size="small"
-                                clickable
-                                onClick={() => window.open(url, '_blank')}
-                                sx={{ fontSize: 10 }}
-                              />
+                          return (
+                            <Tooltip key={d.key} title={url ? `Abrir ${d.label}` : `Sin ${d.label}`}>
+                              <Box
+                                onClick={url ? () => window.open(url, '_blank') : undefined}
+                                sx={{
+                                  px: 0.6,
+                                  height: 18,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: 0.75,
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  letterSpacing: 0.2,
+                                  lineHeight: 1,
+                                  cursor: url ? 'pointer' : 'default',
+                                  bgcolor: url ? '#E8F5E9' : 'transparent',
+                                  color: url ? '#2E7D32' : '#BDBDBD',
+                                  border: '1px solid',
+                                  borderColor: url ? '#A5D6A7' : '#E0E0E0',
+                                  '&:hover': url ? { bgcolor: '#C8E6C9' } : undefined,
+                                }}
+                              >
+                                {d.sigla}
+                              </Box>
                             </Tooltip>
-                          ) : (
-                            <Chip key={d.key} label={d.label} size="small" variant="outlined" sx={{ fontSize: 10, opacity: 0.4 }} />
                           );
                         })}
                       </Box>
@@ -371,9 +382,9 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                   <TableRow>
                     <TableCell colSpan={10} sx={{ pt: 0, pb: 1.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        {(hitos[c.id]?.hitos || []).map((h: any, i: number, arr: any[]) => (
+                        {(hitos[c.id]?.hitos_operacion || []).map((h: any, i: number, arr: any[]) => (
                           <Box key={h.hito} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Box sx={{ textAlign: 'center', minWidth: 92 }}>
+                            <Box sx={{ textAlign: 'center', minWidth: 74 }}>
                               <Box sx={{ width: 16, height: 16, borderRadius: '50%', mx: 'auto', mb: 0.3,
                                 bgcolor: h.fecha ? '#2E7D32' : '#D6D6D6', color: '#fff', fontSize: 10,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
@@ -387,7 +398,7 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                               </Typography>
                             </Box>
                             {i < arr.length - 1 && (
-                              <Box sx={{ width: 22, height: 2, bgcolor: h.fecha ? '#2E7D32' : '#E0E0E0' }} />
+                              <Box sx={{ width: 16, height: 2, bgcolor: h.fecha ? '#2E7D32' : '#E0E0E0' }} />
                             )}
                           </Box>
                         ))}
