@@ -92,6 +92,27 @@ export const PASOS: PasoLinea[] = [
 
 const porPaso = new Map(PASOS.map(p => [p.paso, p]));
 
+/**
+ * Los 8 que se ven en la tabla de operación (API ELP).
+ *
+ * El cliente ve 6; aquí caben 2 más y se aprovechan para los pasos que a
+ * operación sí le sirven y al cliente no le dicen nada: la confirmación del
+ * ISF —que es lo que hoy detiene todo— y la entrada al almacén de El Paso,
+ * que junto con la salida deja ver cuánto se quedó parado ahí.
+ *
+ * Van en orden cronológico real del recorrido.
+ */
+export const HITOS_OPERACION: { etiqueta: string; paso: number }[] = [
+  { etiqueta: 'En Bodega',        paso: 1 },
+  { etiqueta: 'Confirmación ISF', paso: 2 },
+  { etiqueta: 'Zarpó',            paso: 3 },
+  { etiqueta: 'Pick up terminal', paso: 4 },
+  { etiqueta: 'Entrada El Paso',  paso: 5 },
+  { etiqueta: 'Salida El Paso',   paso: 6 },
+  { etiqueta: 'Cruce',            paso: 7 },
+  { etiqueta: 'Entregado',        paso: 12 },
+];
+
 /** Los 6 que ve el cliente, en orden. Es la línea que ya existe en su portal. */
 export const HITOS_CLIENTE = ['En Bodega', 'Ya Zarpó', 'Arribo a Puerto', 'En Tránsito MX', 'En ruta a destino', 'Entregado'];
 
@@ -566,6 +587,11 @@ export const hitosEnLote = async (req: AuthRequest, res: Response): Promise<any>
       });
       salida[c.id] = {
         hitos,
+        // Los 8 de la tabla de operación.
+        hitos_operacion: HITOS_OPERACION.map(h => ({
+          etiqueta: h.etiqueta,
+          fecha: mapa.get(h.paso)?.ocurrio_at || null,
+        })),
         dias_desde_alta: dias(c.created_at, ahora),
         // Cuántos pasos de los 11 ya tienen fecha: sirve para ver de un vistazo
         // qué tan alimentado está cada contenedor.
