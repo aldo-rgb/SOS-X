@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { pideOcurre } from './ocurreDeteccion';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 
@@ -658,7 +659,10 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
              RETURNING *`,
             [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
-             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null, is_ocurre === true]
+             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null,
+             // Si el cliente escribió "ocurre" en la dirección, el interruptor se
+             // enciende solo: nadie lo prendía y la guía salía a domicilio.
+             is_ocurre === true || pideOcurre(reference, street)]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
@@ -718,7 +722,10 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
              WHERE id = $14 AND user_id = $15
              RETURNING *`,
             [alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code,
-             phone, reference, reception_hours, default_for_service, addressId, userId, typeof is_ocurre === 'boolean' ? is_ocurre : null]
+             phone, reference, reception_hours, default_for_service, addressId, userId,
+             // Mismo criterio al editar: si el texto lo pide, se enciende. Un
+             // false explícito del usuario sí manda y no se le contradice.
+             typeof is_ocurre === 'boolean' ? is_ocurre : (pideOcurre(reference, street) ? true : null)]
         );
 
         if (result.rows.length === 0) {
@@ -1108,7 +1115,7 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         // generar la guía, paqueteExpressController sustituye calle/colonia/ciudad
         // por las de la sucursal solo cuando is_ocurre es true. Se admiten las dos
         // formas del campo porque web manda camelCase y la app snake_case.
-        const ocurre = (isOcurre === true || is_ocurre === true);
+        const ocurre = (isOcurre === true || is_ocurre === true || pideOcurre(reference, street));
         if (!street || !city || !state || !zipCode) {
             res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' }); return;
         }

@@ -1982,7 +1982,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                 NULL::text AS national_delivery_zip, NULL::text AS destination_zip,
                 u.full_name AS user_name, u.email AS user_email,
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
-                a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference
+                a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
+                a.is_ocurre AS addr_is_ocurre, a.id AS addr_id
            FROM dhl_shipments ds
            LEFT JOIN users u ON ds.user_id = u.id
            LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -2001,7 +2002,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
-                a.is_ocurre AS addr_is_ocurre,
+                a.is_ocurre AS addr_is_ocurre, a.id AS addr_id,
                 p.national_delivery_zip
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
@@ -2165,6 +2166,20 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // etiqueta para que el municipio impreso sea el de la sucursal, no el
     // domicilio del cliente.
     let ocurreBranchCity: string | null = null;
+
+    // El interruptor de Ocurre se enciende solo cuando la dirección trae escrita
+    // la palabra "ocurre". La gente la escribe en las referencias y nadie prende
+    // el toggle, así que la guía salía a domicilio y la paquetería la mandaba a
+    // la sucursal que cubriera el CP —no a la que el cliente pidió. Fue el
+    // reclamo de José Pablo Laurean (S2638, TKT-2026-2777): su texto decía LMM01
+    // y terminó en LMM03. Se persiste para que la dirección quede bien de aquí
+    // en adelante y el cliente lo vea encendido en su perfil.
+    const { encenderOcurreSiElTextoLoPide } = await import('./ocurreDeteccion');
+    const esOcurrePorTexto = await encenderOcurreSiElTextoLoPide(
+      pool, pkg.addr_id, pkg.addr_is_ocurre, pkg.reference, pkg.street
+    );
+    if (esOcurrePorTexto) pkg.addr_is_ocurre = true;
+
     // Dirección marcada como OCURRE (toggle is_ocurre) sin CP de sucursal aún:
     // resolver la sucursal PQTX más cercana al cliente y usar su CP (mismo
     // mecanismo que el ocurre manual). Así la guía sale a sucursal, no a domicilio.
