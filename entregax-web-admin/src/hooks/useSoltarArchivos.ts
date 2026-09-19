@@ -25,8 +25,32 @@ export function useSoltarArchivos(
   const profundidad = useRef(0);
   const desactivado = !!opciones?.desactivado;
 
-  const traeArchivos = (e: React.DragEvent) =>
-    Array.from(e.dataTransfer?.types || []).includes('Files');
+  /**
+   * ¿Este arrastre trae archivos?
+   *
+   * Parece trivial y no lo es: Safari **no siempre anuncia `Files`** en
+   * `dataTransfer.types` mientras se arrastra (solo lo expone al soltar), así
+   * que preguntarlo a secas daba `false` y no se prevenía nada. Resultado: el
+   * borde naranja nunca aparecía y, al soltar sobre el campo de comentario,
+   * Safari hacía lo suyo y escribía la RUTA del archivo como texto. Así lo
+   * reportó Juan en la tarea 516, y el comentario que dejó era literalmente
+   * `/Users/…/Captura de pantalla….png`.
+   *
+   * Por eso se acepta cualquier seña de archivo —los tipos de Safari incluidos—
+   * y la confirmación de verdad se hace al soltar, donde `files` sí viene.
+   */
+  const traeArchivos = (e: React.DragEvent) => {
+    const dt = e.dataTransfer;
+    if (!dt) return false;
+    const tipos = Array.from(dt.types || []);
+    if (tipos.includes('Files')) return true;
+    // Safari/macOS: identificadores UTI en vez de 'Files'.
+    if (tipos.some(t => t === 'public.file-url' || t.startsWith('dyn.'))) return true;
+    if (dt.items && Array.from(dt.items).some(i => i.kind === 'file')) return true;
+    // Sin tipos declarados tampoco se puede descartar: se trata como archivo y
+    // al soltar se verifica. Arrastrar texto SÍ declara 'text/plain'.
+    return tipos.length === 0;
+  };
 
   const onDragEnter = useCallback((e: React.DragEvent) => {
     if (desactivado || !traeArchivos(e)) return;
@@ -48,12 +72,16 @@ export function useSoltarArchivos(
   }, [desactivado]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
-    if (desactivado || !traeArchivos(e)) return;
-    e.preventDefault();
+    if (desactivado) return;
     profundidad.current = 0;
     setArrastrando(false);
+    // Se leen los archivos ANTES de prevenir nada. Como arriba se acepta el
+    // arrastre con poca información, aquí puede llegar un arrastre de texto: si
+    // se previniera de todos modos, pegar texto arrastrado dejaría de funcionar.
     const archivos = Array.from(e.dataTransfer?.files || []);
     if (!archivos.length) return;
+    e.preventDefault();
+    e.stopPropagation();
     recibir(opciones?.soloUno ? archivos.slice(0, 1) : archivos);
   }, [desactivado, recibir, opciones?.soloUno]);
 
