@@ -123,6 +123,10 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
     })();
   }, [containers]);
 
+  // Visor de fotos y documentos: se abre con una miniatura y se recorre la
+  // serie completa del contenedor con las flechas.
+  const [visor, setVisor] = useState<number | null>(null);
+
   // Movimientos del contenedor: se abre al dar clic en su estado.
   const [movsDe, setMovsDe] = useState<any | null>(null);
   const [movs, setMovs] = useState<any | null>(null);
@@ -465,7 +469,12 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
         </DialogTitle>
         <DialogContent dividers>
           {movsCargando && <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>}
-          {!movsCargando && movs && (
+          {!movsCargando && movs && (() => {
+            // Todas las fotos y documentos del contenedor, en el orden de los
+            // pasos: es la serie que se recorre en el visor.
+            const archivos = movs.pasos.flatMap((p: any) =>
+              (p.fotos || []).map((fo: any) => ({ ...fo, paso: p.etiqueta })));
+            return (
             <>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                 Un paso sin fecha no se registró; no quiere decir que no haya ocurrido.
@@ -487,11 +496,24 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       {p.dias_esperando != null && ` · lleva ${p.dias_esperando} día(s) esperando`}
                     </Typography>
                     {p.fotos?.length > 0 && (
-                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
-                        {p.fotos.map((fo: any, i: number) => (
-                          <Box key={i} component="a" href={fo.url} target="_blank" rel="noopener noreferrer"
-                            sx={{ fontSize: 12, color: '#1565C0' }}>📷 Foto {i + 1}</Box>
-                        ))}
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
+                        {p.fotos.map((fo: any) => {
+                          const pos = archivos.findIndex((a: any) => a.url === fo.url);
+                          const esPdf = /\.pdf(\?|$)/i.test(String(fo.url || ''));
+                          return (
+                            <Box key={fo.url} onClick={() => setVisor(pos)}
+                              sx={{ width: 64, height: 64, borderRadius: 1, overflow: 'hidden', cursor: 'pointer',
+                                border: '1px solid #ddd', bgcolor: '#FAFAFA', display: 'flex',
+                                alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                '&:hover': { borderColor: '#E65100' } }}>
+                              {esPdf
+                                ? <Typography sx={{ fontSize: 10, textAlign: 'center', px: 0.5 }}>📄 PDF</Typography>
+                                : <Box component="img" src={fo.url} alt={fo.nombre || 'foto'}
+                                    sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    onError={(e: any) => { e.currentTarget.style.display = 'none'; }} />}
+                            </Box>
+                          );
+                        })}
                       </Box>
                     )}
                   </Box>
@@ -503,7 +525,8 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                 </Typography>
               )}
             </>
-          )}
+            );
+          })()}
           {!movsCargando && !movs && (
             <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
               No se pudieron cargar los movimientos.
@@ -514,6 +537,57 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
           <Button onClick={() => { setMovsDe(null); setMovs(null); }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Visor de la serie de fotos y documentos, con flechas. */}
+      {visor !== null && movs && (() => {
+        const archivos = movs.pasos.flatMap((p: any) =>
+          (p.fotos || []).map((fo: any) => ({ ...fo, paso: p.etiqueta })));
+        const actual = archivos[visor];
+        if (!actual) return null;
+        const mover = (d: number) => setVisor((v) => {
+          const n = (v ?? 0) + d;
+          return n < 0 ? archivos.length - 1 : n >= archivos.length ? 0 : n;
+        });
+        const esPdf = /\.pdf(\?|$)/i.test(String(actual.url || ''));
+        return (
+          <Dialog open fullWidth maxWidth="md" onClose={() => setVisor(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') mover(1);
+              if (e.key === 'ArrowLeft') mover(-1);
+            }}>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.25 }}>
+              <Box>
+                <Typography fontWeight={700} fontSize={15}>{actual.paso}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {visor + 1} de {archivos.length}{actual.nombre ? ` · ${actual.nombre}` : ''}
+                </Typography>
+              </Box>
+              <Button size="small" onClick={() => setVisor(null)}>Cerrar</Button>
+            </DialogTitle>
+            <DialogContent dividers sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#111', minHeight: 360 }}>
+              <IconButton onClick={() => mover(-1)} disabled={archivos.length < 2} sx={{ color: '#fff' }}>‹</IconButton>
+              <Box sx={{ flex: 1, textAlign: 'center' }}>
+                {esPdf ? (
+                  <Box sx={{ color: '#fff', py: 6 }}>
+                    <Typography sx={{ mb: 2 }}>📄 Este archivo es un PDF</Typography>
+                    <Button variant="contained" onClick={() => window.open(actual.url, '_blank')}>Abrir el PDF</Button>
+                  </Box>
+                ) : (
+                  <Box component="img" src={actual.url} alt={actual.nombre || 'archivo'}
+                    sx={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }} />
+                )}
+              </Box>
+              <IconButton onClick={() => mover(1)} disabled={archivos.length < 2} sx={{ color: '#fff' }}>›</IconButton>
+            </DialogContent>
+            <DialogActions sx={{ justifyContent: 'space-between' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
+                Usa las flechas del teclado para moverte entre los archivos.
+              </Typography>
+              <Button onClick={() => window.open(actual.url, '_blank')}>Abrir en otra pestaña</Button>
+            </DialogActions>
+          </Dialog>
+        );
+      })()}
     </Box>
   );
 }
