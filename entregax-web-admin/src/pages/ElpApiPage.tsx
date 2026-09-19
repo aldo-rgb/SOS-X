@@ -395,6 +395,17 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                             </Typography>
                           </Typography>
                         )}
+                        {/* Mismo modal que el clic en el estado, pero visible:
+                            nadie adivina que el chip se puede apretar. */}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => abrirMovimientos(c)}
+                          sx={{ ml: 'auto', textTransform: 'none', fontSize: 11, py: 0.2,
+                            borderColor: '#E65100', color: '#E65100', '&:hover': { borderColor: '#BF360C', bgcolor: '#FFF3E0' } }}
+                        >
+                          Ver detalles
+                        </Button>
                       </Box>
                     </TableCell>
                   </TableRow>
