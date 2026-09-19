@@ -138,7 +138,7 @@ const dominioDe = (url: string): string => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 };
 
-const extraerEnlaces = (html: string, texto: string): EnlaceCorreo[] => {
+export const extraerEnlaces = (html: string, texto: string): EnlaceCorreo[] => {
   const vistos = new Set<string>();
   const out: EnlaceCorreo[] = [];
   const agregar = (url: string, etiqueta: string) => {

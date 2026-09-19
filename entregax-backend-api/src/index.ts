@@ -1305,6 +1305,9 @@ import {
   updateDhlShipmentStatus
 } from './dhlController';
 import {
+  lineaDeTiempo, registrarPasoManual, procesarCorreosHandler,
+} from './containerTimeline';
+import {
   listarDirectorioFiscal, crearEnDirectorioFiscal,
   actualizarEnDirectorioFiscal, quitarDeDirectorioFiscal,
 } from './directorioFiscal';
@@ -7225,6 +7228,11 @@ app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WARE
 
 // Prealertas de guías DHL con proceso especial (tarea 573). Las levanta y las
 // libera quien lleva la operación; bodega solo las ve al escanear.
+// Línea de tiempo de contenedores marítimos: los 12 pasos con sus días (tarea 478).
+app.get('/api/containers/:id/linea-tiempo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), lineaDeTiempo);
+app.post('/api/containers/:id/linea-tiempo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), registrarPasoManual);
+app.post('/api/containers/linea-tiempo/procesar-correos', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), procesarCorreosHandler);
+
 app.get('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listarPrealertas);
 app.post('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), crearPrealerta);
 app.put('/api/admin/dhl/prealertas/:id/costo', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), asignarCostoPrealerta);

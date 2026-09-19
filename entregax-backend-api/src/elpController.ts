@@ -385,6 +385,27 @@ export const elpReceiveStatus = async (req: Request, res: Response): Promise<any
     );
     await logElpEvent(row.id, row.container_number, 'inbound_status', status, req.body, 200);
 
+    // El pulso también alimenta la línea de tiempo del contenedor (tarea 478).
+    // No detiene el pulso si falla: el estatus del contenedor ya quedó puesto.
+    try {
+      const { registrarPaso } = await import('./containerTimeline');
+      const PASO_POR_PULSO: Record<string, number> = {
+        docs_received: 1,            // Documentación enviada para ISF
+        procedure_requested: 2,      // Confirmación de ISF
+        cbp_signature_received: 4,   // Solicitud de pick up en terminal
+        arrived_port: 7,             // Cruce internacional / arribo
+      };
+      const paso = PASO_POR_PULSO[status];
+      if (paso) {
+        await registrarPaso({
+          containerId: row.id, paso, ocurrioAt: new Date(), origen: 'elp',
+          detalle: ELP_STATUS_LABELS[status] || status,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[ELP] no se pudo registrar el paso en la línea de tiempo:', e?.message);
+    }
+
     res.json({
       ok: true,
       container_number: row.container_number,

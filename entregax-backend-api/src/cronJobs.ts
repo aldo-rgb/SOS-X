@@ -17,6 +17,14 @@ const startCajitoCorreosCron = () => {
     if (!m365Configurado()) return;
     const r = await sincronizarCorreosM365();
     if (r.nuevos > 0) console.log(`📧 [CRON] Buzón de Cajito: ${r.nuevos} correo(s) nuevo(s)`);
+    // Los avisos del almacén de El Paso se vuelven pasos de la línea de tiempo
+    // del contenedor (tarea 478). Va aquí porque es la misma llegada de correo.
+    try {
+      const { procesarCorreosDeAlmacen } = await import('./containerTimeline');
+      await procesarCorreosDeAlmacen();
+    } catch (e: any) {
+      console.warn('[CRON] línea de tiempo desde correos:', e?.message);
+    }
   });
   console.log('📅 [CRON] Buzón de Cajito: cada 3 minutos');
 };
