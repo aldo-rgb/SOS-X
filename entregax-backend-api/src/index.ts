@@ -1305,7 +1305,7 @@ import {
   updateDhlShipmentStatus
 } from './dhlController';
 import {
-  lineaDeTiempo, registrarPasoManual, procesarCorreosHandler,
+  lineaDeTiempo, registrarPasoManual, procesarCorreosHandler, lineaDeTiempoCliente,
 } from './containerTimeline';
 import {
   listarDirectorioFiscal, crearEnDirectorioFiscal,
@@ -7231,6 +7231,8 @@ app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WARE
 // Línea de tiempo de contenedores marítimos: los 12 pasos con sus días (tarea 478).
 app.get('/api/containers/:id/linea-tiempo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), lineaDeTiempo);
 app.post('/api/containers/:id/linea-tiempo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), registrarPasoManual);
+// El cliente la ve desde "Ver Detalles" de su embarque marítimo.
+app.get('/api/client/containers/:numero/linea-tiempo', authenticateToken, lineaDeTiempoCliente);
 app.post('/api/containers/linea-tiempo/procesar-correos', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), procesarCorreosHandler);
 
 app.get('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listarPrealertas);

@@ -368,3 +368,63 @@ export const aplicarEstatusDelPaso = async (
   console.log(`📦 [linea-tiempo] contenedor ${containerId}: ${actual || '(sin estatus)'} → ${nuevo} por ${motivo}`);
   return nuevo;
 };
+
+// ============================================
+// GET /api/client/containers/:numero/linea-tiempo
+//
+// La misma línea, pero para el cliente: entra por el NÚMERO de contenedor y
+// solo si trae carga suya. Se usa desde "Ver Detalles" de su portal.
+// ============================================
+export const lineaDeTiempoCliente = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    await ensureLineaTiempo();
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const numero = String(req.params.numero || '').trim().toUpperCase();
+    if (!numero) return res.status(400).json({ error: 'Falta el número de contenedor' });
+
+    // Que el contenedor de verdad lleve carga de este cliente.
+    const c = (await pool.query(
+      `SELECT c.id, c.container_number, c.eta
+         FROM containers c
+        WHERE UPPER(TRIM(c.container_number)) = $1
+          AND EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.container_id = c.id AND mo.user_id = $2)
+        LIMIT 1`, [numero, userId])).rows[0];
+    if (!c) return res.status(404).json({ error: 'No encontramos ese contenedor entre tus embarques.' });
+
+    const ev = await pool.query(
+      `SELECT paso, ocurrio_at, detalle, fotos FROM container_timeline_events
+        WHERE container_id = $1 ORDER BY paso`, [c.id]);
+    const reg = new Map(ev.rows.map(e => [e.paso, e]));
+
+    const ahora = new Date();
+    let anterior: any = null;
+    const pasos = PASOS.map(p => {
+      const e = reg.get(p.paso);
+      const fila = {
+        paso: p.paso,
+        etiqueta: p.etiqueta,
+        hito: p.hito,
+        fecha: e?.ocurrio_at || null,
+        // Al cliente se le muestran las fotos del almacén: es la prueba de que
+        // su carga existe y está bien.
+        fotos: e?.fotos || [],
+        dias_desde_anterior: e ? dias(anterior, e.ocurrio_at) : null,
+        dias_esperando: !e && anterior ? dias(anterior, ahora) : null,
+      };
+      if (e) anterior = e.ocurrio_at;
+      return fila;
+    });
+
+    res.json({
+      contenedor: c.container_number,
+      eta: c.eta,
+      pasos,
+      // Para que la pantalla sepa si vale la pena pintar la sección.
+      con_registro: pasos.some(p => p.fecha),
+    });
+  } catch (e: any) {
+    console.error('[linea-tiempo cliente]:', e?.message);
+    res.status(500).json({ error: 'No se pudo cargar el seguimiento' });
+  }
+};

@@ -843,6 +843,56 @@ export const TOOLS: ToolDef[] = [
   // la CJD-2026-0016 con S96). Junta los cuatro servicios: PO Box y aéreo
   // (packages), marítimo (maritime_orders) y DHL (dhl_shipments).
   {
+    name: 'seguimiento_contenedor',
+    requiredCapability: 'cajito.read.packages',
+    readOnly: true,
+    description: 'El recorrido de un CONTENEDOR marítimo paso por paso (tarea 478): cuándo se mandó la documentación de ISF, cuándo zarpó, cuándo entró y salió del almacén de El Paso, cuándo cruzó, y los días que lleva en cada tramo. Úsala cuando pregunten "¿dónde va el contenedor ONEU4347904?", "¿por qué lleva tanto?", "¿ya salió de El Paso?". Recibe el número de contenedor (4 letras y 7 dígitos).',
+    parameters: {
+      type: 'object',
+      properties: {
+        contenedor: { type: 'string', description: 'Número de contenedor, p. ej. ONEU4347904.' },
+      },
+      required: ['contenedor'],
+    },
+    handler: async ({ contenedor }: any) => {
+      const num = String(contenedor || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!num) return { error: 'Falta el número de contenedor.' };
+      const c = (await pool.query(
+        `SELECT id, container_number, status, eta, elp_notified_at FROM containers
+          WHERE UPPER(TRIM(container_number)) = $1 LIMIT 1`, [num])).rows[0];
+      if (!c) return { error: `No encontré el contenedor ${num}.` };
+      const { PASOS } = await import('./containerTimeline');
+      const ev = await pool.query(
+        `SELECT paso, ocurrio_at, origen, detalle FROM container_timeline_events
+          WHERE container_id = $1 ORDER BY paso`, [c.id]);
+      const reg = new Map(ev.rows.map((e: any) => [e.paso, e]));
+      const ahora = Date.now();
+      let anterior: any = null;
+      const pasos = PASOS.map((p: any) => {
+        const e = reg.get(p.paso);
+        const d = (a: any, b: any) => (a && b) ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000)) : null;
+        const fila = {
+          paso: p.paso, etiqueta: p.etiqueta,
+          fecha: e ? String(e.ocurrio_at).slice(0, 10) : null,
+          origen: e?.origen || null,
+          dias_desde_anterior: e ? d(anterior, e.ocurrio_at) : null,
+          dias_esperando: !e && anterior ? d(anterior, ahora) : null,
+        };
+        if (e) anterior = e.ocurrio_at;
+        return fila;
+      });
+      return {
+        contenedor: c.container_number,
+        estatus: c.status,
+        eta: c.eta ? String(c.eta).slice(0, 10) : null,
+        va_por_elp: !!c.elp_notified_at,
+        pasos,
+        // Para que no confunda un hueco de dato con un hueco de proceso.
+        nota: 'Un paso sin fecha quiere decir que NO se registró, no que no haya ocurrido. Hoy solo se llenan solos los de El Paso (por correo del almacén); los demás dependen de que ELP mande sus pulsos o de captura manual.',
+      };
+    },
+  },
+  {
     name: 'paquetes_de_casillero',
     requiredCapability: 'cajito.read.packages',
     readOnly: true,
