@@ -109,11 +109,17 @@ function timeAgo(dateStr: string): string {
 // Atención a Cliente aunque no tengan una sucursal CEDIS asignada.
 const CS_CENTRAL_ROLES = ['customer_service', 'soporte_tecnico'];
 const CS_DEFAULT_SENTINEL = '__CS_DEFAULT__';
+// Dirección no atiende un CEDIS: atiende la mesa entera. Sin esto, entrar a
+// Tickets desde el celular con una cuenta sin sucursal terminaba en "Sin CEDIS
+// asignado" y no se veía un solo ticket.
+const MESA_COMPLETA_ROLES = ['super_admin', 'admin', 'director'];
+const TODOS_SENTINEL = '__TODOS__';
 
 export default function SupportTicketsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const insets = useSafeAreaInsets();
   const isCsCentral = CS_CENTRAL_ROLES.includes(String(user?.role || ''));
+  const veMesaCompleta = MESA_COMPLETA_ROLES.includes(String(user?.role || ''));
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,7 +167,10 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       }
 
       const cedis = getCedisDeptName(code, name);
-      if (cedis) {
+      if (veMesaCompleta) {
+        // Aunque tenga sucursal: dirección ve todo, no solo su CEDIS.
+        setDeptName(TODOS_SENTINEL);
+      } else if (cedis) {
         setDeptName(cedis);
       } else if (isCsCentral) {
         // Servicio a Cliente / Sistemas: usar el departamento central de Atención a Cliente
@@ -187,13 +196,17 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         // Guardar dept de Atención a Cliente (is_default_for_clients = true) para transferencias
         const csDept = depts.find(d => d.is_default_for_clients === true);
         if (csDept) setDefaultCsDeptId(csDept.id);
-        const found = deptName === CS_DEFAULT_SENTINEL
-          ? csDept
-          : depts.find(d => d.name === deptName);
-        if (found) {
-          setDeptId(found.id);
+        if (deptName === TODOS_SENTINEL) {
+          setDeptId(null); // sin filtro de departamento: se piden todos
         } else {
-          setLoading(false); // departamento no encontrado → salir del spinner
+          const found = deptName === CS_DEFAULT_SENTINEL
+            ? csDept
+            : depts.find(d => d.name === deptName);
+          if (found) {
+            setDeptId(found.id);
+          } else {
+            setLoading(false); // departamento no encontrado → salir del spinner
+          }
         }
       } catch {
         setLoading(false);
@@ -201,11 +214,15 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     })();
   }, [deptName, token]);
 
+  const mesaCompleta = deptName === TODOS_SENTINEL;
   const loadTickets = useCallback(async (showLoader = false) => {
-    if (!deptId) return;
+    if (!deptId && !mesaCompleta) return;
     if (showLoader) setLoading(true);
     try {
-      let url = `/api/admin/support/tickets?department_id=${deptId}&limit=100`;
+      // Sin department_id el backend devuelve todos los departamentos.
+      let url = mesaCompleta
+        ? `/api/admin/support/tickets?limit=100`
+        : `/api/admin/support/tickets?department_id=${deptId}&limit=100`;
       if (filter !== 'open') url += `&status=${filter}`;
       const res = await api.get(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -221,11 +238,11 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [deptId, token, filter]);
+  }, [deptId, token, filter, mesaCompleta]);
 
   useEffect(() => {
-    if (deptId) loadTickets(true);
-  }, [deptId, filter]);
+    if (deptId || mesaCompleta) loadTickets(true);
+  }, [deptId, filter, mesaCompleta]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -631,7 +648,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Tickets de Soporte</Text>
-          <Text style={styles.headerSub}>{deptName === CS_DEFAULT_SENTINEL ? 'Atención a Cliente' : (deptName || 'CEDIS')} · {tickets.length} tickets</Text>
+          <Text style={styles.headerSub}>{deptName === TODOS_SENTINEL ? 'Todos los departamentos' : deptName === CS_DEFAULT_SENTINEL ? 'Atención a Cliente' : (deptName || 'CEDIS')} · {tickets.length} tickets</Text>
         </View>
         <TouchableOpacity onPress={onRefresh} style={styles.backBtn}>
           <Ionicons name="refresh" size={20} color="#fff" />
@@ -676,7 +693,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
             <View style={styles.emptyState}>
               <Ionicons name="ticket-outline" size={64} color="#ccc" />
               <Text style={styles.emptyTitle}>Sin Tickets</Text>
-              <Text style={styles.emptySubtitle}>No hay tickets {FILTERS.find(f => f.key === filter)?.label.toLowerCase()} en {deptName}</Text>
+              <Text style={styles.emptySubtitle}>No hay tickets {FILTERS.find(f => f.key === filter)?.label.toLowerCase()}{deptName === TODOS_SENTINEL ? '' : deptName === CS_DEFAULT_SENTINEL ? ' en Atención a Cliente' : ` en ${deptName}`}</Text>
             </View>
           }
         />
