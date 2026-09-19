@@ -1345,6 +1345,20 @@ export default function DashboardClient() {
   
   // Modal Detalle de Paquete
   const [packageDetailOpen, setPackageDetailOpen] = useState(false);
+  // Recorrido del contenedor marítimo: los 12 pasos con sus días (tarea 478).
+  // Se carga al abrir Ver Detalles de un embarque que ya tiene contenedor.
+  const [recorrido, setRecorrido] = useState<any | null>(null);
+  const [recorridoCargando, setRecorridoCargando] = useState(false);
+  const cargarRecorrido = async (numeroContenedor?: string | null) => {
+    setRecorrido(null);
+    if (!numeroContenedor) return;
+    setRecorridoCargando(true);
+    try {
+      const r = await api.get(`/client/containers/${encodeURIComponent(numeroContenedor)}/linea-tiempo`);
+      setRecorrido(r.data);
+    } catch { /* sin recorrido, el detalle se muestra igual */ }
+    finally { setRecorridoCargando(false); }
+  };
   const [selectedPackage, setSelectedPackage] = useState<PackageTracking | null>(null);
   const [highlightedGuideTracking, setHighlightedGuideTracking] = useState<string | null>(null);
   const [boxListExpanded, setBoxListExpanded] = useState(false);
@@ -10910,6 +10924,7 @@ export default function DashboardClient() {
                           onClick={() => {
                             setSelectedPackage(pkg);
                             setPackageDetailOpen(true);
+                            cargarRecorrido((pkg as any).container_number);
                           }}
                         >
                           Ver Detalles
@@ -12449,6 +12464,54 @@ export default function DashboardClient() {
                   />
                 </Box>
               </Box>
+            </Box>
+          )}
+
+          {/* Recorrido del contenedor — los 12 pasos con sus días (tarea 478).
+              Solo aparece si ese contenedor ya tiene algo registrado. */}
+          {recorridoCargando && (
+            <Box sx={{ px: 3, py: 2 }}>
+              <Typography variant="caption" color="text.secondary">Cargando el recorrido del contenedor…</Typography>
+            </Box>
+          )}
+          {recorrido?.con_registro && (
+            <Box sx={{ px: 3, py: 2, borderTop: '1px solid #eee' }}>
+              <Typography fontWeight={800} fontSize={15} sx={{ mb: 0.5 }}>
+                🚢 Recorrido del contenedor {recorrido.contenedor}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Un paso sin fecha todavía no se ha registrado.
+              </Typography>
+              {recorrido.pasos.map((p: any) => (
+                <Box key={p.paso} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', py: 0.75,
+                  borderBottom: '1px dashed #eee', opacity: p.fecha ? 1 : 0.55 }}>
+                  <Box sx={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, mt: 0.2,
+                    bgcolor: p.fecha ? '#2E7D32' : '#E0E0E0', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                    {p.fecha ? '✓' : p.paso}
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography fontSize={13.5} fontWeight={p.fecha ? 600 : 400}>{p.etiqueta}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {p.fecha
+                        ? new Date(p.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+                        : 'Pendiente'}
+                      {p.dias_desde_anterior != null && p.dias_desde_anterior > 0 && ` · ${p.dias_desde_anterior} día(s) desde el paso anterior`}
+                      {p.dias_esperando != null && ` · ${p.dias_esperando} día(s) esperando`}
+                    </Typography>
+                    {p.fotos?.length > 0 && (
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
+                        {p.fotos.map((fo: any, i: number) => (
+                          <Box key={i} component="a" href={fo.url} target="_blank" rel="noopener noreferrer"
+                            sx={{ fontSize: 12, color: '#1565C0' }}>
+                            📷 Foto {i + 1}
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              ))}
             </Box>
           )}
         </DialogContent>
