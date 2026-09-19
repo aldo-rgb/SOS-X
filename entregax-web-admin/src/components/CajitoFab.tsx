@@ -1384,6 +1384,7 @@ export default function CajitoFab() {
   const [clientResult, setClientResult] = useState<PackageData | null>(null);
   const [ticketResult, setTicketResult] = useState<any | null>(null);
   const [trackError, setTrackError] = useState('');
+  const [contenedorResult, setContenedorResult] = useState<any | null>(null);
   const [lastTracked, setLastTracked] = useState('');
 
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -1693,6 +1694,7 @@ export default function CajitoFab() {
     setTrackLoading(true);
     setTrackError('');
     setTrackResult(null);
+    setContenedorResult(null);
     setClientResult(null);
     setTicketResult(null);
     setLastTracked(raw);
@@ -1738,6 +1740,16 @@ export default function CajitoFab() {
       return false;
     };
 
+    // Contenedor marítimo por número, BL o referencia. Antes escribir un número
+    // de contenedor devolvía 'no se encontró cliente ni guía' (tarea 478).
+    const tryContenedor = async () => {
+      try {
+        const res = await api.get('/containers/lookup', { params: { q: raw } });
+        if (res.data?.contenedor) { setContenedorResult(res.data); return true; }
+      } catch { /* no es un contenedor */ }
+      return false;
+    };
+
     const tryTracking = async () => {
       const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
       if (res.data?.success && (res.data.shipment || res.data.package)) {
@@ -1757,9 +1769,9 @@ export default function CajitoFab() {
           if (e.response?.status === 404) {
             try {
               const ok = await tryTracking();
-              if (!ok) setTrackError('No se encontró ni cliente ni guía con esa búsqueda');
+              if (!ok && !(await tryContenedor())) setTrackError('No se encontró cliente, guía ni contenedor con esa búsqueda');
             } catch (e2: any) {
-              setTrackError('No se encontró cliente ni guía con esa búsqueda');
+              if (!(await tryContenedor())) setTrackError('No se encontró cliente, guía ni contenedor con esa búsqueda');
             }
           } else {
             throw e;
@@ -2071,13 +2083,54 @@ export default function CajitoFab() {
               </Box>
 
               <Box sx={{ flex: 1, overflowY: 'auto', bgcolor: '#FFF8F2', p: 1.5 }}>
+                {/* Contenedor marítimo: su recorrido paso por paso (tarea 478). */}
+                {contenedorResult && (
+                  <Box sx={{ bgcolor: '#fff', border: '1px solid #FFE0C0', borderRadius: 2, p: 1.5, mb: 1 }}>
+                    <Typography fontWeight={800} fontSize={14}>
+                      🚢 {contenedorResult.contenedor.numero}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                      {contenedorResult.contenedor.bl ? `BL ${contenedorResult.contenedor.bl}` : ''}
+                      {contenedorResult.contenedor.referencia ? ` · Ref ${contenedorResult.contenedor.referencia}` : ''}
+                      {contenedorResult.contenedor.eta ? ` · ETA ${new Date(contenedorResult.contenedor.eta).toLocaleDateString('es-MX')}` : ''}
+                    </Typography>
+                    {contenedorResult.clientes?.length > 0 && (
+                      <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+                        <strong>Carga de:</strong> {contenedorResult.clientes.map((c: any) => `${c.full_name} (${c.box_id})`).join(' · ')}
+                      </Typography>
+                    )}
+                    {!contenedorResult.con_registro && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        Todavía no tiene movimientos registrados.
+                      </Typography>
+                    )}
+                    {contenedorResult.pasos.map((p: any) => (
+                      <Box key={p.paso} sx={{ display: 'flex', gap: 1, py: 0.5, alignItems: 'flex-start',
+                        opacity: p.ocurrio_at ? 1 : 0.45 }}>
+                        <Box sx={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, mt: 0.2, fontSize: 10,
+                          bgcolor: p.ocurrio_at ? '#2E7D32' : '#E0E0E0', color: '#fff',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                          {p.ocurrio_at ? '✓' : p.paso}
+                        </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography fontSize={12.5} fontWeight={p.ocurrio_at ? 600 : 400}>{p.etiqueta}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {p.ocurrio_at ? new Date(p.ocurrio_at).toLocaleDateString('es-MX') : 'Pendiente'}
+                            {p.dias_desde_anterior != null && p.dias_desde_anterior > 0 && ` · +${p.dias_desde_anterior}d`}
+                            {p.dias_esperando != null && ` · lleva ${p.dias_esperando}d`}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
                 {trackError && (
                   <Box sx={{ bgcolor: '#FFEBEE', border: '1px solid #EF9A9A', borderRadius: 2, p: 1.5, mb: 1 }}>
                     <Typography variant="body2" color="error.main">⚠️ {trackError}</Typography>
                     <Typography variant="caption" color="text.secondary">Buscado: {lastTracked}</Typography>
                   </Box>
                 )}
-                {!trackResult && !clientResult && !ticketResult && !trackError && !trackLoading && (
+                {!trackResult && !clientResult && !ticketResult && !contenedorResult && !trackError && !trackLoading && (
                   <Box sx={{ textAlign: 'center', pt: 4, color: 'text.secondary' }}>
                     <SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
                     <Typography variant="body2">Busca por guía, cliente o ticket</Typography>

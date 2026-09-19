@@ -28,6 +28,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  InputAdornment,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -35,6 +36,7 @@ import EmailIcon from '@mui/icons-material/Email';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
+import SearchIcon from '@mui/icons-material/Search';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -92,6 +94,30 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
   const [stats, setStats] = useState<ElpStats | null>(null);
   const [configured, setConfigured] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  // Buscador por contenedor, BL o referencia. Con 180 contenedores, encontrar
+  // uno a ojo no era viable.
+  const [buscar, setBuscar] = useState('');
+  const visibles = (() => {
+    const q = buscar.trim().toLowerCase();
+    if (!q) return containers;
+    return containers.filter((c) =>
+      [c.container_number, (c as any).bl_number, (c as any).reference_code]
+        .some((v) => String(v || '').toLowerCase().includes(q)));
+  })();
+
+  // Movimientos del contenedor: se abre al dar clic en su estado.
+  const [movsDe, setMovsDe] = useState<any | null>(null);
+  const [movs, setMovs] = useState<any | null>(null);
+  const [movsCargando, setMovsCargando] = useState(false);
+  const abrirMovimientos = async (c: any) => {
+    setMovsDe(c); setMovs(null); setMovsCargando(true);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(`${API_URL}/api/containers/${c.id}/linea-tiempo`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setMovs(await r.json());
+    } catch { /* se muestra el aviso de vacío */ }
+    finally { setMovsCargando(false); }
+  };
 
   // Editor de destinatarios del correo de aviso
   const [emailsOpen, setEmailsOpen] = useState(false);
@@ -217,6 +243,14 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
         </Box>
       )}
 
+      <TextField
+        size="small" fullWidth sx={{ mb: 2 }}
+        placeholder="Buscar por contenedor, BL o referencia…"
+        value={buscar}
+        onChange={(e) => setBuscar(e.target.value)}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+      />
+
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
       ) : (
@@ -230,17 +264,18 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {containers.length === 0 ? (
+              {visibles.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      No hay contenedores en rutas habilitadas para ELP. Activa el flag "Comunicar con API ELP"
-                      en una ruta desde el módulo Rutas.
+                      {buscar.trim()
+                        ? `Ningún contenedor coincide con "${buscar.trim()}".`
+                        : 'No hay contenedores en rutas habilitadas para ELP. Activa el flag "Comunicar con API ELP" en una ruta desde el módulo Rutas.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
-                containers.map((c) => (
+                visibles.map((c) => (
                   <TableRow key={c.id} hover>
                     <TableCell><Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>{c.container_number}</Typography></TableCell>
                     <TableCell>{c.bl_number || '—'}</TableCell>
@@ -249,11 +284,15 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                     <TableCell>{c.week_number || '—'}</TableCell>
                     <TableCell>{c.eta ? new Date(c.eta).toLocaleDateString() : '—'}</TableCell>
                     <TableCell>
-                      <Chip
-                        label={c.status_label}
-                        size="small"
-                        sx={{ bgcolor: `${STATUS_COLORS[c.status] || '#607D8B'}22`, color: STATUS_COLORS[c.status] || '#607D8B', fontWeight: 700 }}
-                      />
+                      {/* El estado abre los movimientos del contenedor (tarea 478). */}
+                      <Tooltip title="Ver los movimientos de este contenedor">
+                        <Chip
+                          label={c.status_label}
+                          size="small"
+                          onClick={() => abrirMovimientos(c)}
+                          sx={{ bgcolor: `${STATUS_COLORS[c.status] || '#607D8B'}22`, color: STATUS_COLORS[c.status] || '#607D8B', fontWeight: 700, cursor: 'pointer', '&:hover': { filter: 'brightness(0.92)' } }}
+                        />
+                      </Tooltip>
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
@@ -348,6 +387,67 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Movimientos del contenedor — los 12 pasos con sus días (tarea 478). */}
+      <Dialog open={!!movsDe} onClose={() => { setMovsDe(null); setMovs(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Movimientos de {movsDe?.container_number}
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 400 }}>
+            {movsDe?.bl_number ? `BL ${movsDe.bl_number}` : ''}
+            {movsDe?.reference_code ? ` · Ref ${movsDe.reference_code}` : ''}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {movsCargando && <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>}
+          {!movsCargando && movs && (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Un paso sin fecha no se registró; no quiere decir que no haya ocurrido.
+              </Typography>
+              {movs.pasos.map((p: any) => (
+                <Box key={p.paso} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', py: 0.9,
+                  borderBottom: '1px dashed #eee', opacity: p.ocurrio_at ? 1 : 0.5 }}>
+                  <Box sx={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, mt: 0.2,
+                    bgcolor: p.ocurrio_at ? '#2E7D32' : '#E0E0E0', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                    {p.ocurrio_at ? '✓' : p.paso}
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography fontSize={13.5} fontWeight={p.ocurrio_at ? 600 : 400}>{p.etiqueta}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {p.ocurrio_at ? new Date(p.ocurrio_at).toLocaleString('es-MX') : `Pendiente · ${p.fuente}`}
+                      {p.origen && ` · ${p.origen}`}
+                      {p.dias_desde_anterior != null && p.dias_desde_anterior > 0 && ` · +${p.dias_desde_anterior} día(s)`}
+                      {p.dias_esperando != null && ` · lleva ${p.dias_esperando} día(s) esperando`}
+                    </Typography>
+                    {p.fotos?.length > 0 && (
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                        {p.fotos.map((fo: any, i: number) => (
+                          <Box key={i} component="a" href={fo.url} target="_blank" rel="noopener noreferrer"
+                            sx={{ fontSize: 12, color: '#1565C0' }}>📷 Foto {i + 1}</Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              ))}
+              {movs.dias_totales != null && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 1.5, fontWeight: 700 }}>
+                  {movs.dias_totales} día(s) entre el primer y el último movimiento registrado.
+                </Typography>
+              )}
+            </>
+          )}
+          {!movsCargando && !movs && (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+              No se pudieron cargar los movimientos.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setMovsDe(null); setMovs(null); }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
