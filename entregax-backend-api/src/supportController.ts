@@ -1506,7 +1506,11 @@ export const getAdminTicketMessages = async (req: Request, res: Response): Promi
               tm.created_at,
               COALESCE(tm.is_internal, FALSE) as is_internal,
               tm.sender_id, tm.edited_at, tm.deleted_at, tm.read_at,
-              u.full_name as sender_name,
+              -- Un mensaje de agente sin usuario es del equipo, no de una
+              -- persona: se firma "Soporte". Antes caía en el "Agente" genérico
+              -- que pone la app, y las respuestas del equipo salían con el
+              -- nombre propio de quien las escribió desde el sistema.
+              COALESCE(u.full_name, CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
               tm.reply_to_id,
               q.sender_type AS cita_lado,
               CASE WHEN q.deleted_at IS NOT NULL THEN $2::text ELSE q.message END AS cita_texto,
