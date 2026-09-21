@@ -56,6 +56,12 @@ interface ElpContainer {
   status: string;
   status_label: string;
   week_number: string | null;
+  // De quién es el contenedor. En Costeo Marítimo esto vive en la columna
+  // "WEEK", que enseña el casillero cuando el contenedor es de un solo cliente
+  // y el número de week cuando va consolidado. Aquí se separan en dos columnas
+  // para que se lean sin adivinar cuál de las dos está viendo uno.
+  cliente_casillero: string | null;
+  cliente_nombre: string | null;
   eta: string | null;
   elp_notified_at: string | null;
   doc_count: number;
@@ -279,7 +285,7 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
           <Table size="small">
             <TableHead sx={{ bgcolor: '#111' }}>
               <TableRow>
-                {['CONTENEDOR', 'BL', 'REFERENCIA', 'RUTA', 'WEEK', 'ETA', 'ESTADO', 'DOCUMENTOS', 'ELP', 'ACCIONES'].map((h) => (
+                {['CONTENEDOR', 'BL', 'REFERENCIA', 'CLIENTE', 'RUTA', 'WEEK', 'ETA', 'ESTADO', 'DOCUMENTOS', 'ELP', 'ACCIONES'].map((h) => (
                   <TableCell key={h} sx={{ color: '#fff', fontWeight: 'bold' }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -287,7 +293,7 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
             <TableBody>
               {visibles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       {buscar.trim()
                         ? `Ningún contenedor coincide con "${buscar.trim()}".`
@@ -303,6 +309,20 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                     <TableCell>{c.bl_number || '—'}</TableCell>
                     <TableCell>{c.reference_code || '—'}</TableCell>
                     <TableCell>{c.route_code || '—'}</TableCell>
+                    <TableCell>
+                      {c.cliente_casillero ? (
+                        <Tooltip title={c.cliente_nombre || ''}>
+                          <Box>
+                            <Typography sx={{ fontSize: 12.5, fontWeight: 800, lineHeight: 1.1 }}>{c.cliente_casillero}</Typography>
+                            {c.cliente_nombre && (
+                              <Typography sx={{ fontSize: 10.5, color: '#777', lineHeight: 1.1 }}>
+                                {String(c.cliente_nombre).slice(0, 18)}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Tooltip>
+                      ) : <Typography sx={{ fontSize: 12, color: '#BDBDBD' }}>—</Typography>}
+                    </TableCell>
                     <TableCell>{c.week_number || '—'}</TableCell>
                     <TableCell>{c.eta ? new Date(c.eta).toLocaleDateString() : '—'}</TableCell>
                     <TableCell>
@@ -380,7 +400,7 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                   </TableRow>
                   {/* Los 6 hitos del contenedor: la misma linea que ve el cliente. */}
                   <TableRow>
-                    <TableCell colSpan={10} sx={{ pt: 0, pb: 1.5 }}>
+                    <TableCell colSpan={11} sx={{ pt: 0, pb: 1.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                         {(hitos[c.id]?.hitos_operacion || []).map((h: any, i: number, arr: any[]) => (
                           <Box key={h.etiqueta} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

@@ -90,11 +90,22 @@ export const requireElpApiKey = (req: Request, res: Response, next: () => void) 
 const CONTAINER_DOC_SQL = `
   SELECT c.id, c.container_number, c.bl_number, c.reference_code, c.status,
          c.route_id, c.week_number, c.eta, c.elp_notified_at,
+         -- De quién es el contenedor. En Costeo Marítimo esto sale en la
+         -- columna "WEEK", que en realidad muestra DOS cosas: el casillero del
+         -- cliente cuando el contenedor es de uno solo (FCL), y el número de
+         -- week cuando va consolidado (LCL). Se resuelve por los dos caminos
+         -- porque los contenedores viejos traen el cliente heredado y los
+         -- nuevos el de usuarios: de 46 contenedores ELP, 40 tienen el nuevo y
+         -- 44 el heredado.
+         COALESCE(cu.box_id, lc.box_id) AS cliente_casillero,
+         COALESCE(cu.full_name, lc.full_name) AS cliente_nombre,
          r.code AS route_code, COALESCE(r.elp_enabled, false) AS elp_enabled,
          cc.bl_document_pdf, cc.telex_release_pdf,
          d.pdf_url AS draft_bl, d.telex_pdf_url AS draft_telex,
          d.summary_excel_url AS draft_summary, d.extracted_data AS draft_data
     FROM containers c
+    LEFT JOIN users cu ON cu.id = c.client_user_id
+    LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
     LEFT JOIN maritime_routes r ON r.id = c.route_id
     LEFT JOIN container_costs cc ON cc.container_id = c.id
     LEFT JOIN LATERAL (
@@ -444,6 +455,8 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
         status: row.status,
         status_label: ELP_STATUS_LABELS[row.status] || row.status,
         week_number: row.week_number,
+        cliente_casillero: row.cliente_casillero,
+        cliente_nombre: row.cliente_nombre,
         eta: row.eta,
         elp_notified_at: row.elp_notified_at,
         doc_count: docCount,
