@@ -510,15 +510,20 @@ export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any>
 };
 
 // ============================================================
-// POST /api/zaia/apuntar-pendiente — ZAIA le anota un pendiente a Aldo.
+// POST /api/zaia/apuntar-pendiente — ZAIA levanta una tarea.
 //
-// Segunda y última escritura del canal. La tarea se crea SIEMPRE para la cuenta
-// de ZAIA_ACTOR_ID, a su nombre: ZAIA es su asistente y apunta lo suyo, nunca le
-// reparte trabajo a otra persona. Nació porque Cajito redactó un pendiente que
-// Aldo pidió por ZAIA y no pudo levantarlo —por API no escribe—, así que el
-// pendiente se perdió (17-sep-2026).
+// Segunda escritura del canal. Nació porque Cajito redactó un pendiente que Aldo
+// pidió por ZAIA y no pudo levantarlo —por API no escribe—, así que el pendiente
+// se perdió (17-sep-2026).
 //
-// Body: { titulo, descripcion, urgente?, vence? (YYYY-MM-DD) }.
+// Quien la CREA es siempre la cuenta de ZAIA_ACTOR_ID: por aquí nadie más
+// reparte trabajo. Pero el RESPONSABLE lo decide Aldo y es obligatorio: al
+// principio todo caía a su nombre, así que un encargo para otra persona se
+// quedaba en su lista sin que nadie se enterara (le pasó con una tarea para Ana
+// Gabriela Villareal, 21-sep-2026). Si ZAIA no manda responsable_id se le
+// responde que lo pregunte; para algo suyo, Aldo manda su propio id.
+//
+// Body: { titulo, descripcion, responsable_id, urgente?, vence? (YYYY-MM-DD) }.
 // ============================================================
 export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
@@ -537,28 +542,70 @@ export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise
     const vence = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.vence || ''))
       ? new Date(`${req.body.vence}T12:00:00Z`).toISOString() : null;
 
+    // ── A quién se le asigna ──────────────────────────────────────────────
+    // Antes esta vía SOLO apuntaba pendientes de Aldo: pedir "créale una tarea a
+    // Ana Gabriela" se quedaba sin hacer y el encargo se perdía (21-sep-2026).
+    // Ahora se puede asignar a otra persona, con dos candados: quien la crea
+    // sigue siendo la cuenta de ZAIA_ACTOR_ID —nadie más reparte trabajo por
+    // aquí— y el responsable tiene que ser un empleado activo. No se acepta un
+    // cliente ni una cuenta dada de baja.
+    // El responsable es OBLIGATORIO y lo decide Aldo, no se adivina. Antes esta
+    // vía apuntaba todo a su nombre, así que un encargo para otra persona se
+    // quedaba en su lista sin que nadie más se enterara. Si ZAIA no lo manda, se
+    // le contesta que lo pregunte: es mejor una tarea que no nace que una que
+    // nace con el dueño equivocado. Para apuntar algo suyo, Aldo manda su
+    // propio id — explícito, no por omisión.
+    const pedido = req.body?.responsable_id ?? req.body?.assignee_id;
+    if (pedido === undefined || pedido === null || String(pedido).trim() === '') {
+      return res.status(400).json({
+        error: 'Falta "responsable_id": pregúntale a quién se le asigna esta tarea antes de crearla.',
+        pista: 'La lista de personas está en GET /api/zaia/personas. Si es para él mismo, manda su propio id.',
+      });
+    }
+    const rid = parseInt(String(pedido), 10);
+    if (!Number.isFinite(rid) || rid <= 0) {
+      return res.status(400).json({ error: '"responsable_id" debe ser el número de usuario.' });
+    }
+    const u = (await pool.query(
+      `SELECT id, full_name, role FROM users
+        WHERE id = $1 AND COALESCE(is_active, true) = true AND deleted_at IS NULL`, [rid])).rows[0];
+    if (!u) {
+      return res.status(404).json({ error: `No encontré a la persona ${rid}, o su cuenta está inactiva.` });
+    }
+    if (String(u.role).toLowerCase() === 'client') {
+      return res.status(400).json({ error: 'No se le pueden asignar tareas a un cliente.' });
+    }
+    const responsableId: number = u.id;
+    const responsableNombre: string = u.full_name;
+    const esParaOtro = responsableId !== a.id;
+
     const { createAssignedTaskInternal } = await import('./tasksController');
     const taskId = await createAssignedTaskInternal({
-      creatorId: a.id, assigneeId: a.id,
+      creatorId: a.id, assigneeId: responsableId,
       title: titulo,
       description: `${descripcion}\n\n(Apuntada desde ZAIA, a petición de ${a.nombre}.)`,
       eisenhower: req.body?.urgente === true ? 'fuego' : 'estrella',
-      notifyAssignee: false,   // es suya: no se avisa a sí mismo
+      // A uno mismo no se le avisa; a otra persona sí, o no se entera.
+      notifyAssignee: esParaOtro,
+      notifyTitle: '📋 Tarea asignada',
       ...(vence ? { dueAt: vence } : {}),
     });
     if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea.' });
 
     await registrar({
       endpoint: 'POST /api/zaia/apuntar-pendiente',
-      pregunta: JSON.stringify({ titulo, urgente: req.body?.urgente === true, vence }),
-      respuesta: `tarea ${taskId}`, ip: ipDe(req), ms: Date.now() - t0,
+      pregunta: JSON.stringify({ titulo, urgente: req.body?.urgente === true, vence, responsable_id: responsableId }),
+      respuesta: `tarea ${taskId} para ${responsableNombre}`, ip: ipDe(req), ms: Date.now() - t0,
     });
     res.json({
       task_id: taskId, folio: `Tarea #${taskId}`, titulo,
-      responsable: a.nombre,
+      responsable: responsableNombre,
+      responsable_id: responsableId,
       urgente: req.body?.urgente === true,
       vence: vence ? vence.slice(0, 10) : null,
-      mensaje: `Quedó anotado como la tarea #${taskId} de ${a.nombre}.`,
+      mensaje: esParaOtro
+        ? `Quedó como la tarea #${taskId}, asignada a ${responsableNombre} de parte de ${a.nombre}.`
+        : `Quedó anotado como la tarea #${taskId} de ${a.nombre}.`,
     });
   } catch (e: any) {
     console.error('[zaia] apuntar-pendiente:', e);
