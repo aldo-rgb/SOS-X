@@ -250,6 +250,21 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
       args.push(status); cond.push(`t.status = $${args.length}`);
     }
 
+    // Quién ASIGNÓ la tarea. Hace falta para la regla de Aldo: en
+    // awaiting_confirmation solo le toca a quien la asignó, porque es quien
+    // debe dar el visto bueno. Sin este filtro el listado enseñaba justo las
+    // contrarias —las que él terminó y espera otro— que son las que ya no le
+    // toca ver.
+    const creadorRaw = String(req.query.creado_por_id || req.query.created_by || '').trim();
+    let creador = 0;
+    if (creadorRaw) {
+      creador = parseInt(creadorRaw, 10);
+      if (!Number.isFinite(creador) || creador <= 0) {
+        return res.status(400).json({ error: 'creado_por_id debe ser un número. Consulta /api/zaia/personas para ver los ids.' });
+      }
+      args.push(creador); cond.push(`t.created_by = $${args.length}`);
+    }
+
     const board = String(req.query.board || '').trim();
     if (board) { args.push(board); cond.push(`(b.board_key = $${args.length} OR b.name ILIKE '%' || $${args.length} || '%')`); }
     const where = cond.join(' AND ');
@@ -295,9 +310,15 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
         `SELECT t.id, t.title AS titulo, t.status, t.eisenhower, t.due_at, t.created_at, t.completed_at,
                 COALESCE(b.name, 'Sin tablero') AS tablero,
                 t.assignee_id, u.full_name AS responsable,
+                -- Quién la asignó. El dato ya viajaba en el webhook y en el
+                -- detalle, pero faltaba aquí, y sin él no se puede saber a quién
+                -- le toca confirmar sin pedir la tarea una por una.
+                t.created_by AS creado_por_id,
+                CASE WHEN COALESCE(t.creada_por_cajito, FALSE) THEN 'Cajito' ELSE cr.full_name END AS creado_por,
                 (t.status NOT IN ('completed','cancelled') AND t.due_at IS NOT NULL AND t.due_at < NOW()) AS vencida
            FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
            LEFT JOIN users u ON u.id = t.assignee_id
+           LEFT JOIN users cr ON cr.id = t.created_by
           WHERE ${where}
           ORDER BY (t.status NOT IN ('completed','cancelled')) DESC, t.due_at NULLS LAST, t.id DESC
           LIMIT $${argsPag.length - 1} OFFSET $${argsPag.length}`, argsPag);
@@ -309,7 +330,7 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
     const out = {
       generado_en: new Date().toISOString(),
       zona_horaria: 'UTC',
-      filtros: { assignee_id: assignee || null, status: status || null, board: board || null },
+      filtros: { assignee_id: assignee || null, creado_por_id: creador || null, status: status || null, board: board || null },
       totales: totales.rows[0],
       por_estado: porEstado.rows,
       por_persona: porPersona.rows,
