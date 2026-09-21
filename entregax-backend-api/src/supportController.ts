@@ -2750,7 +2750,18 @@ export const cerrarTicketsSinRespuesta = async (dias = 7): Promise<{ cerrados: n
           AND COALESCE(
                 (SELECT MAX(m.created_at) FROM ticket_messages m WHERE m.ticket_id = t.id),
                 t.updated_at
-              ) < NOW() - ($1 || ' days')::interval`,
+              ) < NOW() - ($1 || ' days')::interval
+          -- Si el ticket destapó un error de sistema, NO se cierra por silencio.
+          -- El cliente ya hizo su parte: reportarlo. Que no conteste no
+          -- significa que esté resuelto, significa que ya no tiene nada que
+          -- decir — la pelota es nuestra. Cerrarlo borraría el recordatorio de
+          -- que hay algo roto, y al arreglarlo el sistema le escribe de vuelta
+          -- en ese mismo ticket ("El error ya fue corregido"). Se espera a que
+          -- la tarea quede terminada o cancelada.
+          AND NOT EXISTS (
+                SELECT 1 FROM tasks tk
+                 WHERE tk.title = 'Error localizado ' || t.ticket_folio
+                   AND tk.status NOT IN ('completed', 'cancelled'))`,
       [String(dias)]
     );
     for (const t of candidatos.rows) {
