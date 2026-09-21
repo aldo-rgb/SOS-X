@@ -1366,6 +1366,16 @@ export default function DashboardClient() {
 
   // Modal Trayectoria China (MoJie) - historial de movimientos
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
+  // Seguimiento de contenedor marítimo: los 12 pasos. "Ver Movimientos" pedía
+  // el historial genérico de guía, que para un contenedor solo trae los
+  // cambios de estatus —y deja fuera los pasos reales del viaje: el ISF, el
+  // zarpe, el paso por el almacén de El Paso, el cruce. Ahora, cuando el
+  // número es de contenedor, se pide la línea de tiempo (tarea 478).
+  const [lineaContenedor, setLineaContenedor] = useState<null | {
+    contenedor: string; eta: string | null; con_registro: boolean;
+    pasos: Array<{ paso: number; etiqueta: string; hito: string | null; fecha: string | null;
+                   fotos: string[]; dias_desde_anterior: number | null; dias_esperando: number | null }>;
+  }>(null);
   const [trajectoryLoading, setTrajectoryLoading] = useState(false);
   const [trajectoryError, setTrajectoryError] = useState<string | null>(null);
   const [trajectoryTracking, setTrajectoryTracking] = useState<string>('');
@@ -1389,9 +1399,25 @@ export default function DashboardClient() {
     setTrajectoryError(null);
     setInternalHistory([]);
     setCurrentStatus(null);
+    setLineaContenedor(null);
     try {
       const token = localStorage.getItem('token');
       const isChinaAir = /^AIR\d+/i.test(tracking);
+      // Número de contenedor marítimo: 4 letras y 7 dígitos (ISO 6346).
+      const esContenedor = /^[A-Z]{4}\d{7}$/i.test(tracking.trim());
+
+      if (esContenedor) {
+        const r = await fetch(`${API_URL}/api/client/containers/${encodeURIComponent(tracking.trim())}/linea-tiempo`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const d = await r.json();
+        if (r.ok && Array.isArray(d?.pasos)) {
+          setLineaContenedor(d);
+        } else {
+          // Si no es suyo o no hay línea, se cae al historial de siempre.
+          setTrajectoryError(d?.error || null);
+        }
+      }
 
       if (isChinaAir) {
         // Historial de sincronización China
@@ -1405,8 +1431,10 @@ export default function DashboardClient() {
         } else {
           setTrajectoryError(histData.error || 'No se pudo cargar el historial');
         }
-      } else {
-        // Historial interno de guía (movimientos de estado)
+      } else if (!esContenedor) {
+        // Historial interno de guía (movimientos de estado). Para un contenedor
+        // NO se pide: ya se cargó su línea de 12 pasos y enseñar las dos cosas
+        // duplicaría la misma información con distinto detalle.
         const resMov = await fetch(`${API_URL}/api/packages/track/${encodeURIComponent(tracking)}/movements`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -12567,6 +12595,64 @@ export default function DashboardClient() {
               <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
                 Cargando historial...
               </Typography>
+            </Box>
+          )}
+
+          {/* Contenedor marítimo: los 12 pasos del viaje, en vez del historial
+              de cambios de estatus. Lo que ocurrió va en color y con su fecha;
+              lo que falta, en gris y diciendo cuánto lleva esperando, que es lo
+              que de verdad quiere saber quien pregunta "¿dónde va lo mío?". */}
+          {!trajectoryLoading && lineaContenedor && (
+            <Box sx={{ p: 2.5 }}>
+              {lineaContenedor.eta && (
+                <Typography variant="body2" sx={{ mb: 2, color: '#555' }}>
+                  Llegada estimada: <b>{new Date(lineaContenedor.eta).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}</b>
+                </Typography>
+              )}
+              {lineaContenedor.pasos.map((p, i) => {
+                const hecho = !!p.fecha;
+                return (
+                  <Box key={p.paso} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
+                      <Box sx={{
+                        width: 22, height: 22, borderRadius: '50%', flex: 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        bgcolor: hecho ? '#2E7D32' : '#E0E0E0', color: '#fff',
+                        fontSize: 12, fontWeight: 800,
+                      }}>
+                        {hecho ? '✓' : p.paso}
+                      </Box>
+                      {i < lineaContenedor.pasos.length - 1 && (
+                        <Box sx={{ width: 2, flex: 1, minHeight: 26, bgcolor: hecho ? '#2E7D32' : '#E0E0E0' }} />
+                      )}
+                    </Box>
+                    <Box sx={{ pb: 2, flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: 14, fontWeight: hecho ? 700 : 500, color: hecho ? '#1B1B1B' : '#9A9A9A' }}>
+                        {p.etiqueta}
+                      </Typography>
+                      <Typography sx={{ fontSize: 12, color: hecho ? '#2E7D32' : '#AAA' }}>
+                        {hecho
+                          ? new Date(p.fecha as string).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : (p.dias_esperando != null ? `Pendiente · lleva ${p.dias_esperando} día(s) esperando` : 'Pendiente')}
+                      </Typography>
+                      {p.fotos && p.fotos.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.75, mt: 1, flexWrap: 'wrap' }}>
+                          {p.fotos.slice(0, 6).map((f, k) => (
+                            <Box key={k} component="img" src={f} alt=""
+                              onClick={() => setPhotoPreviewUrl(f)}
+                              sx={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 1, cursor: 'pointer', border: '1px solid #E0E0E0' }} />
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+              {!lineaContenedor.con_registro && (
+                <Typography variant="caption" sx={{ color: '#888', display: 'block', mt: 1 }}>
+                  Todavía no hay movimientos registrados de este contenedor.
+                </Typography>
+              )}
             </Box>
           )}
 

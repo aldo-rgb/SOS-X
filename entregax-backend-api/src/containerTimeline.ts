@@ -431,12 +431,21 @@ export const lineaDeTiempoCliente = async (req: AuthRequest, res: Response): Pro
     const numero = String(req.params.numero || '').trim().toUpperCase();
     if (!numero) return res.status(400).json({ error: 'Falta el número de contenedor' });
 
-    // Que el contenedor de verdad lleve carga de este cliente.
+    // Que el contenedor de verdad lleve carga de este cliente. Son DOS caminos y
+    // hay que aceptar los dos: la orden marítima, que usan los consolidados, y
+    // el cliente del contenedor, que usan los que van completos a un solo
+    // dueño. Al medirlo: de 180 contenedores ELP solo 14 tienen orden y 129
+    // tienen cliente directo. Exigiendo solo la orden, a casi todos los
+    // clientes se les contestaba "ese contenedor no es tuyo" viendo su propio
+    // contenedor en pantalla.
     const c = (await pool.query(
       `SELECT c.id, c.container_number, c.eta, c.created_at, c.planned_departure, c.actual_departure
          FROM containers c
         WHERE UPPER(TRIM(c.container_number)) = $1
-          AND EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.container_id = c.id AND mo.user_id = $2)
+          AND (
+            c.client_user_id = $2
+            OR EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.container_id = c.id AND mo.user_id = $2)
+          )
         LIMIT 1`, [numero, userId])).rows[0];
     if (!c) return res.status(404).json({ error: 'No encontramos ese contenedor entre tus embarques.' });
 
