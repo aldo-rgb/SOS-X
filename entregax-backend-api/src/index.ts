@@ -641,7 +641,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import {
   requestAdvisor,
@@ -17676,7 +17676,9 @@ app.get('/api/zaia/personas', zaiaPersonas);
 app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
 app.post('/api/zaia/cerrar-tarea', zaiaCerrarTarea);
-app.post('/api/zaia/apuntar-pendiente', zaiaApuntarPendiente);  // tareas SOLO para Aldo   // única escritura: solo tareas de Aldo
+app.post('/api/zaia/apuntar-pendiente', zaiaApuntarPendiente);  // crea tarea; el responsable es obligatorio
+app.post('/api/zaia/comentar-tarea', zaiaComentarTarea);       // comenta sin cerrar
+app.post('/api/zaia/reabrir-tarea', zaiaReabrirTarea);         // la regresa a pendientes, con motivo
 app.post('/api/zaia/avisos/prueba', zaiaAvisoPrueba);
 app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse al día
 

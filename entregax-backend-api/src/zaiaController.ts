@@ -510,6 +510,125 @@ export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any>
 };
 
 // ============================================================
+// POST /api/zaia/comentar-tarea — { task_id, nota } → deja un comentario.
+//
+// Hasta ahora ZAIA solo podía comentar DE PASO, al cerrar una tarea: para
+// contestar algo sin cerrar nada había que entrar al panel. Se apoya en el
+// mismo addComment del botón de la app, así que hereda sus reglas —avisos a los
+// involucrados y el candado del doble envío— en vez de reescribirlas aquí.
+// ============================================================
+export const zaiaComentarTarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    await ensureSchema();
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const nota = String(req.body?.nota ?? req.body?.comentario ?? '').trim();
+    if (nota.length < 2) return res.status(400).json({ error: 'Falta "nota": el texto del comentario.' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const t = (await pool.query(`SELECT id, title, status FROM tasks WHERE id = $1`, [taskId])).rows[0];
+    if (!t) return res.status(404).json({ error: `La tarea ${taskId} no existe.` });
+    if (t.status === 'cancelled') return res.status(400).json({ error: `La tarea ${taskId} está cancelada.` });
+
+    const { addComment } = await import('./tasksController');
+    const reqFalso: any = {
+      params: { id: String(taskId) },
+      body: { body: nota.slice(0, 4000) },
+      user: { userId: a.id, role: a.role }, query: {}, headers: {},
+    };
+    let httpStatus = 200; let cuerpo: any = null;
+    const resFalso: any = {
+      status(c: number) { httpStatus = c; return this; },
+      json(o: any) { cuerpo = o; return this; },
+    };
+    await addComment(reqFalso, resFalso);
+    const ok = httpStatus < 400;
+
+    await registrar({
+      endpoint: 'POST /api/zaia/comentar-tarea',
+      pregunta: JSON.stringify({ task_id: taskId, nota }),
+      respuesta: JSON.stringify({ status: httpStatus }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo comentar'), ms: Date.now() - t0,
+    });
+    if (!ok) return res.status(httpStatus).json({ error: cuerpo?.error || 'No se pudo comentar la tarea.' });
+    res.json({ task_id: taskId, titulo: t.title, comentado: true, autor: a.nombre, mensaje: `Comentario agregado a la tarea #${taskId}.` });
+  } catch (e: any) {
+    console.error('[zaia] comentar-tarea:', e?.message);
+    await registrar({ endpoint: 'POST /api/zaia/comentar-tarea', pregunta: String(taskId), ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo comentar la tarea.' });
+  }
+};
+
+// ============================================================
+// POST /api/zaia/reabrir-tarea — { task_id, motivo } → la regresa a pendientes.
+//
+// Sirve para las dos formas de "esto no quedó": una tarea ya cerrada y una en
+// espera de confirmación que se devuelve. El MOTIVO es obligatorio y se deja
+// como comentario ANTES de reabrir: a quien se la regresan tiene que poder leer
+// por qué, o la tarea reaparece sin explicación y nadie sabe qué corregir.
+// Los permisos los sigue aplicando reopenTask, el mismo del botón.
+// ============================================================
+export const zaiaReabrirTarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    await ensureSchema();
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const motivo = String(req.body?.motivo ?? req.body?.nota ?? '').trim();
+    if (motivo.length < 5) {
+      return res.status(400).json({ error: 'Falta "motivo": di por qué se regresa, o quien la recibe no sabrá qué corregir.' });
+    }
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const t = (await pool.query(`SELECT id, title, status FROM tasks WHERE id = $1`, [taskId])).rows[0];
+    if (!t) return res.status(404).json({ error: `La tarea ${taskId} no existe.` });
+    if (t.status === 'open') {
+      return res.json({ task_id: taskId, titulo: t.title, estado: 'open', ya_estaba: true, mensaje: 'Esa tarea ya estaba abierta.' });
+    }
+
+    // El motivo primero: si el reabrir falla, al menos queda dicho por qué se
+    // intentó; si sale bien, el comentario ya está arriba cuando le llega el aviso.
+    await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1, $2, $3)`, [taskId, a.id, motivo.slice(0, 4000)]);
+    await pool.query(`INSERT INTO task_activity (task_id, actor_id, action, meta) VALUES ($1, $2, 'comment', '{"via":"zaia"}'::jsonb)`, [taskId, a.id]);
+
+    const { reopenTask } = await import('./tasksController');
+    const reqFalso: any = { params: { id: String(taskId) }, body: {}, user: { userId: a.id, role: a.role }, query: {}, headers: {} };
+    let httpStatus = 200; let cuerpo: any = null;
+    const resFalso: any = {
+      status(c: number) { httpStatus = c; return this; },
+      json(o: any) { cuerpo = o; return this; },
+    };
+    await reopenTask(reqFalso, resFalso);
+    const final = (await pool.query(`SELECT status FROM tasks WHERE id = $1`, [taskId])).rows[0]?.status;
+    const ok = httpStatus < 400;
+
+    await registrar({
+      endpoint: 'POST /api/zaia/reabrir-tarea',
+      pregunta: JSON.stringify({ task_id: taskId, motivo }),
+      respuesta: JSON.stringify({ status: httpStatus, estado: final }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo reabrir'), ms: Date.now() - t0,
+    });
+    if (!ok) return res.status(httpStatus).json({ error: cuerpo?.error || 'No se pudo reabrir la tarea.' });
+    res.json({
+      task_id: taskId, titulo: t.title, estado: final,
+      reabierta: final === 'open', motivo_agregado: true,
+      mensaje: final === 'open' ? `La tarea #${taskId} volvió a pendientes y el motivo quedó como comentario.` : 'No cambió de estado.',
+    });
+  } catch (e: any) {
+    console.error('[zaia] reabrir-tarea:', e?.message);
+    await registrar({ endpoint: 'POST /api/zaia/reabrir-tarea', pregunta: String(taskId), ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo reabrir la tarea.' });
+  }
+};
+
+// ============================================================
 // POST /api/zaia/apuntar-pendiente — ZAIA levanta una tarea.
 //
 // Segunda escritura del canal. Nació porque Cajito redactó un pendiente que Aldo
