@@ -22,6 +22,8 @@ import {
   Badge,
   Checkbox,
   Button,
+  Portal,
+  Dialog,
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -130,6 +132,11 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   // líneas y no había forma de leer el resto: el asesor veía "Se registró el
   // pago de la guía JJD0146000127…" y ahí terminaba (TKT-2026-2436, tarea 439).
   const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
+  // Detalle de la notificación. Antes, una notificación sin destino conocido
+  // -como "Tus tareas pendientes", que solo trae screen: 'MyTasks'- no hacía
+  // absolutamente nada al tocarla: se sentía un botón muerto. Ahora abre el
+  // texto completo y, cuando se sabe a dónde apunta, un botón para ir.
+  const [detalle, setDetalle] = useState<Notification | null>(null);
   const toggleExpandida = (id: number) => setExpandidas(prev => {
     const s = new Set(prev);
     s.has(id) ? s.delete(id) : s.add(id);
@@ -421,6 +428,24 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
     }
+
+    // Sin destino directo: se abre el detalle con el texto completo y, si la
+    // notificación dice a qué pantalla apunta, el botón para ir.
+    setDetalle(item);
+  };
+
+  // A dónde lleva cada notificación y cómo se llama ese botón.
+  const DESTINOS: Record<string, string> = {
+    MyTasks: 'Ir a Mis Tareas',
+    SupportTickets: 'Ir a Tickets',
+    CommissionsBoard: 'Ir a Comisiones',
+    CajaHub: 'Ir a Caja',
+    Home: 'Ir al inicio',
+  };
+  const irAlDestino = (item: Notification) => {
+    const pantalla = String(item.data?.screen || '');
+    setDetalle(null);
+    if (pantalla) (navigation as any).navigate(pantalla, { user, token });
   };
 
   const handleLongPress = (item: Notification) => {
@@ -577,6 +602,37 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
           }
         />
       )}
+
+      {/* Detalle de la notificación */}
+      <Portal>
+        <Dialog visible={!!detalle} onDismiss={() => setDetalle(null)} style={styles.dialogo}>
+          <Dialog.Title style={styles.dialogoTitulo}>
+            {detalle ? translateNotif(detalle, notifLang).title : 'Notificación'}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogoCuerpo}>
+              {detalle ? translateNotif(detalle, notifLang).message : ''}
+            </Text>
+            {!!detalle?.created_at && (
+              <Text style={styles.dialogoFecha}>
+                {new Date(detalle.created_at).toLocaleString('es-MX')}
+              </Text>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDetalle(null)} textColor="#777">Cerrar</Button>
+            {!!detalle?.data?.screen && (
+              <Button
+                mode="contained"
+                buttonColor={BRAND_ORANGE}
+                onPress={() => irAlDestino(detalle)}
+              >
+                {DESTINOS[String(detalle.data.screen)] || 'Abrir'}
+              </Button>
+            )}
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 };
@@ -681,6 +737,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
+  dialogo: { backgroundColor: '#fff', borderRadius: 14 },
+  dialogoTitulo: { fontSize: 17, fontWeight: '700', color: '#222' },
+  dialogoCuerpo: { fontSize: 14, color: '#444', lineHeight: 20 },
+  dialogoFecha: { fontSize: 12, color: '#999', marginTop: 12 },
   emptyContainer: {
     alignItems: 'center',
     padding: 40,
