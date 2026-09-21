@@ -322,6 +322,23 @@ function quitarPieDuda(texto: string): string {
   return texto.replace(PIE_DUDA, '').trimEnd();
 }
 
+// --- Prioridad: valor interno → lo que ve la persona -----------------------
+// Cajito describia mal las prioridades y nadie lo notaba: la unica guia que
+// tenia era el texto de una herramienta, y ese texto estaba equivocado —decia
+// que "estrella" era importante y urgente, que es fuego, e inventaba un
+// cuadrante "planear" que no existe—. Asi describio la tarea 516 y asi lo
+// arrastro seis dias. Ahora la etiqueta viaja CON el dato, no en una
+// instruccion que hay que recordar: son las mismas palabras que la persona ve
+// en su pantalla (EIS en la app, MisTareasPage en la web).
+const MATRIZ_ETIQUETA: Record<string, string> = {
+  fuego:    '🔥 Urgente — urgente e importante',
+  estrella: '⭐ Importante — importante y NO urgente',
+  delegar:  '🔄 Atención — urgente y no importante',
+  eliminar: '🗑️ Algún día — ni importante ni urgente',
+};
+const etiquetaMatriz = (v: any): string =>
+  MATRIZ_ETIQUETA[String(v || '').toLowerCase()] || String(v || '—');
+
 // --- Capacidades del usuario ------------------------------------------------
 async function getUserCapabilities(userId: number, role: string): Promise<Set<string>> {
   // super_admin tiene todas las capacidades (igual que el resto del sistema)
@@ -1457,7 +1474,7 @@ export const TOOLS: ToolDef[] = [
     name: 'my_tasks',
     requiredCapability: 'cajito.read.tasks',
     readOnly: true,
-    description: 'Las tareas del usuario que pregunta: cuántas tiene abiertas, cuáles están vencidas, cuáles vencen hoy o esta semana, cómo se reparten en la matriz de Eisenhower (estrella=importante y urgente, planear=importante no urgente, delegar=urgente no importante, eliminar=ninguna) y el detalle de cada una. Úsalo SIEMPRE que pregunten por "mis tareas", "cuántas tareas tengo", "qué tengo pendiente", "qué se me venció" o pidan que analices su carga de trabajo.',
+    description: 'Las tareas del usuario que pregunta: cuántas tiene abiertas, cuáles están vencidas, cuáles vencen hoy o esta semana, cómo se reparten en la matriz de Eisenhower (fuego=🔥 Urgente, urgente e importante; estrella=⭐ Importante, importante y NO urgente; delegar=🔄 Atención, urgente y no importante; eliminar=🗑️ Algún día, ninguna de las dos) y el detalle de cada una. Úsalo SIEMPRE que pregunten por "mis tareas", "cuántas tareas tengo", "qué tengo pendiente", "qué se me venció" o pidan que analices su carga de trabajo.',
     parameters: {
       type: 'object',
       properties: {
@@ -1531,7 +1548,7 @@ export const TOOLS: ToolDef[] = [
         },
         nota: 'Cuando digas cuántas tareas o urgentes tiene, usa por_matriz y te_tocan: solo cuentan las que le toca hacer o confirmar a esta persona. Las que esperan confirmación de alguien más no son suyas; si las mencionas, di a quién esperan.',
         tareas: filas.map((t: any) => ({
-          id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
+          id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower, matriz_etiqueta: etiquetaMatriz(t.eisenhower),
           le_toca: meToca(t) ? 'a ti' : (t.status === 'awaiting_confirmation' ? `esperando a ${t.creada_por || 'quien la asignó'}` : 'a otra persona'),
           vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
           creada_por: t.creada_por,
@@ -1570,7 +1587,7 @@ export const TOOLS: ToolDef[] = [
           total: r.rows.length,
           nota: r.rows.length === 0 ? 'No encontré tareas con ese texto.' : 'Pídeme el detalle con el número.',
           tareas: r.rows.map((t: any) => ({
-            id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower,
+            id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower, matriz_etiqueta: etiquetaMatriz(t.eisenhower),
             responsable: t.responsable, tablero: t.tablero, vence: t.due_at,
           })),
         };
@@ -1648,7 +1665,7 @@ export const TOOLS: ToolDef[] = [
         tarea: {
           id: tarea.id, titulo: tarea.title,
           descripcion: trimText(tarea.description, 3000),
-          estado: tarea.status, matriz: tarea.eisenhower, prioridad: tarea.priority,
+          estado: tarea.status, matriz: tarea.eisenhower, matriz_etiqueta: etiquetaMatriz(tarea.eisenhower), prioridad: tarea.priority,
           tablero: tarea.tablero, columna: tarea.columna,
           responsable: tarea.responsable, creada_por: tarea.creada_por,
           participantes: parts.rows.map((p: any) => p.full_name),
