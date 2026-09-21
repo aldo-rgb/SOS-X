@@ -465,6 +465,14 @@ export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any>
       return res.json({ task_id: taskId, titulo: t.title, estado: 'completed', ya_estaba: true, mensaje: 'Esa tarea ya estaba cerrada.' });
     }
 
+    // El motivo del cierre forzado. completeTask lo lee como `forced_reason` y
+    // sin él contesta "Para forzar el cierre con subtareas pendientes, indica el
+    // motivo" — pero este endpoint mandaba el cuerpo VACÍO, así que no había
+    // forma de darlo: la API pedía algo que no se podía enviar. Le pasó a ZAIA
+    // con la tarea 478 (21-sep-2026). Se acepta "motivo" y también el nombre
+    // interno, por si alguien ya lo manda así.
+    const motivo = String(req.body?.motivo ?? req.body?.forced_reason ?? '').trim();
+
     const nota = String(req.body?.nota || '').trim();
     if (nota) {
       await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1, $2, $3)`, [taskId, a.id, nota.slice(0, 4000)]);
@@ -473,7 +481,11 @@ export const zaiaCerrarTarea = async (req: Request, res: Response): Promise<any>
 
     // El mismo handler del botón "Completar", con la cuenta de Aldo.
     const { completeTask } = await import('./tasksController');
-    const reqFalso: any = { params: { id: String(taskId) }, body: {}, user: { userId: a.id, role: a.role }, query: {}, headers: {} };
+    const reqFalso: any = {
+      params: { id: String(taskId) },
+      body: motivo ? { forced_reason: motivo.slice(0, 500) } : {},
+      user: { userId: a.id, role: a.role }, query: {}, headers: {},
+    };
     let httpStatus = 200;
     let cuerpo: any = null;
     const resFalso: any = {
@@ -642,7 +654,13 @@ export const zaiaReabrirTarea = async (req: Request, res: Response): Promise<any
 // Gabriela Villareal, 21-sep-2026). Si ZAIA no manda responsable_id se le
 // responde que lo pregunte; para algo suyo, Aldo manda su propio id.
 //
-// Body: { titulo, descripcion, responsable_id, urgente?, vence? (YYYY-MM-DD) }.
+// Body: { titulo, descripcion, responsable_id, categoria?, prioridad?,
+//          vence? (AAAA-MM-DD) }.
+//   · categoria  — id o nombre del tablero. Sin ella cae en el personal, que es
+//                  donde nadie más la ve. El nombre debe resolver a UNO solo.
+//   · prioridad  — fuego | estrella | delegar | eliminar. Antes solo había un
+//                  `urgente` de sí/no que aplastaba cuatro cuadrantes en dos;
+//                  se sigue aceptando por compatibilidad.
 // ============================================================
 export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
@@ -660,6 +678,41 @@ export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise
 
     const vence = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.vence || ''))
       ? new Date(`${req.body.vence}T12:00:00Z`).toISOString() : null;
+
+    // ── Prioridad ─────────────────────────────────────────────────────────
+    // Antes solo había un `urgente` de sí/no, que aplastaba cuatro cuadrantes
+    // en dos. Aldo pidió que ZAIA pregunte prioridad, así que aquí se aceptan
+    // los cuatro. `urgente: true` se sigue respetando por compatibilidad.
+    const EISENHOWER = ['fuego', 'estrella', 'delegar', 'eliminar'];
+    const prioPedida = String(req.body?.prioridad ?? req.body?.eisenhower ?? '').trim().toLowerCase();
+    if (prioPedida && !EISENHOWER.includes(prioPedida)) {
+      return res.status(400).json({
+        error: `"prioridad" no válida. Usa una de: ${EISENHOWER.join(', ')}.`,
+        significado: { fuego: 'importante y urgente', estrella: 'importante, no urgente', delegar: 'urgente, no importante', eliminar: 'ni importante ni urgente' },
+      });
+    }
+    const prioridad = prioPedida || (req.body?.urgente === true ? 'fuego' : 'estrella');
+
+    // ── Categoría (tablero) ───────────────────────────────────────────────
+    // Sin esto todo caía en el tablero personal, que es justo donde nadie más
+    // lo ve. Se acepta el id o el nombre; el nombre tiene que resolver a UNO
+    // solo, para no adivinar entre dos parecidos.
+    let boardId: number | null = null;
+    const cat = req.body?.categoria ?? req.body?.tablero ?? req.body?.board_id;
+    if (cat !== undefined && cat !== null && String(cat).trim() !== '') {
+      const comoId = parseInt(String(cat), 10);
+      const b = Number.isFinite(comoId) && String(comoId) === String(cat).trim()
+        ? (await pool.query(`SELECT id, name FROM task_boards WHERE id = $1 AND is_active = TRUE`, [comoId])).rows
+        : (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE AND name ILIKE $1`, [`%${String(cat).trim()}%`])).rows;
+      if (b.length === 0) {
+        const todos = (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE ORDER BY id`)).rows;
+        return res.status(404).json({ error: `No encontré la categoría "${cat}".`, categorias: todos });
+      }
+      if (b.length > 1) {
+        return res.status(400).json({ error: `"${cat}" coincide con varias categorías; sé más específico.`, coincidencias: b });
+      }
+      boardId = b[0].id;
+    }
 
     // ── A quién se le asigna ──────────────────────────────────────────────
     // Antes esta vía SOLO apuntaba pendientes de Aldo: pedir "créale una tarea a
@@ -703,24 +756,27 @@ export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise
       creatorId: a.id, assigneeId: responsableId,
       title: titulo,
       description: `${descripcion}\n\n(Apuntada desde ZAIA, a petición de ${a.nombre}.)`,
-      eisenhower: req.body?.urgente === true ? 'fuego' : 'estrella',
+      eisenhower: prioridad,
       // A uno mismo no se le avisa; a otra persona sí, o no se entera.
       notifyAssignee: esParaOtro,
       notifyTitle: '📋 Tarea asignada',
+      ...(boardId ? { boardId } : {}),
       ...(vence ? { dueAt: vence } : {}),
     });
     if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea.' });
 
     await registrar({
       endpoint: 'POST /api/zaia/apuntar-pendiente',
-      pregunta: JSON.stringify({ titulo, urgente: req.body?.urgente === true, vence, responsable_id: responsableId }),
+      pregunta: JSON.stringify({ titulo, prioridad, categoria: boardId, vence, responsable_id: responsableId }),
       respuesta: `tarea ${taskId} para ${responsableNombre}`, ip: ipDe(req), ms: Date.now() - t0,
     });
     res.json({
       task_id: taskId, folio: `Tarea #${taskId}`, titulo,
       responsable: responsableNombre,
       responsable_id: responsableId,
-      urgente: req.body?.urgente === true,
+      prioridad,
+      categoria_id: boardId,
+      urgente: prioridad === 'fuego',
       vence: vence ? vence.slice(0, 10) : null,
       mensaje: esParaOtro
         ? `Quedó como la tarea #${taskId}, asignada a ${responsableNombre} de parte de ${a.nombre}.`
