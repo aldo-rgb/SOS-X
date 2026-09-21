@@ -2758,7 +2758,7 @@ export const cerrarTicketsSinRespuesta = async (dias = 7): Promise<{ cerrados: n
         await pool.query(
           `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal)
            VALUES ($1, 'agent', $2, FALSE)`,
-          [t.id, `Cerramos este ticket porque pasaron ${dias} días sin respuesta. Si el tema sigue pendiente, escríbenos aquí mismo y lo reabrimos de inmediato con la conversación completa.`]
+          [t.id, `🔒 Cierre automático por falta de respuesta.\n\nEste ticket quedó en espera de tu respuesta y pasaron ${dias} días sin recibirla, así que el sistema lo cerró solo. No lo revisó ni lo cerró una persona.\n\nSi el tema sigue pendiente, escríbenos aquí mismo: el ticket se reabre de inmediato, con toda la conversación, y lo retoma un agente.`]
         );
         await pool.query(
           `UPDATE support_tickets
