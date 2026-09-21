@@ -640,6 +640,146 @@ export const zaiaReabrirTarea = async (req: Request, res: Response): Promise<any
   }
 };
 
+// ── Validaciones compartidas entre levantar y editar una tarea ──────────────
+// Viven aquí y no copiadas en cada endpoint: dos copias de la misma regla se
+// separan en cuanto alguien toca una sola.
+
+const EISENHOWER_VALIDOS = ['fuego', 'estrella', 'delegar', 'eliminar'];
+const EISENHOWER_SIGNIFICADO = {
+  fuego: 'Urgente — urgente e importante',
+  estrella: 'Importante — importante, no urgente',
+  delegar: 'Atención — urgente, no importante',
+  eliminar: 'Algún día — ni importante ni urgente',
+};
+
+/** Traduce la prioridad pedida. Devuelve null si no se mandó, o un error. */
+function leerPrioridad(body: any): { valor: string | null } | { error: any } {
+  const pedida = String(body?.prioridad ?? body?.eisenhower ?? '').trim().toLowerCase();
+  if (!pedida) return { valor: body?.urgente === true ? 'fuego' : null };
+  if (!EISENHOWER_VALIDOS.includes(pedida)) {
+    return { error: { error: `"prioridad" no válida. Usa una de: ${EISENHOWER_VALIDOS.join(', ')}.`, significado: EISENHOWER_SIGNIFICADO } };
+  }
+  return { valor: pedida };
+}
+
+/** Resuelve la categoría por id o por nombre. El nombre debe ser inequívoco. */
+async function leerCategoria(body: any): Promise<{ id: number | null } | { error: any; status: number }> {
+  const cat = body?.categoria ?? body?.tablero ?? body?.board_id;
+  if (cat === undefined || cat === null || String(cat).trim() === '') return { id: null };
+  const comoId = parseInt(String(cat), 10);
+  const b = Number.isFinite(comoId) && String(comoId) === String(cat).trim()
+    ? (await pool.query(`SELECT id, name FROM task_boards WHERE id = $1 AND is_active = TRUE`, [comoId])).rows
+    : (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE AND name ILIKE $1`, [`%${String(cat).trim()}%`])).rows;
+  if (b.length === 0) {
+    const todos = (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE ORDER BY id`)).rows;
+    return { error: { error: `No encontré la categoría "${cat}".`, categorias: todos }, status: 404 };
+  }
+  if (b.length > 1) return { error: { error: `"${cat}" coincide con varias categorías; sé más específico.`, coincidencias: b }, status: 400 };
+  return { id: b[0].id };
+}
+
+/** El responsable tiene que ser un empleado activo. Nunca un cliente. */
+async function leerResponsable(valor: any): Promise<{ id: number; nombre: string } | { error: any; status: number }> {
+  const rid = parseInt(String(valor), 10);
+  if (!Number.isFinite(rid) || rid <= 0) return { error: { error: '"responsable_id" debe ser el número de usuario.' }, status: 400 };
+  const u = (await pool.query(
+    `SELECT id, full_name, role FROM users
+      WHERE id = $1 AND COALESCE(is_active, true) = true AND deleted_at IS NULL`, [rid])).rows[0];
+  if (!u) return { error: { error: `No encontré a la persona ${rid}, o su cuenta está inactiva.` }, status: 404 };
+  if (String(u.role).toLowerCase() === 'client') return { error: { error: 'No se le pueden asignar tareas a un cliente.' }, status: 400 };
+  return { id: u.id, nombre: u.full_name };
+}
+
+// ============================================================
+// POST /api/zaia/editar-tarea — cambia SOLO lo que se manda.
+//
+// Cerrar y rehacer una tarea para corregirle la prioridad pierde su historia:
+// comentarios, checklist y quién la pidió. Por eso se edita. Se apoya en el
+// mismo updateTask del panel, que ya es parcial —toca únicamente los campos
+// presentes— y ya aplica los permisos de edición.
+//
+// Body: { task_id, y cualquiera de: titulo, descripcion, responsable_id,
+//         prioridad, categoria, vence }. Al menos uno además de task_id.
+// ============================================================
+export const zaiaEditarTarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    await ensureSchema();
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const t = (await pool.query(`SELECT id, title, status FROM tasks WHERE id = $1`, [taskId])).rows[0];
+    if (!t) return res.status(404).json({ error: `La tarea ${taskId} no existe.` });
+    if (t.status === 'cancelled') return res.status(400).json({ error: `La tarea ${taskId} está cancelada.` });
+
+    const cuerpoInterno: any = {};
+    const cambios: string[] = [];
+
+    if (req.body?.titulo !== undefined && String(req.body.titulo).trim()) {
+      cuerpoInterno.title = String(req.body.titulo).trim().slice(0, 200);
+      cambios.push('título');
+    }
+    if (req.body?.descripcion !== undefined) {
+      cuerpoInterno.description = String(req.body.descripcion);
+      cambios.push('descripción');
+    }
+    if (req.body?.responsable_id !== undefined || req.body?.assignee_id !== undefined) {
+      const r = await leerResponsable(req.body?.responsable_id ?? req.body?.assignee_id);
+      if ('error' in r) return res.status(r.status).json(r.error);
+      cuerpoInterno.assignee_id = r.id;
+      cambios.push(`responsable → ${r.nombre}`);
+    }
+    const prio = leerPrioridad(req.body);
+    if ('error' in prio) return res.status(400).json(prio.error);
+    if (prio.valor) { cuerpoInterno.eisenhower = prio.valor; cambios.push(`prioridad → ${prio.valor}`); }
+
+    const cat = await leerCategoria(req.body);
+    if ('error' in cat) return res.status(cat.status).json(cat.error);
+    if (cat.id) { cuerpoInterno.board_id = cat.id; cambios.push('categoría'); }
+
+    if (req.body?.vence !== undefined) {
+      const v = String(req.body.vence || '').trim();
+      if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return res.status(400).json({ error: '"vence" va como AAAA-MM-DD, o vacío para quitarla.' });
+      cuerpoInterno.due_at = v ? new Date(`${v}T12:00:00Z`).toISOString() : null;
+      cambios.push(v ? `vence → ${v}` : 'sin fecha de vencimiento');
+    }
+
+    if (cambios.length === 0) {
+      return res.status(400).json({
+        error: 'No mandaste nada que cambiar.',
+        campos: ['titulo', 'descripcion', 'responsable_id', 'prioridad', 'categoria', 'vence'],
+      });
+    }
+
+    const { updateTask } = await import('./tasksController');
+    const reqFalso: any = { params: { id: String(taskId) }, body: cuerpoInterno, user: { userId: a.id, role: a.role }, query: {}, headers: {} };
+    let httpStatus = 200; let cuerpo: any = null;
+    const resFalso: any = {
+      status(c: number) { httpStatus = c; return this; },
+      json(o: any) { cuerpo = o; return this; },
+    };
+    await updateTask(reqFalso, resFalso);
+    const ok = httpStatus < 400;
+
+    await registrar({
+      endpoint: 'POST /api/zaia/editar-tarea',
+      pregunta: JSON.stringify({ task_id: taskId, cambios }),
+      respuesta: JSON.stringify({ status: httpStatus }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo editar'), ms: Date.now() - t0,
+    });
+    if (!ok) return res.status(httpStatus).json({ error: cuerpo?.error || 'No se pudo editar la tarea.' });
+    res.json({ task_id: taskId, titulo: t.title, cambios, mensaje: `Se actualizó la tarea #${taskId}: ${cambios.join(', ')}.` });
+  } catch (e: any) {
+    console.error('[zaia] editar-tarea:', e?.message);
+    await registrar({ endpoint: 'POST /api/zaia/editar-tarea', pregunta: String(taskId), ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo editar la tarea.' });
+  }
+};
+
 // ============================================================
 // POST /api/zaia/apuntar-pendiente — ZAIA levanta una tarea.
 //
@@ -679,48 +819,15 @@ export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise
     const vence = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.vence || ''))
       ? new Date(`${req.body.vence}T12:00:00Z`).toISOString() : null;
 
-    // ── Prioridad ─────────────────────────────────────────────────────────
-    // Antes solo había un `urgente` de sí/no, que aplastaba cuatro cuadrantes
-    // en dos. Aldo pidió que ZAIA pregunte prioridad, así que aquí se aceptan
-    // los cuatro. `urgente: true` se sigue respetando por compatibilidad.
-    const EISENHOWER = ['fuego', 'estrella', 'delegar', 'eliminar'];
-    const prioPedida = String(req.body?.prioridad ?? req.body?.eisenhower ?? '').trim().toLowerCase();
-    if (prioPedida && !EISENHOWER.includes(prioPedida)) {
-      return res.status(400).json({
-        error: `"prioridad" no válida. Usa una de: ${EISENHOWER.join(', ')}.`,
-        significado: { fuego: 'importante y urgente', estrella: 'importante, no urgente', delegar: 'urgente, no importante', eliminar: 'ni importante ni urgente' },
-      });
-    }
-    const prioridad = prioPedida || (req.body?.urgente === true ? 'fuego' : 'estrella');
+    // Prioridad y categoría comparten validación con editar-tarea.
+    const prio = leerPrioridad(req.body);
+    if ('error' in prio) return res.status(400).json(prio.error);
+    const prioridad = prio.valor || 'estrella';
 
-    // ── Categoría (tablero) ───────────────────────────────────────────────
-    // Sin esto todo caía en el tablero personal, que es justo donde nadie más
-    // lo ve. Se acepta el id o el nombre; el nombre tiene que resolver a UNO
-    // solo, para no adivinar entre dos parecidos.
-    let boardId: number | null = null;
-    const cat = req.body?.categoria ?? req.body?.tablero ?? req.body?.board_id;
-    if (cat !== undefined && cat !== null && String(cat).trim() !== '') {
-      const comoId = parseInt(String(cat), 10);
-      const b = Number.isFinite(comoId) && String(comoId) === String(cat).trim()
-        ? (await pool.query(`SELECT id, name FROM task_boards WHERE id = $1 AND is_active = TRUE`, [comoId])).rows
-        : (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE AND name ILIKE $1`, [`%${String(cat).trim()}%`])).rows;
-      if (b.length === 0) {
-        const todos = (await pool.query(`SELECT id, name FROM task_boards WHERE is_active = TRUE ORDER BY id`)).rows;
-        return res.status(404).json({ error: `No encontré la categoría "${cat}".`, categorias: todos });
-      }
-      if (b.length > 1) {
-        return res.status(400).json({ error: `"${cat}" coincide con varias categorías; sé más específico.`, coincidencias: b });
-      }
-      boardId = b[0].id;
-    }
+    const cat = await leerCategoria(req.body);
+    if ('error' in cat) return res.status(cat.status).json(cat.error);
+    const boardId = cat.id;
 
-    // ── A quién se le asigna ──────────────────────────────────────────────
-    // Antes esta vía SOLO apuntaba pendientes de Aldo: pedir "créale una tarea a
-    // Ana Gabriela" se quedaba sin hacer y el encargo se perdía (21-sep-2026).
-    // Ahora se puede asignar a otra persona, con dos candados: quien la crea
-    // sigue siendo la cuenta de ZAIA_ACTOR_ID —nadie más reparte trabajo por
-    // aquí— y el responsable tiene que ser un empleado activo. No se acepta un
-    // cliente ni una cuenta dada de baja.
     // El responsable es OBLIGATORIO y lo decide Aldo, no se adivina. Antes esta
     // vía apuntaba todo a su nombre, así que un encargo para otra persona se
     // quedaba en su lista sin que nadie más se enterara. Si ZAIA no lo manda, se
@@ -734,21 +841,10 @@ export const zaiaApuntarPendiente = async (req: Request, res: Response): Promise
         pista: 'La lista de personas está en GET /api/zaia/personas. Si es para él mismo, manda su propio id.',
       });
     }
-    const rid = parseInt(String(pedido), 10);
-    if (!Number.isFinite(rid) || rid <= 0) {
-      return res.status(400).json({ error: '"responsable_id" debe ser el número de usuario.' });
-    }
-    const u = (await pool.query(
-      `SELECT id, full_name, role FROM users
-        WHERE id = $1 AND COALESCE(is_active, true) = true AND deleted_at IS NULL`, [rid])).rows[0];
-    if (!u) {
-      return res.status(404).json({ error: `No encontré a la persona ${rid}, o su cuenta está inactiva.` });
-    }
-    if (String(u.role).toLowerCase() === 'client') {
-      return res.status(400).json({ error: 'No se le pueden asignar tareas a un cliente.' });
-    }
-    const responsableId: number = u.id;
-    const responsableNombre: string = u.full_name;
+    const resp = await leerResponsable(pedido);
+    if ('error' in resp) return res.status(resp.status).json(resp.error);
+    const responsableId: number = resp.id;
+    const responsableNombre: string = resp.nombre;
     const esParaOtro = responsableId !== a.id;
 
     const { createAssignedTaskInternal } = await import('./tasksController');
