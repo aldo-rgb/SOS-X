@@ -35,6 +35,13 @@ import {
   Alert,
   Snackbar,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TableSortLabel,
 } from '@mui/material';
 import {
   SupportAgent as AgentIcon,
@@ -98,6 +105,22 @@ interface Department {
   open_count?: number;
 }
 
+
+// Cómo se nombra y se pinta cada estado en la lista. Se usan los mismos
+// textos de las columnas del kanban, para que nadie tenga que traducir entre
+// una vista y otra.
+const STATUS_LABEL: Record<string, string> = {
+  escalated_human: 'Requiere atención',
+  open_ai: 'Asesor virtual',
+  waiting_client: 'Esperando cliente',
+  resolved: 'Resuelto',
+};
+const STATUS_COLOR: Record<string, string> = {
+  escalated_human: '#F05A28',
+  open_ai: '#2196F3',
+  waiting_client: '#f9a825',
+  resolved: '#4caf50',
+};
 
 interface SupportTicket {
   id: number;
@@ -416,6 +439,24 @@ export default function SupportBoardPage() {
   }, [searchInput]);
   const [deptFilter, setDeptFilter] = useState<number | 'all'>('all');
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
+  // Vista de lista con columnas ordenables (tarea 595). El kanban se queda:
+  // sirve para repartir trabajo, pero para BUSCAR y para ver quién lleva más
+  // esperando, una lista ordenable gana. La preferencia se recuerda porque
+  // nadie quiere reelegir su vista cada vez que entra.
+  const [vista, setVista] = useState<'kanban' | 'lista'>(() => {
+    try { return localStorage.getItem('soporte_vista') === 'lista' ? 'lista' : 'kanban'; } catch { return 'kanban'; }
+  });
+  const cambiarVista = (v: 'kanban' | 'lista') => {
+    setVista(v);
+    try { localStorage.setItem('soporte_vista', v); } catch { /* sin memoria, no pasa nada */ }
+  };
+  type ColOrden = 'folio' | 'cliente' | 'departamento' | 'estado' | 'sin_responder' | 'actualizado';
+  const [ordenCol, setOrdenCol] = useState<ColOrden>('sin_responder');
+  const [ordenDesc, setOrdenDesc] = useState(true);
+  const ordenarPor = (c: ColOrden) => {
+    if (c === ordenCol) setOrdenDesc(d => !d);
+    else { setOrdenCol(c); setOrdenDesc(true); }
+  };
   const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
   const [selectedClientBoxId, setSelectedClientBoxId] = useState<string | null>(null);
 
@@ -1275,9 +1316,104 @@ export default function SupportBoardPage() {
             />
           ))}
         </Box>
+
+        {/* Kanban o lista. El kanban se queda porque sirve para repartir
+            trabajo; la lista sirve para buscar y para ver quién lleva más
+            esperando. La elección se recuerda. */}
+        <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
+          {([['kanban', '🗂️ Tablero'], ['lista', '📋 Lista']] as const).map(([v, etiqueta]) => (
+            <Chip
+              key={v}
+              label={etiqueta}
+              onClick={() => cambiarVista(v)}
+              variant={vista === v ? 'filled' : 'outlined'}
+              size="small"
+              sx={{ cursor: 'pointer', ...(vista === v && { bgcolor: BLACK, color: '#fff' }) }}
+            />
+          ))}
+        </Box>
       </Box>
 
+      {/* Vista de lista: una tabla con columnas ordenables. */}
+      {vista === 'lista' && (() => {
+        const visibles = tickets.filter(t => canSeeDept(t.department_name || ''));
+        const val = (t: SupportTicket): string | number => {
+          switch (ordenCol) {
+            case 'folio': return t.ticket_folio || '';
+            case 'cliente': return (t.full_name || '').toLowerCase();
+            case 'departamento': return (t.department_name || '').toLowerCase();
+            case 'estado': return t.status || '';
+            case 'sin_responder': return t.sin_responder || 0;
+            default: return new Date(t.updated_at).getTime();
+          }
+        };
+        const filas = [...visibles].sort((a, b) => {
+          const va = val(a), vb = val(b);
+          const c = typeof va === 'number' && typeof vb === 'number'
+            ? va - vb
+            : String(va).localeCompare(String(vb), 'es');
+          return ordenDesc ? -c : c;
+        });
+        const COLS: { key: ColOrden; label: string; align?: 'right' | 'center' }[] = [
+          { key: 'folio', label: 'Folio' },
+          { key: 'cliente', label: 'Cliente' },
+          { key: 'departamento', label: 'Departamento' },
+          { key: 'estado', label: 'Estado' },
+          { key: 'sin_responder', label: 'Sin responder', align: 'center' },
+          { key: 'actualizado', label: 'Último movimiento', align: 'right' },
+        ];
+        return (
+          <TableContainer component={Paper} sx={{ flex: 1, minHeight: 0, borderRadius: 2 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {COLS.map(c => (
+                    <TableCell key={c.key} align={c.align || 'left'} sx={{ fontWeight: 800, bgcolor: '#FAFAFA', whiteSpace: 'nowrap' }}>
+                      <TableSortLabel
+                        active={ordenCol === c.key}
+                        direction={ordenCol === c.key && !ordenDesc ? 'asc' : 'desc'}
+                        onClick={() => ordenarPor(c.key)}
+                      >
+                        {c.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filas.length === 0 && (
+                  <TableRow><TableCell colSpan={COLS.length} align="center" sx={{ py: 5, color: 'text.secondary' }}>Sin tickets</TableCell></TableRow>
+                )}
+                {filas.map(t => (
+                  <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} onClick={() => handleOpenTicket(t)}>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      {t.ticket_folio}
+                      {t.error_reported && <Tooltip title="Tiene un error de sistema reportado"><span style={{ marginLeft: 6 }}>🐛</span></Tooltip>}
+                    </TableCell>
+                    <TableCell>{t.full_name || '—'}{t.client_box_id ? ` · ${t.client_box_id}` : ''}</TableCell>
+                    <TableCell>{t.department_name || '—'}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={STATUS_LABEL[t.status] || t.status}
+                        sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: `${STATUS_COLOR[t.status] || '#999'}22`, color: STATUS_COLOR[t.status] || '#555' }} />
+                    </TableCell>
+                    <TableCell align="center">
+                      {(t.sin_responder || 0) > 0 ? (
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.3, bgcolor: '#D32F2F', color: '#fff', borderRadius: 10, px: 0.8, height: 18, fontSize: 11, fontWeight: 800 }}>
+                          <MarkChatUnreadIcon sx={{ fontSize: 11 }} />{t.sin_responder}
+                        </Box>
+                      ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap', color: '#666' }}>{formatTimeAgo(t.updated_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        );
+      })()}
+
       {/* Kanban */}
+      {vista === 'kanban' && (
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'auto', minHeight: 0 }}>
         {deptFilter === 'all' ? (
           // Vista por departamento: una columna por cada departamento visible
@@ -1419,6 +1555,7 @@ export default function SupportBoardPage() {
           })()}
         </Paper>
       </Box>
+      )}
 
       {/* Modal: Historial completo de Archivados */}
       <Dialog open={archivedModalOpen} onClose={() => setArchivedModalOpen(false)} maxWidth="lg" fullWidth
