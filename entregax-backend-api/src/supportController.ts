@@ -2722,6 +2722,60 @@ export const reportarErrorDeTicket = async (
   }
 };
 
+// ============================================================
+// Cierre por silencio del cliente.
+//
+// Un ticket en "esperando cliente" al que nadie contesta se queda ahí para
+// siempre: había seis, de 46 a 121 días, todos con nuestra respuesta como
+// último mensaje. No están abiertos de verdad, solo ensucian la bandeja y
+// tapan los que sí esperan algo.
+//
+// A los 7 días de silencio se dan por resueltos, con un mensaje que lo dice y
+// que explica cómo revivirlos. Revivir YA funcionaba: si el cliente escribe en
+// un ticket resuelto, `reabrirTicketPorMensaje` lo reabre solo y avisa al
+// equipo. Por eso NO se marca resolved_by_ai: al revivir tiene que caer con una
+// persona, no de vuelta con Cajito.
+//
+// Se cuentan los días desde el ÚLTIMO MENSAJE y no desde updated_at, porque
+// updated_at se mueve por cosas que no son conversación —archivar, transferir—
+// y reiniciaría la cuenta sin que nadie haya escrito.
+// ============================================================
+export const cerrarTicketsSinRespuesta = async (dias = 7): Promise<{ cerrados: number; folios: string[] }> => {
+  const folios: string[] = [];
+  try {
+    const candidatos = await pool.query(
+      `SELECT t.id, t.ticket_folio
+         FROM support_tickets t
+        WHERE t.status = 'waiting_client'
+          AND COALESCE(
+                (SELECT MAX(m.created_at) FROM ticket_messages m WHERE m.ticket_id = t.id),
+                t.updated_at
+              ) < NOW() - ($1 || ' days')::interval`,
+      [String(dias)]
+    );
+    for (const t of candidatos.rows) {
+      try {
+        await pool.query(
+          `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal)
+           VALUES ($1, 'agent', $2, FALSE)`,
+          [t.id, `Cerramos este ticket porque pasaron ${dias} días sin respuesta. Si el tema sigue pendiente, escríbenos aquí mismo y lo reabrimos de inmediato con la conversación completa.`]
+        );
+        await pool.query(
+          `UPDATE support_tickets
+              SET status = 'resolved', resolved_at = NOW(), resolved_by_ai = FALSE, updated_at = NOW()
+            WHERE id = $1`, [t.id]);
+        folios.push(t.ticket_folio);
+      } catch (e: any) {
+        console.error('[support] cierre por silencio', t.ticket_folio, e?.message);
+      }
+    }
+    if (folios.length) console.log(`🕗 [SOPORTE] Cerrados por ${dias} días sin respuesta: ${folios.join(', ')}`);
+  } catch (e: any) {
+    console.error('[support] cerrarTicketsSinRespuesta:', e?.message);
+  }
+  return { cerrados: folios.length, folios };
+};
+
 /** POST /api/admin/support/ticket/:id/report-error — el botón, envuelto. */
 export const reportTicketError = async (req: Request, res: Response): Promise<any> => {
   const r = await reportarErrorDeTicket(

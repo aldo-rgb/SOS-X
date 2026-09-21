@@ -2063,6 +2063,18 @@ export const startTaskRemindersCron = () => {
   // Lunes 11:00 AM (MX) → pendientes generales.
   cron.schedule('0 11 * * 1', () => sendReminder('weekly'), { timezone: 'America/Mexico_City' });
 
+  // Cierre por silencio del cliente: 7 días sin respuesta en "esperando
+  // cliente". 8:12 am, antes de que el equipo abra la bandeja, para que ya la
+  // encuentren limpia. Revivir sigue siendo automático: basta que el cliente
+  // escriba en el mismo ticket.
+  cron.schedule('12 8 * * *', async () => {
+    try {
+      const { cerrarTicketsSinRespuesta } = await import('./supportController');
+      const r = await cerrarTicketsSinRespuesta(7);
+      console.log(`🕗 [CRON] Tickets cerrados por silencio: ${r.cerrados}`);
+    } catch (e) { console.error('[CRON] cierre de tickets por silencio:', e); }
+  }, { timezone: 'America/Mexico_City' });
+
   // Resumen diario de paquetes recibidos → ZAIA. 6:37 pm MX, cuando el día
   // operativo ya cerró. El aviso de "paquete recibido" ya existía pero vive
   // dentro de la app: si Aldo no la trae abierta, no se entera. Va como
