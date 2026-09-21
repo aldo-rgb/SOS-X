@@ -58,6 +58,7 @@ import {
   Phone as PhoneIcon,
   WhatsApp as WhatsAppIcon,
   Archive as ArchiveIcon,
+  MarkChatUnread as MarkChatUnreadIcon,
   Unarchive as UnarchiveIcon,
   Lock as LockIcon,
   OpenInFull as OpenInFullIcon,
@@ -120,6 +121,11 @@ interface SupportTicket {
   tracking_number?: string;
   client_box_id?: string;
   message_count: number;
+  // Mensajes del cliente posteriores a la última respuesta: "nadie ha
+  // contestado esto". No es "no leído por mí" — en una bandeja compartida eso
+  // confunde más que ayuda (tarea 595).
+  sin_responder?: number;
+  ultimo_del_cliente?: string | null;
   last_message?: string;
   created_at: string;
   updated_at: string;
@@ -1052,8 +1058,21 @@ export default function SupportBoardPage() {
     t.ticket_status !== 'finalizado' &&
     businessDaysSince(t.created_at) > 3;
 
+  // Orden de la columna. Primero lo que ESPERA RESPUESTA: un ticket con un
+  // mensaje del cliente sin contestar es lo único que de verdad urge atender, y
+  // ver el contador no sirve si el ticket está hasta el fondo. Después lo
+  // atrasado, que era el único criterio hasta ahora. Dentro de cada grupo, el
+  // que lleva más tiempo esperando va arriba.
   const sortWithOverdueFirst = (list: SupportTicket[]) =>
     [...list].sort((a, b) => {
+      const aP = (a.sin_responder || 0) > 0 ? 0 : 1;
+      const bP = (b.sin_responder || 0) > 0 ? 0 : 1;
+      if (aP !== bP) return aP - bP;
+      if (aP === 0) {
+        const aT = a.ultimo_del_cliente ? new Date(a.ultimo_del_cliente).getTime() : Infinity;
+        const bT = b.ultimo_del_cliente ? new Date(b.ultimo_del_cliente).getTime() : Infinity;
+        if (aT !== bT) return aT - bT;   // el que lleva más esperando, arriba
+      }
       const aO = isOverdue(a) ? 0 : 1;
       const bO = isOverdue(b) ? 0 : 1;
       return aO - bO;
@@ -2481,9 +2500,24 @@ function TicketCard({
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
         {/* Row 1: folio + time + archive button */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-          <Typography variant="caption" color="text.secondary" fontWeight={600}>
-            {ticket.ticket_folio}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              {ticket.ticket_folio}
+            </Typography>
+            {/* Lo que antes obligaba a entrar ticket por ticket. */}
+            {(ticket.sin_responder || 0) > 0 && (
+              <Tooltip title={`${ticket.sin_responder} mensaje(s) del cliente sin responder`}>
+                <Box sx={{
+                  display: 'flex', alignItems: 'center', gap: 0.3,
+                  bgcolor: '#D32F2F', color: '#fff', borderRadius: 10,
+                  px: 0.7, height: 17, fontSize: 10.5, fontWeight: 800, lineHeight: 1,
+                }}>
+                  <MarkChatUnreadIcon sx={{ fontSize: 11 }} />
+                  {ticket.sin_responder}
+                </Box>
+              </Tooltip>
+            )}
+          </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="caption" color="text.secondary">{formatTime(ticket.updated_at)}</Typography>
             {onArchive && (

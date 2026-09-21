@@ -1770,7 +1770,22 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
              (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message,
-             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled') AS error_reported
+             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled') AS error_reported,
+             -- Mensajes del cliente POSTERIORES a la última respuesta. Es lo que
+             -- de verdad necesita ver quien atiende la bandeja: no "yo no lo he
+             -- leído" —que en una bandeja compartida confunde: Ricardo sí,
+             -- Yliana no— sino "nadie ha contestado esto". Hasta ahora había que
+             -- entrar ticket por ticket para descubrirlo (tarea 595).
+             (SELECT COUNT(*) FROM ticket_messages m
+               WHERE m.ticket_id = t.id AND m.sender_type = 'client'
+                 AND m.created_at > COALESCE(
+                       (SELECT MAX(a2.created_at) FROM ticket_messages a2
+                         WHERE a2.ticket_id = t.id AND a2.sender_type IN ('agent','ai')),
+                       TIMESTAMP '1970-01-01'))::int AS sin_responder,
+             -- Cuándo llegó ese último mensaje del cliente, para poder ordenar
+             -- por "quién lleva más tiempo esperando".
+             (SELECT MAX(m.created_at) FROM ticket_messages m
+               WHERE m.ticket_id = t.id AND m.sender_type = 'client') AS ultimo_del_cliente
       FROM support_tickets t
       LEFT JOIN users u ON t.user_id = u.id
       LEFT JOIN support_departments d ON t.department_id = d.id
