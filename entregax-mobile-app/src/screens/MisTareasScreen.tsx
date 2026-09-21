@@ -177,9 +177,17 @@ export default function MisTareasScreen({ navigation, route }: Props) {
               <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
             </TouchableOpacity>
           )}
-          {/* Global vs solo mis tareas */}
-          <TouchableOpacity onPress={() => setGlobalView(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#5E35B1' }, globalView && { backgroundColor: '#5E35B1' }]} hitSlop={8}>
-            <Ionicons name={globalView ? 'earth' : 'person'} size={18} color={globalView ? '#fff' : '#5E35B1'} />
+          {/* Solo mias vs mias + donde estoy involucrado. El icono era un globo
+              terraqueo y no decia nada: nadie adivinaba que ahi estaban las
+              tareas donde otro es responsable y tu solo sigues. Ahora son dos
+              personas, lleva etiqueta y debajo se avisa cuando esta encendido. */}
+          <TouchableOpacity
+            onPress={() => setGlobalView(v => !v)}
+            style={[styles.iconBtnOutline, { borderColor: '#5E35B1' }, globalView && { backgroundColor: '#5E35B1' }]}
+            hitSlop={8}
+            accessibilityLabel={globalView ? 'Mostrando tambien donde estas involucrado' : 'Solo donde eres responsable'}
+          >
+            <Ionicons name={globalView ? 'people' : 'person'} size={18} color={globalView ? '#fff' : '#5E35B1'} />
           </TouchableOpacity>
           {/* Ver completadas (incluye terminadas) */}
           <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
@@ -197,6 +205,15 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {globalView && (
+        <View style={styles.avisoInvolucrado}>
+          <Ionicons name="people" size={13} color="#5E35B1" />
+          <Text style={styles.avisoInvolucradoTxt}>
+            Incluyendo tareas donde estás involucrado, aunque otro sea el responsable
+          </Text>
+        </View>
+      )}
 
       {/* 🔍 Buscador de tareas */}
       <View style={styles.searchWrap}>
@@ -384,6 +401,11 @@ const styles = StyleSheet.create({
   newTaskBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: ORANGE, flexShrink: 0, marginLeft: 4 },
   catBar: { paddingBottom: 8, backgroundColor: BG },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', maxWidth: 180 },
+  avisoInvolucrado: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 6, backgroundColor: '#F3EFFA',
+  },
+  avisoInvolucradoTxt: { fontSize: 11, color: '#5E35B1', fontWeight: '600', flex: 1 },
   searchWrap: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD' },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F4F4F4', borderRadius: 10, paddingHorizontal: 10, height: 36 },
   searchInput: { flex: 1, fontSize: 14, color: '#222', padding: 0 },

@@ -904,19 +904,27 @@ export default function MisTareasPage() {
           <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
           <ToggleButton value="team" sx={{ textTransform: 'none', gap: 0.5 }}><GroupsIcon sx={{ fontSize: 18 }} /> Equipo</ToggleButton>
         </ToggleButtonGroup>
-        {/* Toggle: "Solo mis tareas" activo cuando globalView=false (filtro aplicado).
-            Label fijo; el color contained indica que el filtro está ON. */}
-        <Button
-          size="small"
-          variant={!globalView ? 'contained' : 'outlined'}
-          onClick={() => setGlobalView(v => !v)}
-          startIcon={<span>👤</span>}
-          sx={{ textTransform: 'none', ...(!globalView
-            ? { bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4a2a8f' } }
-            : { borderColor: '#5E35B1', color: '#5E35B1' }) }}
-        >
-          Solo mis tareas
-        </Button>
+        {/* El botón dice en qué estado ESTÁ, no solo cómo se llama el filtro.
+            Con la etiqueta fija "Solo mis tareas" nadie adivinaba que al
+            apagarlo aparecían las tareas donde uno solo está involucrado —las
+            que otro es responsable y tú sigues—, así que se daban por perdidas.
+            El endpoint ya las devuelve; solo estaban escondidas detrás de un
+            botón que no lo decía. */}
+        <Tooltip title={!globalView
+          ? 'Solo donde eres el responsable. Da clic para incluir también las tareas donde estás involucrado.'
+          : 'Incluye las tareas donde estás involucrado aunque otro sea el responsable.'}>
+          <Button
+            size="small"
+            variant={!globalView ? 'contained' : 'outlined'}
+            onClick={() => setGlobalView(v => !v)}
+            startIcon={<span>{!globalView ? '👤' : '👥'}</span>}
+            sx={{ textTransform: 'none', ...(!globalView
+              ? { bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4a2a8f' } }
+              : { borderColor: '#5E35B1', color: '#5E35B1' }) }}
+          >
+            {!globalView ? 'Solo mis tareas' : 'Mías + involucradas'}
+          </Button>
+        </Tooltip>
         <Button
           size="small"
           variant={showDone ? 'contained' : 'outlined'}
