@@ -24,7 +24,16 @@ const API_KEY = () => (process.env.ZAIA_API_KEY || '').trim();
 const WEBHOOK = () => (process.env.ZAIA_WEBHOOK_URL || '').trim();
 const ACTOR_ID = () => parseInt(process.env.ZAIA_ACTOR_ID || '3', 10);
 
-type Tipo = 'duda_cajito' | 'pendiente_cajito' | 'tarea_urgente';
+type Tipo = 'duda_cajito' | 'pendiente_cajito' | 'tarea_urgente' | 'paquete_recibido';
+
+// Casilleros cuyos paquetes se avisan a ZAIA. Solo S1, por decisión de Aldo: el
+// aviso de "paquete recibido" ya existía pero vive dentro de la app, y si no la
+// trae abierta no se entera. Abrirlo a todos los casilleros convertiría este
+// canal en ruido —lleva 18 avisos en su historia y solo S1 acumula 72—, así que
+// va acotado y se amplía con la lista, no tocando código.
+const CASILLEROS_AVISADOS = () =>
+  (process.env.ZAIA_AVISO_CASILLEROS || 'S1')
+    .split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
 
 let esquemaListo = false;
 const ensureSchema = async (): Promise<void> => {
@@ -72,6 +81,84 @@ const entregar = async (id: number, payload: any): Promise<void> => {
       [id, String(e?.message || e).slice(0, 300)]).catch(() => {});
   }
 };
+
+/**
+ * Resumen DIARIO de lo que le llegó a los casilleros vigilados. Lo manda un
+ * cron una vez al día; no se avisa paquete por paquete.
+ *
+ * Por qué resumen y no uno por uno: este canal llevaba 18 avisos en toda su
+ * historia y solo el casillero S1 acumula 72 recepciones. Uno por paquete lo
+ * convertiría en ruido, y un canal ruidoso se deja de leer. Lo decidió Aldo.
+ *
+ * El candado contra repetidos es el mismo índice único (tipo, task_id) que usan
+ * los avisos de tarea; aquí `task_id` lleva la fecha como número (AAAAMMDD).
+ * La columna se llama así por su primer uso, pero lo que guarda es "el id de la
+ * cosa que originó el aviso": con la fecha, un segundo intento del mismo día no
+ * duplica nada, venga del cron o de una corrida a mano.
+ *
+ * Si no llegó nada, no se manda: un resumen vacío diario es la forma más rápida
+ * de que alguien deje de abrirlos.
+ */
+export async function avisarZaiaResumenPaquetes(dia?: string): Promise<{ enviado: boolean; paquetes: number }> {
+  try {
+    const casilleros = CASILLEROS_AVISADOS();
+    if (casilleros.length === 0) return { enviado: false, paquetes: 0 };
+
+    // El día que se resume, en hora de México. Sin fecha explícita, hoy.
+    const hoy = (await pool.query(
+      `SELECT to_char(COALESCE($1::date, (NOW() AT TIME ZONE 'America/Mexico_City')::date), 'YYYY-MM-DD') AS d`,
+      [dia || null])).rows[0].d as string;
+
+    const r = await pool.query(
+      `SELECT p.id, p.tracking_internal, p.child_no, p.service_type, p.status,
+              p.weight, GREATEST(COALESCE(p.total_boxes, 1), 1) AS cajas,
+              COALESCE(p.received_at, p.created_at) AS entro,
+              u.box_id, u.full_name AS cliente
+         FROM packages p
+         JOIN users u ON u.id = p.user_id
+        WHERE UPPER(COALESCE(u.box_id, '')) = ANY($1::text[])
+          AND (COALESCE(p.received_at, p.created_at) AT TIME ZONE 'America/Mexico_City')::date = $2::date
+        ORDER BY entro`,
+      [casilleros, hoy]);
+    if (r.rows.length === 0) return { enviado: false, paquetes: 0 };
+
+    await ensureSchema();
+    const payload = {
+      evento: 'paquete_recibido' as Tipo,
+      resumen: {
+        dia: hoy,
+        casilleros,
+        total: r.rows.length,
+        paquetes: r.rows.map((p: any) => ({
+          id: Number(p.id),
+          guia: p.tracking_internal || p.child_no || null,
+          casillero: String(p.box_id || '').toUpperCase(),
+          cliente: p.cliente || null,
+          servicio: p.service_type || null,
+          estado: p.status || null,
+          cajas: p.cajas ?? null,
+          peso_kg: p.weight ?? null,
+          entro: new Date(p.entro).toISOString(),
+        })),
+      },
+      enviado: new Date().toISOString(),
+    };
+    // La fecha como número: un resumen por día, sin repetir.
+    const clave = parseInt(hoy.replace(/-/g, ''), 10);
+    const ins = await pool.query(
+      `INSERT INTO zaia_avisos (tipo, task_id, payload) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (tipo, task_id) DO NOTHING RETURNING id`,
+      ['paquete_recibido', clave, JSON.stringify(payload)]);
+    const id = ins.rows[0]?.id;
+    if (!id) return { enviado: false, paquetes: r.rows.length };   // ya se mandó el de hoy
+    console.log(`[zaia] resumen ${id} paquete_recibido ${hoy}: ${r.rows.length} paquete(s) de ${casilleros.join(', ')}`);
+    await entregar(Number(id), { aviso_id: Number(id), ...payload });
+    return { enviado: true, paquetes: r.rows.length };
+  } catch (e: any) {
+    console.warn('[zaia] resumen de paquetes:', e?.message);
+    return { enviado: false, paquetes: 0 };
+  }
+}
 
 /**
  * Se llama cuando una tarea se crea o se reasigna. Decide si le toca aviso a

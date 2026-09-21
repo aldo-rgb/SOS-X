@@ -2062,6 +2062,19 @@ export const startTaskRemindersCron = () => {
   };
   // Lunes 11:00 AM (MX) → pendientes generales.
   cron.schedule('0 11 * * 1', () => sendReminder('weekly'), { timezone: 'America/Mexico_City' });
+
+  // Resumen diario de paquetes recibidos → ZAIA. 6:37 pm MX, cuando el día
+  // operativo ya cerró. El aviso de "paquete recibido" ya existía pero vive
+  // dentro de la app: si Aldo no la trae abierta, no se entera. Va como
+  // resumen y no uno por uno, para no volver ruido un canal que lleva 18
+  // avisos en toda su historia. Si no llegó nada, no manda nada.
+  cron.schedule('37 18 * * *', async () => {
+    try {
+      const { avisarZaiaResumenPaquetes } = await import('./zaiaAvisos');
+      const r = await avisarZaiaResumenPaquetes();
+      console.log(`📦 [CRON] Resumen de paquetes a ZAIA: ${r.enviado ? `${r.paquetes} paquete(s)` : 'sin novedades'}`);
+    } catch (e) { console.error('[CRON] resumen de paquetes a ZAIA:', e); }
+  }, { timezone: 'America/Mexico_City' });
   // Diario 11:15 AM (MX) → urgentes.
   //
   // A las 11:00 en punto, no: a esa misma hora corre el escalamiento de tickets
