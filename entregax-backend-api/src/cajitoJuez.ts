@@ -126,6 +126,43 @@ const notaDeOperacion = async (ticketId: number, v: any): Promise<void> => {
   console.warn(`[JUEZ] ${folio}: OPERACION → nota para Servicio a Cliente${quien ? ` (sugerido: ${quien.cedis})` : ''}`);
 };
 
+/**
+ * ACOMPANAR: el caso lo atiende Servicio a Cliente, con lo que ya encontró
+ * Cajito. Antes esta conclusión no hacía NADA: ni tarea, ni nota, ni aviso. El
+ * ticket se quedaba en la bandeja y lo que Cajito había averiguado —dónde va
+ * cada guía, qué contestarle al cliente— moría en la base de datos, así que
+ * quien lo atendía tenía que investigar otra vez desde cero.
+ *
+ * Ahora queda una nota interna con el hallazgo y con qué contestarle. No se
+ * asigna a nadie ni se abre tarea: es una pregunta del cliente, la contesta
+ * Servicio a Cliente y se cierra.
+ */
+const notaParaServicioACliente = async (ticketId: number, v: any): Promise<void> => {
+  const t = (await pool.query(`SELECT ticket_folio FROM support_tickets WHERE id = $1`, [ticketId])).rows[0];
+  const folio = t?.ticket_folio || `ticket ${ticketId}`;
+  const ya = await pool.query(
+    `SELECT 1 FROM ticket_messages WHERE ticket_id = $1 AND is_internal = TRUE AND message LIKE '💬 Cajito%' LIMIT 1`,
+    [ticketId]);
+  if (ya.rows.length) return;
+
+  const hallazgos = Array.isArray(v.hallazgos)
+    ? v.hallazgos.map((h: any) => `· ${h?.dato}: ${h?.valor}${h?.nota ? ` (${h.nota})` : ''}`).join('\n')
+    : '';
+
+  const texto = [
+    '💬 Cajito: esto lo contesta Servicio a Cliente. Por lo que veo no hay nada roto que reparar: el cliente está preguntando por sus datos y el sistema sí los tiene. Aquí está lo que encontré, para que le contesten sin volver a investigarlo.',
+    v.reclamo ? `Lo que pregunta: ${v.reclamo}` : '',
+    hallazgos,
+    v.explicacion || '',
+    'Si al revisarlo resulta que además hay algo roto en el sistema, repórtenlo con el botón de este ticket.',
+  ].filter(Boolean).join('\n\n');
+
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+    [ticketId, texto]).catch(() => {});
+  console.warn(`[JUEZ] ${folio}: ACOMPANAR → nota para Servicio a Cliente`);
+};
+
 /** Guarda el veredicto en el ticket para que la pantalla lo pueda mostrar. */
 const guardarVeredicto = async (ticketId: number, v: any): Promise<void> => {
   await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS metadata JSONB`).catch(() => {});
@@ -209,6 +246,12 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
     // casos reales resultó que ahí se le van varios: el cobro de impuesto por
     // caja (TKT-2026-2620) lo llamó CAPTURA y era código nuestro multiplicando
     // la nota.
+    // Preguntas del cliente que el sistema sí puede contestar: las atiende
+    // Servicio a Cliente, con el hallazgo servido. NO se escalan como error.
+    if (String(v.conclusion) === 'ACOMPANAR') {
+      await notaParaServicioACliente(ticketId, v).catch((e) => console.error('[JUEZ] nota de acompañar:', e?.message));
+    }
+
     if (String(v.conclusion) === 'OPERACION') {
       // No se asigna solo: Servicio a Cliente decide a quién se lo manda.
       await notaDeOperacion(ticketId, v).catch((e) => console.error('[JUEZ] nota de operación:', e?.message));
