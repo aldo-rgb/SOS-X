@@ -2699,8 +2699,7 @@ export default function DashboardAdvisor() {
           </Dialog>
 
           {/* ── Modal: Lista de guías sin identificar ── */}
-          {/* lg y no md: con las columnas de cajas y guía internacional, en md se
-              encimaban los trackings. */}
+          {/* lg y no md: con la columna de cajas, en md se encimaban los trackings. */}
           <Dialog open={unidentifiedModalOpen} onClose={() => setUnidentifiedModalOpen(false)} maxWidth="lg" fullWidth>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2728,8 +2727,10 @@ export default function DashboardAdvisor() {
                       <TableCell>Tracking</TableCell>
                       <TableCell align="center">Cajas</TableCell>
                       <TableCell>Descripción</TableCell>
-                      <TableCell>Guía Origen</TableCell>
-                      <TableCell>Guía Internacional</TableCell>
+                      {/* Un mismo dato con dos nombres: en bodega le dicen guía de
+                          origen y en oficina guía internacional. Se nombran los dos
+                          para que nadie la busque como columna aparte. */}
+                      <TableCell>Guía Origen / Internacional</TableCell>
                       <TableCell>Estado</TableCell>
                       <TableCell align="center">Acción</TableCell>
                     </TableRow>
@@ -2784,13 +2785,6 @@ export default function DashboardAdvisor() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {pkg.international_tracking ? (
-                              <Typography variant="caption" fontFamily="monospace">{pkg.international_tracking}</Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.disabled">—</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
                             <Chip label={pkg.status || 'received'} size="small" sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontSize: '0.7rem' }} />
                           </TableCell>
                           <TableCell align="center">
@@ -2805,7 +2799,7 @@ export default function DashboardAdvisor() {
                         </TableRow>
                       ))}
                     {unidentifiedPkgs.length === 0 && (
-                      <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>No hay guías sin identificar</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>No hay guías sin identificar</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
