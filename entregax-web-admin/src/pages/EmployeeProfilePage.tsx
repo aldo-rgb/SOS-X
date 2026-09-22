@@ -789,6 +789,9 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
   const u = profile.user || {};
   const [form, setForm] = useState({
     hire_date: u.hire_date ? String(u.hire_date).slice(0, 10) : '',
+    // Fecha de nacimiento. No existía en el sistema: la única copia estaba
+    // dentro de la INE y la CURP escaneadas, que son imágenes. Se captura aquí.
+    fecha_nacimiento: u.fecha_nacimiento ? String(u.fecha_nacimiento).slice(0, 10) : '',
     emergency_contact: u.emergency_contact || '',
     salario_bruto: p.salario_bruto || '',
     salario_neto: p.salario_neto || '',
@@ -818,6 +821,7 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
       // Guardar hire_date y emergency_contact en users
       await api.put(`/admin/hr/employees/${profile.user.id}`, {
         hireDate: form.hire_date || null,
+        fechaNacimiento: form.fecha_nacimiento || null,
         emergencyContact: form.emergency_contact || null,
       });
       // Guardar nómina en employee_payroll_info
@@ -830,6 +834,7 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
       }
       delete payload.imss_registered;
       delete payload.hire_date;
+      delete payload.fecha_nacimiento;
       delete payload.emergency_contact;
       await api.put(`/admin/hr/employees/${profile.user.id}/payroll`, payload);
       onMsg('Información guardada correctamente', 'success');
@@ -856,7 +861,13 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
               InputLabelProps={{ shrink: true }}
               value={form.hire_date} onChange={e => update('hire_date', e.target.value)} />
           </Grid>
-          <Grid size={{xs:12,sm:6,md:8}}>
+          <Grid size={{xs:12,sm:6,md:4}}>
+            <TextField fullWidth type="date" label="Fecha de Nacimiento" size="small"
+              InputLabelProps={{ shrink: true }}
+              helperText="Se usará para el cumpleaños en el calendario"
+              value={form.fecha_nacimiento} onChange={e => update('fecha_nacimiento', e.target.value)} />
+          </Grid>
+          <Grid size={{xs:12,sm:6,md:4}}>
             <TextField fullWidth label="Contacto de Emergencia" size="small"
               placeholder="Nombre y teléfono del contacto de emergencia"
               value={form.emergency_contact} onChange={e => update('emergency_contact', e.target.value)} />

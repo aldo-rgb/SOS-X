@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 
 // ============================================
 // CONSTANTES DE GEOCERCA
@@ -1237,9 +1237,15 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
       emergencyContact,
       pantsSize,
       shirtSize,
-      branchId
+      branchId,
+      // Fecha de nacimiento. No existía en ninguna parte del sistema: la única
+      // copia estaba dentro de la INE y la CURP escaneadas, que son imágenes y
+      // el sistema no puede leer. Se captura en el expediente. Es SOLO del
+      // equipo; a los clientes no se les pide.
+      fechaNacimiento
     } = req.body;
     const branch = branchId ? parseInt(String(branchId), 10) : null;
+    await asegurarColumna('users', 'fecha_nacimiento', 'DATE');
 
     // Validaciones
     if (!fullName || !email || !role) {
@@ -1286,10 +1292,12 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
         branch_id,
         must_change_password,
         hire_date,
-        is_employee_onboarded
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, CURRENT_DATE, FALSE)
-      RETURNING id, full_name, email, phone, role, employee_number, hire_date
-    `, [fullName, email, hashedPassword, phone, role, boxId, employeeNumber, emergencyContact, pantsSize, shirtSize, branch]);
+        is_employee_onboarded,
+        fecha_nacimiento
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, CURRENT_DATE, FALSE, $12::date)
+      RETURNING id, full_name, email, phone, role, employee_number, hire_date, fecha_nacimiento
+    `, [fullName, email, hashedPassword, phone, role, boxId, employeeNumber, emergencyContact, pantsSize, shirtSize, branch,
+        fechaNacimiento || null]);
 
     const newEmployee = result.rows[0];
 
@@ -1327,7 +1335,8 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
       hireDate,
       pantsSize,
       shirtSize,
-      branchId
+      branchId,
+      fechaNacimiento
     } = req.body;
     // branch_id: solo se actualiza si el campo viene en el body. '' → NULL (sin sucursal).
     const branchProvided = Object.prototype.hasOwnProperty.call(req.body, 'branchId');
@@ -1340,6 +1349,8 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    await asegurarColumna('users', 'fecha_nacimiento', 'DATE');
+
     const result = await pool.query(`
       UPDATE users SET
         full_name = COALESCE($1, full_name),
@@ -1349,10 +1360,12 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
         hire_date = COALESCE($5, hire_date),
         pants_size = COALESCE($6, pants_size),
         shirt_size = COALESCE($7, shirt_size),
-        branch_id = CASE WHEN $9::boolean THEN $10::int ELSE branch_id END
+        branch_id = CASE WHEN $9::boolean THEN $10::int ELSE branch_id END,
+        fecha_nacimiento = COALESCE($11::date, fecha_nacimiento)
       WHERE id = $8
-      RETURNING id, full_name, email, phone, role, employee_number, hire_date, emergency_contact
-    `, [fullName, phone, role, emergencyContact || null, hireDate || null, pantsSize, shirtSize, id, branchProvided, branch]);
+      RETURNING id, full_name, email, phone, role, employee_number, hire_date, emergency_contact, fecha_nacimiento
+    `, [fullName, phone, role, emergencyContact || null, hireDate || null, pantsSize, shirtSize, id, branchProvided, branch,
+        fechaNacimiento || null]);
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Empleado no encontrado' });

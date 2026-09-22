@@ -284,7 +284,7 @@ export const getEmployeeFullProfile = async (req: Request, res: Response): Promi
 
     const userQ = await pool.query(
       `SELECT id, full_name, email, phone, role, box_id, branch_id,
-              employee_number, hire_date, profile_photo_url,
+              employee_number, hire_date, fecha_nacimiento, profile_photo_url,
               ine_front_url, ine_back_url, selfie_url, signature_url,
               driver_license_front_url, driver_license_back_url, driver_license_expiry,
               rfc_url, curp_url, comprobante_domicilio_url, contract_pdf_url,
