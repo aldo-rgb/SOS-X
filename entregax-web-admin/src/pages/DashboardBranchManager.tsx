@@ -112,6 +112,7 @@ interface QuickAction {
 export default function DashboardBranchManager() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<BranchStats | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
   const [delayedCount, setDelayedCount] = useState<number>(0);
   const [delayedAirCount, setDelayedAirCount] = useState<number>(0);
@@ -430,6 +431,7 @@ export default function DashboardBranchManager() {
     setLoading(true);
     try {
       // Cargar estadísticas del dashboard de gerente
+      setErrorCarga(null);
       const response = await api.get('/dashboard/branch-manager');
       if (response.data) {
         setStats(response.data);
@@ -437,14 +439,14 @@ export default function DashboardBranchManager() {
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
-      // Evitar datos ficticios en dashboard
-      setStats({
-        sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY', allowed_services: [] },
-        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, en_transito_pobox: 0, en_transito_transfer_cdmx: 0, en_espera_maritimo: 0, en_espera_aereo: 0, entregados_hoy: 0, pendientes_cobro: 0 },
-        financiero: { ingresos_hoy: 0, ingresos_mes: 0, saldo_caja: 0, cuentas_por_cobrar: 0 },
-        operaciones: { recepciones_hoy: 0, despachos_hoy: 0, consolidaciones_pendientes: 0 },
-        equipo: { empleados_activos: 0, en_turno: 0 },
-      });
+      // Si la consulta falla NO se inventa una sucursal. El respaldo anterior
+      // ponía "CEDIS MTY" con todo en cero, así que a un gerente de CDMX le
+      // decía que estaba en Monterrey y le enseñaba widgets que no son de su
+      // CEDIS —el de PO Box, por ejemplo—, todo con ceros que parecían datos
+      // reales. Una falla que se disfraza de información es peor que una falla
+      // visible: se avisa y se deja reintentar.
+      setStats(null);
+      setErrorCarga('No se pudo cargar la información de tu sucursal. Vuelve a intentar.');
     } finally {
       setLoading(false);
     }
@@ -636,6 +638,17 @@ export default function DashboardBranchManager() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#F8FAFC', minHeight: '100%' }}>
+      {/* Falla de carga: se dice, no se disfraza de ceros. */}
+      {errorCarga && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => loadData()}>Reintentar</Button>}
+        >
+          {errorCarga}
+        </Alert>
+      )}
+
       {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography sx={{ fontSize: '1.75rem', fontWeight: 700, color: '#0F172A', letterSpacing: -0.5 }}>
