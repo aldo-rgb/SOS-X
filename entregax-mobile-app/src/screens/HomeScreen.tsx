@@ -1101,7 +1101,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 📍 Paquetes en Pick Up pueden ser seleccionados para cambiar método de envío
     const isPickupPackage = isPOBoxUSA && item.status === 'ready_pickup';
     const isSelectable = isUserVerified && !isPaid && (
-      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) ||
+      // 'reempacado' va en la lista: cuando bodega cierra el reempaque el master
+      // pasa de 'received' a 'reempacado', y si el cliente no alcanzó a dar sus
+      // instrucciones en ese rato se quedaba sin forma de darlas nunca. Un
+      // reempaque terminado es justo lo que está listo para decirle a dónde va.
+      // (Reclamo de Sergio Omar Sánchez, S1202, ticket TKT-2026-2822.)
+      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup', 'reempacado'].includes(item.status)) ||
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status)) ||
       (isChinaAir && ['received_origin', 'received_china', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
       (isDHL && ['received_mty'].includes(item.status)) ||
