@@ -1249,7 +1249,12 @@ export function TaskCard({ task, onPress, showBoard, myId }: { task: TaskT; onPr
         {(task.subtasks_total || 0) > 0 && (
           <Text style={[styles.metaMuted, task.subtasks_done === task.subtasks_total && { color: '#2E7D46' }]}>☑ {task.subtasks_done}/{task.subtasks_total}</Text>
         )}
-        {!!task.due_at && <Text style={[styles.metaMuted, task.overdue && { color: '#C0392B' }]}>  {new Date(task.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Text>}
+        {/* En una tarea terminada la fecha que importa es CUÁNDO se terminó, no
+            cuándo vencía: con la de vencimiento la lista se veía desordenada
+            aunque estuviera bien ordenada por fecha de cierre. */}
+        {done && !!task.completed_at ? (
+          <Text style={[styles.metaMuted, { color: '#2E7D46' }]}>  ✓ {new Date(task.completed_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Text>
+        ) : (!!task.due_at && <Text style={[styles.metaMuted, task.overdue && { color: '#C0392B' }]}>  {new Date(task.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Text>)}
       </View>
       {tt && (
         <View style={styles.timeRow}>
@@ -2368,6 +2373,18 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
   const cells = QUADRANTS.map(q => ({
     q,
     qt: base.filter(t => t.eisenhower === q.key).sort((a, b) => {
+      // Las terminadas van al fondo del cuadrante y, entre ellas, la más
+      // reciente arriba. Con el orden de pendientes -que manda por fecha de
+      // vencimiento- una tarea cerrada hace meses podía quedar encima de la que
+      // se acaba de cerrar, que es justo la que uno busca al prender "ver
+      // terminadas". La lista ya lo hacía así; la matriz no.
+      const finA = a.status === 'completed', finB = b.status === 'completed';
+      if (finA !== finB) return finA ? 1 : -1;
+      if (finA && finB) {
+        const ta = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+        const tb = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+        if (ta !== tb) return tb - ta;
+      }
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
       const mia = Number(esMia(b)) - Number(esMia(a));
       if (mia !== 0) return mia;
