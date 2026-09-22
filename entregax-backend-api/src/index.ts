@@ -14797,6 +14797,7 @@ import {
   updateTask as tasksUpdate,
   completeTask as tasksComplete,
   reopenTask as tasksReopen,
+  cancelTask as tasksCancel,
   deleteTask as tasksDelete,
   addSubtask as tasksAddSubtask,
   toggleSubtask as tasksToggleSubtask,
@@ -14910,6 +14911,7 @@ app.get('/api/tasks/response-stats', authenticateToken, requireMinLevel(ROLES.BR
 // Tareas que YO asigné y esperan mi confirmación (indicador de estado del panel).
 app.get('/api/tasks/awaiting-confirmation', authenticateToken, tasksAwaitingMyConfirmation);
 app.post('/api/tasks/personal', authenticateToken, tasksCreatePersonal);
+app.post('/api/tasks/:id/cancel', authenticateToken, tasksCancel);
 app.get('/api/tasks/assignable-users', authenticateToken, tasksAssignableUsers);
 app.get('/api/tasks/team', authenticateToken, tasksTeam);
 app.get('/api/tasks/categories', authenticateToken, tasksListCategories);

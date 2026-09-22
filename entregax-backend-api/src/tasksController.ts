@@ -1851,6 +1851,56 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
 };
 
 // ─── TAREAS: REABRIR (regresar una tarea completada a pendiente) ──
+/**
+ * POST /api/tasks/:id/cancel — cancelar una tarea.
+ *
+ * No existía: cancelar no se podía desde ningún lado, así que lo que ya no se
+ * iba a hacer se cerraba como "completada" y quedaba contando como trabajo
+ * hecho en los reportes. Cancelar no es terminar.
+ *
+ * El MOTIVO es obligatorio: una tarea que desaparece sin decir por qué deja a
+ * quien la pidió sin saber si se hizo, si se descartó o si se perdió.
+ *
+ * Solo quien la asignó o gerencia. El responsable no cancela su propia tarea,
+ * igual que no se auto-aprueba el trabajo.
+ */
+export const cancelTask = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const id = parseInt(String(req.params.id));
+    const cur = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    const task = cur.rows[0];
+    if (task.status === 'cancelled') return res.json({ success: true, already_cancelled: true });
+
+    const esQuienAsigno = Number(task.created_by) === Number(uid);
+    const mgr = await canManageBoard(req, task.board_id);
+    if (!esQuienAsigno && !mgr) {
+      return res.status(403).json({ error: 'Solo quien asignó la tarea o gerencia puede cancelarla' });
+    }
+    const motivo = String(req.body?.motivo || req.body?.reason || '').trim();
+    if (motivo.length < 5) {
+      return res.status(400).json({ error: 'Di por qué se cancela: quien la pidió necesita saber que se descartó y no que se perdió.' });
+    }
+
+    await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1,$2,$3)`,
+      [id, uid, `Cancelada: ${motivo}`]).catch(() => {});
+    await pool.query(`UPDATE tasks SET status='cancelled', updated_at=NOW() WHERE id=$1`, [id]);
+    await logActivity(id, uid, 'cancelled', { motivo });
+
+    if (task.assignee_id && Number(task.assignee_id) !== Number(uid)) {
+      await notify(Number(task.assignee_id), '🚫 Cancelaron una tarea',
+        `"${task.title}" se canceló: ${motivo}`, { task_id: id }, 'task_new');
+    }
+    // Y se le avisa a Grupo Rino como CANCELADA, no como terminada.
+    emitTaskEventIfExternal('task.cancelled', id, uid).catch(() => {});
+    res.json({ success: true, cancelled: true });
+  } catch (e: any) {
+    console.error('[tasks] cancelTask:', e?.message);
+    res.status(500).json({ error: 'No se pudo cancelar la tarea' });
+  }
+};
+
 export const reopenTask = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
@@ -2286,6 +2336,44 @@ export async function applyInboundTaskEvent(opts: {
   };
 
   switch (event) {
+    // Cancelada allá → cancelada aquí. Antes no existía este evento y una
+    // cancelación llegaba como task.completed forzado: la tarea quedaba
+    // contando como trabajo hecho en los reportes de los dos lados. Cancelar no
+    // es terminar. No se tocan checklists ni nada de dinero: solo el estado.
+    case 'task.cancelled': {
+      if (task.status === 'cancelled') break;
+      await pool.query(`UPDATE tasks SET status='cancelled', updated_at=NOW() WHERE id=$1`, [taskId]);
+      const motivo = String(opts.body?.motivo || opts.body?.reason || '').trim();
+      if (motivo) {
+        await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1,$2,$3)`,
+          [taskId, actorId, `Cancelada: ${motivo}`]).catch(() => {});
+      }
+      await logActivity(taskId, actorId, 'cancelled', { via: 'sync', motivo: motivo || null });
+      if (task.assignee_id && Number(task.assignee_id) !== Number(actorId)) {
+        await notify(Number(task.assignee_id), '🚫 Cancelaron una tarea',
+          `"${task.title}" se canceló${motivo ? `: ${motivo}` : ''}.`, { task_id: taskId }, 'task_new');
+      }
+      break;
+    }
+    // Movimientos de checklist de Grupo Rino. Su checklist no se refleja aquí
+    // —son sus subtareas, no las nuestras—, así que en vez de perderlos se
+    // anotan como comentario en la tarea. Antes se contestaba 200 y se tiraban:
+    // ellos gastaban cola para que nuestro log escribiera "evento no manejado".
+    case 'checklist.terminado':
+    case 'checklist.cancelado':
+    case 'checklist.reasignado': {
+      const b = opts.body || {};
+      const que = String(b.titulo || b.title || b.descripcion || b.checklist?.titulo || '').trim();
+      const accion = event === 'checklist.terminado' ? 'terminó'
+                   : event === 'checklist.cancelado' ? 'canceló' : 'reasignó';
+      const extra = String(b.responsable || b.asignado_a || b.assignee_name || '').trim();
+      await pool.query(`INSERT INTO task_comments (task_id, author_id, body) VALUES ($1,$2,$3)`,
+        [taskId, actorId,
+         `Checklist de Grupo Rino: se ${accion}${que ? ` "${que}"` : ' un punto'}` +
+         `${extra ? ` (${extra})` : ''}.`]).catch(() => {});
+      await logActivity(taskId, actorId, 'comment', { via: 'sync', checklist: event });
+      break;
+    }
     case 'task.started': {
       await pool.query(`UPDATE tasks SET started_at=COALESCE(started_at,NOW()), updated_at=NOW() WHERE id=$1`, [taskId]);
       await logActivity(taskId, actorId, 'started', { via: 'sync' });

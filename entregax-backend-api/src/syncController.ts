@@ -222,10 +222,13 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
       console.warn(`[sync] autor externo no reconocido: ${actorExternal} (${comentario.author_name || 's/n'})`);
     }
 
-    if (event.startsWith('task.')) {
+    // Los checklist.* también se aplican: se anotan como comentario en la tarea.
+    // Antes caían en la rama de "evento no manejado", que contestaba 200 y no
+    // hacía nada: Grupo Rino creía que quedaban registrados y no era así.
+    if (event.startsWith('task.') || event.startsWith('checklist.')) {
       const r = await applyInboundTaskEvent({
         taskId: localTaskId, event, actorId: actorLocalId,
-        body: (event === 'task.attachment_added' ? data.attachment : data.comment) || data,
+        body: (event === 'task.attachment_added' ? data.attachment : (data.comment || data.checklist)) || data,
       });
       if (!r.ok) return res.status(422).json({ error: r.error || 'No se pudo aplicar' });
       if (autorDesconocido) {
