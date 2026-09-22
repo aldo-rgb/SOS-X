@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, ScrollView, Alert, TextInput,
@@ -114,6 +114,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [unidentifiedFilter, setUnidentifiedFilter] = useState(routeFilter === 'unidentified');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [clientSearch, setClientSearch] = useState('');
+  // Lo que ya viajó al servidor. Antes la búsqueda sólo filtraba las 50 guías que
+  // la pantalla trae cargadas, así que una guía fuera de esas 50 parecía no existir.
+  const [searchEnviado, setSearchEnviado] = useState('');
+  const cambioPorBusqueda = useRef(false);
   const [instrEnabled, setInstrEnabled] = useState(true);
 
   // Filter modal
@@ -219,10 +223,21 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length + (unidentifiedFilter ? 1 : 0);
 
-  const filteredShipments = (clientSearch.trim()
+  // Un número de guía identifica un envío único: quien lo teclea quiere ESA guía,
+  // no "esa guía si además cumple el filtro de la vista". Sin esto, una guía a la
+  // que ya le asignaron instrucciones desaparece del filtro "Sin instrucciones" y
+  // el asesor concluye que no existe (le pasó a Jesús Campos con TDX-8323172215).
+  const terminoBusqueda = clientSearch.trim();
+  const buscandoGuia = /\d{5,}/.test(terminoBusqueda);
+  // Mientras el texto no ha llegado al servidor se afina lo ya cargado para que la
+  // lista responda al instante; después manda el servidor, que busca en todo.
+  const filteredShipments = (terminoBusqueda && terminoBusqueda !== searchEnviado
     ? shipments.filter(s => {
-        const q = clientSearch.toLowerCase();
-        return s.client_name.toLowerCase().includes(q) || s.client_box_id.toLowerCase().includes(q);
+        const q = terminoBusqueda.toLowerCase();
+        const enGuia = (t?: string | null) => String(t || '').toLowerCase().includes(q);
+        return s.client_name.toLowerCase().includes(q) || s.client_box_id.toLowerCase().includes(q)
+          || enGuia(s.tracking_number) || enGuia(s.international_tracking)
+          || (s.child_trackings ?? []).some(enGuia);
       })
     : shipments
   ).sort((a, b) => {
@@ -235,17 +250,32 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   const buildUrl = useCallback(() => {
     let url = `${API_URL}/api/advisor/shipments?page=1&limit=50`;
-    if (statusFilter) url += `&filter=${statusFilter}`;
-    if (paymentFilter !== 'all') url += `&payment=${paymentFilter}`;
-    if (instructionsFilter !== 'all') url += `&instructions=${instructionsFilter}`;
-    if (serviceFilter !== 'all') url += `&serviceType=${serviceFilter}`;
-    if (unidentifiedFilter) url += `&unidentified=true`;
+    if (searchEnviado) url += `&search=${encodeURIComponent(searchEnviado)}`;
+    // Al buscar una guía se dejan fuera los filtros de la vista: ver comentario arriba.
+    if (!/\d{5,}/.test(searchEnviado)) {
+      if (statusFilter) url += `&filter=${statusFilter}`;
+      if (paymentFilter !== 'all') url += `&payment=${paymentFilter}`;
+      if (instructionsFilter !== 'all') url += `&instructions=${instructionsFilter}`;
+      if (serviceFilter !== 'all') url += `&serviceType=${serviceFilter}`;
+      if (unidentifiedFilter) url += `&unidentified=true`;
+    }
     if (clientId) url += `&clientId=${clientId}`;
     return url;
-  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter, unidentifiedFilter, clientId]);
+  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter, unidentifiedFilter, clientId, searchEnviado]);
+
+  // Se espera a que el asesor deje de teclear para no pegarle al backend por letra.
+  useEffect(() => {
+    const q = clientSearch.trim();
+    if (q === searchEnviado) return;
+    const t = setTimeout(() => { cambioPorBusqueda.current = true; setSearchEnviado(q); }, 400);
+    return () => clearTimeout(t);
+  }, [clientSearch, searchEnviado]);
 
   const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true); else setLoading(true);
+    // Al teclear en el buscador no se tapa la lista con el spinner: se quedan los
+    // resultados anteriores hasta que llegan los nuevos.
+    if (isRefresh) setRefreshing(true);
+    else if (!cambioPorBusqueda.current) setLoading(true);
     try {
       const res = await fetch(buildUrl(), { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -283,6 +313,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     } catch (e) {
       console.error('[AdvisorPackages]', e);
     } finally {
+      cambioPorBusqueda.current = false;
       setLoading(false);
       setRefreshing(false);
     }
@@ -880,7 +911,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         <Ionicons name="search-outline" size={16} color="#999" style={{ marginRight: 6 }} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Buscar por cliente o ID..."
+          placeholder="Buscar por cliente, casillero o guía..."
           placeholderTextColor="#bbb"
           value={clientSearch}
           onChangeText={setClientSearch}
@@ -893,6 +924,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Si se ignoraron los filtros hay que decirlo: si no, el título sigue diciendo
+          "Sin Instrucciones" mientras la lista muestra una guía que sí las tiene. */}
+      {buscandoGuia && (activeFilterCount > 0 || !!statusFilter) && (
+        <Text style={styles.avisoBusquedaGuia}>
+          Búsqueda por guía: se muestran todas, sin aplicar los filtros
+        </Text>
+      )}
 
       {loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
@@ -1825,4 +1864,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#E8E8E8',
   },
   searchInput: { flex: 1, fontSize: 14, color: '#111', padding: 0 },
+  avisoBusquedaGuia: {
+    marginHorizontal: 12, marginTop: -4, marginBottom: 8,
+    fontSize: 11, color: '#BF360C', fontWeight: '500',
+  },
 });
