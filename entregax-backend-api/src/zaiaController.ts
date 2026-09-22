@@ -265,6 +265,21 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
       args.push(creador); cond.push(`t.created_by = $${args.length}`);
     }
 
+    // Tareas donde a alguien lo etiquetaron en un comentario. Una tarea que no es
+    // tuya ni la creaste, pero donde te escriben "@Fulano" para pedirte algo, no
+    // salía en ningún listado y el pendiente se perdía: pasó con la #379, donde a
+    // Aldo le dejaron un "@Aldo Campos" que nunca llegó a sus pendientes.
+    const mencionadoRaw = String(req.query.mencionado_id || req.query.mentioned_id || '').trim();
+    let mencionado = 0;
+    if (mencionadoRaw) {
+      mencionado = parseInt(mencionadoRaw, 10);
+      if (!Number.isFinite(mencionado) || mencionado <= 0) {
+        return res.status(400).json({ error: 'mencionado_id debe ser un número. Consulta /api/zaia/personas para ver los ids.' });
+      }
+      args.push(JSON.stringify([mencionado]));
+      cond.push(`EXISTS (SELECT 1 FROM task_comments tc WHERE tc.task_id = t.id AND tc.mentions @> $${args.length}::jsonb)`);
+    }
+
     const board = String(req.query.board || '').trim();
     if (board) { args.push(board); cond.push(`(b.board_key = $${args.length} OR b.name ILIKE '%' || $${args.length} || '%')`); }
     const where = cond.join(' AND ');
@@ -315,6 +330,16 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
                 -- le toca confirmar sin pedir la tarea una por una.
                 t.created_by AS creado_por_id,
                 CASE WHEN COALESCE(t.creada_por_cajito, FALSE) THEN 'Cajito' ELSE cr.full_name END AS creado_por,
+                -- A quiénes etiquetaron en los comentarios. Viaja siempre, no sólo
+                -- al filtrar, para que se vea por qué una tarea salió en la lista.
+                COALESCE((
+                  SELECT json_agg(DISTINCT jsonb_build_object('id', m.uid, 'nombre', mu.full_name))
+                    FROM task_comments tc
+                    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(tc.mentions, '[]'::jsonb)) AS men(uid)
+                    JOIN users mu ON mu.id = men.uid::int
+                    CROSS JOIN LATERAL (SELECT men.uid::int AS uid) m
+                   WHERE tc.task_id = t.id
+                ), '[]'::json) AS mencionados,
                 (t.status NOT IN ('completed','cancelled') AND t.due_at IS NOT NULL AND t.due_at < NOW()) AS vencida
            FROM tasks t LEFT JOIN task_boards b ON b.id = t.board_id
            LEFT JOIN users u ON u.id = t.assignee_id
@@ -330,7 +355,7 @@ export const zaiaTareas = async (req: Request, res: Response): Promise<any> => {
     const out = {
       generado_en: new Date().toISOString(),
       zona_horaria: 'UTC',
-      filtros: { assignee_id: assignee || null, creado_por_id: creador || null, status: status || null, board: board || null },
+      filtros: { assignee_id: assignee || null, creado_por_id: creador || null, mencionado_id: mencionado || null, status: status || null, board: board || null },
       totales: totales.rows[0],
       por_estado: porEstado.rows,
       por_persona: porPersona.rows,
