@@ -5162,11 +5162,41 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         // a la que no le llegue el shipment_type se manda como 'usa', se busca en
         // la tabla equivocada y falla aunque exista (TKT-2026-2767).
         const idNum = Number(packageId);
-        const packageType = (packageTypeRaw !== 'dhl' && packageTypeRaw !== 'maritime' && idNum >= 300000)
+        let packageType = (packageTypeRaw !== 'dhl' && packageTypeRaw !== 'maritime' && idNum >= 300000)
             ? 'dhl'
             : packageTypeRaw;
+
+        // El desplazamiento no alcanza cuando el id es CHICO. Los ids se repiten
+        // entre tablas: el dhl_shipments 1107 de Sankie Guo (S105) convive con el
+        // packages 1107, que es una guia aerea de OTRO cliente. Si la app manda
+        // 'usa' para esa guia DHL, se busca en packages, se encuentra la del otro
+        // y el guardado falla — o, peor, podria escribir instrucciones sobre el
+        // envio de alguien mas. Es lo que reporto en el TKT-2026-2811 y es la
+        // segunda vez que le pasa.
+        //
+        // Cuando el que pide es el DUEÑO, la propiedad desempata sin ambiguedad:
+        // si ese id NO es suyo en packages pero SI lo es en dhl_shipments, la
+        // guia es DHL. Solo se corrige cuando el resultado es inequivoco; si no,
+        // se deja como venia y manda la logica de siempre.
+        if (packageType !== 'dhl' && packageType !== 'maritime' && Number.isFinite(idNum) && idNum > 0) {
+            try {
+                const uid = (req as any).user?.userId;
+                if (uid) {
+                    const esMioEnPackages = (await pool.query(
+                        `SELECT 1 FROM packages WHERE id = $1 AND user_id = $2 LIMIT 1`, [idNum, uid])).rows.length > 0;
+                    if (!esMioEnPackages) {
+                        const esMioEnDhl = (await pool.query(
+                            `SELECT 1 FROM dhl_shipments WHERE id = $1 AND user_id = $2 LIMIT 1`, [idNum, uid])).rows.length > 0;
+                        if (esMioEnDhl) packageType = 'dhl';
+                    }
+                }
+            } catch (e: any) {
+                console.warn('[Instrucciones Entrega] no pude desempatar por dueño:', e?.message);
+            }
+        }
+
         if (packageType !== packageTypeRaw) {
-            console.warn(`[Instrucciones Entrega] Tipo corregido por el id: llego '${packageTypeRaw}' para ${packageId}, se trata como '${packageType}'`);
+            console.warn(`[Instrucciones Entrega] Tipo corregido: llego '${packageTypeRaw}' para ${packageId}, se trata como '${packageType}'`);
         }
         const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName, ocurreZip } = req.body;
         // 🚚 Por cobrar: el cliente le paga el flete a la paquetería al recibir,
