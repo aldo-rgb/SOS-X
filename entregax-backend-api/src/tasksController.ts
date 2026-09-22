@@ -77,6 +77,19 @@ async function logActivity(taskId: number, actorId: number | null, action: strin
 // Cada uno es configurable en el panel "Sonidos de Notificaciones".
 async function notify(userId: number | null, title: string, message: string, data: any = {}, notificationType: string = 'task_new'): Promise<void> {
   if (!userId) return;
+
+  // El NÚMERO de tarea va en el texto, no solo en el dato de navegación.
+  // Todas estas notificaciones ya llevaban task_id por dentro para poder abrir
+  // la tarea al tocarlas, pero en pantalla solo se leía el título: quien recibía
+  // "Te asignaron una tarea · Revisar guías" tenía que entrar a buscarla para
+  // saber cuál era, y en una lista de avisos dos tareas parecidas no se
+  // distinguen. Se antepone una sola vez y en un solo lugar, para que ninguna
+  // notificación de tarea se quede sin él.
+  const idTarea = Number(data?.task_id) || 0;
+  if (idTarea > 0 && !String(message).includes(`#${idTarea}`)) {
+    message = `#${idTarea} · ${message}`;
+  }
+
   // Completadas que no encargó él: van al resumen de las 6 pm (resumenCompletadas.ts).
   if (notificationType === 'task_completed' && data?.task_id) {
     const { guardarCompletadaEnResumen } = await import('./resumenCompletadas');
