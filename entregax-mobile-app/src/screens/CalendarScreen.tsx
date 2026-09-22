@@ -154,7 +154,9 @@ export default function CalendarScreen({ navigation, route }: any) {
                   <ScrollView style={{ maxHeight: 360 }}>
                     {evs.length === 0 && tks.length === 0 && <Text style={styles.muted}>Sin eventos ni tareas este día.</Text>}
                     {evs.map(e => (
-                      <TouchableOpacity key={`e${e.id}`} style={[styles.row, { borderLeftColor: e.color || EVENT_COLOR }]} onPress={() => { setDayOpen(null); setEditEvent(e); }}>
+                      <TouchableOpacity key={`e${e.id}`} style={[styles.row, { borderLeftColor: e.color || EVENT_COLOR }]}
+                        activeOpacity={(e as any).es_cumpleanos ? 1 : 0.2}
+                        onPress={() => { if ((e as any).es_cumpleanos) return; setDayOpen(null); setEditEvent(e); }}>
                         <Ionicons name="calendar" size={16} color={e.color || EVENT_COLOR} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.rowTitle}>{e.title}</Text>

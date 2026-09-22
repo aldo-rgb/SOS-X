@@ -195,7 +195,7 @@ export default function CalendarioPage() {
         <DayDialog date={dayOpen} data={byDay[dayKey(dayOpen)] || { events: [], tasks: [] }} filter={filter}
           onClose={() => setDayOpen(null)}
           onNewEvent={() => { setEditEvent('new'); }}
-          onOpenEvent={(e) => setEditEvent(e)} onOpenTask={(t) => setViewTask(t)} />
+          onOpenEvent={(e) => { if (!(e as any).es_cumpleanos) setEditEvent(e); }} onOpenTask={(t) => setViewTask(t)} />
       )}
 
       {/* Crear / editar evento */}

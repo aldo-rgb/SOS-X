@@ -6,7 +6,7 @@
 // ============================================
 
 import { Request, Response } from 'express';
-import { pool } from './db';
+import { pool, asegurarColumna } from './db';
 
 const MANAGER_ROLES = ['super_admin', 'admin', 'director'];
 const authUid = (req: Request): number | null => {
@@ -118,7 +118,71 @@ export const getCalendarFeed = async (req: Request, res: Response): Promise<any>
        ORDER BY ${taskDate} ASC
     `, tParams);
 
-    res.json({ events: eventsRes.rows, tasks: tasksRes.rows });
+    // ---- Cumpleaños del equipo ----
+    // No se guardan como eventos: se calculan al vuelo desde la fecha de
+    // nacimiento del expediente. Guardarlos obligaría a un proceso que los
+    // cree cada año, a limpiar los del año pasado y a corregirlos cuando
+    // alguien se da de baja o corrige su fecha. Calculados, siempre están al
+    // día: se captura la fecha una vez y aparecen solos para siempre.
+    //
+    // Estos SÍ los ve todo el equipo, a diferencia del resto de eventos. Es la
+    // única excepción y es deliberada: un cumpleaños se comparte, una cita con
+    // el dentista no. A los clientes no se les incluye nunca.
+    //
+    // Va sin el AÑO a propósito: el calendario dice de quién es el cumpleaños,
+    // no cuántos años cumple.
+    let cumples: any[] = [];
+    try {
+      await asegurarColumna('users', 'fecha_nacimiento', 'DATE');
+      const c = await pool.query(
+        `WITH gente AS (
+           SELECT id, full_name, fecha_nacimiento
+             FROM users
+            WHERE fecha_nacimiento IS NOT NULL
+              AND role <> 'client'
+              AND COALESCE(is_active, TRUE)
+              AND deleted_at IS NULL
+         ),
+         anios AS (
+           SELECT generate_series(
+                    EXTRACT(YEAR FROM $1::date)::int,
+                    EXTRACT(YEAR FROM $2::date)::int
+                  ) AS anio
+         )
+         SELECT g.id, g.full_name,
+                make_date(a.anio,
+                          EXTRACT(MONTH FROM g.fecha_nacimiento)::int,
+                          -- 29 de febrero en año no bisiesto: se celebra el 28.
+                          LEAST(EXTRACT(DAY FROM g.fecha_nacimiento)::int,
+                                EXTRACT(DAY FROM (make_date(a.anio, EXTRACT(MONTH FROM g.fecha_nacimiento)::int, 1)
+                                                  + interval '1 month - 1 day'))::int)
+                ) AS dia
+           FROM gente g CROSS JOIN anios a`,
+        [from, to]);
+      cumples = c.rows
+        .filter((r: any) => {
+          const d = new Date(r.dia);
+          return d >= new Date(from) && d <= new Date(to);
+        })
+        .map((r: any) => ({
+          id: -Number(r.id),              // negativo: no es un evento real, no se edita
+          es_cumpleanos: true,
+          title: `🎂 Cumpleaños de ${String(r.full_name || '').trim().split(/\s+/)[0] || r.full_name}`,
+          description: String(r.full_name || '').trim(),
+          location: null,
+          start_at: new Date(r.dia).toISOString(),
+          end_at: new Date(r.dia).toISOString(),
+          all_day: true,
+          color: '#E91E63',
+          created_by: null,
+          created_by_name: null,
+          participants: [],
+        }));
+    } catch (e: any) {
+      console.warn('[calendario] no pude calcular los cumpleaños:', e?.message);
+    }
+
+    res.json({ events: [...eventsRes.rows, ...cumples], tasks: tasksRes.rows });
   } catch (error) {
     console.error('Error getCalendarFeed:', error);
     res.status(500).json({ error: 'Error al obtener el calendario' });
