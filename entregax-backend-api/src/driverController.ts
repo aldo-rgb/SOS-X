@@ -2685,7 +2685,8 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             if (result.rows.length === 0) {
                 const compact = code.replace(/-/g, '');
                 const dhlRes = await pool.query(
-                    `SELECT id, secondary_tracking, inbound_tracking, national_carrier, status
+                    `SELECT id, secondary_tracking, inbound_tracking, national_carrier, status,
+                            delivery_address_id
                        FROM dhl_shipments
                       WHERE UPPER(COALESCE(secondary_tracking,'')) = $1
                          OR UPPER(COALESCE(inbound_tracking,'')) = $1
@@ -2704,6 +2705,18 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     const dhlTracking = d.secondary_tracking || d.inbound_tracking || String(d.id);
                     if (d.status === 'shipped') {
                         return res.status(400).json({ error: `⚠️ ${dhlTracking} ya tenía salida (enviada)` });
+                    }
+                    // Sin dirección no sale. Un envío despachado sin domicilio no
+                    // se puede rastrear ni reclamar: el destino queda solo en el
+                    // sistema de la paquetería, escrito a mano por quien hizo la
+                    // guía, y de este lado no hay contra qué comparar. Le pasó a
+                    // SANKIE GUO (S105) con la guía 2135960256, que salió el
+                    // 18-sep sin destinatario, sin CP y sin domicilio: cuando el
+                    // cliente reclamó, nadie podia decir a donde habia ido.
+                    if (!d.delivery_address_id) {
+                        return res.status(400).json({
+                            error: `⚠️ ${dhlTracking} no tiene dirección de entrega. Asígnale las instrucciones antes de darle salida.`,
+                        });
                     }
                     // cargar_unidad = la subes a la CAMIONETA (rumbo a la paquetería):
                     // → out_for_delivery, para que cuente en "Cargados" (igual que un
