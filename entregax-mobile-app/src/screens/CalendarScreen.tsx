@@ -44,6 +44,9 @@ export default function CalendarScreen({ navigation, route }: any) {
   const [filter, setFilter] = useState<'both' | 'events' | 'tasks'>('both');
   const [dayOpen, setDayOpen] = useState<Date | null>(null);
   const [editEvent, setEditEvent] = useState<CalEvent | 'new' | null>(null);
+  // Dia desde el que se pidio el evento nuevo: al cerrar el modal del dia,
+  // dayOpen se vacia y el formulario perderia la fecha elegida.
+  const [nuevoDesde, setNuevoDesde] = useState<Date | null>(null);
   const [viewTask, setViewTask] = useState<CalTask | null>(null);
 
   const gridStart = useMemo(() => addDays(startOfMonth(cursor), -startOfMonth(cursor).getDay()), [cursor]);
@@ -171,7 +174,13 @@ export default function CalendarScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
-                  <TouchableOpacity style={styles.newBtn} onPress={() => { setEditEvent('new'); }}>
+                  {/* Se cierra el modal del dia ANTES de abrir el del evento.
+                      Sin esto quedaban dos modales encimados y el de arriba
+                      tapaba al nuevo: el boton parecia muerto. Es lo mismo que
+                      ya hacen las filas de eventos y de tareas de aqui arriba,
+                      solo que este se lo salto. La fecha del dia se guarda
+                      antes, porque el formulario la usa como valor inicial. */}
+                  <TouchableOpacity style={styles.newBtn} onPress={() => { setNuevoDesde(dayOpen); setDayOpen(null); setEditEvent('new'); }}>
                     <Ionicons name="add" size={18} color="#fff" /><Text style={styles.newBtnTxt}>Nuevo evento</Text>
                   </TouchableOpacity>
                 </>
@@ -184,7 +193,9 @@ export default function CalendarScreen({ navigation, route }: any) {
       {/* Modal evento */}
       {editEvent && (
         <EventModal value={editEvent === 'new' ? null : editEvent} users={users} myId={myId} token={token}
-          defaultDate={dayOpen || cursor} onClose={() => setEditEvent(null)} onSaved={() => { setEditEvent(null); load(); }} />
+          defaultDate={dayOpen || nuevoDesde || cursor}
+          onClose={() => { setEditEvent(null); setNuevoDesde(null); }}
+          onSaved={() => { setEditEvent(null); setNuevoDesde(null); load(); }} />
       )}
 
       {/* Modal tarea (solo lectura) */}
