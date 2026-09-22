@@ -66,12 +66,21 @@ export const getCalendarFeed = async (req: Request, res: Response): Promise<any>
     const mgr = isManager(req);
 
     // ---- Eventos ----
-    // Manager ve todos; el resto solo donde es creador o participante.
-    const evWhere = mgr
-      ? `e.start_at < ($2::date + interval '1 day') AND COALESCE(e.end_at, e.start_at) >= $1::date`
-      : `e.start_at < ($2::date + interval '1 day') AND COALESCE(e.end_at, e.start_at) >= $1::date
+    // TODOS ven lo mismo: lo que crearon o donde los invitaron. Sin excepción
+    // para gerencia.
+    //
+    // Antes un manager veía TODOS los eventos de todos, y la agenda personal no
+    // es trabajo: a Aldo le aparecía "DENTISTA" de otro compañero, junto con sus
+    // citas privadas. Un calendario donde el jefe ve tus citas médicas sin que
+    // lo sepas no es un permiso, es una fuga.
+    //
+    // Quien quiera que su jefe vea un evento, lo agrega como participante. Al
+    // medirlo no se pierde nada de trabajo: de 6 eventos, los 4 laborales ya
+    // tenían a Aldo invitado y los 2 que dejará de ver son citas personales de
+    // una sola persona.
+    const evWhere = `e.start_at < ($2::date + interval '1 day') AND COALESCE(e.end_at, e.start_at) >= $1::date
          AND (e.created_by = $3 OR EXISTS (SELECT 1 FROM calendar_event_participants p WHERE p.event_id = e.id AND p.user_id = $3))`;
-    const evParams: any[] = mgr ? [from, to] : [from, to, uid];
+    const evParams: any[] = [from, to, uid];
     const eventsRes = await pool.query(`
       SELECT e.id, e.title, e.description, e.location,
              ${ISO_UTC('e.start_at')} AS start_at,
