@@ -492,7 +492,18 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       const unidSQL = `
         SELECT
           'PKG-' || p.id::text AS uid,
-          p.id, p.tracking_internal AS tracking, p.tracking_provider AS international_tracking,
+          p.id, p.tracking_internal AS tracking,
+          -- Guía internacional de verdad. Antes este alias apuntaba a
+          -- tracking_provider, que es la guía de la paquetería de origen y ya
+          -- viaja aparte como carrier_tracking.
+          p.international_tracking AS international_tracking,
+          -- Cajas del embarque: si es master manda el conteo real de sus hijas,
+          -- porque total_boxes del master se queda viejo cuando se agrega o se
+          -- quita una guía.
+          CASE WHEN COALESCE(p.is_master, false)
+               THEN GREATEST((SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id AND c.duplicado_de IS NULL), 1)
+               ELSE COALESCE(NULLIF(p.total_boxes, 0), 1)
+          END::int AS boxes_count,
           p.status::text AS status,
           COALESCE(p.service_type, 'POBOX_USA') AS service_type,
           0::numeric AS monto, false AS client_paid,
@@ -558,6 +569,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           height_cm: s.height_cm,
           carrier_tracking: s.carrier_tracking,
           carrier_name: s.carrier_name,
+          international_tracking: s.international_tracking || null,
+          boxes_count: s.boxes_count,
+          total_boxes: s.boxes_count,
           is_unidentified: true,
         })),
         total: parseInt(countRes.rows[0]?.total) || 0,

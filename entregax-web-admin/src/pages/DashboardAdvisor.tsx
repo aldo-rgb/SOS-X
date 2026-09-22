@@ -2699,7 +2699,9 @@ export default function DashboardAdvisor() {
           </Dialog>
 
           {/* ── Modal: Lista de guías sin identificar ── */}
-          <Dialog open={unidentifiedModalOpen} onClose={() => setUnidentifiedModalOpen(false)} maxWidth="md" fullWidth>
+          {/* lg y no md: con las columnas de cajas y guía internacional, en md se
+              encimaban los trackings. */}
+          <Dialog open={unidentifiedModalOpen} onClose={() => setUnidentifiedModalOpen(false)} maxWidth="lg" fullWidth>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <UnidentifiedIcon sx={{ color: '#9C27B0' }} />
@@ -2724,8 +2726,10 @@ export default function DashboardAdvisor() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Tracking</TableCell>
+                      <TableCell align="center">Cajas</TableCell>
                       <TableCell>Descripción</TableCell>
                       <TableCell>Guía Origen</TableCell>
+                      <TableCell>Guía Internacional</TableCell>
                       <TableCell>Estado</TableCell>
                       <TableCell align="center">Acción</TableCell>
                     </TableRow>
@@ -2747,6 +2751,19 @@ export default function DashboardAdvisor() {
                               {pkg.tracking || pkg.tracking_number || `PKG-${pkg.id}`}
                             </Typography>
                           </TableCell>
+                          <TableCell align="center">
+                            {/* Un embarque de varias cajas se ve de un golpe; el de
+                                una sola no necesita adorno. */}
+                            {(pkg.boxes_count ?? pkg.total_boxes ?? 1) > 1 ? (
+                              <Chip
+                                label={pkg.boxes_count ?? pkg.total_boxes}
+                                size="small"
+                                sx={{ bgcolor: alpha('#9C27B0', 0.12), color: '#7B1FA2', fontWeight: 700, fontSize: '0.7rem' }}
+                              />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">1</Typography>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Typography variant="caption" color="text.secondary">
                               {pkg.service_type || 'POBOX_USA'}{pkg.description ? ` · ${pkg.description}` : ''}
@@ -2767,6 +2784,13 @@ export default function DashboardAdvisor() {
                             )}
                           </TableCell>
                           <TableCell>
+                            {pkg.international_tracking ? (
+                              <Typography variant="caption" fontFamily="monospace">{pkg.international_tracking}</Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">—</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Chip label={pkg.status || 'received'} size="small" sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontSize: '0.7rem' }} />
                           </TableCell>
                           <TableCell align="center">
@@ -2781,7 +2805,7 @@ export default function DashboardAdvisor() {
                         </TableRow>
                       ))}
                     {unidentifiedPkgs.length === 0 && (
-                      <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>No hay guías sin identificar</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>No hay guías sin identificar</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
