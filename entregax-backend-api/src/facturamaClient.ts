@@ -160,6 +160,59 @@ function throwFromResponse(prefix: string, r: { status: number; data: any }): ne
 }
 
 /**
+ * Régimen de capital al final de una razón social ("SA DE CV", "S DE RL DE CV",
+ * "SAPI", "SC"…). Se quitan de atrás hacia adelante, uno por vuelta, para que
+ * "INFINITY BRANDS S DE RL DE CV" pierda primero "DE CV" y luego "S DE RL".
+ */
+const REGIMENES_DE_CAPITAL = [
+    /[,\s]+DE\s+C\.?\s*V\.?\s*$/i,
+    /[,\s]+S\.?\s*DE\s+R\.?\s*L\.?\s*$/i,
+    /[,\s]+S\.?\s*A\.?\s*P\.?\s*I\.?\s*$/i,
+    /[,\s]+S\.?\s*A\.?\s*B\.?\s*$/i,
+    /[,\s]+S\.?\s*A\.?\s*S\.?\s*$/i,
+    /[,\s]+S\.?\s*A\.?\s*$/i,
+    /[,\s]+S\.?\s*C\.?\s*$/i,
+    /[,\s]+A\.?\s*C\.?\s*$/i,
+    /[,\s]+SOFOM(?:\s*E\.?\s*N\.?\s*R\.?)?\s*$/i,
+];
+
+/**
+ * Nombre del receptor como lo espera el SAT: sin el régimen de capital.
+ *
+ * Por qué existe: el SAT no guarda el régimen societario dentro del nombre, así
+ * que Facturama rechaza el timbrado con "El campo Nombre del receptor debe
+ * pertenecer al nombre asociado al RFC registrado" en cuanto el nombre lleva
+ * "SA DE CV" pegado. Quien captura sus datos fiscales lo escribe como aparece en
+ * su papelería, no como lo tiene el SAT, y se queda sin poder facturar.
+ *
+ * Lo reportó Christian González por el cliente S2801 (TKT-2026-2814): el RFC
+ * IBR2404012KA llevaba 10 facturas timbradas como "INFINITY BRANDS" y dejó de
+ * poder facturar cuando el nombre quedó guardado como "INFINITY BRANDS S DE RL
+ * DE CV". Al medirlo había 7 perfiles fiscales activos con el mismo problema, y
+ * de las 742 facturas ya timbradas ni una sola lleva régimen de capital: no hay
+ * forma de que quitarlo rompa algo que hoy funcione.
+ *
+ * Se limpia aquí, junto al RFC, porque es el único embudo por el que pasan los
+ * datos fiscales del cliente vengan de donde vengan. No se toca lo que el
+ * cliente tiene guardado.
+ */
+export function nombreReceptorSAT(nombre: string | null | undefined): string {
+    const original = String(nombre || '').trim();
+    let limpio = original;
+    for (let vuelta = 0; vuelta < REGIMENES_DE_CAPITAL.length; vuelta++) {
+        const antes = limpio;
+        for (const rx of REGIMENES_DE_CAPITAL) limpio = limpio.replace(rx, '');
+        if (limpio === antes) break;
+    }
+    limpio = limpio.replace(/[,\s]+$/, '').trim();
+    // Si lo que queda ya no es un nombre —porque lo capturado era sólo el
+    // régimen, tipo "S.A. DE C.V."— se devuelve el original. Mejor que Facturama
+    // rechace un nombre visible a mandar el receptor vacío o partido a la mitad.
+    const letras = limpio.replace(/[^\p{L}\p{N}]/gu, '');
+    return letras.length >= 3 ? limpio : original;
+}
+
+/**
  * Convierte un payload tipo Facturapi a payload Facturama (API Lite Multiemisor).
  * Endpoint: POST /api-lite/3/cfdis
  */
@@ -230,7 +283,7 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
         Receiver: {
             Rfc: rfcCliente,
             // XAXX010101000 exige razón social exacta "PÚBLICO EN GENERAL".
-            Name: rfcReceptor === 'XAXX010101000' ? 'PÚBLICO EN GENERAL' : String(p.customer.legal_name || '').trim(),
+            Name: rfcReceptor === 'XAXX010101000' ? 'PÚBLICO EN GENERAL' : nombreReceptorSAT(p.customer.legal_name),
             CfdiUse: receiverUse,
             FiscalRegime: receiverRegime,
             TaxZipCode: receiverZip
