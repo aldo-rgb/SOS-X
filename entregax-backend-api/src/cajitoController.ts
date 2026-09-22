@@ -1011,6 +1011,42 @@ export const TOOLS: ToolDef[] = [
       }
       const total = ['paquetes', 'maritimo', 'dhl'].reduce((n, k) => n + (resultado[k]?.length || 0), 0);
       resultado.total_listado = total;
+
+      // Listado YA REDACTADO, para copiar tal cual.
+      //
+      // A María Alejandra Paez (S3307) se le contestó con 8 de sus 9 guías: la
+      // herramienta devolvía las 9 pero al redactar la respuesta se perdió una,
+      // la más vieja (TKT-2026-2818). El dato estaba bien; lo que falla es
+      // volver a teclear una lista larga.
+      //
+      // Por eso la lista viaja ya escrita: copiarla es más fiable que
+      // reconstruirla, y si alguna se cae, el conteo de arriba no cuadra con el
+      // número de renglones y se nota.
+      if (total > 0) {
+        const linea = (p: any) => {
+          const partes = [
+            String(p.guia || p.child_no || '').trim(),
+            p.estado ? `estado: ${p.estado}` : null,
+            p.entro ? `entró: ${p.entro}` : null,
+            p.cajas ? `${p.cajas} caja(s)` : null,
+            p.peso_kg ? `${p.peso_kg} kg` : null,
+          ].filter(Boolean);
+          return '- ' + partes.join(' · ');
+        };
+        const bloques: string[] = [];
+        const nombres: Record<string, string> = { paquetes: 'Aéreo / PO Box', maritimo: 'Marítimo', dhl: 'DHL' };
+        for (const k of ['paquetes', 'maritimo', 'dhl']) {
+          const filas = resultado[k] || [];
+          if (!filas.length) continue;
+          bloques.push(`${nombres[k]} (${filas.length}):\n` + filas.map(linea).join('\n'));
+        }
+        resultado.listado_para_responder = bloques.join('\n\n');
+        resultado.como_responder =
+          `Son ${total} guía(s) en total. Usa "listado_para_responder" tal cual: copialo completo, ` +
+          `sin resumir ni dejar fuera ninguna. Si vas a escribirlo con tus palabras, cuenta los ` +
+          `renglones antes de enviar y verifica que sean ${total}.`;
+      }
+
       if (total === 0) resultado.nota = 'No encontré nada con esos filtros.';
       else if (['paquetes', 'maritimo', 'dhl'].some(k => (resultado[k]?.length || 0) >= lim)) {
         resultado.nota = `Se muestran los ${lim} más recientes por servicio; puede haber más. Filtra por fecha o servicio.`;
