@@ -2047,6 +2047,14 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       return;
     }
 
+    // ¿Es un embarque aéreo de China? Ahí los hermanos se reconocen por el
+    // código AIR que comparten, no por master. `child_no` trae AIR…-001, -002…
+    // y lo de antes del guión es el embarque.
+    const grupoAereo = String(pkg.service_type || '') === 'AIR_CHN_MX'
+      ? (String(pkg.child_no || '').split('-')[0] ?? '')
+      : '';
+    const esAereoMultibulto = !isDhl && /^AIR/i.test(grupoAereo);
+
     // Buscar hijas (bultos del master)
     let children: any[];
     if (isDhl) {
@@ -2075,6 +2083,32 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       );
       // Si es una guía suelta (sin hermanas) tratamos el master como única caja.
       children = cRes.rows.length > 1 ? cRes.rows : [];
+    } else if (esAereoMultibulto) {
+      // AÉREO CHINA: los bultos de un embarque no cuelgan de un master —esa
+      // relación no se usa en este servicio, ni en un solo paquete— sino que se
+      // reconocen porque comparten el código AIR. Sin esto, cada bulto se creía
+      // hijo único y salía con su propia guía: un embarque de 20 cajas emitía 20
+      // guías de 1 bulto, cada una pagando su tarifa mínima, con 20 rastreos
+      // distintos y 20 avisos al cliente por una sola entrega.
+      //
+      // Mismo criterio que en DHL: una caja que ya salió con su guía no vuelve a
+      // contarse ni se le pisa la etiqueta. Y se piden sólo las que están en el
+      // mismo punto que ésta: un bulto que sigue en China no puede ir en una
+      // guía nacional que sale hoy de CEDIS.
+      const cRes = await pool.query(
+        `SELECT id, tracking_internal, weight, pkg_length, pkg_width, pkg_height,
+                description, box_number, national_tracking, national_label_url,
+                (status::text IN ('shipped','sent','delivered','out_for_delivery')) AS ya_salio
+           FROM packages
+          WHERE service_type = 'AIR_CHN_MX'
+            AND split_part(child_no, '-', 1) = $1
+            AND status::text = $2
+            AND NOT (COALESCE(national_tracking, '') <> ''
+                     AND status::text IN ('shipped','sent','delivered','out_for_delivery'))
+          ORDER BY child_no, id`,
+        [grupoAereo, String(pkg.status)]
+      );
+      children = cRes.rows;
     } else {
       // Mismo criterio que en DHL: una caja que ya salió con su propia guía no
       // vuelve a contarse ni se le pisa la etiqueta.
@@ -2237,8 +2271,18 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     const childWeightsSum = children.reduce((s: number, c: any) => s + (Number(c.weight) || 0), 0);
     // En DHL cada guía es una caja con su peso real (el "master" es una de ellas,
     // no el total), así que NO se aplica el reparto uniforme de peso.
+    //
+    // En AÉREO pasa exactamente lo mismo y por eso también queda fuera: no hay
+    // master, `pkg` es una caja más, y su peso NUNCA es el del embarque. La
+    // comparación de abajo daría verdadero siempre —la suma de las cajas supera
+    // a una sola de ellas— y repartiría el peso de un bulto entre todos. Con
+    // los dos bultos de AIR2624209kNPbW, de 23.20 y 19.70 kg, la guía habría
+    // salido por 23.2 kg en vez de 42.9: la mitad del peso real, que Paquete
+    // Express cobra igual al pesar la carga. Es el mismo error que ya costó
+    // caro al revés, cuando el peso se multiplicaba.
     const useMasterEvenSplit = (
       !isDhl &&
+      !esAereoMultibulto &&
       children.length > 1 &&
       masterWeight > 0 &&
       childWeightsSum > masterWeight * 1.05 &&
