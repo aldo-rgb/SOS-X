@@ -2102,7 +2102,32 @@ export const getWeekSavedAddresses = async (_req: AuthRequest, res: Response): P
           AND c.delivery_address_id IS NOT NULL
         ORDER BY a.street, a.exterior_number, a.city, a.state, a.id DESC`
     );
-    res.json({ addresses: result.rows });
+
+    // Un contenedor WEEK siempre baja en el CEDIS CDMX: las 28 entregas que
+    // llevan dirección asignada fueron ahí, sin una sola excepción. Aun así había
+    // que escribirla a mano cada vez, y una instrucción se capturó mal (tarea
+    // 647, la reportó Juan Segura). Se marca cuál es para que la pantalla la
+    // traiga ya elegida y nadie la vuelva a teclear.
+    //
+    // Se reconoce por el código postal que trae la sucursal, no por un id fijo:
+    // si un día se muda la bodega, se actualiza el CEDIS y esto la sigue.
+    let cpCedisCdmx: string | null = null;
+    try {
+      const br = await pool.query(
+        `SELECT address FROM branches WHERE code = 'CDMX' AND COALESCE(is_active, TRUE) LIMIT 1`
+      );
+      const m = String(br.rows[0]?.address || '').match(/(\d{5})(?!.*\d{5})/);
+      cpCedisCdmx = m?.[1] ?? null;
+    } catch { /* si falla, simplemente no hay predeterminada */ }
+
+    const addresses = result.rows.map((a: any) => ({
+      ...a,
+      es_cedis_cdmx: !!cpCedisCdmx && String(a.zip_code || '').trim() === cpCedisCdmx,
+    }));
+    // La predeterminada primero, para que también quede arriba en la lista.
+    addresses.sort((x: any, y: any) => Number(y.es_cedis_cdmx) - Number(x.es_cedis_cdmx));
+
+    res.json({ addresses });
   } catch (error) {
     console.error('Error getting week saved addresses:', error);
     res.status(500).json({ error: 'Error al obtener direcciones guardadas' });

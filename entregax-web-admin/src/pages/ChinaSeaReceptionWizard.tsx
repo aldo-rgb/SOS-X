@@ -279,7 +279,13 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         setColoniaOptions([]);
         try {
             const r = await api.get('/maritime/week-saved-addresses');
-            setSavedWeekAddresses(r.data?.addresses || []);
+            const dirs = r.data?.addresses || [];
+            setSavedWeekAddresses(dirs);
+            // Un WEEK siempre baja en el CEDIS CDMX, así que viene ya elegido:
+            // escribirlo a mano cada vez es lo que hizo que una instrucción
+            // saliera mal (tarea 647). Sigue siendo cambiable.
+            const porDefecto = dirs.find((d: any) => d.es_cedis_cdmx);
+            if (porDefecto) setSelectedSavedAddr(porDefecto);
         } catch { setSavedWeekAddresses([]); }
     };
 
