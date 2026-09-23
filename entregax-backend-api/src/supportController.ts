@@ -2651,6 +2651,10 @@ export const reportarErrorDeTicket = async (
     const saRes = await pool.query(
       `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS has_device
          FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) = true
+          -- Fuera la cuenta de sistema: nadie la abre, y una tarea de error
+          -- asignada ahí no aparece en los pendientes de ninguna persona.
+          AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
+          AND LOWER(TRIM(COALESCE(u.email,''))) <> 'admin@entregax.com'
         ORDER BY has_device DESC, u.id`);
     if (saRes.rows.length === 0) return { error: 'No hay un Super Admin activo para asignar la tarea.', status: 400 };
     const superAdminIds = saRes.rows.map((r: any) => Number(r.id));

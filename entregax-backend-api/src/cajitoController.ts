@@ -216,6 +216,12 @@ async function avisarDudaASuperAdmins(
     const admins = await pool.query(
       `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS con_dispositivo
          FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, TRUE) = TRUE
+          -- "Administrador EntregaX" es la cuenta de sistema: nadie la abre, así
+          -- que una tarea asignada ahí no la ve ninguna persona. El selector de
+          -- responsables ya la excluye; esta vía la elegía igual porque escoge
+          -- por rol. La #634 y la #637 quedaron ahí, urgentes y sin dueño real.
+          AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
+          AND LOWER(TRIM(COALESCE(u.email,''))) <> 'admin@entregax.com'
         ORDER BY con_dispositivo DESC, u.id`
     );
     if (admins.rows.length === 0) return;
