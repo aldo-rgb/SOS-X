@@ -691,11 +691,16 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               //   - DHL: si solo hay import_cost_mxn, usar ese como base
               //   - Si solo hay estimado: estimatedCost
               const dhlImport = Number((currentPkg as any)?.import_cost_mxn || 0);
+              // El cargo de impuestos viene dentro de import_cost_mxn y del total.
+              // Como abajo se muestra en su propio renglón, hay que sacarlo de la
+              // base: si no, el impuesto se lee dos veces y los renglones no suman
+              // el total que se cobra (TKT-2026-2825).
+              const dhlTax = isDHL ? Number((currentPkg as any)?.import_tax_mxn || 0) : 0;
               const maritimeBase = assignedCost > 0
-                ? Math.max(0, assignedCost - shippingCost)
-                : (isDHL && dhlImport > 0 ? dhlImport : estimatedCost);
+                ? Math.max(0, assignedCost - shippingCost - dhlTax)
+                : (isDHL && dhlImport > 0 ? Math.max(0, dhlImport - dhlTax) : estimatedCost);
               const isEstimated = assignedCost <= 0 && estimatedCost > 0;
-              const grandTotal = maritimeBase + shippingCost;
+              const grandTotal = maritimeBase + dhlTax + shippingCost;
               const serviceLabel = isChinaAir
                 ? '✈️ Servicio Aéreo China'
                 : isDHL
@@ -715,7 +720,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 ? dhlImportUsd
                 : (assignedUsd > 0 ? assignedUsd : estimatedUsd);
               const dhlStoredTc = isDHL ? Number((currentPkg as any)?.exchange_rate || 0) : 0;
-              const dhlTaxMxn = isDHL ? Number((currentPkg as any)?.import_tax_mxn || 0) : 0;
+              const dhlTaxMxn = dhlTax;
               const dhlDerivedTc = isDHL && dhlImportUsd > 0 && dhlImport > 0
                 ? (dhlImport - dhlTaxMxn) / dhlImportUsd
                 : 0;

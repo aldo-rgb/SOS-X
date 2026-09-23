@@ -12353,7 +12353,17 @@ export default function DashboardClient() {
                           const extraChargesDesc = (selectedPackage.extra_charges || [])
                             .map((c: any) => c.concepto).filter(Boolean).join(', ');
                           const hasDesglose = gexMXN > 0 || paqMXN > 0 || importTaxMXN > 0 || extraChargesMXN !== 0;
-                          const envioMXN = montoMXN;
+                          // En DHL el monto que manda el backend YA trae dentro la
+                          // paquetería nacional y el cargo de impuestos, así que
+                          // ponerlo tal cual como "servicio de envío" y volver a
+                          // sumar esos dos renglones cobraba dos veces lo mismo: a
+                          // Sankie Guo le salió un total de $6,028 sobre una guía de
+                          // $5,179 que ya había pagado (TKT-2026-2825). Se restan
+                          // para que el renglón sea sólo el servicio y los conceptos
+                          // vuelvan a sumar lo que de verdad se cobra.
+                          const envioMXN = isDhl
+                            ? Math.max(0, montoMXN - paqMXN - importTaxMXN)
+                            : montoMXN;
                           const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN + importTaxMXN + extraChargesMXN : montoMXN;
                           return (
                             <>
