@@ -55,8 +55,7 @@ import {
 import api from '../services/api';
 // Impresión y lectura RFID, sólo de marítimo. El envío a la Zebra se reusa de
 // zplPrint sin tocarlo, que es el mismo que ya usan PO Box y Aéreo.
-import { getDefaultZebraPrinter, sendZPL } from '../utils/zplPrint';
-import { zplEtiquetaMaritima, cajaDeEpc } from '../utils/zplMaritimoRfid';
+import { zplEtiquetaMaritima, cajaDeEpc, buscarZebra, enviarZplZebra } from '../utils/zplMaritimoRfid';
 
 interface Container {
     id: number;
@@ -607,18 +606,15 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         if (labelFormat === 'rfid' || labelFormat === 'zebra') {
             const conChip = labelFormat === 'rfid';
             void (async () => {
-                const impresora = await getDefaultZebraPrinter();
+                const { printer: impresora, base, motivo } = await buscarZebra();
                 if (!impresora) {
-                    setScanFeedback({
-                        type: 'error',
-                        msg: 'No encuentro la Zebra. Revisa que Zebra Browser Print esté abierto y la ZT411 conectada.',
-                    });
+                    setScanFeedback({ type: 'error', msg: motivo });
                     return;
                 }
                 setScanFeedback({ type: 'info', msg: `Enviando ${labels.length} etiqueta(s) a ${impresora.name}…` });
                 let enviadas = 0;
                 for (const l of labels) {
-                    const ok = await sendZPL(zplEtiquetaMaritima({
+                    const ok = await enviarZplZebra(base, zplEtiquetaMaritima({
                         ordenId: l.ordenId,
                         tracking: l.tracking,
                         ordersn: l.ordersn,

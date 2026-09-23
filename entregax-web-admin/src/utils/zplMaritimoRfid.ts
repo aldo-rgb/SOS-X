@@ -121,6 +121,73 @@ ${conChip ? `^FO560,${INLAY_Y + INLAY_ALTO + 88}^A0N,20,20^FDRFID ${epc.slice(0,
 }
 
 /**
+ * Busca la Zebra por su cuenta, sin usar el buscador de `zplPrint`.
+ *
+ * Aquel prueba sólo `localhost` y se rinde a los 1.5 s, y cuando algo falla
+ * devuelve null sin decir por qué: en pantalla todo se ve igual —"no encuentro
+ * la Zebra"— lo mismo si el servicio está cerrado, que si el navegador bloqueó
+ * la llamada, que si la impresora está apagada. Eso cuesta horas de buscar del
+ * lado equivocado.
+ *
+ * Aquí se prueban las dos direcciones —127.0.0.1 primero, que es la que usa la
+ * librería oficial de Zebra, y localhost después— con más paciencia, y se
+ * devuelve el motivo real para poder decirlo tal cual.
+ */
+export async function buscarZebra(): Promise<{ printer: any | null; base: string; motivo: string }> {
+  const bases = ['https://127.0.0.1:9101', 'https://localhost:9101'];
+  let ultimoFallo = '';
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/available`, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) { ultimoFallo = `el servicio contestó ${res.status}`; continue; }
+      const data = await res.json();
+      const lista: any[] = data?.printer || data?.devices || [];
+      const elegida = data?.default || lista[0] || null;
+      if (elegida) return { printer: elegida, base, motivo: '' };
+      // Contesta bien pero no tiene ninguna impresora dada de alta.
+      return {
+        printer: null,
+        base,
+        motivo: 'Zebra Browser Print está abierto pero no tiene ninguna impresora. Conecta la ZT411 por USB o agrégala por su IP.',
+      };
+    } catch (e: any) {
+      // El navegador no distingue entre "servicio caído" y "llamada bloqueada":
+      // las dos llegan como TypeError. Por eso se nombran las dos causas.
+      ultimoFallo = e?.name === 'TimeoutError'
+        ? 'el servicio no contestó a tiempo'
+        : 'el navegador no pudo conectarse';
+    }
+  }
+  return {
+    printer: null,
+    base: '',
+    motivo: `No pude hablar con Zebra Browser Print (${ultimoFallo}). Revisa que esté abierto, y abre https://127.0.0.1:9101/available en esta misma pestaña para aceptar su certificado.`,
+  };
+}
+
+/**
+ * Manda el ZPL por la MISMA dirección con la que se encontró la impresora.
+ *
+ * No se reusa el envío de `zplPrint` porque aquel va fijo a `localhost`: si el
+ * navegador sólo dejó pasar `127.0.0.1`, la búsqueda funcionaría y el envío no,
+ * y el error aparecería en el peor momento —con el operador esperando la
+ * etiqueta— en vez de al buscar.
+ */
+export async function enviarZplZebra(base: string, zpl: string, printer: any): Promise<boolean> {
+  try {
+    const res = await fetch(`${base}/write`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device: printer, data: zpl }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sólo graba el chip y no imprime nada. Sirve para probar el lector sin gastar
  * etiquetas buenas, o para recuperar una etiqueta cuyo tag salió VOID.
  */
