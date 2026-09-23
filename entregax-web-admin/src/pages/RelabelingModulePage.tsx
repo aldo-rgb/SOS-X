@@ -1406,6 +1406,23 @@ ${body}
         const total = reprintLabel.totalBoxes;
         const from = Math.max(1, Math.min(total, Math.floor(reprintFrom || 1)));
         const to = Math.max(from, Math.min(total, Math.floor(reprintTo || from)));
+
+        // ✈️ Aéreo: se imprimen las etiquetas TAL CUAL vienen, no reconstruidas.
+        // Abajo el tracking de cada caja se arma pegándole un sufijo de cuatro
+        // dígitos al código base, porque así son las guías de PO Box. Las aéreas
+        // usan tres —AIR2624209kNPbW-001— así que reconstruirlas produciría
+        // -0001, una guía que no existe y que ningún escáner reconoce. Además
+        // cada caja aérea trae su propio peso y medidas, que al reconstruir se
+        // perderían y saldrían todas con los de la primera.
+        const delEmbarque = (shipment?.airGroup?.boxes || 0) > 1
+            ? (shipment?.labels || []).filter(l => !l.isMaster)
+            : [];
+        if (delEmbarque.length > 1) {
+            openPrintWindow(delEmbarque.slice(from - 1, to));
+            setReprintOpen(false);
+            return;
+        }
+
         const labels: LabelData[] = [];
         // El tracking original suele incluir el sufijo `-NN` correspondiente al boxNumber.
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
@@ -2123,7 +2140,57 @@ ${labelsHtml}
                     })()}
 
                     <Grid container spacing={2}>
+                        {/* ✈️ Embarque aéreo de varias cajas: UN solo cuadro.
+                            Antes se pintaba una tarjeta por caja, y un embarque de
+                            50 llenaba la pantalla de 50 cuadros iguales. Aquí se
+                            elige cuál imprimir desde el mismo modal de rango. */}
+                        {shipment.airGroup && shipment.airGroup.boxes > 1 && (() => {
+                            const primera = shipment.labels.find(l => !l.isMaster);
+                            if (!primera) return null;
+                            const delEmbarque = { ...primera, totalBoxes: shipment.airGroup.boxes };
+                            const abrir = (desde: number, hasta: number) => {
+                                setReprintLabel(delEmbarque);
+                                setReprintFrom(desde);
+                                setReprintTo(hasta);
+                                setReprintOpen(true);
+                            };
+                            return (
+                                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                    <Paper variant="outlined" sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column',
+                                        '&:hover': { borderColor: '#F05A28', boxShadow: 2 } }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                            <LocalShippingIcon sx={{ color: '#F05A28' }} />
+                                            <Typography variant="body2" fontWeight={700}>
+                                                Etiquetas de origen — {shipment.airGroup.boxes} cajas
+                                            </Typography>
+                                        </Box>
+                                        <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
+                                            {shipment.airGroup.code}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                                            Cada caja lleva su propio peso y medidas
+                                        </Typography>
+                                        <Box sx={{ flex: 1 }} />
+                                        <Stack spacing={1}>
+                                            <Button fullWidth variant="contained" startIcon={<PrintIcon />}
+                                                onClick={() => abrir(1, shipment.airGroup!.boxes)}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}>
+                                                Imprimir rango (1–{shipment.airGroup.boxes})
+                                            </Button>
+                                            <Button fullWidth variant="outlined" startIcon={<PrintIcon />}
+                                                onClick={() => abrir(1, 1)}
+                                                sx={{ color: '#F05A28', borderColor: '#F05A28' }}>
+                                                Imprimir una caja
+                                            </Button>
+                                        </Stack>
+                                    </Paper>
+                                </Grid>
+                            );
+                        })()}
                         {(() => {
+                            // Con embarque aéreo las cajas ya salen en el cuadro de
+                            // arriba; aquí sólo quedarían repetidas.
+                            if (shipment.airGroup && shipment.airGroup.boxes > 1) return null;
                             const masterMulti = shipment.labels.find(l => l.isMaster && l.totalBoxes > 1);
                             const visibleLabels = masterMulti
                                 ? shipment.labels.filter(l => l.isMaster)
