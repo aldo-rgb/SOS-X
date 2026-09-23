@@ -72,6 +72,13 @@ interface PaymentPDFData {
     paqueteria_collect?: boolean;
     paqueteria_carrier?: string;
   };
+  // Lo que el cliente ya no transfiere porque se le descontó de su monedero o de
+  // su crédito. El total viene NETO, así que sin estos renglones el documento
+  // lista guías que suman más que el total a pagar y parece un error de suma:
+  // la RO-8183B26D costó tres días de dos equipos buscando una diferencia que
+  // era justo el saldo del cliente (tarea 634).
+  wallet_applied?: number;
+  credit_applied?: number;
   // Destino real de la entrega. Antes el PDF decía siempre "Monterrey, N.L."
   // aunque el paquete fuera a otro estado (TKT-2026-2266: entrega en Veracruz).
   destino?: string;
@@ -328,6 +335,16 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       <tbody>
         ${packageRows}
         ${breakdownRows}
+        ${(Number(data.wallet_applied) || 0) > 0 ? `
+        <tr>
+          <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px; color:#2E7D32;">🏷️ Saldo a favor aplicado:</td>
+          <td style="text-align:right; color:#2E7D32;">−${formatCurrency(Number(data.wallet_applied))}</td>
+        </tr>` : ''}
+        ${(Number(data.credit_applied) || 0) > 0 ? `
+        <tr>
+          <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px; color:#2E7D32;">💳 Crédito aplicado:</td>
+          <td style="text-align:right; color:#2E7D32;">−${formatCurrency(Number(data.credit_applied))}</td>
+        </tr>` : ''}
         <tr class="total-row">
           <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
           <td style="text-align:right; color: #E65100; font-size: 14px;">${totalFormatted} ${data.currency || 'MXN'}</td>

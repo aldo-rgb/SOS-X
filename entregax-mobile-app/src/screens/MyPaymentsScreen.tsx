@@ -582,6 +582,10 @@ const MyPaymentsScreen = () => {
         bank_info: (order as any).bank_info,
         packages: order.packages,
         cost_breakdown: (order as any).cost_breakdown,
+        // Sin estos el comprobante lista guías que suman más que el total y
+        // parece que la cuenta está mal (tarea 634).
+        wallet_applied: Number((order as any).wallet_applied) || 0,
+        credit_applied: Number((order as any).credit_applied) || 0,
         userName: user?.name || user?.nombre || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || '-',
         userCasillero: user?.pobox_code || user?.casillero || '-',
       });
