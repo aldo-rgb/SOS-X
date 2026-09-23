@@ -13250,24 +13250,32 @@ app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name:
 // ========== ORGANIGRAMA (Estructura Organizacional) ==========
 {
   const org = require('./orgChartController');
+  // La ESTRUCTURA —crear o borrar puestos y mover personal— es cadena de mando.
   const orgRoles = requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR);
+  // El DESCRIPTIVO —qué hace cada puesto— lo documenta quien conoce el trabajo,
+  // y para eso no hace falta poder reorganizar la empresa. Leonardo Reyna pidió
+  // justo esto y la única salida era subirlo a rol de dirección, que le habría
+  // abierto expedientes y nómina de todos (tarea 652). Quien no es de dirección
+  // entra aquí pero no puede mover un puesto de lugar: eso lo frena
+  // updateOrgNode, que le ignora parent_id y sort_order.
+  const orgDescriptivo = requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT);
   // Árbol
-  app.get('/api/admin/hr/org-chart', authenticateToken, orgRoles, org.getOrgChart);
+  app.get('/api/admin/hr/org-chart', authenticateToken, orgDescriptivo, org.getOrgChart);
   // Nodos (puestos / departamentos)
   app.post('/api/admin/hr/org-chart/nodes', authenticateToken, orgRoles, org.createOrgNode);
-  app.put('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgRoles, org.updateOrgNode);
+  app.put('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgDescriptivo, org.updateOrgNode);
   app.delete('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgRoles, org.deleteOrgNode);
   // Asignación de personal
   app.post('/api/admin/hr/org-chart/nodes/:id/assign', authenticateToken, orgRoles, org.assignPersonToNode);
   app.delete('/api/admin/hr/org-chart/nodes/:id/assign/:userId', authenticateToken, orgRoles, org.unassignPersonFromNode);
-  // Tareas por puesto (+ checklist)
-  app.get('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgRoles, org.getNodeTasks);
-  app.post('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgRoles, org.createNodeTask);
-  app.put('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgRoles, org.updateNodeTask);
-  app.delete('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgRoles, org.deleteNodeTask);
-  app.post('/api/admin/hr/org-chart/tasks/:taskId/items', authenticateToken, orgRoles, org.addTaskItem);
-  app.put('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgRoles, org.updateTaskItem);
-  app.delete('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgRoles, org.deleteTaskItem);
+  // Tareas por puesto (+ checklist) — esto ES el descriptivo de funciones.
+  app.get('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgDescriptivo, org.getNodeTasks);
+  app.post('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgDescriptivo, org.createNodeTask);
+  app.put('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgDescriptivo, org.updateNodeTask);
+  app.delete('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgDescriptivo, org.deleteNodeTask);
+  app.post('/api/admin/hr/org-chart/tasks/:taskId/items', authenticateToken, orgDescriptivo, org.addTaskItem);
+  app.put('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgDescriptivo, org.updateTaskItem);
+  app.delete('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgDescriptivo, org.deleteTaskItem);
 }
 
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========

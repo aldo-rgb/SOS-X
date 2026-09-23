@@ -367,7 +367,17 @@ export const updateOrgNode = async (req: Request, res: Response): Promise<any> =
   try {
     await ensureOrgTables();
     const id = parseInt(String(req.params.id || ""), 10);
-    const { title, description, parent_id, sort_order } = req.body;
+    const body = req.body || {};
+    const { title, description } = body;
+    // Mover un puesto de lugar es cambiar la cadena de mando, y eso sigue siendo
+    // de dirección. Quien entra sólo a documentar funciones puede editar el
+    // nombre y la descripción del puesto, pero su parent_id y su orden se
+    // ignoran en silencio en vez de rechazarle la llamada completa: si la
+    // pantalla los manda de más, lo que él sí puede cambiar igual se guarda.
+    const ROLES_ESTRUCTURA = ['super_admin', 'admin', 'director'];
+    const puedeMover = ROLES_ESTRUCTURA.includes(String((req as any).user?.role || '').toLowerCase());
+    const parent_id = puedeMover ? body.parent_id : undefined;
+    const sort_order = puedeMover ? body.sort_order : undefined;
     // Evitar ciclo: un nodo no puede colgar de sí mismo ni de un descendiente.
     if (parent_id !== undefined && parent_id !== null) {
       if (parseInt(parent_id) === id) return res.status(400).json({ error: 'Un puesto no puede depender de sí mismo' });
