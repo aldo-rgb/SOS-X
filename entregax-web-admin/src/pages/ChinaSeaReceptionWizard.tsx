@@ -53,6 +53,10 @@ import {
     AddLocation as AddLocationIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+// Impresión y lectura RFID, sólo de marítimo. El envío a la Zebra se reusa de
+// zplPrint sin tocarlo, que es el mismo que ya usan PO Box y Aéreo.
+import { getDefaultZebraPrinter, sendZPL } from '../utils/zplPrint';
+import { zplEtiquetaMaritima, cajaDeEpc } from '../utils/zplMaritimoRfid';
 
 interface Container {
     id: number;
@@ -481,7 +485,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     // Impresión de etiquetas (1 por caja)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
-    const [labelFormat, setLabelFormat] = useState<'4x6' | '4x2'>('4x2');
+    const [labelFormat, setLabelFormat] = useState<'4x6' | '4x2' | 'rfid'>('4x2');
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
     // Cajas realmente recibidas por orden (orderId → cantidad). Default = total esperado.
     const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
@@ -554,6 +558,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         // Generar 1 etiqueta por caja
         type Label = {
+            /** Id de la orden. Es lo que hace único al chip de cada caja. */
+            ordenId: number;
             tracking: string;
             ordersn: string;
             boxNumber: number;
@@ -576,6 +582,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const shippingMark = o.shipping_mark || o.bl_client_code || o.user_box_id || '—';
             for (let i = 1; i <= boxes; i++) {
                 labels.push({
+                    ordenId: Number(o.id),
                     tracking: `${o.ordersn}-${String(i).padStart(4, '0')}`,
                     ordersn: o.ordersn,
                     boxNumber: i,
@@ -590,6 +597,48 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         if (labels.length === 0) {
             setScanFeedback({ type: 'error', msg: 'No hay cajas para imprimir' });
+            return;
+        }
+
+        // 📡 Etiqueta RFID: va por ZPL directo a la Zebra, no por el navegador.
+        // Grabar el chip sólo se puede mandando comandos a la impresora, y eso
+        // la impresión por HTML no lo permite. Los otros dos formatos siguen
+        // saliendo por popup como siempre.
+        if (labelFormat === 'rfid') {
+            void (async () => {
+                const impresora = await getDefaultZebraPrinter();
+                if (!impresora) {
+                    setScanFeedback({
+                        type: 'error',
+                        msg: 'No encuentro la Zebra. Revisa que Zebra Browser Print esté abierto y la ZT411 conectada.',
+                    });
+                    return;
+                }
+                setScanFeedback({ type: 'info', msg: `Enviando ${labels.length} etiqueta(s) a ${impresora.name}…` });
+                let enviadas = 0;
+                for (const l of labels) {
+                    const ok = await sendZPL(zplEtiquetaMaritima({
+                        ordenId: l.ordenId,
+                        tracking: l.tracking,
+                        ordersn: l.ordersn,
+                        boxNumber: l.boxNumber,
+                        totalBoxes: l.totalBoxes,
+                        shippingMark: l.shippingMark,
+                        referenceDigits: l.referenceDigits,
+                    }), impresora);
+                    if (!ok) break;
+                    enviadas++;
+                    // La ZT411 graba el chip antes de avanzar la etiqueta; sin esta
+                    // pausa se le encima el siguiente trabajo y sale un tag vacío.
+                    await new Promise((r) => setTimeout(r, 300));
+                }
+                setScanFeedback(
+                    enviadas === labels.length
+                        ? { type: 'success', msg: `${enviadas} etiqueta(s) RFID enviadas a la Zebra` }
+                        : { type: 'error', msg: `Se enviaron ${enviadas} de ${labels.length}. Revisa la impresora y reimprime las que falten.` }
+                );
+            })();
+            setLabelsModalOpen(false);
             return;
         }
 
@@ -858,6 +907,25 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         // Limpieza básica
         reference = reference.replace(/[\s'_]/g, '').toUpperCase();
+
+        // 📡 Lectura RFID. El lector entrega el EPC del chip, no la guía, así que
+        // se traduce a la caja aquí mismo: de ahí para abajo el escaneo por radio
+        // recorre exactamente el mismo camino que el del código de barras, con
+        // sus mismas validaciones de rango y de duplicado.
+        // Va antes de lo demás a propósito: un EPC es hexadecimal puro y la
+        // limpieza de URL de abajo lo partiría por la mitad.
+        const cajaRfid = cajaDeEpc(reference);
+        if (cajaRfid) {
+            const ordenDelTag = orders.find((o) => Number(o.id) === cajaRfid.ordenId);
+            if (!ordenDelTag) {
+                playBeep('error');
+                setScanFeedback({ type: 'error', msg: `❌ Ese chip no es de una caja de este contenedor` });
+                setScanInput('');
+                return;
+            }
+            reference = `${(ordenDelTag.ordersn || '').toUpperCase()}-${String(cajaRfid.boxNumber).padStart(4, '0')}`;
+        }
+
         // Si vino una URL, extraer último segmento alfanumérico (con posible -NNNN)
         const urlMatch = reference.match(/[A-Z]{2,}\d+[A-Z0-9-]*/);
         if (urlMatch) reference = urlMatch[0];
@@ -2169,7 +2237,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             <RadioGroup
                                 row
                                 value={labelFormat}
-                                onChange={(e) => setLabelFormat(e.target.value as '4x6' | '4x2')}
+                                onChange={(e) => setLabelFormat(e.target.value as '4x6' | '4x2' | 'rfid')}
                             >
                                 <FormControlLabel
                                     value="4x6"
@@ -2181,7 +2249,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
                                     label={<Typography variant="body2"><strong>🏷️ 4×2 in</strong> · 1 etiqueta compacta (térmica Zebra/Brother)</Typography>}
                                 />
+                                <FormControlLabel
+                                    value="rfid"
+                                    control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                                    label={<Typography variant="body2"><strong>📡 4×2 in RFID</strong> · graba el chip (Zebra ZT411)</Typography>}
+                                />
                             </RadioGroup>
+                            {labelFormat === 'rfid' && (
+                                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#6B7280' }}>
+                                    Sale directo a la Zebra, sin ventana de impresión. Necesita Zebra Browser Print abierto
+                                    y etiquetas RFID cargadas: en papel normal el chip no existe y la etiqueta sale marcada como VOID.
+                                </Typography>
+                            )}
                         </FormControl>
                     </Box>
                     <Box sx={{ maxHeight: '60vh', overflow: 'auto' }}>
