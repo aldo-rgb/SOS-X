@@ -1089,6 +1089,12 @@ export default function DashboardAdvisor() {
     const clabe = bi.clabe || op.bank_clabe || '';
     const beneficiario = bi.beneficiario || op.beneficiario || '';
     const totalAmt = op.total_mxn ? Number(op.total_mxn) : 0;
+    // Lo que el cliente ya no tiene que transferir porque se le descontó de su
+    // monedero o de su crédito. El total de arriba viene NETO, así que sin estos
+    // renglones el documento enseña guías que suman más que el total a pagar y
+    // parece que la cuenta está mal (tarea 634).
+    const saldoAplicado = Number(op.wallet_applied) || 0;
+    const creditoAplicado = Number(op.credit_applied) || 0;
 
     const isDhlOp = String(op?.service_type_cfg || '').toUpperCase() === 'AA_DHL';
     const svcLabelOp = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
@@ -1225,6 +1231,16 @@ export default function DashboardAdvisor() {
           <tbody>
             ${pkgRows}
             ${breakdownRows}
+            ${saldoAplicado > 0 ? `
+            <tr>
+              <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px;color:#2E7D32">🏷️ Saldo a favor aplicado:</td>
+              <td style="text-align:right;color:#2E7D32">−${fmt(saldoAplicado)} MXN</td>
+            </tr>` : ''}
+            ${creditoAplicado > 0 ? `
+            <tr>
+              <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px;color:#2E7D32">💳 Crédito aplicado:</td>
+              <td style="text-align:right;color:#2E7D32">−${fmt(creditoAplicado)} MXN</td>
+            </tr>` : ''}
             <tr class="total-row">
               <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
               <td style="text-align:right;color:#E65100;font-size:14px">${fmt(totalAmt)} MXN</td>

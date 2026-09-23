@@ -837,7 +837,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           apo.client_id, apo.client_name, apo.client_box_id,
           apo.package_uids, apo.trackings, apo.notes, apo.total_mxn,
           apo.status, apo.payment_reference, apo.pobox_payment_id,
-          apo.created_at, apo.advisor_id
+          apo.created_at, apo.advisor_id,
+          -- Misma lectura que abajo: la orden del asesor apunta al cobro real.
+          COALESCE((SELECT pp2.wallet_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS wallet_applied,
+          COALESCE((SELECT pp2.credit_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS credit_applied
         FROM advisor_payment_orders apo
         WHERE apo.id = $1 AND apo.advisor_id = $2
         UNION ALL
@@ -847,7 +850,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
           '[]'::jsonb AS trackings,
           NULL AS notes, pp.amount AS total_mxn, pp.status, pp.payment_reference,
-          pp.id AS pobox_payment_id, pp.created_at, $2::int AS advisor_id
+          pp.id AS pobox_payment_id, pp.created_at, $2::int AS advisor_id,
+          -- Saldo a favor que ya se descontó de esta orden. El monto guardado es
+          -- el NETO, así que sin este dato el documento enseña unos subtotales
+          -- que suman más que el total a pagar y parece un error de suma. Fue lo
+          -- que pasó con RO-8183B26D: dos equipos revisaron tres días una
+          -- diferencia que era justo el monedero del cliente (tarea 634).
+          COALESCE(pp.wallet_applied, 0) AS wallet_applied,
+          COALESCE(pp.credit_applied, 0) AS credit_applied
         FROM pobox_payments pp
         JOIN users u ON u.id = pp.user_id
         WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
