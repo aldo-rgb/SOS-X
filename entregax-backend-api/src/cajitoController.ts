@@ -3565,12 +3565,19 @@ no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consu
   // y mismo aviso que en el chat.
   let folioDuda: string | null = null;
   const bajo = quitarPieDuda(texto).toLowerCase();
-  const fueraDeAlcance = FRASES_FUERA_DE_ALCANCE.some(fr => bajo.includes(fr));
-  if (!fueraDeAlcance && FRASES_NO_PUDO.some(fr => bajo.includes(fr))) {
+  // El filtro de "eso lo ve Dirección" que usa el chat aquí NO aplica: por esta
+  // vía quien pregunta es ZAIA, que es la app de dirección. Mandar el asunto a
+  // Dirección y no anotar nada dejaba el encargo en el aire, porque Dirección
+  // es justo quien está preguntando. Pasó con la petición de abrirle permisos a
+  // Leonardo: Cajito no tiene herramienta para eso, contestó que no le
+  // correspondía y no quedó ni el folio ni la tarea. Por aquí, todo lo que no
+  // se resuelva se anota como CJD y llega a los pendientes.
+  const porAlcance = FRASES_FUERA_DE_ALCANCE.some(fr => bajo.includes(fr));
+  if (porAlcance || FRASES_NO_PUDO.some(fr => bajo.includes(fr))) {
     const hueco = await registrarHueco({
       conversationId: null, userId: Number(userId) || 0, pregunta,
       motivo: 'no_pudo',
-      detalle: `${opts.origen || 'Consulta por API'}: ${usadas.length ? 'consultó datos pero no resolvió' : 'no tuvo con qué consultarlo'}`,
+      detalle: `${opts.origen || 'Consulta por API'}: ${porAlcance ? 'lo mandó fuera de su alcance' : (usadas.length ? 'consultó datos pero no resolvió' : 'no tuvo con qué consultarlo')}`,
       respuesta: texto,
     }).catch(() => null);
     if (hueco) {
