@@ -2683,11 +2683,42 @@ export const reportarErrorDeTicket = async (
     const boardRes = await pool.query(`SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
     const errorBoardId = boardRes.rows[0]?.id || undefined;
 
+    // ── XPAY va con quien lo opera ──────────────────────────────────────────
+    // Un error de X-Pay no se resuelve en el sistema: hay que ir a ver una
+    // operación con el proveedor que la procesó. Mandarlo al super admin como
+    // cualquier otro error lo dejaba esperando a que alguien lo rebotara, y el
+    // cliente mientras tanto con su pago sin localizar. Se reconoce por la
+    // referencia XP###### o por mención directa del servicio.
+    const textoParaRutear = `${title}\n${desc}`;
+    const esDeXpay = /\bXP\d{5,}\b/i.test(textoParaRutear) || /\bx[\s-]?pay\b/i.test(textoParaRutear);
+    let responsableTarea = superAdminId;
+    const involucrados: number[] = [];
+    if (esDeXpay) {
+      const xp = await pool.query(
+        `SELECT id FROM users
+          WHERE LOWER(TRIM(email)) = 'andrescampos@grupolsd.com'
+            AND COALESCE(is_active, true) = true AND deleted_at IS NULL LIMIT 1`
+      ).catch(() => ({ rows: [] as any[] }));
+      // Si esa cuenta no está disponible se sigue con el super admin: es
+      // preferible una tarea con el dueño equivocado que una que no nace.
+      if (xp.rows[0]?.id) {
+        responsableTarea = Number(xp.rows[0].id);
+        involucrados.push(...superAdminIds); // dirección se queda enterada
+      }
+    }
+
     // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');
-    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false, boardId: errorBoardId, porCajito: porCajito === true });
+    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: responsableTarea, title, description: desc, eisenhower: 'fuego', notifyAssignee: esDeXpay, boardId: errorBoardId, porCajito: porCajito === true });
     if (!taskId) return { error: 'No se pudo crear la tarea', status: 500 };
+
+    for (const invId of involucrados) {
+      await pool.query(
+        `INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [taskId, invId]
+      ).catch(() => {});
+    }
 
     // Notificar a TODOS los super admin: in-app siempre + push solo en horario laboral.
     try {
