@@ -2176,6 +2176,26 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             children = childResult.rows;
         }
 
+        // ✈️ Bultos hermanos de un embarque aéreo de China.
+        //
+        // Aquí no hay master: los bultos sólo se reconocen porque comparten el
+        // código AIR, y cada uno dice ser "1 de 1". Al escanear cualquiera de
+        // ellos la pantalla mostraba una caja suelta, sin decir que venía con
+        // otras, y para reimprimir las demás había que buscarlas una por una.
+        const grupoAereo = /^AIR/i.test(String(pkg.child_no || ''))
+            ? (String(pkg.child_no).split('-')[0] ?? '')
+            : '';
+        let hermanosAereo: any[] = [];
+        if (grupoAereo) {
+            const hRes = await pool.query(
+                `SELECT * FROM packages
+                  WHERE service_type = 'AIR_CHN_MX' AND split_part(child_no, '-', 1) = $1
+                  ORDER BY child_no, id`,
+                [grupoAereo]
+            );
+            hermanosAereo = hRes.rows;
+        }
+
         // 📦 Si la búsqueda fue por REFERENCIA DE PAGO que agrupa varias guías,
         // mostrar TODAS las guías de esa orden de pago (no solo la resuelta). La
         // guía resuelta (pkg) es la "principal" y el resto se listan como hijas.
@@ -2368,6 +2388,25 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                     carrier: pkg.carrier, receivedAt: pkg.received_at });
             }
+        } else if (hermanosAereo.length > 1) {
+            // AÉREO CHINA: el embarque no tiene master, sus bultos sólo comparten
+            // el código AIR. Sin esto la pantalla veía una caja suelta de 1 de 1 y
+            // sólo ofrecía reimprimir esa: para las otras había que buscarlas una
+            // por una. Se listan todas las del embarque, con su número de caja, y
+            // así el módulo ofrece el mismo reimprimir por rango que ya tiene
+            // marítimo.
+            hermanosAereo.forEach((h: any, i: number) => {
+                labels.push({
+                    boxNumber: i + 1, totalBoxes: hermanosAereo.length,
+                    tracking: dispTn(h.tracking_internal, h.child_no),
+                    labelCode: dispTn(h.tracking_internal, h.child_no),
+                    isMaster: false, weight: parseFloat(h.weight),
+                    dimensions: formatDimensions(parseFloat(h.pkg_length), parseFloat(h.pkg_width), parseFloat(h.pkg_height)),
+                    clientName: resolvedName, clientBoxId: resolvedBoxId, description: h.description,
+                    destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
+                    carrier: pkg.carrier, receivedAt: pkg.received_at,
+                });
+            });
         } else {
             labels.push({ boxNumber: 1, totalBoxes: 1, tracking: dispTn(pkg.tracking_internal, pkg.child_no),
                 labelCode: dispTn(pkg.tracking_internal, pkg.child_no), isMaster: false, weight: parseFloat(pkg.weight),
@@ -2811,6 +2850,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     poboxVentaUsd: c.pobox_venta_usd != null ? parseFloat(c.pobox_venta_usd) : null,
                     poboxServiceCost: c.pobox_service_cost != null ? parseFloat(c.pobox_service_cost) : null })),
                 labels,
+                // Embarque aéreo: cuántas cajas trae y cuál es su código, para que
+                // al escanear cualquiera de ellas la pantalla pueda decir que no
+                // viene sola. Sólo se manda cuando de verdad son varias.
+                airGroup: hermanosAereo.length > 1
+                    ? { code: grupoAereo, boxes: hermanosAereo.length }
+                    : null,
                 client: pkg.user_id
                     ? {
                         id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '',

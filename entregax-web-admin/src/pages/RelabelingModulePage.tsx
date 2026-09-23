@@ -131,6 +131,8 @@ interface ShipmentData {
         nationalCarrier?: string | null;
     }>;
     labels: LabelData[];
+    /** Embarque aéreo de China: su código y cuántas cajas trae. Null si viene sola. */
+    airGroup?: { code: string; boxes: number } | null;
     client: {
         id: number;
         name: string;
@@ -1900,6 +1902,15 @@ ${labelsHtml}
                                     );
                                 })()}
                                 <Chip label={shipment.master.statusLabel} variant="outlined" />
+                                {/* Aéreo: la caja escaneada es una de varias del mismo
+                                    embarque. Sin esto se veía como envío suelto y el
+                                    operador no sabía que faltaban cajas por bajar. */}
+                                {shipment.airGroup && shipment.airGroup.boxes > 1 && (
+                                    <Chip
+                                        label={`✈️ Embarque de ${shipment.airGroup.boxes} cajas`}
+                                        sx={{ bgcolor: '#FF5722', color: 'white', fontWeight: 700 }}
+                                    />
+                                )}
                                 {shipment.master.totalBoxes > 1 && (
                                     <Chip
                                         label={isRepackShipment
@@ -2096,9 +2107,18 @@ ${labelsHtml}
                             ? shipment.labels.filter(l => l.isMaster)
                             : shipment.labels;
                         return (
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                                🏷️ {t('labelingModule.availableLabels')} ({visibleLabels.length})
-                            </Typography>
+                            <Box sx={{ mb: 2 }}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                    🏷️ {t('labelingModule.availableLabels')} ({visibleLabels.length})
+                                </Typography>
+                                {/* Cuántas cajas trae el embarque, para que quien
+                                    reimprime sepa cuántas etiquetas debe salir a pegar. */}
+                                {shipment.airGroup && shipment.airGroup.boxes > 1 && (
+                                    <Typography variant="caption" sx={{ color: '#E64A19', fontWeight: 600 }}>
+                                        Embarque {shipment.airGroup.code} · {shipment.airGroup.boxes} cajas detectadas
+                                    </Typography>
+                                )}
+                            </Box>
                         );
                     })()}
 
