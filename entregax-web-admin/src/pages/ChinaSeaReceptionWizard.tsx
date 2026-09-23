@@ -485,7 +485,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     // Impresión de etiquetas (1 por caja)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
-    const [labelFormat, setLabelFormat] = useState<'4x6' | '4x2' | 'rfid'>('4x2');
+    const [labelFormat, setLabelFormat] = useState<'4x6' | '4x2' | 'zebra' | 'rfid'>('4x2');
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
     // Cajas realmente recibidas por orden (orderId → cantidad). Default = total esperado.
     const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
@@ -604,7 +604,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         // Grabar el chip sólo se puede mandando comandos a la impresora, y eso
         // la impresión por HTML no lo permite. Los otros dos formatos siguen
         // saliendo por popup como siempre.
-        if (labelFormat === 'rfid') {
+        if (labelFormat === 'rfid' || labelFormat === 'zebra') {
+            const conChip = labelFormat === 'rfid';
             void (async () => {
                 const impresora = await getDefaultZebraPrinter();
                 if (!impresora) {
@@ -625,7 +626,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         totalBoxes: l.totalBoxes,
                         shippingMark: l.shippingMark,
                         referenceDigits: l.referenceDigits,
-                    }), impresora);
+                    }, conChip), impresora);
                     if (!ok) break;
                     enviadas++;
                     // La ZT411 graba el chip antes de avanzar la etiqueta; sin esta
@@ -634,7 +635,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 }
                 setScanFeedback(
                     enviadas === labels.length
-                        ? { type: 'success', msg: `${enviadas} etiqueta(s) RFID enviadas a la Zebra` }
+                        ? { type: 'success', msg: `${enviadas} etiqueta(s) enviadas a la Zebra${conChip ? ' con chip grabado' : ''}` }
                         : { type: 'error', msg: `Se enviaron ${enviadas} de ${labels.length}. Revisa la impresora y reimprime las que falten.` }
                 );
             })();
@@ -2237,7 +2238,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             <RadioGroup
                                 row
                                 value={labelFormat}
-                                onChange={(e) => setLabelFormat(e.target.value as '4x6' | '4x2' | 'rfid')}
+                                onChange={(e) => setLabelFormat(e.target.value as '4x6' | '4x2' | 'zebra' | 'rfid')}
                             >
                                 <FormControlLabel
                                     value="4x6"
@@ -2250,15 +2251,22 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     label={<Typography variant="body2"><strong>🏷️ 4×2 in</strong> · 1 etiqueta compacta (térmica Zebra/Brother)</Typography>}
                                 />
                                 <FormControlLabel
+                                    value="zebra"
+                                    control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                                    label={<Typography variant="body2"><strong>🖨️ 4×2 in Zebra</strong> · directo a la ZT411, sin chip</Typography>}
+                                />
+                                <FormControlLabel
                                     value="rfid"
                                     control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
-                                    label={<Typography variant="body2"><strong>📡 4×2 in RFID</strong> · graba el chip (Zebra ZT411)</Typography>}
+                                    label={<Typography variant="body2"><strong>📡 4×2 in RFID</strong> · graba el chip (requiere módulo RFID)</Typography>}
                                 />
                             </RadioGroup>
-                            {labelFormat === 'rfid' && (
+                            {(labelFormat === 'zebra' || labelFormat === 'rfid') && (
                                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#6B7280' }}>
-                                    Sale directo a la Zebra, sin ventana de impresión. Necesita Zebra Browser Print abierto
-                                    y etiquetas RFID cargadas: en papel normal el chip no existe y la etiqueta sale marcada como VOID.
+                                    Sale directo a la Zebra, sin ventana de impresión. Necesita Zebra Browser Print abierto.
+                                    {labelFormat === 'rfid'
+                                        ? ' Sólo funciona con el módulo RFID instalado: sin él la impresora reporta error. Para probar el diseño mientras tanto, usa la opción de arriba.'
+                                        : ' Imprime la etiqueta sin tocar el chip, así que sirve igual con etiquetas RFID o normales.'}
                                 </Typography>
                             )}
                         </FormControl>

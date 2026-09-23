@@ -82,7 +82,7 @@ export function cajaDeEpc(epc: string): { ordenId: number; boxNumber: number } |
  * etiqueta a que una caja viaje con un chip vacío que nadie detecta hasta la
  * bodega.
  */
-export function zplEtiquetaMaritima(e: EtiquetaMaritima): string {
+export function zplEtiquetaMaritima(e: EtiquetaMaritima, conChip: boolean = true): string {
   const epc = epcDeCaja(e.ordenId, e.boxNumber);
   const tracking = limpiar(e.tracking);
   const trackingSinGuiones = tracking.replace(/-/g, '');
@@ -90,15 +90,22 @@ export function zplEtiquetaMaritima(e: EtiquetaMaritima): string {
   const refDigits = limpiar(e.referenceDigits);
   const cajaDe = `${e.boxNumber}/${e.totalBoxes}`;
 
+  // Sin el módulo RFID instalado, la ZT411 no puede grabar: mandarle ^RFW le
+  // hace reportar error y puede dejar el trabajo a medias. Por eso los comandos
+  // del chip sólo van cuando de verdad hay con qué escribirlo; el resto de la
+  // etiqueta sale igual, con su franja de inlay respetada, así el diseño se
+  // prueba hoy y el día que llegue el módulo no cambia nada de lo impreso.
+  const bloqueRfid = conChip
+    ? `^RS8,,,3,Y\n^RFW,H^FD${epc}^FS\n`
+    : '';
+
   return `^XA
 ^PW${ANCHO_DOTS}
 ^LL${ALTO_DOTS}
 ^LH0,0
 ^CI28
 
-^RS8,,,3,Y
-^RFW,H^FD${epc}^FS
-
+${bloqueRfid}
 ^FO20,18^A0N,26,26^FDMARITIMO^FS
 ^FO190,8^A0N,46,46^FD${refDigits}^FS
 ^FO640,12^A0N,44,44^FD${cajaDe}^FS
@@ -108,7 +115,7 @@ export function zplEtiquetaMaritima(e: EtiquetaMaritima): string {
 ^FO60,${INLAY_Y + INLAY_ALTO + 10}^BY2,3,70^BCN,70,N,N,N^FD${trackingSinGuiones}^FS
 ^FO20,${INLAY_Y + INLAY_ALTO + 92}^A0N,28,28^FD${tracking}^FS
 
-^FO560,${INLAY_Y + INLAY_ALTO + 88}^A0N,20,20^FDRFID ${epc.slice(0, 4)}..${epc.slice(-4)}^FS
+${conChip ? `^FO560,${INLAY_Y + INLAY_ALTO + 88}^A0N,20,20^FDRFID ${epc.slice(0, 4)}..${epc.slice(-4)}^FS` : ''}
 
 ^XZ`;
 }
