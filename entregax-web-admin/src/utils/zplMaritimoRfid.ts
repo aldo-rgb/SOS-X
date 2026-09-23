@@ -29,6 +29,15 @@ const MARGEN_X = 45;
 const ANCHO_UTIL = ANCHO_DOTS - MARGEN_X * 2;
 
 /**
+ * Puntos por milímetro a 203 dpi (25.4 mm por pulgada).
+ *
+ * Los ajustes finos de la etiqueta se piden mirándola y en milímetros, así que
+ * conviene poder escribirlos igual en el código: `2 * MM` se entiende y se
+ * corrige, `16` hay que volver a calcularlo cada vez.
+ */
+const MM = 8;
+
+/**
  * Franja reservada para el inlay (el chip y su antena).
  *
  * Imprimir encima del inlay deja el código de barras manchado y el calor del
@@ -128,7 +137,7 @@ ${bloqueRfid}
 ^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 10}^BY2,3,70^BCN,70,N,N,N^FD${trackingSinGuiones}^FS
 ^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 92}^A0N,28,28^FD${tracking}^FS
 
-^FO580,${INLAY_Y + INLAY_ALTO + 5}^BQN,2,7^FDLA,${trackingSinGuiones}^FS
+^FO580,${INLAY_Y + INLAY_ALTO + 5 - 2 * MM}^BQN,2,7^FDLA,${trackingSinGuiones}^FS
 
 ${conChip ? `^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 92}^FB${ANCHO_UTIL},1,0,R,0^A0N,20,20^FDRFID ${epc.slice(0, 4)}..${epc.slice(-4)}^FS` : ''}
 
