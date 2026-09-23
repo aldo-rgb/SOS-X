@@ -124,6 +124,7 @@ import {
   AddCircle as ExtraChargeIcon,
   Archive as ArchiveIcon,
   ContentCopy as ContentCopyIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
@@ -349,6 +350,8 @@ interface ClientWallet {
     /** Referencia SAF- para fondear la cartera. Solo si esta habilitada. */
     referencia_saf?: string | null;
     credito_disponible: number;
+    credito_usado: number;
+    credito_limite: number;
     // Credito REAL, por servicio. Los campos globales de `users` casi siempre
     // estan en 0 y el asesor veia "credito usado: $0.00" de clientes con
     // cientos de miles consumidos (tarea 468).
@@ -7813,7 +7816,55 @@ export default function DashboardAdvisor() {
                     ${walletData.cartera.credito_disponible.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Typography>
                 </Paper>
+                {/* Lo que el cliente lleva consumido de su línea. Antes sólo se veía
+                    el disponible, y el usado aparecía nada más dentro del recuadro
+                    para abonar, que necesita saldo a favor: de 14 clientes con
+                    crédito ocupado, 9 no lo tienen, así que de esos no había forma
+                    de saber cuánto debían (tarea 124, la pidió Juan Segura). */}
+                <Paper sx={{
+                  flex: 1,
+                  p: 2,
+                  textAlign: 'center',
+                  bgcolor: Number(walletData.cartera.credito_usado) > 0 ? '#fff3e0' : '#f5f5f5',
+                  borderRadius: 2
+                }}>
+                  <Typography variant="caption" color="text.secondary">Crédito Utilizado</Typography>
+                  <Typography variant="h6" fontWeight={700} sx={{ color: Number(walletData.cartera.credito_usado) > 0 ? '#E65100' : 'text.primary' }}>
+                    ${Number(walletData.cartera.credito_usado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                  {Number(walletData.cartera.credito_limite) > 0 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      de ${Number(walletData.cartera.credito_limite).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  )}
+                </Paper>
               </Box>
+
+              {/* Desglose por línea. Vive fuera del recuadro de abonar a propósito:
+                  saber cuánto debe de cada servicio no depende de que traiga saldo
+                  a favor para pagarlo. */}
+              {(walletData.cartera.credito_por_servicio || []).some((c: any) => Number(c.usado) > 0) && (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, px: 2, pb: 2 }}>
+                  {(walletData.cartera.credito_por_servicio || [])
+                    .filter((c: any) => Number(c.usado) > 0)
+                    .map((c: any) => (
+                      <Chip
+                        key={c.servicio}
+                        size="small"
+                        variant="outlined"
+                        label={`${NOMBRE_SERVICIO_CREDITO[c.servicio] || c.servicio}: $${Number(c.usado).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                        sx={{
+                          borderColor: c.bloqueado ? '#EF5350' : '#FFB74D',
+                          color: c.bloqueado ? '#C62828' : '#E65100',
+                          fontWeight: 600,
+                        }}
+                        // Una línea bloqueada explica por qué al cliente no le pasan
+                        // más operaciones a crédito; sin esto el asesor no lo sabe.
+                        icon={c.bloqueado ? <BlockIcon sx={{ fontSize: 14 }} /> : undefined}
+                      />
+                    ))}
+                </Box>
+              )}
 
               {/* Abonar al crédito con el saldo a favor del cliente.
                   El efectivo se recibe en ventanilla —MTY, GDL y CDMX— y se
