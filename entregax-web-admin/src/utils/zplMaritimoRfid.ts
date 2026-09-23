@@ -17,6 +17,18 @@ const ANCHO_DOTS = 812;
 const ALTO_DOTS = 406;
 
 /**
+ * Márgenes de seguridad.
+ *
+ * En la primera prueba con la ZT411 el texto salió cortado por la izquierda
+ * —"MARITIMO" perdía la M— y el contador de cajas, que iba pegado a la derecha,
+ * no se imprimió: la impresora no aprovecha los 812 puntos completos, así que
+ * pegarse a los bordes es perder contenido. Con este margen todo lo que se
+ * imprime queda dentro del área segura.
+ */
+const MARGEN_X = 45;
+const ANCHO_UTIL = ANCHO_DOTS - MARGEN_X * 2;
+
+/**
  * Franja reservada para el inlay (el chip y su antena).
  *
  * Imprimir encima del inlay deja el código de barras manchado y el calor del
@@ -106,16 +118,19 @@ export function zplEtiquetaMaritima(e: EtiquetaMaritima, conChip: boolean = true
 ^CI28
 
 ${bloqueRfid}
-^FO20,18^A0N,26,26^FDMARITIMO^FS
-^FO190,8^A0N,46,46^FD${refDigits}^FS
-^FO640,12^A0N,44,44^FD${cajaDe}^FS
+^FO${MARGEN_X},18^A0N,26,26^FDMARITIMO^FS
+^FO${MARGEN_X + 175},8^A0N,46,46^FD${refDigits}^FS
 
-^FO20,64^A0N,60,60^FD${marca}^FS
+^FO${MARGEN_X},12^FB${ANCHO_UTIL},1,0,R,0^A0N,44,44^FD${cajaDe}^FS
 
-^FO60,${INLAY_Y + INLAY_ALTO + 10}^BY2,3,70^BCN,70,N,N,N^FD${trackingSinGuiones}^FS
-^FO20,${INLAY_Y + INLAY_ALTO + 92}^A0N,28,28^FD${tracking}^FS
+^FO${MARGEN_X},64^A0N,60,60^FD${marca}^FS
 
-${conChip ? `^FO560,${INLAY_Y + INLAY_ALTO + 88}^A0N,20,20^FDRFID ${epc.slice(0, 4)}..${epc.slice(-4)}^FS` : ''}
+^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 10}^BY2,3,70^BCN,70,N,N,N^FD${trackingSinGuiones}^FS
+^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 92}^A0N,28,28^FD${tracking}^FS
+
+^FO630,${INLAY_Y + INLAY_ALTO - 5}^BQN,2,3^FDLA,${trackingSinGuiones}^FS
+
+${conChip ? `^FO${MARGEN_X},${INLAY_Y + INLAY_ALTO + 92}^FB${ANCHO_UTIL},1,0,R,0^A0N,20,20^FDRFID ${epc.slice(0, 4)}..${epc.slice(-4)}^FS` : ''}
 
 ^XZ`;
 }
