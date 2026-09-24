@@ -414,6 +414,71 @@ const soloTexto = (html: string): string =>
  * Baja los correos nuevos del buzón y los guarda. Devuelve cuántos entraron.
  * No lanza: si Microsoft no contesta, se reintenta en la siguiente vuelta.
  */
+/**
+ * Recupera el contenido de los correos que se rechazaron por remitente y cuyo
+ * remitente YA está autorizado.
+ *
+ * Cuando llega un correo de alguien fuera de la lista se guarda la constancia
+ * —quién escribió y con qué asunto— pero no el cuerpo, y el mensaje se marca
+ * como leído en el buzón. La sincronización solo mira los NO leídos, así que
+ * después de autorizar al remitente ese correo no volvía a pasar nunca: se
+ * quedaba con su "(Remitente fuera de la lista)" para siempre.
+ *
+ * Aquí se vuelve a pedir el mensaje a Microsoft por su internetMessageId, que
+ * es lo que sí se guardó, y se rellena. Si el correo ya no existe en el buzón
+ * —se borró o se archivó— la fila se queda como está y no se rompe nada.
+ */
+export const recuperarRechazadosAutorizados = async (): Promise<{ recuperados: number; revisados: number }> => {
+  if (!m365Configurado()) return { recuperados: 0, revisados: 0 };
+  await ensureSchemaCorreos();
+  const pend = await pool.query(
+    `SELECT id, folio, de_email, message_id FROM cajito_correos
+      WHERE estado = 'rechazado' AND COALESCE(message_id, '') <> ''
+      ORDER BY id DESC LIMIT 50`);
+  if (!pend.rowCount) return { recuperados: 0, revisados: 0 };
+
+  const m = MS();
+  const token = await tokenGraph();
+  const auth = { headers: { Authorization: `Bearer ${token}` }, timeout: 30_000 };
+  let recuperados = 0, revisados = 0;
+
+  for (const c of pend.rows) {
+    const permiso = await remitentePermitido(String(c.de_email));
+    if (!permiso.permitido) continue;   // sigue sin estar en la lista
+    revisados++;
+    try {
+      const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/messages`
+        + `?$filter=internetMessageId eq '${String(c.message_id).replace(/'/g, "''")}'`
+        + `&$top=1&$select=id,subject,body,bodyPreview,receivedDateTime,hasAttachments,internetMessageHeaders`;
+      const r = await axios.get(url, auth);
+      const msg = (r.data?.value || [])[0];
+      if (!msg) {
+        console.warn(`[cajito-correo] ${c.folio}: ya no está en el buzón, no se pudo recuperar`);
+        continue;
+      }
+      const cabeceras: any[] = Array.isArray(msg.internetMessageHeaders) ? msg.internetMessageHeaders : [];
+      const resultadosAuth = cabeceras
+        .filter(h => String(h?.name || '').toLowerCase() === 'authentication-results')
+        .map(h => String(h?.value || '').toLowerCase()).join(' ');
+      const sospechoso = /spf=(fail|softfail|permerror)|dkim=fail|dmarc=fail/.test(resultadosAuth);
+      const esHtml = String(msg.body?.contentType || '').toLowerCase() === 'html';
+      const html = esHtml ? String(msg.body?.content || '') : '';
+      const texto = esHtml ? soloTexto(html) : String(msg.body?.content || msg.bodyPreview || '');
+
+      await pool.query(
+        `UPDATE cajito_correos
+            SET cuerpo = $2, cuerpo_html = $3, sospechoso = $4, estado = 'nuevo'
+          WHERE id = $1`,
+        [c.id, texto.slice(0, 100000), html.slice(0, 200000) || null, sospechoso]);
+      recuperados++;
+      console.log(`📧 [cajito-correo] ${c.folio} recuperado: ${c.de_email} ya está autorizado`);
+    } catch (e: any) {
+      console.warn(`[cajito-correo] no se pudo recuperar ${c.folio}:`, e?.message);
+    }
+  }
+  return { recuperados, revisados };
+};
+
 export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisados: number; error?: string }> => {
   if (!m365Configurado()) return { nuevos: 0, revisados: 0, error: 'Faltan las variables de Microsoft 365 (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, CAJITO_MAILBOX).' };
   try {
@@ -424,6 +489,9 @@ export const sincronizarCorreosM365 = async (): Promise<{ nuevos: number; revisa
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(m.buzon)}/mailFolders/Inbox/messages`
       + `?$filter=isRead eq false&$top=20&$orderby=receivedDateTime asc`
       + `&$select=id,subject,from,receivedDateTime,internetMessageId,body,bodyPreview,hasAttachments,toRecipients,internetMessageHeaders`;
+    // Antes de leer lo nuevo, rescatar lo que se rechazó y ya está autorizado.
+    await recuperarRechazadosAutorizados().catch(() => null);
+
     const lista = await axios.get(url, auth);
     const mensajes: any[] = lista.data?.value || [];
     let nuevos = 0;
@@ -557,7 +625,11 @@ export const cajitoAddRemitente = async (req: Request, res: Response): Promise<a
        ON CONFLICT (patron) DO UPDATE SET activo = TRUE, nota = COALESCE(EXCLUDED.nota, cajito_correos_remitentes.nota)
        RETURNING id, patron, nota, activo`,
       [patron, req.body?.nota ? String(req.body.nota).slice(0, 200) : null, Number((req as any).user?.userId) || null]);
-    res.json({ success: true, remitente: r.rows[0] });
+    // Autorizar a alguien tiene efecto hacia atrás: los correos suyos que se
+    // rechazaron recuperan su contenido en el acto, sin esperar a la siguiente
+    // vuelta del buzón.
+    const rec = await recuperarRechazadosAutorizados().catch(() => ({ recuperados: 0 }));
+    res.json({ success: true, remitente: r.rows[0], recuperados: rec.recuperados });
   } catch (e: any) {
     console.error('[cajito-correos] agregar remitente:', e?.message);
     res.status(500).json({ error: 'No se pudo agregar el remitente.' });
