@@ -1422,8 +1422,14 @@ export default function CajitoFab() {
   // Contabilidad: misma versión "Rastrear guía". No ve el Chat IA ni el costo
   // de proveedor, solo el estatus y el cobro al cliente de una guía.
   const isAccountant = _role === 'accountant';
-  // Roles que solo ven "Rastrear guía" (sin Chat IA) y sin costo proveedor.
-  const isTrackOnly = isAdvisor || isCustomerService || isSoporteTecnico || isAccountant;
+  // Roles que por omisión solo ven "Rastrear guía" (sin Chat IA) y sin costo
+  // proveedor. PERO la capacidad manda sobre el rol: a quien se le concedió
+  // cajito.access en Permisos le toca el Chat IA aunque su rol esté en esta
+  // lista. Antes el modo se decidía solo por rol y Christian —asesor con la
+  // capacidad concedida, que ya usaba Cajito en la app— en web solo veía el
+  // rastreador. Son 5 personas en la misma situación.
+  const soloRastreoPorRol = isAdvisor || isCustomerService || isSoporteTecnico || isAccountant;
+  const isTrackOnly = soloRastreoPorRol && !hasCapAccess;
 
   // Al abrir el chat: si hay una conversación previa, se recupera y NO se pinta
   // el saludo — si no, cada recarga volvía a saludar como si fuera la primera
@@ -1467,13 +1473,23 @@ export default function CajitoFab() {
 
   // Consultar si el usuario tiene la capacidad cajito.access concedida.
   useEffect(() => {
-    if (!cajitoEnabled || isSuperAdmin || isTrackOnly) return;
+    // Se consulta también para los roles de "solo rastreo": es justo lo que
+    // decide si a esa persona le toca el Chat IA. Saltarse la consulta para
+    // ellos era lo que dejaba la capacidad sin efecto en la web.
+    if (!cajitoEnabled || isSuperAdmin) return;
     let alive = true;
     api.get('/cajito/my-access')
-      .then(r => { if (alive) setHasCapAccess(r.data?.access === true); })
+      .then(r => {
+        if (!alive) return;
+        const tiene = r.data?.access === true;
+        setHasCapAccess(tiene);
+        // Con la capacidad concedida, el chat es el modo natural; el rastreador
+        // sigue a un clic de distancia.
+        if (tiene && soloRastreoPorRol) setMode('chat');
+      })
       .catch(() => {});
     return () => { alive = false; };
-  }, [cajitoEnabled, isSuperAdmin, isTrackOnly]);
+  }, [cajitoEnabled, isSuperAdmin, soloRastreoPorRol]);
 
   if (loading || !cajitoEnabled) return null;
   if (!isSuperAdmin && !isTrackOnly && !hasCapAccess) return null;
