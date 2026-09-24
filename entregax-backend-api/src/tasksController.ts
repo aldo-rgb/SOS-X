@@ -1769,6 +1769,39 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     // corrección, decidir si el cliente confirma que ya funciona y cerrar
     // ellos mismos el ticket (o pedir más contexto). Antes se ponía en
     // 'waiting_client' y desaparecía de su cola sin que lo revisaran.
+    /**
+     * Cierra también la duda de Cajito que originó la tarea.
+     *
+     * La sincronía existía en un solo sentido: descartar la duda en el panel de
+     * Cajito cierra su tarea, pero cerrar la tarea no tocaba la duda. Como todos
+     * trabajan desde el tablero, las dudas quedaban pendientes para siempre: 13
+     * de las 14 pendientes tenían su tarea ya cerrada.
+     *
+     * Y no era solo ruido en una lista. El índice único de dudas pendientes es
+     * (pregunta_norm, motivo), así que una duda zombi BLOQUEA que se registre
+     * una nueva con la misma pregunta: si alguien volvía a preguntar lo mismo,
+     * en vez de levantar tarea solo le sumaba una a `veces` de una duda que
+     * nadie iba a mirar.
+     *
+     * Se marca 'descartada' y no 'resuelto' a propósito: cerrar la tarea no es
+     * haberle enseñado nada a Cajito. Enseñarle sigue siendo el otro botón.
+     */
+    const cerrarDudaDeCajito = async () => {
+      try {
+        const r = await pool.query(
+          `UPDATE cajito_gaps
+              SET estado = 'descartada', resolved_at = NOW(), resolved_by = $2
+            WHERE task_id = $1 AND estado = 'pendiente'
+            RETURNING folio`,
+          [id, uid]
+        );
+        if (r.rowCount) console.log(`[tasks] duda ${r.rows[0].folio} cerrada junto con la tarea ${id}`);
+      } catch (e: any) {
+        // Nunca impedir el cierre de la tarea por no poder cerrar la duda.
+        console.warn('[tasks] no se pudo cerrar la duda de Cajito:', e?.message);
+      }
+    };
+
     const notifyTicketFixed = async () => {
       try {
         const m = String(task.title || '').match(/^Error localizado\s+(\S+)/i);
@@ -1804,6 +1837,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       await logActivity(id, uid, 'forced_close', { pending, reason });
       await notifyCompleted();
       await notifyTicketFixed();
+      await cerrarDudaDeCajito();
       // El cierre forzado también es un cierre. Sin este aviso la tarea se
       // quedaba abierta para siempre del lado de Grupo Rino: aquí terminada,
       // allá pendiente y sin que nadie supiera por qué. Es la misma salida que
@@ -1843,6 +1877,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     await logActivity(id, uid, alreadyAwaiting ? 'confirmed' : 'completed', alreadyAwaiting ? { from: 'awaiting_confirmation' } : {});
     await notifyCompleted();
     await notifyTicketFixed();
+    await cerrarDudaDeCajito();
     emitTaskEventIfExternal('task.completed', id, uid).catch(() => {});
     res.json({ success: true, forced: false, awaiting_confirmation: false });
   } catch (e: any) {
