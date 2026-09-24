@@ -13278,6 +13278,9 @@ app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name:
   const orgDescriptivo = requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT);
   // Árbol
   app.get('/api/admin/hr/org-chart', authenticateToken, orgDescriptivo, org.getOrgChart);
+  // El puesto de quien pregunta. Sin roles extra: cualquiera puede saber cuál
+  // es el suyo, y hay reglas que dependen del puesto y no del rol.
+  app.get('/api/hr/mi-puesto', authenticateToken, org.miPuestoOrganigrama);
   // Nodos (puestos / departamentos)
   app.post('/api/admin/hr/org-chart/nodes', authenticateToken, orgRoles, org.createOrgNode);
   app.put('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgDescriptivo, org.updateOrgNode);

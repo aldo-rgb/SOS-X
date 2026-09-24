@@ -862,9 +862,15 @@ function App() {
         return ['dashboard', 'panels', 'legalDocs'].includes(item.key);
       }
       
-      // advisor / sub_advisor: Solo dashboard (panel completo interno)
+      // advisor / sub_advisor: su panel completo vive en el Dashboard, así que
+      // por omisión solo ven eso. Pero si a alguno se le concedió un permiso de
+      // panel, tiene que poder llegar: Christian —Gerente de Ventas en el
+      // organigrama— ya tenía cs_support desde hacía tiempo y el menú se lo
+      // ignoraba porque el rol decidía antes que el permiso. Hoy es el único
+      // asesor con permisos de panel, así que a nadie más le cambia nada.
       if (role === 'advisor' || role === 'sub_advisor') {
-        return ['dashboard'].includes(item.key);
+        if (item.key === 'dashboard') return true;
+        return item.key === 'panels' && (item.subItems || []).some(sub => hasPermissionInCategory(sub.key));
       }
 
       // counter_staff (Mostrador): Dashboard + Herramientas (subItems filtrados por permisos: Etiquetado y Escáner Multi-Sucursal)

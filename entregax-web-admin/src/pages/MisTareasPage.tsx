@@ -72,16 +72,21 @@ const etiquetaEspera = (t: any, larga = false): string =>
 //
 // Con una excepción: el gerente de ventas. Coordina al equipo y necesita meter
 // a quien corresponda en la tarea que levanta; sin eso tiene que pedirle a
-// alguien más que la cree. Va por correo y no por rol porque en la base no se
-// distingue de cualquier otro asesor: mismo rol, sin equipo asignado ni marca
-// que lo separe. Si mañana hay otro gerente, se agrega aquí.
-const GERENTES_DE_VENTAS = ['christiangonzalez@entregax.com'];
-const ES_GERENTE_VENTAS = GERENTES_DE_VENTAS.includes(String(ME?.email || '').trim().toLowerCase());
-const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''))
-  && !ES_GERENTE_VENTAS;
+// alguien más que la cree.
+//
+// Se reconoce por su PUESTO en el organigrama, no por su correo ni por su rol:
+// en la base es un 'advisor' idéntico a los demás —sin equipo asignado, sin
+// líder, is_broker en false— y lo único que lo distingue es que está asignado a
+// "Gerente de Ventas". Si mañana cambia de persona, se mueve en el organigrama
+// y esto lo sigue, sin tocar código.
+const ES_ASESOR_POR_ROL = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''));
 // Alias de visualización en la sección de Tareas: Aldo Campos (Super Admin) se
 // muestra como "Sistemas".
 const displayTaskName = (name?: string | null): string => (String(name || '').trim() === 'Aldo Campos' ? 'Sistemas' : String(name || ''));
+
+/** ¿El puesto del organigrama es de gerencia de ventas? */
+const esGerenciaDeVentas = (titulo?: string | null): boolean =>
+  /gerente\s+de\s+ventas/i.test(String(titulo || ''));
 
 const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)', yearly: 'Anual' };
 const ORDINAL_LABEL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -400,6 +405,16 @@ export default function MisTareasPage() {
   // (responsable, con comentarios sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  // Puesto del organigrama. Decide si a un asesor le toca poder involucrar
+  // gente: el Gerente de Ventas sí, los demás no.
+  const [miPuesto, setMiPuesto] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ES_ASESOR_POR_ROL) return;   // a los demás roles no les cambia nada
+    axios.get(`${API_URL}/hr/mi-puesto`, H())
+      .then(r => setMiPuesto(r.data?.puesto?.title || null))
+      .catch(() => setMiPuesto(null));
+  }, []);
+  const IS_ASESOR = ES_ASESOR_POR_ROL && !esGerenciaDeVentas(miPuesto);
   // "Ocultar en espera": apagado por omisión, así que al entrar se ven TODAS,
   // incluidas las que esperan la confirmación de otra persona. Quien no las
   // quiera ver las apaga; antes era al revés y había que descubrir el botón
