@@ -562,6 +562,19 @@ export default function SupportBoardPage() {
   const isOperaciones = ['operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole);
   const isBranchManager = ['branch_manager', 'Branch Manager'].includes(currentUserRole);
   const isSoporteTecnico = currentUserRole === 'soporte_tecnico';
+  // Gerente de Ventas: ve el tablero completo, igual que Servicio a Cliente.
+  // Llegar hasta aquí ya exige el permiso cs_support —que hoy tiene un solo
+  // asesor—, pero además las reglas por departamento no contemplaban su rol y
+  // le escondían TODOS los activos: solo le quedaban los archivados, que no
+  // pasan por este filtro. Se reconoce por su puesto en el organigrama, no por
+  // el rol, que en la base es idéntico al de cualquier asesor.
+  const [esGerenteVentas, setEsGerenteVentas] = useState(false);
+  useEffect(() => {
+    fetch(`${API_URL}/hr/mi-puesto`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setEsGerenteVentas(/gerente\s+de\s+ventas/i.test(String(d?.puesto?.title || ''))))
+      .catch(() => {});
+  }, []);
   // El veredicto de Cajito es para quien ATIENDE el ticket. El asesor que lo
   // levantó no lo necesita —él ya sabe lo que reportó— y mostrarlo de más
   // invita a que se le reenvíe al cliente el texto interno.
@@ -582,7 +595,7 @@ export default function SupportBoardPage() {
   };
 
   const canSeeDept = (deptName: string): boolean => {
-    if (currentUserRole === 'customer_service') return true;
+    if (currentUserRole === 'customer_service' || esGerenteVentas) return true;
     if (isSoporteTecnico) return deptName === 'Soporte Técnico';
     if (isOperaciones) {
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
