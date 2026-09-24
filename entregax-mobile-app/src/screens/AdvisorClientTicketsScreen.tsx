@@ -173,6 +173,49 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     if (t) { yaAbierto.current = true; openTicketDetail(t); }
   }, [tickets, ticketPedido, folioPedido]);
 
+  // Los dos botones del asesor dentro de su ticket: pedir actualización y
+  // escalar por inconformidad. Antes solo podía escribir a mano o callarse.
+  const [ticketAccion, setTicketAccion] = useState<'' | 'actualizar' | 'escalar'>('');
+
+  const pedirActualizacion = async () => {
+    if (!selectedTicket || ticketAccion) return;
+    setTicketAccion('actualizar');
+    try {
+      await api.post(`/api/support/ticket/${selectedTicket.id}/pedir-actualizacion`, {},
+        { headers: { Authorization: `Bearer ${token}` } });
+      Alert.alert('Listo', 'Se pidió la actualización en el ticket.');
+      openTicketDetail(selectedTicket);
+    } catch (e: any) {
+      Alert.alert('No se pudo', e?.response?.data?.error || 'No se pudo pedir la actualización.');
+    } finally { setTicketAccion(''); }
+  };
+
+  const escalarInconformidad = () => {
+    if (!selectedTicket || ticketAccion) return;
+    Alert.alert(
+      '¿Escalar este ticket?',
+      'Si no estás conforme con la respuesta de Servicio a Cliente, puedes escalarlo.\n\nSe va a levantar una tarea urgente para Juan Carlos, con Dirección enterada.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, escalar', style: 'destructive',
+          onPress: async () => {
+            setTicketAccion('escalar');
+            try {
+              const r = await api.post(`/api/support/ticket/${selectedTicket.id}/escalar-inconformidad`, {},
+                { headers: { Authorization: `Bearer ${token}` } });
+              Alert.alert('Escalado', r.data?.already
+                ? 'Este ticket ya se había escalado.'
+                : `Se creó la tarea #${r.data?.task_id} para Juan Carlos.`);
+              openTicketDetail(selectedTicket);
+            } catch (e: any) {
+              Alert.alert('No se pudo', e?.response?.data?.error || 'No se pudo escalar el ticket.');
+            } finally { setTicketAccion(''); }
+          },
+        },
+      ]);
+  };
+
   const openTicketDetail = async (ticket: Ticket | MyTicket) => {
     setSelectedTicket(ticket);
     setShowDetail(true);
@@ -808,6 +851,35 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
                   })}
                 </ScrollView>
               )}
+              {/* Pedir actualización y escalar, arriba del cuadro de escribir. */}
+              <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 6 }}>
+                <TouchableOpacity
+                  onPress={pedirActualizacion}
+                  disabled={!!ticketAccion}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 5,
+                    borderWidth: 1, borderColor: '#1565C0', borderRadius: 8,
+                    paddingHorizontal: 10, paddingVertical: 6, opacity: ticketAccion ? 0.5 : 1,
+                  }}>
+                  <Ionicons name="refresh-outline" size={15} color="#1565C0" />
+                  <Text style={{ color: '#1565C0', fontWeight: '700', fontSize: 12 }}>
+                    {ticketAccion === 'actualizar' ? 'Pidiendo…' : 'Actualizar'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={escalarInconformidad}
+                  disabled={!!ticketAccion}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 5,
+                    borderWidth: 1, borderColor: '#E65100', borderRadius: 8,
+                    paddingHorizontal: 10, paddingVertical: 6, opacity: ticketAccion ? 0.5 : 1,
+                  }}>
+                  <Ionicons name="alert-circle-outline" size={15} color="#E65100" />
+                  <Text style={{ color: '#E65100', fontWeight: '700', fontSize: 12 }}>
+                    {ticketAccion === 'escalar' ? 'Escalando…' : 'Escalar'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <View style={styles.replyBar}>
                 <TouchableOpacity style={styles.replyAttachBtn} onPress={pickReplyImage}>
                   <Ionicons name="image-outline" size={22} color={ORANGE} />

@@ -783,6 +783,8 @@ import {
   transferTicket,
   reportTicketError,
   escalarTicketADireccion,
+  pedirActualizacionTicket,
+  escalarInconformidadTicket,
   getAdminTicketMessages,
   ensureDepartmentsSchema,
   signSupportImage,
@@ -8219,6 +8221,9 @@ app.post('/api/admin/support/ticket/:id/transfer', authenticateToken, requireMin
 // Reportar error (tickets Error Sistema) → crea tarea a Super Admin con los archivos del ticket.
 app.post('/api/admin/support/ticket/:id/report-error', authenticateToken, reportTicketError);
 app.post('/api/admin/support/ticket/:id/escalar-direccion', authenticateToken, escalarTicketADireccion);
+// Los dos botones del asesor en la conversación de su ticket.
+app.post('/api/support/ticket/:id/pedir-actualizacion', authenticateToken, pedirActualizacionTicket);
+app.post('/api/support/ticket/:id/escalar-inconformidad', authenticateToken, escalarInconformidadTicket);
 
 // 🆘 Público: Reclamación de número de cliente (sin auth)
 app.post('/api/support/public/claim-box-id', uploadBoxIdClaimFiles, submitBoxIdClaim);

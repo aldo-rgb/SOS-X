@@ -3827,3 +3827,165 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     res.status(500).json({ error: 'Error al crear solicitud de cotización', details: err.message });
   }
 };
+
+// ============================================================
+// LOS DOS BOTONES DEL ASESOR EN SU TICKET (tarea de Aldo, 24-sep-2026)
+//
+// Un asesor que sigue un ticket de su cliente tenía dos salidas malas: escribir
+// "alguna novedad?" a mano cada vez, o quedarse callado. Y si la respuesta de
+// Servicio a Cliente no le resolvía, no tenía a dónde ir.
+//
+//   PEDIR ACTUALIZACIÓN → deja un mensaje en el ticket y lo regresa a la cola
+//                         del equipo. No crea tareas ni molesta a nadie más.
+//   ESCALAR             → levanta una tarea urgente, igual que las de "Error
+//                         localizado", con Juan Carlos de responsable y
+//                         Dirección de involucrada.
+// ============================================================
+
+/** Cada cuántos minutos se puede volver a pedir actualización del mismo ticket. */
+const MINUTOS_ENTRE_ACTUALIZACIONES = 60;
+
+/**
+ * POST /api/support/ticket/:id/pedir-actualizacion
+ *
+ * El mensaje va como mensaje normal del ticket —no interno— para que lo vea
+ * quien lo atiende, y el ticket vuelve a 'escalated_human': pedir una
+ * actualización es justamente decir que sigue abierto del lado del cliente.
+ */
+export const pedirActualizacionTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const ticketId = parseInt(String(req.params.id), 10);
+    const uid = Number((req as any).user?.userId || (req as any).user?.id) || 0;
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
+
+    const t = (await pool.query(
+      `SELECT id, ticket_folio, status FROM support_tickets WHERE id = $1`, [ticketId])).rows[0];
+    if (!t) return res.status(404).json({ error: 'Ticket no encontrado' });
+
+    // Sin tope, un botón así se convierte en diez mensajes iguales seguidos.
+    const reciente = await pool.query(
+      `SELECT created_at FROM ticket_messages
+        WHERE ticket_id = $1 AND sender_id = $2 AND message LIKE '🔔 Solicitud de actualización%'
+          AND created_at > NOW() - ($3 || ' minutes')::interval
+        ORDER BY created_at DESC LIMIT 1`,
+      [ticketId, uid, MINUTOS_ENTRE_ACTUALIZACIONES]);
+    if (reciente.rowCount) {
+      return res.status(429).json({
+        error: `Ya pediste una actualización hace menos de ${MINUTOS_ENTRE_ACTUALIZACIONES} minutos. Dale un poco de tiempo al equipo.`,
+      });
+    }
+
+    const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'El asesor';
+    const mensaje = '🔔 Solicitud de actualización: ¿nos pueden compartir cómo va este caso? El cliente está esperando respuesta.';
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal)
+       VALUES ($1, 'client', $2, $3, FALSE)`,
+      [ticketId, uid, mensaje]);
+    await pool.query(
+      `UPDATE support_tickets
+          SET status = 'escalated_human', updated_at = NOW(), archived_at = NULL,
+              ticket_status = CASE WHEN ticket_status IN ('nuevo','finalizado') OR ticket_status IS NULL
+                                   THEN 'en_progreso' ELSE ticket_status END
+        WHERE id = $1`, [ticketId]);
+
+    // Al departamento que lo tiene, por el mismo camino que un mensaje nuevo.
+    notifyTicketDepartment(ticketId, null, 'reopen').catch(() => {});
+    console.log(`🔔 [support] ${quien} pidió actualización de ${t.ticket_folio}`);
+    res.json({ ok: true, message: 'Se pidió la actualización en el ticket.' });
+  } catch (e: any) {
+    console.error('[support] pedirActualizacionTicket:', e?.message);
+    res.status(500).json({ error: 'No se pudo pedir la actualización' });
+  }
+};
+
+/**
+ * POST /api/support/ticket/:id/escalar-inconformidad
+ *
+ * El asesor no está conforme con lo que le respondió Servicio a Cliente. Se
+ * levanta una tarea urgente con Juan Carlos de responsable y Dirección como
+ * involucrada, con el mismo formato que las de "Error localizado" para que se
+ * lean igual en el tablero.
+ */
+export const escalarInconformidadTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const ticketId = parseInt(String(req.params.id), 10);
+    const uid = Number((req as any).user?.userId || (req as any).user?.id) || 0;
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
+
+    const t = (await pool.query(
+      `SELECT t.id, t.ticket_folio, t.subject, u.full_name AS cliente, u.box_id
+         FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId])).rows[0];
+    if (!t) return res.status(404).json({ error: 'Ticket no encontrado' });
+    const folio = t.ticket_folio || `#${ticketId}`;
+    const title = `Ticket de servicio con inconformidad reportado ${folio}`;
+
+    const ya = await pool.query(
+      `SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+    if (ya.rowCount) {
+      return res.json({ ok: true, task_id: ya.rows[0].id, already: true, message: 'Este ticket ya se había escalado.' });
+    }
+
+    const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Un asesor';
+    const primerMsg = (await pool.query(
+      `SELECT message FROM ticket_messages WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent'
+        ORDER BY id LIMIT 1`, [ticketId])).rows[0]?.message;
+    // La última respuesta del equipo: es con la que no quedó conforme, y sin
+    // ella quien abre la tarea no sabe qué se le contestó.
+    const ultimaAgente = (await pool.query(
+      `SELECT message FROM ticket_messages
+        WHERE ticket_id = $1 AND sender_type = 'agent' AND COALESCE(is_internal, FALSE) = FALSE
+        ORDER BY id DESC LIMIT 1`, [ticketId])).rows[0]?.message;
+    const nota = String((req.body || {}).nota || '').trim();
+
+    const desc = [
+      `⚠️ ${quien} reportó inconformidad con la atención del ticket ${folio}${t.cliente ? ` · ${t.cliente}${t.box_id ? ` (${t.box_id})` : ''}` : ''}.`,
+      nota ? `\n📝 Lo que dice el asesor:\n${nota}` : '',
+      primerMsg ? `\n📩 Lo que pidió el cliente:\n${String(primerMsg).trim()}` : '',
+      ultimaAgente ? `\n💬 La última respuesta de Servicio a Cliente:\n${String(ultimaAgente).trim()}` : '',
+    ].filter(Boolean).join('\n').trim();
+
+    const board = await pool.query(
+      `SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
+    const { createAssignedTaskInternal } = await import('./tasksController');
+    const taskId = await createAssignedTaskInternal({
+      creatorId: uid, assigneeId: JUAN_CARLOS_ID, title, description: desc,
+      eisenhower: 'fuego', notifyAssignee: true, boardId: board.rows[0]?.id || undefined,
+    });
+    if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea' });
+
+    // Dirección queda de involucrada, sin la cuenta de sistema: una tarea
+    // asignada ahí no aparece en los pendientes de ninguna persona.
+    const dir = await pool.query(
+      `SELECT id FROM users WHERE role = 'super_admin' AND COALESCE(is_active, true) = true
+         AND LOWER(TRIM(full_name)) <> 'administrador entregax'
+         AND LOWER(TRIM(COALESCE(email,''))) <> 'admin@entregax.com'`);
+    for (const d of dir.rows) {
+      await pool.query(
+        `INSERT INTO task_participants (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [taskId, Number(d.id)]).catch(() => {});
+    }
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      for (const d of dir.rows) {
+        await createCustomNotification(Number(d.id), `⚠️ Inconformidad · ${folio}`,
+          `Tarea #${taskId} · ${quien} escaló este ticket. Revísala en Mis Tareas.`,
+          'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
+      }
+    } catch (e: any) { console.warn('[support] aviso de inconformidad:', e?.message); }
+
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal)
+       VALUES ($1, 'agent', $2, TRUE)`,
+      [ticketId, `⚠️ ${quien} escaló este ticket por inconformidad → tarea #${taskId} para Juan Carlos.`]).catch(() => {});
+    await pool.query(
+      `UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1`, [ticketId]);
+
+    console.log(`⚠️ [support] ${quien} escaló ${folio} por inconformidad → tarea ${taskId}`);
+    res.json({ ok: true, task_id: taskId });
+  } catch (e: any) {
+    console.error('[support] escalarInconformidadTicket:', e?.message);
+    res.status(500).json({ error: 'No se pudo escalar el ticket' });
+  }
+};

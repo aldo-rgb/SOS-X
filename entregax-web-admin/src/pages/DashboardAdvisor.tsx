@@ -869,6 +869,41 @@ export default function DashboardAdvisor() {
     (archivos) => setTicketReplyFiles(prev => [...prev, ...archivos])
   );
   const [ticketReplySending, setTicketReplySending] = useState(false);
+  // Los dos botones del asesor dentro de su ticket: pedir actualización y
+  // escalar por inconformidad. Antes solo podía escribir a mano o callarse.
+  const [ticketAccion, setTicketAccion] = useState<'' | 'actualizar' | 'escalar'>('');
+
+  const pedirActualizacionTicket = async () => {
+    if (!selectedAdvisorTicket || ticketAccion) return;
+    setTicketAccion('actualizar');
+    try {
+      await api.post(`/support/ticket/${selectedAdvisorTicket.id}/pedir-actualizacion`);
+      setSnackbar({ open: true, message: 'Se pidió la actualización en el ticket.', severity: 'success' });
+      fetchTicketMessages(selectedAdvisorTicket.id);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo pedir la actualización', severity: 'error' });
+    } finally { setTicketAccion(''); }
+  };
+
+  const escalarTicketInconforme = async () => {
+    if (!selectedAdvisorTicket || ticketAccion) return;
+    if (!window.confirm('¿Está seguro que desea escalar este ticket?\n\nSe va a levantar una tarea urgente para Juan Carlos, con Dirección enterada.')) return;
+    const nota = window.prompt('¿Quieres decir en una línea por qué no quedaste conforme? (opcional)', '') ?? '';
+    setTicketAccion('escalar');
+    try {
+      const r = await api.post(`/support/ticket/${selectedAdvisorTicket.id}/escalar-inconformidad`, { nota });
+      setSnackbar({
+        open: true,
+        message: r.data?.already
+          ? 'Este ticket ya se había escalado.'
+          : `Escalado. Se creó la tarea #${r.data?.task_id} para Juan Carlos.`,
+        severity: 'success',
+      });
+      fetchTicketMessages(selectedAdvisorTicket.id);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo escalar el ticket', severity: 'error' });
+    } finally { setTicketAccion(''); }
+  };
 
   // ── Cotizaciones formales (asesor) ──
   const [formalQuotesList, setFormalQuotesList] = useState<any[]>([]);
@@ -8656,6 +8691,28 @@ export default function DashboardAdvisor() {
             {/* Igual que arriba: se deja escribir en los resueltos para poder
                 reabrirlos, con el aviso de que eso hara. */}
               <Box sx={{ p: 2, pt: 0 }}>
+                {/* Pedir actualización y escalar. Van juntos arriba del cuadro
+                    de escribir, que es donde el asesor ya está mirando. */}
+                <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                  <Button
+                    size="small" variant="outlined" startIcon={<RefreshIcon />}
+                    disabled={!!ticketAccion} onClick={pedirActualizacionTicket}
+                    sx={{ textTransform: 'none', borderColor: '#1565C0', color: '#1565C0' }}
+                  >
+                    {ticketAccion === 'actualizar' ? 'Pidiendo…' : 'Actualizar'}
+                  </Button>
+                  <Tooltip arrow title="Si no estás conforme con la respuesta de Servicio a Cliente, puedes escalar este ticket.">
+                    <span>
+                      <Button
+                        size="small" variant="outlined" startIcon={<WarningIcon />}
+                        disabled={!!ticketAccion} onClick={escalarTicketInconforme}
+                        sx={{ textTransform: 'none', borderColor: '#E65100', color: '#E65100' }}
+                      >
+                        {ticketAccion === 'escalar' ? 'Escalando…' : 'Escalar'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </Box>
                 {(selectedAdvisorTicket.status === 'resolved' || selectedAdvisorTicket.status === 'closed') && (
                   <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
                     Este ticket esta resuelto. Si escribes aqui se reabrira y volvera a la cola del equipo.
