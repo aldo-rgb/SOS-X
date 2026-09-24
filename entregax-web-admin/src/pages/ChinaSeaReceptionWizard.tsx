@@ -252,6 +252,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [savingWeekAddr, setSavingWeekAddr] = useState(false);
     const [zipLookupLoading, setZipLookupLoading] = useState(false);
     const [coloniaOptions, setColoniaOptions] = useState<string[]>([]);
+    // 🔒 Candado del WEEK (tarea 647). Cuando trae valor, la dirección se muestra
+    // fija y no se puede capturar otra. Dirección lo recibe en null y ve el
+    // selector completo, para que una excepción real tenga salida.
+    const [weekAddrLock, setWeekAddrLock] = useState<any | null>(null);
 
     const lookupZipCode = async (cp: string) => {
         if (cp.length !== 5) { setColoniaOptions([]); return; }
@@ -286,10 +290,12 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setSavedWeekAddresses(dirs);
             // Un WEEK siempre baja en el CEDIS CDMX, así que viene ya elegido:
             // escribirlo a mano cada vez es lo que hizo que una instrucción
-            // saliera mal (tarea 647). Sigue siendo cambiable.
+            // saliera mal (tarea 647). Juan pidió que además fuera candado, así
+            // que para todos menos Dirección ya no se puede elegir otra.
             const porDefecto = dirs.find((d: any) => d.es_cedis_cdmx);
             if (porDefecto) setSelectedSavedAddr(porDefecto);
-        } catch { setSavedWeekAddresses([]); }
+            setWeekAddrLock(!isSuperAdmin && porDefecto ? porDefecto : null);
+        } catch { setSavedWeekAddresses([]); setWeekAddrLock(null); }
     };
 
     const handleSaveWeekAddr = async () => {
@@ -2635,6 +2641,30 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 </Typography>
             </DialogTitle>
             <DialogContent>
+                {weekAddrLock ? (
+                    <Box sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: '1px solid #2E7D46' }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                            <Typography sx={{ fontSize: 18 }}>🔒</Typography>
+                            <Typography sx={{ fontWeight: 700, color: '#2E7D46', flex: 1 }}>
+                                Entrega fija en CEDIS CDMX
+                            </Typography>
+                        </Stack>
+                        <Typography sx={{ fontWeight: 700 }}>
+                            {weekAddrLock.recipient_name}{weekAddrLock.phone ? ` · ${weekAddrLock.phone}` : ''}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: BLACK }}>
+                            {[weekAddrLock.street, weekAddrLock.exterior_number].filter(Boolean).join(' ')}
+                            {weekAddrLock.interior_number ? ` Int. ${weekAddrLock.interior_number}` : ''}
+                            {weekAddrLock.neighborhood ? `, Col. ${weekAddrLock.neighborhood}` : ''}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: BLACK }}>
+                            {[weekAddrLock.city, weekAddrLock.state, weekAddrLock.zip_code].filter(Boolean).join(', ')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                            Todo contenedor WEEK baja aquí. Si este de verdad va a otra dirección, pídelo a Dirección.
+                        </Typography>
+                    </Box>
+                ) : (<>
                 {/* Toggle nueva / guardada */}
                 <ToggleButtonGroup
                     value={weekAddrMode} exclusive
@@ -2745,6 +2775,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         </Grid>
                     </Grid>
                 )}
+                </>)}
             </DialogContent>
             <DialogActions sx={{ px: 3, pb: 2 }}>
                 <Button onClick={() => setWeekAddrOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>

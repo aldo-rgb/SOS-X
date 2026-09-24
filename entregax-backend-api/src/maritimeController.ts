@@ -2134,6 +2134,37 @@ export const getWeekSavedAddresses = async (_req: AuthRequest, res: Response): P
   }
 };
 
+/**
+ * Dirección del CEDIS CDMX, que es donde baja todo contenedor WEEK.
+ *
+ * Se reconoce por el código postal que trae la sucursal, no por un id fijo: si
+ * un día se muda la bodega, se actualiza el CEDIS y esto la sigue. Devuelve null
+ * si no se puede resolver, y en ese caso NO se pone candado: es mejor dejar
+ * capturar que dejar a la operación sin poder asignar dirección.
+ */
+export const direccionCedisCdmx = async (): Promise<number | null> => {
+  try {
+    const br = await pool.query(
+      `SELECT address FROM branches WHERE code = 'CDMX' AND COALESCE(is_active, TRUE) LIMIT 1`
+    );
+    const cp = String(br.rows[0]?.address || '').match(/(\d{5})(?!.*\d{5})/)?.[1];
+    if (!cp) return null;
+    // Primero la que ya vienen usando los WEEK (28 contenedores, la misma
+    // siempre); si no hubiera, cualquiera con ese CP.
+    const usada = await pool.query(
+      `SELECT a.id
+         FROM containers c JOIN addresses a ON a.id = c.delivery_address_id
+        WHERE c.legacy_client_id IS NULL AND TRIM(a.zip_code) = $1
+        ORDER BY a.id LIMIT 1`, [cp]);
+    if (usada.rows[0]?.id) return Number(usada.rows[0].id);
+    const cualquiera = await pool.query(
+      `SELECT id FROM addresses WHERE TRIM(zip_code) = $1 ORDER BY id LIMIT 1`, [cp]);
+    return cualquiera.rows[0]?.id ? Number(cualquiera.rows[0].id) : null;
+  } catch {
+    return null;
+  }
+};
+
 // POST /api/maritime/containers/:id/week-address
 // Asigna o crea una dirección de entrega para un contenedor WEEK
 export const assignWeekContainerAddress = async (req: AuthRequest, res: Response): Promise<any> => {
@@ -2142,13 +2173,41 @@ export const assignWeekContainerAddress = async (req: AuthRequest, res: Response
     const { address_id, alias, recipient_name, phone, street, exterior_number, interior_number, neighborhood, city, state, zip_code, reference } = req.body;
 
     // Verificar que el contenedor existe
-    const cRes = await pool.query('SELECT id, status FROM containers WHERE id = $1', [id]);
+    const cRes = await pool.query('SELECT id, status, legacy_client_id FROM containers WHERE id = $1', [id]);
     if (cRes.rows.length === 0) return res.status(404).json({ error: 'Contenedor no encontrado' });
     const currentStatus = cRes.rows[0].status;
 
     let finalAddressId: number;
 
-    if (address_id) {
+    // 🔒 Candado del WEEK. Un WEEK siempre baja en el CEDIS CDMX: las 28
+    // entregas con dirección asignada fueron ahí, sin una sola excepción. Aun
+    // así había que escribirla a mano cada vez y una instrucción se capturó mal
+    // (tarea 647, la reportó Juan Segura, que pidió candado y no solo un valor
+    // por omisión). El candado va aquí y no solo en la pantalla: este endpoint
+    // acepta crear una dirección nueva a mano, que es justo por donde entró el
+    // error. Dirección (super_admin) sí puede cambiarla, para que una excepción
+    // real no quede sin salida.
+    const esWeek = cRes.rows[0].legacy_client_id === null;
+    const esDireccion = ['super_admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
+    let idForzado: number | null = null;
+    if (esWeek && !esDireccion) {
+      const cedisId = await direccionCedisCdmx();
+      if (cedisId) {
+        const pidioOtraGuardada = address_id && Number(address_id) !== cedisId;
+        const pidioNueva = !address_id && !!(street || zip_code || recipient_name);
+        if (pidioOtraGuardada || pidioNueva) {
+          return res.status(403).json({
+            error: 'La dirección de entrega de un contenedor WEEK está fija en el CEDIS CDMX y no se captura a mano. '
+                 + 'Si este contenedor de verdad va a otra dirección, pídelo a Dirección.',
+          });
+        }
+        idForzado = cedisId;
+      }
+    }
+
+    if (idForzado) {
+      finalAddressId = idForzado;
+    } else if (address_id) {
       // Reusar dirección existente
       const aRes = await pool.query('SELECT id FROM addresses WHERE id = $1', [address_id]);
       if (aRes.rows.length === 0) return res.status(404).json({ error: 'Dirección no encontrada' });
