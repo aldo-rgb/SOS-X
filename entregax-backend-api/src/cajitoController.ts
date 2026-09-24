@@ -712,7 +712,14 @@ export const TOOLS: ToolDef[] = [
       const diag: string[] = [];
       const parado = dias(ord.last_tracking_date);
       if (!ord.container_id) {
-        diag.push('No tiene contenedor ligado. La ETA sale del contenedor, así que en el sistema NO hay ETA para este LOG: tampoco la ve el cliente en la app. Cualquier fecha que se le haya dado no sale de nuestros datos.');
+        // Lo primero es la instrucción, no la explicación: quien pregunta
+        // necesita saber qué hacer. Y NO se intenta adivinar la ETA por el
+        // barco: el mismo barco y viaje puede traer varios contenedores, a
+        // veces con ETAs distintas (NYK VESTA 093E tiene 7 contenedores y 3
+        // ETAs), y en marítimo una fecha equivocada mueve camiones y citas de
+        // entrega. Sin contenedor asignado no hay ETA, punto.
+        diag.push('Esta orden no tiene contenedor asignado. Verifica con el equipo de marítimo para que se lo asignen.');
+        diag.push('La ETA sale del contenedor, así que en el sistema NO hay ETA para este LOG: tampoco la ve el cliente en la app. Cualquier fecha que se le haya dado no sale de nuestros datos.');
         const pend = docs.find((d: any) => d.status === 'draft');
         const rech = docs.find((d: any) => d.status === 'rejected');
         const apro = docs.find((d: any) => d.status === 'approved');
@@ -935,6 +942,85 @@ export const TOOLS: ToolDef[] = [
         pasos,
         // Para que no confunda un hueco de dato con un hueco de proceso.
         nota: 'Un paso sin fecha quiere decir que NO se registró, no que no haya ocurrido. Hoy solo se llenan solos los de El Paso (por correo del almacén); los demás dependen de que ELP mande sus pulsos o de captura manual.',
+      };
+    },
+  },
+  {
+    name: 'consolidados_maritimos',
+    requiredCapability: 'cajito.read.packages',
+    readOnly: true,
+    description: 'Los consolidados marítimos (contenedores) con su ETA: cuáles vienen en camino, cuándo llega cada uno, cuántas órdenes trae y en qué tramo va. Úsala cuando pregunten "¿qué consolidados llegan esta semana?", "¿cuándo llega el de la semana 38?", "¿cuál es la ETA del consolidado tal?", "¿qué contenedores están por llegar?" o "¿cuáles ya se les pasó la fecha?". Se puede filtrar por semana, por número de contenedor o por una ventana de días de ETA. Para UNA orden suelta usa lookup_maritimo con su LOG; para el recorrido paso a paso de un contenedor usa seguimiento_contenedor.',
+    parameters: {
+      type: 'object',
+      properties: {
+        semana: { type: 'string', description: 'Semana del consolidado, ej. "Week 38" o "38". Opcional.' },
+        contenedor: { type: 'string', description: 'Número de contenedor o parte de él. Opcional.' },
+        dias: { type: 'number', description: 'Ventana de ETA hacia adelante en días (por omisión 30). Solo aplica si no se filtró por semana o contenedor.' },
+        incluir_entregados: { type: 'boolean', description: 'Incluir los ya entregados o cancelados. Por omisión no.' },
+      },
+      required: [],
+    },
+    handler: async ({ semana, contenedor, dias, incluir_entregados }: any) => {
+      const cond: string[] = [];
+      const params: any[] = [];
+      if (!incluir_entregados) cond.push(`c.status NOT IN ('delivered', 'cancelled')`);
+      const sem = String(semana || '').trim();
+      const cont = String(contenedor || '').trim().toUpperCase();
+      if (cont) { params.push(`%${cont}%`); cond.push(`UPPER(c.container_number) LIKE $${params.length}`); }
+      if (sem) { params.push(`%${sem.replace(/^week\s*/i, '')}%`); cond.push(`c.week_number ILIKE $${params.length}`); }
+      // La ventana de ETA solo manda cuando no preguntaron por uno concreto: si
+      // alguien pide un contenedor por número, lo quiere ver aunque su ETA
+      // quedara fuera del rango.
+      if (!cont && !sem) {
+        const v = Number.isFinite(Number(dias)) && Number(dias) > 0 ? Math.min(Number(dias), 365) : 30;
+        params.push(v);
+        cond.push(`(c.eta IS NULL OR c.eta BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE + ($${params.length} || ' days')::interval))`);
+      }
+      const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+
+      const r = await pool.query(
+        `SELECT c.container_number AS contenedor, c.bl_number AS bl, c.week_number AS semana,
+                c.status AS estado,
+                to_char(c.eta, 'YYYY-MM-DD') AS eta,
+                (c.eta - CURRENT_DATE) AS dias_para_eta,
+                c.vessel_name AS barco, c.port_of_loading AS puerto_origen,
+                c.port_of_discharge AS puerto_destino,
+                to_char(c.actual_arrival, 'YYYY-MM-DD') AS llegada_real,
+                c.last_tracking_event AS ultimo_evento,
+                to_char(c.last_tracking_date, 'YYYY-MM-DD') AS ultimo_evento_fecha,
+                to_char(c.updated_at, 'YYYY-MM-DD') AS actualizado,
+                (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.container_id = c.id) AS ordenes,
+                (SELECT COUNT(DISTINCT mo.user_id) FROM maritime_orders mo WHERE mo.container_id = c.id) AS clientes
+           FROM containers c
+           ${where}
+          ORDER BY c.eta NULLS LAST, c.container_number
+          LIMIT 40`, params);
+
+      const filas = r.rows.map((x: any) => ({
+        ...x,
+        ordenes: Number(x.ordenes) || 0,
+        clientes: Number(x.clientes) || 0,
+        dias_para_eta: x.dias_para_eta === null ? null : Number(x.dias_para_eta),
+        // Lo que de verdad quiere saber quien pregunta.
+        cuando: x.llegada_real ? `ya llegó el ${x.llegada_real}`
+          : x.eta === null ? 'sin ETA registrada'
+          : Number(x.dias_para_eta) === 0 ? 'llega hoy'
+          : Number(x.dias_para_eta) > 0 ? `faltan ${x.dias_para_eta} día(s)`
+          : `se le pasó la fecha por ${Math.abs(Number(x.dias_para_eta))} día(s)`,
+      }));
+
+      const vencidos = filas.filter((x: any) => x.dias_para_eta !== null && x.dias_para_eta < 0 && !x.llegada_real);
+      return {
+        total: filas.length,
+        filtro: { semana: sem || null, contenedor: cont || null, dias: (!cont && !sem) ? (Number(dias) || 30) : null },
+        consolidados: filas,
+        resumen: {
+          sin_eta: filas.filter((x: any) => !x.eta).length,
+          llegan_en_7_dias: filas.filter((x: any) => x.dias_para_eta !== null && x.dias_para_eta >= 0 && x.dias_para_eta <= 7 && !x.llegada_real).length,
+          con_fecha_vencida: vencidos.length,
+        },
+        // Que no se invente un historial que no existe en ninguna tabla.
+        nota: 'La ETA que se muestra es la vigente: no se guarda historial de cómo fue cambiando. "actualizado" es la última vez que se tocó el registro del contenedor, no necesariamente la ETA. Un consolidado sin órdenes es uno al que todavía no se le asignaron.',
       };
     },
   },

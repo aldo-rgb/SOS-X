@@ -146,6 +146,15 @@ interface TrackingResult {
     cn_status_en: string | null;
     cn_status_ch: string | null;
   };
+  /** Marítimo rastreado por su LOG: la ETA sale de su contenedor. */
+  maritimo?: {
+    contenedor: string | null;
+    bl: string | null;
+    buque: string | null;
+    eta: string | null;
+    sin_contenedor: boolean;
+    eta_nota: string | null;
+  };
 }
 
 export default function PublicTrackingPage() {
@@ -436,6 +445,45 @@ export default function PublicTrackingPage() {
                   })}
                 </Stepper>
               </Paper>
+
+              {/* Marítimo rastreado por su LOG. La ETA sale del contenedor, así
+                  que cuando no tiene uno asignado se dice, en vez de dejar el
+                  renglón vacío y que parezca que la fecha se perdió. */}
+              {result.maritimo && (
+                <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #F0F0F0' }}>
+                  <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1.5 }}>
+                    {lang === 'zh' ? '预计到港' : lang === 'en' ? 'Arrival' : 'Llegada estimada'}
+                  </Typography>
+                  <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                    <Box>
+                      <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>ETA</Typography>
+                      {result.maritimo.eta ? (
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK }}>
+                          {new Date(result.maritimo.eta).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'zh' ? 'zh-CN' : 'es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </Typography>
+                      ) : (
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#E65100' }}>
+                          {result.maritimo.sin_contenedor
+                            ? (lang === 'zh' ? '未分配集装箱' : lang === 'en' ? 'No container assigned' : 'Sin contenedor asignado')
+                            : (lang === 'zh' ? '集装箱无预计到港日期' : lang === 'en' ? 'Container has no ETA yet' : 'Contenedor sin ETA capturada')}
+                        </Typography>
+                      )}
+                    </Box>
+                    {result.maritimo.contenedor && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>CONTENEDOR</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: BLACK }}>{result.maritimo.contenedor}</Typography>
+                      </Box>
+                    )}
+                    {result.maritimo.buque && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>BUQUE</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK }}>{result.maritimo.buque}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              )}
 
               {/* Datos del contenedor (solo si aplica) */}
               {result.container && (

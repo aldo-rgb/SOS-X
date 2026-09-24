@@ -13912,8 +13912,17 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
           mo.ordersn AS tracking,
           mo.status::text AS status,
           mo.created_at,
-          mo.updated_at
+          mo.updated_at,
+          -- La ETA de un LOG sale de SU contenedor. Al rastrear no se mandaba
+          -- nada de esto, así que una orden sin contenedor y una con ETA se
+          -- veían igual: sin fecha y sin explicación.
+          mo.container_id,
+          c.container_number AS mo_container_number,
+          c.bl_number AS mo_bl_number,
+          c.vessel_name AS mo_vessel,
+          to_char(c.eta, 'YYYY-MM-DD') AS mo_eta
         FROM maritime_orders mo
+        LEFT JOIN containers c ON c.id = mo.container_id
         WHERE UPPER(mo.ordersn) = $1
            OR UPPER(COALESCE(mo.bl_number,'')) = $1
            OR UPPER(COALESCE(mo.ship_number,'')) = $1
@@ -14141,6 +14150,23 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         is_master: true,
         total_boxes: childCount,
         children: childRows,
+      } : {}),
+      // Marítimo por LOG: su ETA sale del contenedor. Si no tiene contenedor
+      // asignado se dice con todas sus letras, en vez de dejar el hueco vacío:
+      // de 752 órdenes activas, 413 están así y nadie sabía por qué no veía
+      // fecha. La ETA no se adivina por el barco: un mismo barco y viaje trae
+      // varios contenedores y a veces con ETAs distintas.
+      ...(row.service_type === 'china_sea' && !row._isContainer ? {
+        maritimo: {
+          contenedor: row.mo_container_number || null,
+          bl: row.mo_bl_number || null,
+          buque: row.mo_vessel || null,
+          eta: row.mo_eta || null,
+          sin_contenedor: !row.container_id,
+          eta_nota: !row.container_id
+            ? 'Sin contenedor asignado'
+            : (!row.mo_eta ? 'Contenedor sin ETA capturada' : null),
+        },
       } : {}),
       // Datos extra para contenedores (no sensibles)
       ...(row._isContainer && {
