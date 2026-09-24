@@ -385,10 +385,13 @@ export default function MisTareasPage() {
   // (responsable, con comentarios sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
   const [showDone, setShowDone] = useState(false);
-  // "Ver en espera": con "Solo mis tareas" se ocultan las que esperan
-  // confirmación de OTRA persona —ya las hiciste, no te toca nada—. Las que
-  // esperan TU confirmación se siguen viendo, y también las que traen
-  // comentarios sin leer, para no perder una respuesta.
+  // "Ocultar en espera": apagado por omisión, así que al entrar se ven TODAS,
+  // incluidas las que esperan la confirmación de otra persona. Quien no las
+  // quiera ver las apaga; antes era al revés y había que descubrir el botón
+  // para encontrar tareas que creías perdidas (tarea 670). Las que esperan TU
+  // confirmación nunca se ocultan —son trabajo tuyo—, ni las que traen
+  // comentarios sin leer.
+  const [hideEspera, setHideEspera] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
   const [showPersonal, setShowPersonal] = useState(false);
@@ -844,10 +847,19 @@ export default function MisTareasPage() {
     || (t as any).espera_tu_respuesta === true;
   // Buscando no se oculta nada: igual que con las completadas, la búsqueda
   // tiene que encontrar todo.
-  // Ya no se esconden las que esperan la confirmación de otro: se muestran
-  // siempre a sus involucrados. Van al fondo de la lista por su rango, que es
-  // suficiente para que no estorben.
-  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
+  // Las que esperan la confirmación de ALGUIEN MÁS. Las que esperan la tuya no
+  // entran aquí: ésas son trabajo tuyo y esconderlas sería volver a lo de antes.
+  const esperaAOtro = (t: Task) =>
+    t.status === 'awaiting_confirmation'
+    && Number((t as any).created_by) !== MY_ID
+    && (t.unread_count || 0) === 0
+    && (t as any).espera_tu_respuesta !== true;
+  // Por omisión se ven todas. El botón "Ocultar en espera" es opt-in: antes era
+  // al revés y había que descubrirlo para ver tus propias tareas (tarea 670).
+  // Buscando no se oculta nada: la búsqueda tiene que encontrar todo.
+  const mineTasks = globalView
+    ? catTasks
+    : catTasks.filter(t => isMine(t) && (!hideEspera || q.length >= 2 || !esperaAOtro(t)));
   const matchesSearch = (t: Task) => {
     if (!q) return true;
     const parts: string[] = [
@@ -941,6 +953,17 @@ export default function MisTareasPage() {
             : { borderColor: '#2E7D46', color: '#2E7D46' }) }}
         >
           Ver completadas
+        </Button>
+        <Button
+          size="small"
+          variant={hideEspera ? 'contained' : 'outlined'}
+          onClick={() => setHideEspera(v => !v)}
+          startIcon={<span>⏳</span>}
+          sx={{ textTransform: 'none', ...(hideEspera
+            ? { bgcolor: '#C77800', '&:hover': { bgcolor: '#A86500' } }
+            : { borderColor: '#C77800', color: '#C77800' }) }}
+        >
+          Ocultar en espera
         </Button>
         {isWorkHours && (
           <Button
