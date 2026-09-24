@@ -491,8 +491,9 @@ const PANEL_MODULE_SEEDS: Record<string, Array<[string, string, string, string, 
     ['inbound_emails',  'Correos Marítimo',       'Correos entrantes del servicio marítimo',                 'Email',        10],
     ['maritime_api',    'API China Marítimo',     'Integración con la API marítima de origen China',         'CloudSync',    11],
     ['elp_api',         'API ELP',                'Proveedor externo de trámite/CBP (USA): contenedores ELP, documentos y status', 'CloudSync', 12],
-    ['anticipos',       'Control de Anticipos',   'Anticipos y control financiero',                          'Payments',     13],
-    ['reports',         'Reportes',               'Reportes y métricas marítimo',                            'TrendingUp',   14],
+    ['tcg',             'Módulo TCG',             'Transportista del tramo mexicano: cruce internacional, tránsito a destino y entrega final', 'LocalShipping', 13],
+    ['anticipos',       'Control de Anticipos',   'Anticipos y control financiero',                          'Payments',     14],
+    ['reports',         'Reportes',               'Reportes y métricas marítimo',                            'TrendingUp',   15],
   ],
   // Hub Administrativo PO Box USA (AdminHubPage → usa_pobox service)
   admin_usa_pobox: [
