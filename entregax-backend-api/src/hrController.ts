@@ -1749,28 +1749,3 @@ export const upsertEmployeePhone = async (req: Request, res: Response): Promise<
   }
 };
 
-/**
- * GET /api/hr/mi-puesto — el puesto de quien pregunta, según el organigrama.
- *
- * Hay reglas que dependen del PUESTO y no del rol del sistema: el Gerente de
- * Ventas es un 'advisor' como cualquier otro —mismo rol, sin equipo asignado,
- * sin marca que lo separe— y aun así coordina al equipo. El organigrama ya
- * guarda esa verdad; faltaba poder consultarla desde las pantallas sin tener
- * que escribir correos a mano en el código.
- */
-export const miPuestoOrganigrama = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const uid = Number((req as any).user?.userId || (req as any).user?.id) || 0;
-    if (!uid) return res.status(401).json({ error: 'No autenticado' });
-    const r = await pool.query(
-      `SELECT n.id, n.title, n.auto_key, n.node_type
-         FROM org_chart_assignments a
-         JOIN org_chart_nodes n ON n.id = a.node_id
-        WHERE a.user_id = $1
-        ORDER BY n.sort_order LIMIT 1`, [uid]);
-    res.json({ puesto: r.rows[0] || null });
-  } catch (e: any) {
-    console.error('[hr] miPuestoOrganigrama:', e?.message);
-    res.status(500).json({ error: 'No se pudo consultar el puesto' });
-  }
-};
