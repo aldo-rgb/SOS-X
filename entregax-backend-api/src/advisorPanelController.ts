@@ -393,7 +393,19 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
           (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text NOT IN ('delivered','shipped') AND p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')) +
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status NOT IN ('delivered','shipped') AND mo.delivery_address_id IS NULL) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status NOT IN ('delivered','shipped') AND ds.delivery_address_id IS NULL)
-        ) as missing_instructions_count
+        ) as missing_instructions_count,
+        -- Crédito de la línea del cliente, para que el asesor lo vea también en
+        -- la app (tarea 124). Sale de user_service_credits, que es donde vive de
+        -- verdad: users.used_credit es el global y casi siempre está en 0 — llegó
+        -- a mostrar "$0.00 usado" de una clienta con $356,010 consumidos de su
+        -- línea DHL (tarea 468).
+        COALESCE((SELECT SUM(COALESCE(usc.used_credit, 0)) FROM user_service_credits usc
+                   WHERE usc.user_id = u.id AND COALESCE(usc.credit_limit, 0) > 0), 0) as credito_usado,
+        COALESCE((SELECT SUM(COALESCE(usc.credit_limit, 0)) FROM user_service_credits usc
+                   WHERE usc.user_id = u.id AND COALESCE(usc.credit_limit, 0) > 0), 0) as credito_limite,
+        EXISTS (SELECT 1 FROM user_service_credits usc
+                 WHERE usc.user_id = u.id AND COALESCE(usc.credit_limit, 0) > 0
+                   AND COALESCE(usc.is_blocked, false) = true) as credito_bloqueado
       FROM users u
       WHERE ${whereClause}
       ORDER BY u.created_at DESC
@@ -433,6 +445,12 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
         pendingPaymentCount: parseInt(c.pending_payment_count) || 0,
         pendingPaymentTotal: parseFloat(c.pending_payment_total) || 0,
         missingInstructionsCount: parseInt(c.missing_instructions_count) || 0,
+        // La consulta ya traía la referencia SAF y este mapeo la dejaba fuera,
+        // así que el recuadro para copiarla nunca se dibujaba en la app.
+        referencia_saf: c.referencia_saf || null,
+        creditoUsado: parseFloat(c.credito_usado) || 0,
+        creditoLimite: parseFloat(c.credito_limite) || 0,
+        creditoBloqueado: c.credito_bloqueado === true,
         activityStatus,
         daysSinceLastShipment,
       };

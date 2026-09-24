@@ -41,6 +41,11 @@ interface Client {
   in_transit_count: number;
   pending_payment_count: number;
   total_pending: number;
+  /** Crédito de la línea del cliente. Sale de user_service_credits, no del
+   *  global de users, que casi siempre está en 0 (tarea 124). */
+  credito_usado?: number;
+  credito_limite?: number;
+  credito_bloqueado?: boolean;
 }
 
 interface ClientAddress {
@@ -449,6 +454,12 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
         in_transit_count: c.in_transit_count ?? c.inTransitCount ?? 0,
         pending_payment_count: c.pending_payment_count ?? c.pendingPaymentCount ?? 0,
         total_pending: c.total_pending ?? c.pendingPaymentTotal ?? 0,
+        // Se quedaban fuera de esta normalización, así que por más que el
+        // backend los mandara nunca llegaban a la pantalla.
+        referencia_saf: c.referencia_saf ?? c.referenciaSaf ?? null,
+        credito_usado: Number(c.credito_usado ?? c.creditoUsado ?? 0),
+        credito_limite: Number(c.credito_limite ?? c.creditoLimite ?? 0),
+        credito_bloqueado: c.credito_bloqueado ?? c.creditoBloqueado ?? false,
       });
       const list: Client[] = (data.clients || []).map(normalize);
       if (reset) setClients(list); else setClients(prev => [...prev, ...list]);
@@ -630,6 +641,42 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             <Text style={[styles.statLabel, { fontSize: 10 }]}>Último envío</Text>
           </View>
         </View>
+
+        {/* Credito de la linea del cliente. El asesor lo veia en la web desde el
+            22-sep pero en la app no existia: Leo reporto que "el asesor no puede
+            ver saldo, solo el cliente" (tarea 124). Solo se dibuja si el cliente
+            trae linea; a quien no le dieron credito no le aparece un cero. */}
+        {Number(item.credito_limite) > 0 && (
+          <View style={{
+            marginTop: 8, padding: 10, borderRadius: 8,
+            backgroundColor: item.credito_bloqueado ? '#FFEBEE' : '#FFF8E1',
+            borderWidth: 1, borderColor: item.credito_bloqueado ? '#EF9A9A' : '#FFE082',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons
+                name={item.credito_bloqueado ? 'lock-closed-outline' : 'card-outline'}
+                size={14}
+                color={item.credito_bloqueado ? '#C62828' : '#E65100'}
+              />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: item.credito_bloqueado ? '#C62828' : '#E65100' }}>
+                Crédito utilizado
+              </Text>
+              {item.credito_bloqueado && (
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#C62828' }}>· LÍNEA BLOQUEADA</Text>
+              )}
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginTop: 2 }}>
+              ${Number(item.credito_usado || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#777' }}>
+                {'  de '}${Number(item.credito_limite).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+            </Text>
+            <Text style={{ fontSize: 11, color: '#2E7D32', fontWeight: '700', marginTop: 2 }}>
+              Disponible ${Math.max(0, Number(item.credito_limite) - Number(item.credito_usado || 0))
+                .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+          </View>
+        )}
 
         {/* Referencia para fondear su cartera. El asesor es quien se la pasa al
             cliente cuando quiere abonar, y hasta ahora tenia que pedirla a
