@@ -1152,6 +1152,7 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
                 p.id,
                 p.tracking_internal,
                 p.tracking_provider,
+                p.origin_carrier,
                 p.description,
                 p.weight,
                 p.pkg_length, p.pkg_width, p.pkg_height,
@@ -1161,6 +1162,15 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
                 p.created_at,
                 COALESCE(p.received_at, p.created_at) AS arrival_date,
                 EXTRACT(DAY FROM (NOW() - COALESCE(p.received_at, p.created_at))) AS days_in_warehouse,
+                -- Cuántos bultos trae. En un master el conteo vive en dos lados y
+                -- no siempre coinciden: total_boxes es lo que se capturó al recibir
+                -- y las hijas son las cajas que de verdad existen. Se toma el mayor
+                -- para no reportar de menos.
+                p.is_master,
+                GREATEST(
+                    COALESCE(p.total_boxes, 1),
+                    (SELECT COUNT(*) FROM packages h WHERE h.master_id = p.id)
+                ) AS bultos,
                 lc.full_name AS legacy_name,
                 lc.box_id AS legacy_box_id
             FROM packages p
@@ -1185,6 +1195,7 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
             id: pkg.id,
             tracking: pkg.tracking_internal,
             trackingProvider: pkg.tracking_provider,
+            originCarrier: pkg.origin_carrier,
             description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
             dimensions: {
@@ -1196,6 +1207,8 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
             statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
             arrivalDate: pkg.arrival_date,
             daysInWarehouse: Number(pkg.days_in_warehouse) || 0,
+            isMaster: pkg.is_master === true,
+            bultos: Number(pkg.bultos) || 1,
             currentBoxId: pkg.box_id,
             legacyMatch: pkg.legacy_name
                 ? { name: pkg.legacy_name, boxId: pkg.legacy_box_id }

@@ -55,6 +55,12 @@ interface UnassignedPackage {
     id: number;
     tracking: string;
     description?: string;
+    /** Guía con la que llegó a bodega: la del transportista de origen. */
+    trackingProvider?: string | null;
+    originCarrier?: string | null;
+    /** Cajas del embarque. En un master es el total de sus hijas. */
+    bultos?: number;
+    isMaster?: boolean;
     weight?: number | null;
     status: string;
     statusLabel?: string;
@@ -324,7 +330,10 @@ export default function AssignClientPage({ onBack }: Props) {
         const term = search.trim().toLowerCase();
         if (!term) return packages;
         return packages.filter((p) => {
-            const hay = [p.tracking, p.description, p.currentBoxId, p.legacyMatch?.name]
+            // La guía de origen también se busca: es el número que trae quien
+            // pregunta por un paquete, y ahora además es una columna visible.
+            const hay = [p.tracking, p.trackingProvider, p.originCarrier, p.description,
+                p.currentBoxId, p.legacyMatch?.name]
                 .filter(Boolean).join(' ').toLowerCase();
             return hay.includes(term);
         });
@@ -429,7 +438,7 @@ export default function AssignClientPage({ onBack }: Props) {
                 <TextField
                     size="small"
                     fullWidth
-                    placeholder="Buscar por tracking, descripción, casillero…"
+                    placeholder="Buscar por tracking, guía de origen, casillero…"
                     value={search}
                     onChange={(e) => { setSearch(limpiarEscaneo(e.target.value)); setPage(0); }}
                     InputProps={{
@@ -450,7 +459,8 @@ export default function AssignClientPage({ onBack }: Props) {
                             <TableHead>
                                 <TableRow>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Tracking</TableCell>
-                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Descripción</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Guía origen</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="center">Bultos</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="right">Peso (kg)</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Estado</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Casillero</TableCell>
@@ -462,7 +472,7 @@ export default function AssignClientPage({ onBack }: Props) {
                             <TableBody>
                                 {paged.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={8} sx={{ textAlign: 'center', py: 4 }}>
+                                        <TableCell colSpan={9} sx={{ textAlign: 'center', py: 4 }}>
                                             <Typography color="text.secondary">
                                                 {packages.length === 0 ? '🎉 No hay paquetes sin cliente' : 'Sin resultados'}
                                             </Typography>
@@ -476,9 +486,32 @@ export default function AssignClientPage({ onBack }: Props) {
                                                 {p.tracking}
                                             </TableCell>
                                             <TableCell>
-                                                <Typography variant="body2" sx={{ maxWidth: 280 }} noWrap>
-                                                    {p.description || '—'}
-                                                </Typography>
+                                                {p.trackingProvider ? (
+                                                    <>
+                                                        {p.originCarrier && (
+                                                            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 700 }}>
+                                                                {p.originCarrier}
+                                                            </Typography>
+                                                        )}
+                                                        <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                                            {p.trackingProvider}
+                                                        </Typography>
+                                                    </>
+                                                ) : '—'}
+                                            </TableCell>
+                                            <TableCell align="center">
+                                                {/* El número solo resalta cuando de verdad son varias cajas:
+                                                    un master con hijas. Un paquete suelto es 1 y no compite
+                                                    por la atención de quien está revisando el listado. */}
+                                                {Number(p.bultos) > 1 ? (
+                                                    <Chip
+                                                        label={`${p.bultos} bultos`}
+                                                        size="small"
+                                                        sx={{ bgcolor: '#1565C0', color: '#FFF', fontWeight: 700 }}
+                                                    />
+                                                ) : (
+                                                    <Typography variant="body2" color="text.secondary">1</Typography>
+                                                )}
                                             </TableCell>
                                             <TableCell align="right">
                                                 {p.weight ? Number(p.weight).toFixed(2) : '—'}
