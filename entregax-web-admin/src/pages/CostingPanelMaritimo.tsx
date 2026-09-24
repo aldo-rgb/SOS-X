@@ -108,6 +108,9 @@ interface Container {
     entrega_nombre?: string | null;
     entrega_calle?: string | null;
     entrega_numero?: string | null;
+    entrega_interior?: string | null;
+    /** WEEK sin asignar todavía: es la del CEDIS CDMX, la que le toca por candado. */
+    entrega_pendiente_cedis?: boolean;
     entrega_colonia?: string | null;
     entrega_ciudad?: string | null;
     entrega_estado?: string | null;
@@ -1682,28 +1685,34 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                                     CEDIS CDMX —está con candado—, así que aunque todavía no
                                     se le haya asignado se dice a dónde va a ir: esperar a la
                                     recepción para saberlo era el paso que faltaba. */}
-                                <TableCell sx={{ minWidth: 150 }}>
-                                    {container.delivery_address_id ? (
-                                        <Tooltip arrow title={[container.entrega_nombre, container.entrega_calle,
-                                            container.entrega_numero, container.entrega_colonia,
-                                            container.entrega_ciudad, container.entrega_estado,
-                                            container.entrega_cp].filter(Boolean).join(', ')}>
-                                            <Box>
-                                                <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: '#2E7D32' }}>
-                                                    {container.entrega_ciudad || container.entrega_nombre || 'Asignada'}
-                                                </Typography>
-                                                <Typography sx={{ fontSize: '0.68rem', color: '#777' }} noWrap>
-                                                    {[container.entrega_calle, container.entrega_numero].filter(Boolean).join(' ') || container.entrega_cp || ''}
-                                                </Typography>
-                                            </Box>
-                                        </Tooltip>
-                                    ) : !container.legacy_client_id ? (
-                                        <Tooltip arrow title="Todo contenedor WEEK baja en el CEDIS CDMX. Se asigna al capturar la recepción.">
-                                            <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#0097A7' }}>
-                                                🔒 CEDIS CDMX
-                                            </Typography>
-                                        </Tooltip>
-                                    ) : (
+                                <TableCell sx={{ minWidth: 190 }}>
+                                    {container.entrega_calle || container.entrega_ciudad ? (() => {
+                                        const pendiente = !!container.entrega_pendiente_cedis;
+                                        const completa = [container.entrega_nombre, container.entrega_calle,
+                                            container.entrega_numero,
+                                            container.entrega_interior ? `Int. ${container.entrega_interior}` : null,
+                                            container.entrega_colonia, container.entrega_ciudad,
+                                            container.entrega_estado, container.entrega_cp]
+                                            .filter(Boolean).join(', ');
+                                        return (
+                                            <Tooltip arrow title={pendiente
+                                                ? `${completa} · Todo contenedor WEEK baja aquí; se asigna al capturar la recepción.`
+                                                : completa}>
+                                                <Box>
+                                                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: pendiente ? '#0097A7' : '#2E7D32' }}>
+                                                        {pendiente ? '🔒 ' : ''}{container.entrega_nombre || container.entrega_ciudad}
+                                                    </Typography>
+                                                    <Typography sx={{ fontSize: '0.68rem', color: '#555', lineHeight: 1.25 }}>
+                                                        {[container.entrega_calle, container.entrega_numero].filter(Boolean).join(' ')}
+                                                        {container.entrega_interior ? ` Int. ${container.entrega_interior}` : ''}
+                                                    </Typography>
+                                                    <Typography sx={{ fontSize: '0.68rem', color: '#777', lineHeight: 1.25 }}>
+                                                        {[container.entrega_colonia, container.entrega_ciudad, container.entrega_cp].filter(Boolean).join(', ')}
+                                                    </Typography>
+                                                </Box>
+                                            </Tooltip>
+                                        );
+                                    })() : (
                                         <Typography sx={{ fontSize: '0.75rem', color: '#999' }}>
                                             Sin asignar
                                         </Typography>

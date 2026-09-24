@@ -80,6 +80,42 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
     query += ' ORDER BY c.created_at DESC';
 
     const result = await pool.query(query, params);
+
+    // A un WEEK sin dirección todavía asignada se le manda la del CEDIS CDMX,
+    // que es la que le toca por el candado (tarea 647). Se resuelve una sola vez
+    // para toda la lista, y por CP de la sucursal —no por un id fijo—, así que
+    // si un día se muda la bodega esto la sigue.
+    const hayWeekSinDireccion = result.rows.some(
+      (r: any) => !r.delivery_address_id && !r.legacy_client_id);
+    if (hayWeekSinDireccion) {
+      try {
+        const cedisId = await direccionCedisCdmx();
+        if (cedisId) {
+          const a = (await pool.query(
+            `SELECT recipient_name, street, exterior_number, interior_number,
+                    neighborhood, city, state, zip_code
+               FROM addresses WHERE id = $1`, [cedisId])).rows[0];
+          if (a) {
+            for (const r of result.rows as any[]) {
+              if (r.delivery_address_id || r.legacy_client_id) continue;
+              r.entrega_pendiente_cedis = true;
+              r.entrega_nombre = a.recipient_name;
+              r.entrega_calle = a.street;
+              r.entrega_numero = a.exterior_number;
+              r.entrega_interior = a.interior_number;
+              r.entrega_colonia = a.neighborhood;
+              r.entrega_ciudad = a.city;
+              r.entrega_estado = a.state;
+              r.entrega_cp = a.zip_code;
+            }
+          }
+        }
+      } catch (e: any) {
+        // Si no se puede resolver, la fila se queda sin dirección y ya.
+        console.warn('[getContainers] no se pudo resolver el CEDIS CDMX:', e?.message);
+      }
+    }
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching containers:', error);
