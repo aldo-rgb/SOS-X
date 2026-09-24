@@ -44,6 +44,7 @@ import {
   LocalAtm as CashIcon,
   AssignmentTurnedIn as DeliveryIcon,
   LocalShipping as ShippingIcon,
+  LocalShipping as TruckIcon,
   ArrowBack as BackIcon,
   CreditCard as CardIcon,
   Add as AddIcon,
@@ -102,9 +103,14 @@ export default function DashboardCounterStaff() {
   const { t } = useTranslation();
   // Permisos por módulo para mostrar accesos directos según lo que el usuario puede ver.
   const { allowedModules: airModules } = useModulePermissions('ops_china_air', ['tdi_express', 'tdi_outbound']);
-  const { allowedModules: seaAdminModules } = useModulePermissions('admin_china_sea', ['consolidations']);
+  const { allowedModules: seaAdminModules } = useModulePermissions('admin_china_sea', ['consolidations', 'tcg']);
   const canTdiExpress = airModules.includes('tdi_express') || airModules.includes('tdi_outbound');
   const canMaritimeConsolidations = seaAdminModules.includes('consolidations');
+  // El acceso directo al Módulo TCG sale por permiso y no por correo: hoy lo
+  // tiene solo tcg@entregax.com, y si mañana dan de alta a otro operador de TCG
+  // le aparece solo, sin tocar código (tarea 654).
+  const canTcg = seaAdminModules.includes('tcg');
+  const [tcgPendientes, setTcgPendientes] = useState(0);
   // Sucursal del usuario: el botón "Pagos a Proveedor" es exclusivo de Bodega China (branch 8).
   const [branchId, setBranchId] = useState<number | null>(null);
   const isBodegaChina = branchId === 8;
@@ -169,6 +175,18 @@ export default function DashboardCounterStaff() {
       .catch(() => {});
   }, []);
 
+  // Cuántos contenedores esperan un movimiento de TCG. Se pide solo si el
+  // usuario tiene el módulo: para los demás el widget ni existe.
+  useEffect(() => {
+    if (!canTcg) return;
+    api.get('/maritime/tcg/resumen')
+      .then(r => {
+        const d = r.data || {};
+        setTcgPendientes((Number(d.cruce) || 0) + (Number(d.transito) || 0) + (Number(d.entrega) || 0));
+      })
+      .catch(() => setTcgPendientes(0));
+  }, [canTcg]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -208,6 +226,18 @@ export default function DashboardCounterStaff() {
     ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.maritime'), color: '#0277BD', action: 'maritime_consolidations' }] : []),
     // Exclusivo Bodega China: acceso a la plataforma de pagos a proveedor (tcmanual).
     ...(isBodegaChina ? [{ icon: <PaymentsIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.supplierPay'), color: '#2E7D32', action: 'proveedor_tcmanual' }] : []),
+    // Módulo TCG: además del acceso, dice cuántos contenedores están esperando
+    // un movimiento suyo. Entrar a contarlos era el paso que sobraba.
+    ...(canTcg ? [{
+      icon: <TruckIcon sx={{ fontSize: 48 }} />,
+      title: 'Módulo TCG',
+      color: '#0097A7',
+      action: 'tcg',
+      badge: tcgPendientes,
+      subtitle: tcgPendientes === 0
+        ? 'Sin pendientes'
+        : `${tcgPendientes} ${tcgPendientes === 1 ? 'contenedor espera' : 'contenedores esperan'} tu movimiento`,
+    }] : []),
   ];
 
   // Handler para acciones rápidas
@@ -222,6 +252,7 @@ export default function DashboardCounterStaff() {
       // Accesos directos a paneles (navegación a nivel App vía evento global)
       case 'tdi_express':
       case 'maritime_consolidations':
+      case 'tcg':
         window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action } }));
         break;
       case 'proveedor_tcmanual':
@@ -695,6 +726,21 @@ export default function DashboardCounterStaff() {
                     {action.icon}
                   </Avatar>
                   <Typography variant="subtitle1" fontWeight="bold">{action.title}</Typography>
+                  {/* Cuántos esperan un movimiento. El número va aquí para no
+                      tener que entrar al módulo solo a contarlos. */}
+                  {(action as any).badge !== undefined && (
+                    <>
+                      <Typography sx={{
+                        fontSize: 30, fontWeight: 900, lineHeight: 1.1,
+                        color: (action as any).badge > 0 ? action.color : '#9E9E9E',
+                      }}>
+                        {(action as any).badge}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {(action as any).subtitle}
+                      </Typography>
+                    </>
+                  )}
                 </CardActionArea>
               </Card>
             </Grid>

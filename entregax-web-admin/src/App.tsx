@@ -1004,6 +1004,21 @@ function App() {
         return;
       }
 
+      // Acceso directo al Módulo TCG (Administración → Marítimo China). Mismo
+      // camino que consolidaciones, solo cambia el módulo que se abre.
+      if (action === 'tcg') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-panel', {
+            detail: { service: 'china_sea', module: 'tcg' },
+          }));
+        }, 120);
+        return;
+      }
+
       // Acceso directo a Consolidaciones Marítimas LCL (Administración → Marítimo China)
       if (action === 'maritime_consolidations') {
         const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
