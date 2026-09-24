@@ -7795,6 +7795,77 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     }));
     const guiaExternaUrl = guiasExternas[0]?.url || null;
 
+    // 🚚 Última milla de DHL: se precotiza AQUÍ, antes de abrir la transacción.
+    //
+    // Cuando la pantalla no alcanza a cotizar Paquete Express no manda ningún
+    // campo de costo, y la rama de DHL guardaba la guía con flete $0.00 sin
+    // avisar. Las 4 guías de S105 debían llevar $574 por caja y una se despachó
+    // así (tarea 640 / TKT-2026-2811). Los otros dos caminos que asignan
+    // instrucciones —assignDeliveryInstructions y el panel del asesor— ya
+    // cotizaban en el servidor; este era el único sin la red.
+    //
+    // Un cero explícito NO se toca: es una decisión (por cobrar, o aéreo China,
+    // donde la última milla va incluida en el flete aéreo y el frontend manda
+    // '0' a propósito). Solo se cotiza cuando el campo no viene.
+    //
+    // Va antes del BEGIN porque cotizar tarda: Paquete Express se prueba a
+    // domicilio, luego Ocurre en el CP exacto y luego en hasta diez CPs
+    // cercanos. Una transacción abierta esperando una API externa bloquea filas
+    // varios segundos sin necesidad.
+    const fleteDhlPorGuia = new Map<number, number>();
+    if (addrId && Array.isArray(pkgIds) && pkgIds.length > 0 && !isCollectBool) {
+      const carrierNormBulk = String(carrierService || '').toLowerCase().replace(/[\s_]+/g, '');
+      const esPqtxDePaga = carrierNormBulk === 'paqueteexpress'
+        || carrierNormBulk === 'paquetexpress' || carrierNormBulk === 'pqtx';
+      const llegoPrecio = req.body.carrierCost !== undefined
+        || req.body.carrierCostPerBox !== undefined;
+      if (esPqtxDePaga && !llegoPrecio) {
+        try {
+          const pend = await pool.query(
+            `SELECT d.id,
+                    COALESCE(d.weight_kg, 1)  AS peso,
+                    COALESCE(d.length_cm, 30) AS l,
+                    COALESCE(d.width_cm, 30)  AS w,
+                    COALESCE(d.height_cm, 30) AS h,
+                    (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+               FROM dhl_shipments d
+              WHERE d.id = ANY($1::int[])`,
+            [pkgIds, addrId]
+          );
+          const { quotePqtxClientPrice } = require('./paqueteExpressController');
+          // Guías idénticas al mismo CP cotizan una sola vez: las 3 de S105
+          // miden y pesan lo mismo, no hay razón para preguntar tres veces.
+          const yaCotizado = new Map<string, number>();
+          for (const d of pend.rows) {
+            const peso = Math.max(0.5, Number(d.peso) || 1);
+            const l = Number(d.l) || 30, w = Number(d.w) || 30, h = Number(d.h) || 30;
+            const llave = `${d.zip}|${peso}|${l}x${w}x${h}`;
+            let perBox = yaCotizado.get(llave);
+            if (perBox === undefined) {
+              perBox = 400; // respaldo, el mismo que usan los otros dos caminos
+              if (d.zip) {
+                try {
+                  const q = await quotePqtxClientPrice({
+                    destZipCode: String(d.zip), packageCount: 1,
+                    weight: peso, length: l, width: w, height: h,
+                  });
+                  if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);
+                } catch (qErr: any) {
+                  console.warn(`[Última milla PQTX/DHL] no se pudo cotizar la guía ${d.id}, queda $${perBox}/caja:`, qErr?.message);
+                }
+              }
+              yaCotizado.set(llave, perBox);
+            }
+            fleteDhlPorGuia.set(Number(d.id), +perBox.toFixed(2));
+            console.log(`🚚 [Última milla PQTX/DHL] guía ${d.id} → $${perBox}/caja (la pantalla no mandó precio)`);
+          }
+        } catch (e: any) {
+          // Nunca romper la asignación por no poder precotizar.
+          console.warn('[Última milla PQTX/DHL] precotización omitida:', e?.message);
+        }
+      }
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -7947,7 +8018,10 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             console.log(`🚢 Maritime order ${pkgId} (${mBoxes} cajas) → shipping=$${mShip}`);
           } else {
             // Try dhl_shipments (1 paquete = costo por caja × 1)
-            const dhlCost = +(carrierCostPerBox * 1).toFixed(2);
+            let dhlCost = +(carrierCostPerBox * 1).toFixed(2);
+            // Si la pantalla no mandó precio, se usa el que se cotizó arriba.
+            const fletePrecotizado = fleteDhlPorGuia.get(Number(pkgId));
+            if (fletePrecotizado !== undefined) dhlCost = fletePrecotizado;
             // total_cost_mxn se recalcula junto con el costo nacional. Era el
             // único de los cinco caminos que escriben national_cost_mxn que no
             // lo hacía, y por eso la columna acabó significando dos cosas: en

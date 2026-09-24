@@ -4036,7 +4036,17 @@ export default function DashboardClient() {
       const ok = window.confirm(`Paquete Express no tiene entrega a domicilio para esta dirección.\n\n` +
           `La guía saldrá como OCURRE: el destinatario tendrá que RECOGER en la sucursal (C.P. ${pqtxOcurreInfo.usedZip}${pqtxOcurreInfo.branch?.cityName ? ', ' + pqtxOcurreInfo.branch?.cityName : ''}).\n\n` +
           `¿Continuar así?`);
-      if (!ok) return;
+      // Cancelar salía con un `return` seco: ni mensaje, ni spinner, ni cierre
+      // del modal. El clic parecía no haber existido y el cliente reportaba que
+      // "no deja aplicar instrucciones" (tarea 640). Ahora se dice qué pasó.
+      if (!ok) {
+        setSnackbar({
+          open: true,
+          message: 'No se guardó nada. Para usar Paquete Express en esta dirección hay que aceptar la entrega en sucursal (Ocurre), o elegir otra paquetería.',
+          severity: 'info',
+        });
+        return;
+      }
     }
 
     setDeliveryLoading(true);
