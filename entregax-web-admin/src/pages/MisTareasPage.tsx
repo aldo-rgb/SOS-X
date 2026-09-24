@@ -69,7 +69,16 @@ const etiquetaEspera = (t: any, larga = false): string =>
     ? (larga ? '⏳ Esperando TU confirmación' : '⏳ Esperando tu confirmación')
     : (larga ? '⏳ En espera de confirmación' : '⏳ En espera');
 // Los asesores no pueden involucrar a otras personas al crear una tarea.
-const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''));
+//
+// Con una excepción: el gerente de ventas. Coordina al equipo y necesita meter
+// a quien corresponda en la tarea que levanta; sin eso tiene que pedirle a
+// alguien más que la cree. Va por correo y no por rol porque en la base no se
+// distingue de cualquier otro asesor: mismo rol, sin equipo asignado ni marca
+// que lo separe. Si mañana hay otro gerente, se agrega aquí.
+const GERENTES_DE_VENTAS = ['christiangonzalez@entregax.com'];
+const ES_GERENTE_VENTAS = GERENTES_DE_VENTAS.includes(String(ME?.email || '').trim().toLowerCase());
+const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''))
+  && !ES_GERENTE_VENTAS;
 // Alias de visualización en la sección de Tareas: Aldo Campos (Super Admin) se
 // muestra como "Sistemas".
 const displayTaskName = (name?: string | null): string => (String(name || '').trim() === 'Aldo Campos' ? 'Sistemas' : String(name || ''));
