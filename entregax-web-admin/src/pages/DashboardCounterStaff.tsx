@@ -612,7 +612,9 @@ export default function DashboardCounterStaff() {
           {t('counterDash.greetingPre')}<span style={{ color: '#F05A28' }}>{userName}</span>{t('counterDash.greetingPost')} 🎯
         </Typography>
 
-        {/* Buscador Principal */}
+        {/* Buscador Principal. Busca paquetes de CUALQUIER cliente por nombre
+            o casillero, asi que no se le pone enfrente a una cuenta de tercero. */}
+        {!soloTcg && (
         <Paper sx={{ p: 2, mt: 2 }}>
           <TextField
             fullWidth
@@ -641,12 +643,15 @@ export default function DashboardCounterStaff() {
             }}
           />
         </Paper>
+        )}
       </Box>
 
       {/* Guías listas para enviar.
           Aparecer en la pantalla de salida no bastaba: entre las que llevan ahí
           semanas se pierde la que se volvió enviable hoy. Este widget pone el
-          número enfrente y lleva directo a armar la consolidación. */}
+          número enfrente y lleva directo a armar la consolidación.
+          Una cuenta de TCG no arma salidas: no lo ve. */}
+      {!soloTcg && (
       <Paper
         onClick={() => listas.length > 0 && setListasOpen(true)}
         sx={{
@@ -679,6 +684,7 @@ export default function DashboardCounterStaff() {
           </Button>
         )}
       </Paper>
+      )}
 
       <Dialog open={listasOpen} onClose={() => setListasOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>
