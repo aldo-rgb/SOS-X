@@ -389,7 +389,6 @@ export default function MisTareasPage() {
   // confirmación de OTRA persona —ya las hiciste, no te toca nada—. Las que
   // esperan TU confirmación se siguen viendo, y también las que traen
   // comentarios sin leer, para no perder una respuesta.
-  const [showEspera, setShowEspera] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
   const [showPersonal, setShowPersonal] = useState(false);
@@ -837,18 +836,18 @@ export default function MisTareasPage() {
     // Se terminó una tarea donde estoy involucrado y aún no la abro: se queda a
     // la vista hasta que la vea. Antes se esfumaba al cerrarse (tarea 670).
     || (t as any).cierre_sin_ver === true
-    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID)
+    // Una tarea en espera de confirmación se le muestra a TODOS sus
+    // involucrados, no solo a quien la asignó. Es el tramo en el que el trabajo
+    // ya se hizo pero todavía no se cierra, y es justo cuando el involucrado
+    // quiere verla (tarea 670).
+    || t.status === 'awaiting_confirmation'
     || (t as any).espera_tu_respuesta === true;
-  const esperaAOtro = (t: Task) =>
-    t.status === 'awaiting_confirmation'
-    && Number((t as any).created_by) !== MY_ID
-    && (t.unread_count || 0) === 0
-    && (t as any).espera_tu_respuesta !== true;
   // Buscando no se oculta nada: igual que con las completadas, la búsqueda
   // tiene que encontrar todo.
-  const mineTasks = globalView
-    ? catTasks
-    : catTasks.filter(t => isMine(t) && (showEspera || q.length >= 2 || !esperaAOtro(t)));
+  // Ya no se esconden las que esperan la confirmación de otro: se muestran
+  // siempre a sus involucrados. Van al fondo de la lista por su rango, que es
+  // suficiente para que no estorben.
+  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
   const matchesSearch = (t: Task) => {
     if (!q) return true;
     const parts: string[] = [
@@ -942,17 +941,6 @@ export default function MisTareasPage() {
             : { borderColor: '#2E7D46', color: '#2E7D46' }) }}
         >
           Ver completadas
-        </Button>
-        <Button
-          size="small"
-          variant={showEspera ? 'contained' : 'outlined'}
-          onClick={() => setShowEspera(v => !v)}
-          startIcon={<span>⏳</span>}
-          sx={{ textTransform: 'none', ...(showEspera
-            ? { bgcolor: '#C77800', '&:hover': { bgcolor: '#A86500' } }
-            : { borderColor: '#C77800', color: '#C77800' }) }}
-        >
-          Ver en espera
         </Button>
         {isWorkHours && (
           <Button

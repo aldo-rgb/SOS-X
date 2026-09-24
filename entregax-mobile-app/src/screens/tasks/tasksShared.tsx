@@ -2350,7 +2350,10 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
     // cierre_sin_ver: se terminó una tarea donde estoy involucrado y todavía no
     // la he abierto. Sin esto, un involucrado solo veía la tarea si tenía
     // comentarios sin leer, así que el cierre se le esfumaba (tarea 670).
-    ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0 || (t as any).cierre_sin_ver === true || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId)))
+    // Y una en espera de confirmación se le muestra a TODOS sus involucrados,
+    // no solo a quien la asignó: es el tramo en el que el trabajo ya se hizo
+    // pero aún no se cierra. Va al fondo por su rango, así que no estorba.
+    ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0 || (t as any).cierre_sin_ver === true || t.status === 'awaiting_confirmation')
     : tasks;
   // Orden (menor = más arriba): sin leer primero; luego en espera que ME toca
   // confirmar (soy quien la asignó); luego lo normal; al fondo las en espera
