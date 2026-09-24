@@ -111,6 +111,13 @@ export default function DashboardCounterStaff() {
   // le aparece solo, sin tocar código (tarea 654).
   const canTcg = seaAdminModules.includes('tcg');
   const [tcgPendientes, setTcgPendientes] = useState(0);
+  // Una cuenta de TCG no opera bodega: no etiqueta, no escanea, no entrega pick
+  // ups y no le toca ningún KPI de DHL ni de packing list. Se reconoce porque
+  // tiene el módulo TCG y ningún permiso de Operaciones, que es justo lo que le
+  // distingue de un mostrador de verdad: de los 8 usuarios con este rol, los
+  // otros 7 sí traen su permiso ops_.
+  const [tieneOperaciones, setTieneOperaciones] = useState(true);
+  const soloTcg = canTcg && !tieneOperaciones;
   // Sucursal del usuario: el botón "Pagos a Proveedor" es exclusivo de Bodega China (branch 8).
   const [branchId, setBranchId] = useState<number | null>(null);
   const isBodegaChina = branchId === 8;
@@ -175,6 +182,19 @@ export default function DashboardCounterStaff() {
       .catch(() => {});
   }, []);
 
+  // ¿Tiene algo en Operaciones? Es el mismo criterio con el que el menú decide
+  // si le muestra el botón, para que el dashboard no diga una cosa y el menú
+  // otra.
+  useEffect(() => {
+    api.get('/panels/me')
+      .then(r => {
+        const llaves: string[] = (r.data?.panels || r.data || [])
+          .map((p: any) => String(p?.panel_key ?? p ?? ''));
+        setTieneOperaciones(llaves.some(k => k.startsWith('ops_')));
+      })
+      .catch(() => setTieneOperaciones(true)); // ante la duda, no se esconde nada
+  }, []);
+
   // Cuántos contenedores esperan un movimiento de TCG. Se pide solo si el
   // usuario tiene el módulo: para los demás el widget ni existe.
   useEffect(() => {
@@ -218,9 +238,10 @@ export default function DashboardCounterStaff() {
   };
 
   const quickActions = [
-    { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.labeling'), color: '#F05A28', action: 'relabeling' },
+    // Etiquetado y Escáner son trabajo de bodega: una cuenta de TCG no los tiene.
+    ...(soloTcg ? [] : [{ icon: <PrintIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.labeling'), color: '#F05A28', action: 'relabeling' }]),
     // Escáner Multi-Sucursal: oculto para Bodega China (no aplica a su operación).
-    ...(!isBodegaChina ? [{ icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.multiScanner'), color: '#2196F3', action: 'scanner_multi' }] : []),
+    ...(!isBodegaChina && !soloTcg ? [{ icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.multiScanner'), color: '#2196F3', action: 'scanner_multi' }] : []),
     // Accesos directos según permisos del usuario
     ...(canTdiExpress ? [{ icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.dhlExpress'), color: '#FFCC00', iconColor: '#D40511', action: 'tdi_express' }] : []),
     ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.maritime'), color: '#0277BD', action: 'maritime_consolidations' }] : []),
@@ -748,7 +769,9 @@ export default function DashboardCounterStaff() {
         </Grid>
       </Paper>
 
-      {/* Indicadores TDI Express (bodega China) */}
+      {/* Indicadores TDI Express (bodega China). Una cuenta de TCG no opera
+          ninguno de estos: ni DHL, ni packing list, ni pagos a proveedor. */}
+      {!soloTcg && (
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
           { label: t('counterDash.widgets.readyDhl'), value: stats?.tdi?.listas_envio ?? 0, color: '#F9A825', action: 'tdi_outbound' },
@@ -774,10 +797,12 @@ export default function DashboardCounterStaff() {
           </Grid>
         ))}
       </Grid>
+      )}
 
       {/* Bodega China: listado de guías listas para envío a México (DHL).
-          Resto de mostradores: PickUp listos para entrega. */}
-      {isBodegaChina ? (
+          Resto de mostradores: PickUp listos para entrega.
+          Una cuenta de TCG no entrega en mostrador, así que no ve ninguna. */}
+      {soloTcg ? null : isBodegaChina ? (
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6" fontWeight="bold">
