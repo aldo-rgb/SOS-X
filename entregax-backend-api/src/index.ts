@@ -14558,8 +14558,36 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
               ? `SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code = 'TDI-EXPRES' LIMIT 1`
               : `SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code <> 'TDI-EXPRES' ORDER BY id ASC LIMIT 1`
           );
-          const cost = parseFloat(routeRes.rows[0]?.cost_per_kg_usd || '0');
-          precioPorKg = cost > 0 ? cost + (markupByType[tariffType] ?? 8) : 8;
+          const margen = markupByType[tariffType] ?? 8;
+          let cost = parseFloat(routeRes.rows[0]?.cost_per_kg_usd || '0');
+          // Sin costo capturado se usa el ÚLTIMO que existió, no un número
+          // inventado. El respaldo anterior eran $8 fijos y por ahí salieron
+          // cotizaciones a la mitad de su precio (tarea 671). El historial de
+          // la ruta guarda cada cambio, así que la última tarifa real siempre
+          // está a la mano.
+          if (!(cost > 0)) {
+            const ultimo = await pool.query(
+              `SELECT h.cost_per_kg_usd
+                 FROM air_route_price_history h
+                 JOIN air_routes ar ON ar.id = h.route_id
+                WHERE ar.is_active = true
+                  AND ($1::boolean IS TRUE AND ar.code = 'TDI-EXPRES'
+                       OR $1::boolean IS NOT TRUE AND ar.code <> 'TDI-EXPRES')
+                  AND COALESCE(h.cost_per_kg_usd, 0) > 0
+                ORDER BY h.changed_at DESC, h.id DESC LIMIT 1`,
+              [isExpress]
+            ).catch(() => ({ rows: [] as any[] }));
+            cost = parseFloat(ultimo.rows[0]?.cost_per_kg_usd || '0');
+            if (cost > 0) {
+              console.warn(`[quote-aereo] la ruta no tiene costo capturado; se usa el último del historial: $${cost}/kg`);
+            }
+          }
+          if (!(cost > 0)) {
+            return res.status(404).json({
+              error: 'No hay costo por kilo configurado para la ruta aérea, y tampoco un histórico del que tomarlo. Captúralo en Administración antes de cotizar.',
+            });
+          }
+          precioPorKg = cost + margen;
         } else {
           const tariffRes = await pool.query(
             isExpress
@@ -14567,10 +14595,28 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
               : `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id WHERE ar.is_active = true AND ar.code <> 'TDI-EXPRES' AND at.tariff_type = $1 AND at.is_active = true ORDER BY ar.id ASC LIMIT 1`,
             [tariffType]
           );
-          // Sin tarifa configurada NO se inventa un precio. El respaldo de $8
-          // por kilo es lo que dejó salir una cotización a la mitad de su
-          // precio, y el cliente exige que se le respete lo que vio.
+          // Sin tarifa activa se toma la última que existió para ese tipo,
+          // aunque ya esté desactivada. Un precio viejo y real es mejor que uno
+          // inventado; lo que no se vale es sacarse $8 de la manga.
           precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '0');
+          if (!(precioPorKg > 0)) {
+            const ultima = await pool.query(
+              isExpress
+                ? `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id
+                    WHERE ar.is_active = true AND ar.code = 'TDI-EXPRES' AND at.tariff_type = $1
+                      AND COALESCE(at.price_per_kg, 0) > 0
+                    ORDER BY at.updated_at DESC, at.id DESC LIMIT 1`
+                : `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id
+                    WHERE ar.is_active = true AND ar.code <> 'TDI-EXPRES' AND at.tariff_type = $1
+                      AND COALESCE(at.price_per_kg, 0) > 0
+                    ORDER BY at.updated_at DESC, at.id DESC LIMIT 1`,
+              [tariffType]
+            ).catch(() => ({ rows: [] as any[] }));
+            precioPorKg = parseFloat(ultima.rows[0]?.price_per_kg || '0');
+            if (precioPorKg > 0) {
+              console.warn(`[quote-aereo] sin tarifa activa para "${tariffType}"; se usa la última conocida: $${precioPorKg}/kg`);
+            }
+          }
           if (!(precioPorKg > 0)) {
             return res.status(404).json({
               error: `No hay tarifa aérea configurada para la categoría "${tariffType}". Configúrala en Administración antes de cotizar.`,
