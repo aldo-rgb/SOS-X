@@ -14539,7 +14539,16 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
         // Obtener tarifa (markup vivo sobre air_routes.cost_per_kg_usd para L/G/F).
         // S (sensible) sigue siendo manual desde air_tariffs.
         // Subservicio: 'tdi_express' usa ruta code='TDI-EXPRES'; default = primera ruta activa NO express.
-        const tariffType = categoria || 'G';
+        // La categoría llega de dos formas: la letra ('G') desde el cotizador
+        // del cliente, y el NOMBRE ('Generico', 'Logotipo') desde la pantalla de
+        // cotizaciones del asesor, que reusa las categorías del marítimo. Con el
+        // nombre, 'Generico' no empataba con ninguna letra, la búsqueda en
+        // air_tariffs no encontraba nada y caía al respaldo de $8 por kilo: la
+        // COT-2609-3CN2W salió en $437.20 cuando debía ser $907.19 (tarea 671).
+        // El cotizador SIEMPRE cotiza Genérico. Logotipo y las demás categorías
+        // se negocian caso por caso y no se ofrecen desde aquí, así que la
+        // categoría que llegue se ignora a propósito.
+        const tariffType = 'G';
         const isExpress = subservicio === 'tdi_express';
         const markupByType: Record<string, number> = { L: 9, G: 8, F: 7 };
         let precioPorKg = 0;
@@ -14558,7 +14567,15 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
               : `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id WHERE ar.is_active = true AND ar.code <> 'TDI-EXPRES' AND at.tariff_type = $1 AND at.is_active = true ORDER BY ar.id ASC LIMIT 1`,
             [tariffType]
           );
-          precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '8');
+          // Sin tarifa configurada NO se inventa un precio. El respaldo de $8
+          // por kilo es lo que dejó salir una cotización a la mitad de su
+          // precio, y el cliente exige que se le respete lo que vio.
+          precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '0');
+          if (!(precioPorKg > 0)) {
+            return res.status(404).json({
+              error: `No hay tarifa aérea configurada para la categoría "${tariffType}". Configúrala en Administración antes de cotizar.`,
+            });
+          }
         }
         const precioUsd = pesoCobrable * precioPorKg;
 
@@ -14569,7 +14586,8 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
           peso_volumetrico: pesoVol.toFixed(2),
           peso_cobrable: pesoCobrable.toFixed(2),
           cantidad,
-          categoria: tariffType === 'L' ? 'Logotipo' : tariffType === 'S' ? 'Sensible' : tariffType === 'F' ? 'Flat' : 'Genérico',
+          // El cotizador solo ofrece Genérico, así que la etiqueta es fija.
+          categoria: 'Genérico',
           precio_por_kg: precioPorKg,
           precio_usd: precioUsd.toFixed(2),
           precio_mxn: (precioUsd * fxRate).toFixed(2),
