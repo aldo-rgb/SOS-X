@@ -103,6 +103,15 @@ interface Container {
     route_name?: string;
     week_number?: string;
     reference_code?: string;
+    // Dirección de entrega ya asignada al contenedor (tarea 647).
+    delivery_address_id?: number | null;
+    entrega_nombre?: string | null;
+    entrega_calle?: string | null;
+    entrega_numero?: string | null;
+    entrega_colonia?: string | null;
+    entrega_ciudad?: string | null;
+    entrega_estado?: string | null;
+    entrega_cp?: string | null;
     // BL Data extracted from documents
     shipper?: string;
     consignee?: string;
@@ -1552,6 +1561,7 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                             <TableCell><strong>{t('maritime.blNumber')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.route')}</strong></TableCell>
                             <TableCell><strong>Week</strong></TableCell>
+                            <TableCell><strong>Entrega</strong></TableCell>
                             <TableCell><strong>{t('maritime.eta')}</strong></TableCell>
                             <TableCell><strong>Fecha alta</strong></TableCell>
                             <TableCell><strong>{t('maritime.status')}</strong></TableCell>
@@ -1667,6 +1677,38 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                                         />
                                     )}
                                 </TableCell>
+                                {/* Dirección de entrega, visible desde que el contenedor se
+                                    sube al sistema (tarea 647). Un WEEK siempre baja en el
+                                    CEDIS CDMX —está con candado—, así que aunque todavía no
+                                    se le haya asignado se dice a dónde va a ir: esperar a la
+                                    recepción para saberlo era el paso que faltaba. */}
+                                <TableCell sx={{ minWidth: 150 }}>
+                                    {container.delivery_address_id ? (
+                                        <Tooltip arrow title={[container.entrega_nombre, container.entrega_calle,
+                                            container.entrega_numero, container.entrega_colonia,
+                                            container.entrega_ciudad, container.entrega_estado,
+                                            container.entrega_cp].filter(Boolean).join(', ')}>
+                                            <Box>
+                                                <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: '#2E7D32' }}>
+                                                    {container.entrega_ciudad || container.entrega_nombre || 'Asignada'}
+                                                </Typography>
+                                                <Typography sx={{ fontSize: '0.68rem', color: '#777' }} noWrap>
+                                                    {[container.entrega_calle, container.entrega_numero].filter(Boolean).join(' ') || container.entrega_cp || ''}
+                                                </Typography>
+                                            </Box>
+                                        </Tooltip>
+                                    ) : !container.legacy_client_id ? (
+                                        <Tooltip arrow title="Todo contenedor WEEK baja en el CEDIS CDMX. Se asigna al capturar la recepción.">
+                                            <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#0097A7' }}>
+                                                🔒 CEDIS CDMX
+                                            </Typography>
+                                        </Tooltip>
+                                    ) : (
+                                        <Typography sx={{ fontSize: '0.75rem', color: '#999' }}>
+                                            Sin asignar
+                                        </Typography>
+                                    )}
+                                </TableCell>
                                 <TableCell>
                                     {container.eta ? new Date(container.eta).toLocaleDateString() : '-'}
                                 </TableCell>
@@ -1711,7 +1753,7 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                         ))}
                         {containers.length === 0 && !loading && (
                             <TableRow>
-                                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                                     <Typography color="text.secondary">
                                         {t('maritime.noContainers')}
                                     </Typography>

@@ -28,12 +28,22 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
         mu.phone as monitor_phone,
         (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.container_id = c.id) as shipment_count,
         cc.is_fully_costed,
-        cc.calculated_release_cost
+        cc.calculated_release_cost,
+        -- Dirección de entrega, para verla desde que el contenedor se sube al
+        -- sistema y no hasta que alguien abre la recepción (tarea 647).
+        da.recipient_name AS entrega_nombre,
+        da.street AS entrega_calle,
+        da.exterior_number AS entrega_numero,
+        da.neighborhood AS entrega_colonia,
+        da.city AS entrega_ciudad,
+        da.state AS entrega_estado,
+        da.zip_code AS entrega_cp
       FROM containers c
       LEFT JOIN container_costs cc ON cc.container_id = c.id
       LEFT JOIN maritime_routes mr ON mr.id = c.route_id
       LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
       LEFT JOIN users mu ON mu.id = c.monitor_user_id
+      LEFT JOIN addresses da ON da.id = c.delivery_address_id
       WHERE 1=1
     `;
     const params: any[] = [];
