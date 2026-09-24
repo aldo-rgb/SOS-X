@@ -2228,7 +2228,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
     const taskId = parseInt(String(req.params.id));
-    const t = await pool.query(`SELECT board_id, title, assignee_id, status FROM tasks WHERE id = $1`, [taskId]);
+    const t = await pool.query(`SELECT board_id, title, assignee_id, created_by, status FROM tasks WHERE id = $1`, [taskId]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const b = req.body || {};
     // El comentario puede traer archivo (el botón "+" de la app, estilo
@@ -2300,6 +2300,32 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     // que confirmar la devuelve con el botón, y mientras tanto el comentario se
     // ve igual por el contador de no leídos.
     const reopenedFromAwaiting = false;
+
+    // ── Pero un comentario en una tarea YA CERRADA sí tiene que avisar ──────
+    //
+    // En la 649 Ángel escribió cuatro veces diciendo que el cliente seguía sin
+    // poder, y no se enteró nadie: los comentarios solo notifican a quien se
+    // menciona con @, y una tarea cerrada tampoco aparece en la lista de nadie.
+    // El reporte se quedó dentro de una tarjeta que ya nadie iba a abrir.
+    //
+    // No se reabre sola, y es a propósito: de 22 comentarios escritos después
+    // de cerrar una tarea, 9 son acuses ("gracias", "Enterado, confirmo").
+    // Reabrir con cualquiera de ellos devolvería a pendientes tareas que nadie
+    // pidió revivir. Se avisa a quien la hizo y a quien la pidió, y ellos
+    // deciden con el botón de Reabrir, que ya existe.
+    const tarea = t.rows[0] || {};
+    if (String(tarea.status || '') === 'completed') {
+      const destinos = new Set<number>();
+      if (Number(tarea.assignee_id)) destinos.add(Number(tarea.assignee_id));
+      if (Number(tarea.created_by)) destinos.add(Number(tarea.created_by));
+      destinos.delete(Number(uid));
+      const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
+      for (const d of destinos) {
+        await notify(d, `💬 ${quien} escribió en una tarea que ya cerraste`,
+          `"${String(tarea.title || '').slice(0, 60)}" · ${String(b.body || '').trim().slice(0, 80)}`,
+          { task_id: taskId, comentario_en_cerrada: true }, 'task_comment').catch(() => {});
+      }
+    }
     // Notificar SOLO a los mencionados con @ (push en horario laboral + in-app siempre).
     // Los demás involucrados se enteran por el badge de "comentarios sin leer".
     const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
