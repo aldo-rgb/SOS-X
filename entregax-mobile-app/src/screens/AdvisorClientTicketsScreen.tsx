@@ -190,6 +190,25 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     } finally { setTicketAccion(''); }
   };
 
+  /**
+   * Días que lleva el ticket sin que el equipo conteste. Se mide desde la
+   * última respuesta del equipo; si nunca hubo, desde que se abrió. Escalar es
+   * para lo que lleva días parado: el botón aparece a partir de 3.
+   */
+  const DIAS_PARA_ESCALAR = 3;
+  const diasSinRespuesta = (() => {
+    if (!selectedTicket) return 0;
+    const respuestas = (ticketMessages || [])
+      .filter((m: any) => (m.sender_type === 'agent' || m.sender_type === 'employee') && !m.is_internal)
+      .map((m: any) => new Date(m.created_at).getTime())
+      .filter((n: number) => Number.isFinite(n));
+    const desde = respuestas.length
+      ? Math.max(...respuestas)
+      : new Date((selectedTicket as any).created_at).getTime();
+    if (!Number.isFinite(desde)) return 0;
+    return Math.floor((Date.now() - desde) / 86400000);
+  })();
+
   const escalarInconformidad = () => {
     if (!selectedTicket || ticketAccion) return;
     Alert.alert(
@@ -866,19 +885,21 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
                     {ticketAccion === 'actualizar' ? 'Pidiendo…' : 'Actualizar'}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={escalarInconformidad}
-                  disabled={!!ticketAccion}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 5,
-                    borderWidth: 1, borderColor: '#E65100', borderRadius: 8,
-                    paddingHorizontal: 10, paddingVertical: 6, opacity: ticketAccion ? 0.5 : 1,
-                  }}>
-                  <Ionicons name="alert-circle-outline" size={15} color="#E65100" />
-                  <Text style={{ color: '#E65100', fontWeight: '700', fontSize: 12 }}>
-                    {ticketAccion === 'escalar' ? 'Escalando…' : 'Escalar'}
-                  </Text>
-                </TouchableOpacity>
+                {diasSinRespuesta >= DIAS_PARA_ESCALAR && (
+                  <TouchableOpacity
+                    onPress={escalarInconformidad}
+                    disabled={!!ticketAccion}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      borderWidth: 1, borderColor: '#E65100', borderRadius: 8,
+                      paddingHorizontal: 10, paddingVertical: 6, opacity: ticketAccion ? 0.5 : 1,
+                    }}>
+                    <Ionicons name="alert-circle-outline" size={15} color="#E65100" />
+                    <Text style={{ color: '#E65100', fontWeight: '700', fontSize: 12 }}>
+                      {ticketAccion === 'escalar' ? 'Escalando…' : `Escalar · ${diasSinRespuesta}d`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={styles.replyBar}>
                 <TouchableOpacity style={styles.replyAttachBtn} onPress={pickReplyImage}>

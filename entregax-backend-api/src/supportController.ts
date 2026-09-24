@@ -3850,6 +3850,9 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
 /** Cada cuántos minutos se puede volver a pedir actualización del mismo ticket. */
 const MINUTOS_ENTRE_ACTUALIZACIONES = 60;
 
+/** Días sin respuesta del equipo a partir de los cuales se puede escalar. */
+const DIAS_PARA_ESCALAR = 3;
+
 /**
  * POST /api/support/ticket/:id/pedir-actualizacion
  *
@@ -3920,10 +3923,28 @@ export const escalarInconformidadTicket = async (req: Request, res: Response): P
     if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
 
     const t = (await pool.query(
-      `SELECT t.id, t.ticket_folio, t.subject, u.full_name AS cliente, u.box_id
+      `SELECT t.id, t.ticket_folio, t.subject, t.created_at, u.full_name AS cliente, u.box_id
          FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId])).rows[0];
     if (!t) return res.status(404).json({ error: 'Ticket no encontrado' });
     const folio = t.ticket_folio || `#${ticketId}`;
+
+    // Escalar es para lo que lleva días parado, no para apurar algo de ayer.
+    // Se mide desde la última respuesta del equipo; si nunca hubo, desde que se
+    // abrió el ticket. El mismo cálculo que usa la pantalla para mostrar el
+    // botón, pero también aquí: un botón escondido no es un permiso.
+    const diasSinRespuesta = Number((await pool.query(
+      `SELECT FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(
+                (SELECT MAX(created_at) FROM ticket_messages
+                  WHERE ticket_id = $1 AND sender_type = 'agent'
+                    AND COALESCE(is_internal, FALSE) = FALSE),
+                $2::timestamptz))) / 86400)::int AS dias`,
+      [ticketId, t.created_at])).rows[0]?.dias) || 0;
+    if (diasSinRespuesta < DIAS_PARA_ESCALAR) {
+      return res.status(400).json({
+        error: `Este ticket se puede escalar después de ${DIAS_PARA_ESCALAR} días sin respuesta del equipo. Lleva ${diasSinRespuesta}. Usa "Actualizar" para pedir el avance.`,
+        dias_sin_respuesta: diasSinRespuesta,
+      });
+    }
     const title = `Ticket de servicio con inconformidad reportado ${folio}`;
 
     const ya = await pool.query(

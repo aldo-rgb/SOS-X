@@ -885,6 +885,27 @@ export default function DashboardAdvisor() {
     } finally { setTicketAccion(''); }
   };
 
+  /**
+   * Días que lleva el ticket sin que el equipo conteste.
+   *
+   * Se mide desde la última respuesta del equipo; si nunca hubo, desde que se
+   * abrió. Escalar es para lo que lleva días parado, no para apurar algo de
+   * ayer: el botón solo aparece a partir de 3 días.
+   */
+  const DIAS_PARA_ESCALAR = 3;
+  const diasSinRespuestaTicket = (() => {
+    if (!selectedAdvisorTicket) return 0;
+    const respuestas = (ticketMessages || [])
+      .filter((m: any) => (m.sender_type === 'agent' || m.sender_type === 'employee') && !m.is_internal)
+      .map((m: any) => new Date(m.created_at).getTime())
+      .filter((n: number) => Number.isFinite(n));
+    const desde = respuestas.length
+      ? Math.max(...respuestas)
+      : new Date(selectedAdvisorTicket.created_at).getTime();
+    if (!Number.isFinite(desde)) return 0;
+    return Math.floor((Date.now() - desde) / 86_400_000);
+  })();
+
   const escalarTicketInconforme = async () => {
     if (!selectedAdvisorTicket || ticketAccion) return;
     if (!window.confirm('¿Está seguro que desea escalar este ticket?\n\nSe va a levantar una tarea urgente para Juan Carlos, con Dirección enterada.')) return;
@@ -8742,17 +8763,19 @@ export default function DashboardAdvisor() {
                   >
                     {ticketAccion === 'actualizar' ? 'Pidiendo…' : 'Actualizar'}
                   </Button>
-                  <Tooltip arrow title="Si no estás conforme con la respuesta de Servicio a Cliente, puedes escalar este ticket.">
-                    <span>
-                      <Button
-                        size="small" variant="outlined" startIcon={<WarningIcon />}
-                        disabled={!!ticketAccion} onClick={escalarTicketInconforme}
-                        sx={{ textTransform: 'none', borderColor: '#E65100', color: '#E65100' }}
-                      >
-                        {ticketAccion === 'escalar' ? 'Escalando…' : 'Escalar'}
-                      </Button>
-                    </span>
-                  </Tooltip>
+                  {diasSinRespuestaTicket >= DIAS_PARA_ESCALAR && (
+                    <Tooltip arrow title={`Lleva ${diasSinRespuestaTicket} días sin respuesta del equipo. Si no estás conforme, puedes escalar este ticket.`}>
+                      <span>
+                        <Button
+                          size="small" variant="outlined" startIcon={<WarningIcon />}
+                          disabled={!!ticketAccion} onClick={escalarTicketInconforme}
+                          sx={{ textTransform: 'none', borderColor: '#E65100', color: '#E65100' }}
+                        >
+                          {ticketAccion === 'escalar' ? 'Escalando…' : 'Escalar'}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
                 </Box>
                 {(selectedAdvisorTicket.status === 'resolved' || selectedAdvisorTicket.status === 'closed') && (
                   <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
