@@ -147,6 +147,24 @@ function normalizarPregunta(p: string): string {
 }
 
 /**
+ * Muletillas: mensajes con los que alguien contesta sin preguntar nada.
+ *
+ * Christian escribió "Ok" para aceptar que Cajito buscara un folio; la
+ * respuesta llevaba "no tengo forma de" y se registró CJD-2026-0023 con la
+ * pregunta "Ok", más una tarea urgente a 24 horas (tarea 637). Antes había
+ * pasado igual con "si" (CJD-2026-0020). Una muletilla no se le puede enseñar
+ * a nadie: la pregunta de verdad está en el turno anterior, y si ese turno
+ * falló se registra por su cuenta.
+ */
+const MULETILLAS = new Set([
+  'ok', 'okay', 'okey', 'oki', 'ok gracias', 'okas',
+  'si', 'sip', 'si porfavor', 'si por favor', 'si gracias', 'sale', 'sale pues',
+  'no', 'nop', 'aja', 'ya', 'ya esta', 'listo', 'va', 'vale', 'dale',
+  'bien', 'bueno', 'claro', 'correcto', 'exacto', 'perfecto', 'entendido',
+  'adelante', 'gracias', 'muchas gracias', 'ok muchas gracias',
+]);
+
+/**
  * Registra una pregunta que Cajito no pudo resolver.
  *
  * Si esa misma pregunta ya está pendiente, no crea otra fila: suma una a
@@ -165,6 +183,11 @@ async function registrarHueco(datos: {
   try {
     const norm = normalizarPregunta(datos.pregunta);
     if (!norm) return null;
+    // Sin pregunta que enseñar no hay duda que anotar ni tarea que abrir.
+    if (MULETILLAS.has(norm)) {
+      console.log(`[CAJITO-GAP] no se anota "${datos.pregunta.slice(0, 40)}": es muletilla, no pregunta`);
+      return null;
+    }
     const r = await pool.query(
       `INSERT INTO cajito_gaps
          (conversation_id, user_id, pregunta, pregunta_norm, motivo, detalle, tool_name, respuesta)
