@@ -5068,7 +5068,10 @@ export default function DashboardClient() {
     if (serviceType === 'usa_pobox') {
       // PO Box USA - reemplazar placeholder con Suite
       const addressLine = address.address_line1.replace(/\(S-Numero de Cliente\)/gi, suite);
-      return `${clientName}\n${addressLine}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
+      // El teléfono de la bodega: las tiendas en línea de EU lo piden obligatorio
+      // al capturar el destino y el cliente no tenía de dónde sacarlo (tarea 663).
+      const tel = address.contact_phone ? `\nTel: ${address.contact_phone}` : '';
+      return `${clientName}\n${addressLine}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA${tel}`;
     } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {
       // China - incluir Shipping Mark
       return `${address.address_line1}\n${address.address_line2 || ''}\n📦 Shipping Mark / 唛头: ${suite}\n${t('cd.address.contact')}: ${address.contact_name || ''}\nTel: ${address.contact_phone || ''}`;
@@ -5091,6 +5094,7 @@ export default function DashboardClient() {
           {addressLine}<br />
           {address.city}, {address.state} {address.zip_code}<br />
           <span style={{ color: '#90CAF9' }}>USA</span>
+          {address.contact_phone && <><br />📞 {address.contact_phone}</>}
         </>
       );
     } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {

@@ -1832,7 +1832,10 @@ export default function DashboardAdvisor() {
     const name = clientName.toUpperCase();
     if (serviceType === 'usa_pobox') {
       const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
-      return `${name}\n${line}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
+      // El teléfono de la bodega: las tiendas en línea de EU lo piden obligatorio
+      // al capturar el destino y no había de dónde sacarlo (tarea 663).
+      const tel = address.contact_phone ? `\nTel: ${address.contact_phone}` : '';
+      return `${name}\n${line}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA${tel}`;
     } else if (serviceType === 'china_air' || serviceType === 'china_sea' || serviceType === 'tdi_express') {
       return `${address.address_line1 || ''}\n${address.address_line2 || ''}\nShipping Mark: ${suite}\n${address.contact_name || ''}\n${address.contact_phone || ''}`;
     } else {
@@ -7551,6 +7554,7 @@ export default function DashboardAdvisor() {
                     {line}<br />
                     {address.city}, {address.state} {address.zip_code}<br />
                     <span style={{ color: '#1976d2' }}>USA</span>
+                    {address.contact_phone && <><br />📞 {address.contact_phone}</>}
                   </Typography>
                 );
               } else if (shipInstrServiceType === 'china_air' || shipInstrServiceType === 'china_sea' || shipInstrServiceType === 'tdi_express') {
