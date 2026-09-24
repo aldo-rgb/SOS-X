@@ -42,6 +42,12 @@ const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 const MY_ID = Number(ME?.id) || 0;
+// La vista de Equipo enseña el trabajo de TODA la empresa: prospectos, tickets
+// y tareas de cualquiera. Es información de mando, así que se limita a
+// Dirección y administración. Lo destapó una cuenta de mostrador —el operador
+// de TCG, que es un tercero— viendo el tablero completo.
+const ROLES_CON_EQUIPO = ['super_admin', 'admin', 'director'];
+const PUEDE_VER_EQUIPO = ROLES_CON_EQUIPO.includes(String(ME?.role || '').toLowerCase());
 
 // Cuando una tarea queda "en espera de confirmación" deja de ser trabajo del
 // responsable y pasa a serlo de quien la asignó: le toca revisarla y cerrarla.
@@ -920,7 +926,9 @@ export default function MisTareasPage() {
         <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
           <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
           <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
-          <ToggleButton value="team" sx={{ textTransform: 'none', gap: 0.5 }}><GroupsIcon sx={{ fontSize: 18 }} /> Equipo</ToggleButton>
+          {PUEDE_VER_EQUIPO && (
+            <ToggleButton value="team" sx={{ textTransform: 'none', gap: 0.5 }}><GroupsIcon sx={{ fontSize: 18 }} /> Equipo</ToggleButton>
+          )}
         </ToggleButtonGroup>
         {/* El botón dice en qué estado ESTÁ, no solo cómo se llama el filtro.
             Con la etiqueta fija "Solo mis tareas" nadie adivinaba que al
@@ -1061,7 +1069,7 @@ export default function MisTareasPage() {
         </Box>
       )}
 
-      {view === 'team' ? (
+      {view === 'team' && PUEDE_VER_EQUIPO ? (
         (() => {
           // Aplica los MISMOS filtros de la página: categoría (tablero) + búsqueda.
           const teamFiltered = teamTasks.filter(t =>

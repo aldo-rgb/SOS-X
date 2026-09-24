@@ -774,11 +774,12 @@ function App() {
   const hasPermissionInCategory = (category: string): boolean => {
     if (isSuperAdmin) return true;
 
-    // counter_staff (Mostrador): garantiza acceso a Operaciones (Etiquetado + Escáner Multi-Sucursal),
-    // pero también respeta permisos en otras categorías si los tiene asignados.
-    if (currentUser?.role === 'counter_staff' && category === 'panelsOperations') {
-      return true;
-    }
+    // Mostrador ya NO tiene pase libre a Operaciones. Lo tenía para garantizarle
+    // Etiquetado y Escáner Multi-Sucursal, pero con ese rol también entran
+    // cuentas de terceros —el operador de TCG— que no operan bodega y a las que
+    // el botón les abría un panel vacío. De los 8 usuarios de mostrador, 7 ya
+    // traen su permiso ops_ y no notan el cambio; el único sin ninguno es TCG,
+    // que es justo al que se le debe ocultar.
 
     // Accounting: accountant siempre tiene acceso; otros roles lo ven si tienen permiso de panel
     if (category === 'accounting') {
@@ -823,11 +824,13 @@ function App() {
     .filter(item => {
       const role = currentUser?.role || '';
 
-      // Mis Tareas: visible para TODOS los empleados (no clientes).
-      if (item.key === 'myTasks') return role !== '' && role !== 'client';
-
-      // Calendario: visible para TODOS los empleados (no clientes).
-      if (item.key === 'calendar') return role !== '' && role !== 'client';
+      // Mis Tareas y Calendario: empleados sí, clientes no, y mostrador
+      // tampoco. Mostrador incluye cuentas de terceros —el operador de TCG
+      // entra con ese rol— y ahí no hay nada suyo que hacer: lo que veía era
+      // el trabajo de toda la empresa.
+      if (item.key === 'myTasks' || item.key === 'calendar') {
+        return role !== '' && role !== 'client' && role !== 'counter_staff';
+      }
 
       // super_admin ve todo
       if (role === 'super_admin') {
