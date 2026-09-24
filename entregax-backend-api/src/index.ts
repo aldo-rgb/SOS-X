@@ -15196,6 +15196,11 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
           COUNT(*) AS total_boxes,
+          -- Guia con la que llego a bodega. Al agrupar por master se toma la de
+          -- una de las cajas: en la practica todas las hijas de un master traen
+          -- la misma, y si difieren se ve una, no ninguna.
+          MAX(p.tracking_provider) AS guia_origen,
+          MAX(p.origin_carrier) AS origen_carrier,
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p
         LEFT JOIN users u ON u.id = p.user_id
@@ -15221,6 +15226,11 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
           COUNT(*) AS total_boxes,
+          -- Guia con la que llego a bodega. Al agrupar por master se toma la de
+          -- una de las cajas: en la practica todas las hijas de un master traen
+          -- la misma, y si difieren se ve una, no ninguna.
+          MAX(p.tracking_provider) AS guia_origen,
+          MAX(p.origin_carrier) AS origen_carrier,
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p
         LEFT JOIN users u ON u.id = p.user_id
@@ -15243,6 +15253,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           COALESCE(u.full_name, lc.full_name, cr.shipping_mark) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
           cr.status, cr.created_at,
+          cr.international_tracking AS guia_origen,
           (cr.user_id IS NULL AND cr.shipping_mark IS NOT NULL) AS is_legacy
         FROM china_receipts cr
         LEFT JOIN users u ON u.id = cr.user_id
@@ -15259,6 +15270,8 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           COALESCE(u.full_name, lc.full_name, mo.shipping_mark) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
           mo.status, mo.created_at,
+          COALESCE(NULLIF(mo.bl_number, ''), NULLIF(mo.container_number, '')) AS guia_origen,
+          COALESCE(mo.summary_boxes, mo.goods_num, 1) AS total_boxes,
           (mo.user_id IS NULL AND mo.shipping_mark IS NOT NULL) AS is_legacy
         FROM maritime_orders mo
         LEFT JOIN users u ON u.id = mo.user_id
@@ -15276,6 +15289,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           COALESCE(u.full_name, lc.full_name) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
           ds.status, ds.created_at,
+          ds.inbound_tracking AS guia_origen,
           (ds.user_id IS NULL AND (lc.id IS NOT NULL OR ds.box_id IS NOT NULL)) AS is_legacy
         FROM dhl_shipments ds
         LEFT JOIN users u ON u.id = ds.user_id
@@ -15292,7 +15306,8 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           COALESCE(lc.box_id, u.box_id) AS box_id,
           COALESCE(lc.full_name, u.full_name) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
-          c.status, c.created_at
+          c.status, c.created_at,
+          NULLIF(c.bl_number, '') AS guia_origen
         FROM containers c
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         LEFT JOIN users u ON u.id = c.client_user_id

@@ -88,6 +88,10 @@ interface NoInstructionsGuide {
     created_at: string;
     is_legacy?: boolean;
     total_boxes?: number;
+    /** Guía con la que llegó: del transportista en PO Box/TDI, el JJD en DHL,
+     *  el BL en marítimo y FCL, la internacional en aéreo chino. */
+    guia_origen?: string | null;
+    origen_carrier?: string | null;
 }
 
 interface ServiceSection {
@@ -156,7 +160,10 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
         const term = search.trim().toLowerCase();
         if (!term) return section.guides;
         return section.guides.filter(g => {
-            const hay = [g.tracking, g.box_id, g.client_name, g.asesor].filter(Boolean).join(' ').toLowerCase();
+            // También por la guía de origen: es el número con el que pregunta
+            // quien llama, y ahora además está a la vista.
+            const hay = [g.tracking, g.guia_origen, g.origen_carrier, g.box_id, g.client_name, g.asesor]
+                .filter(Boolean).join(' ').toLowerCase();
             return hay.includes(term);
         });
     }, [section.guides, search]);
@@ -200,7 +207,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                             <TextField
                                 size="small"
                                 fullWidth
-                                placeholder="Buscar por guía, casillero o cliente…"
+                                placeholder="Buscar por guía, guía de origen, casillero o cliente…"
                                 value={search}
                                 onChange={e => setSearch(limpiarEscaneo(e.target.value))}
                                 InputProps={{
@@ -213,6 +220,8 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                 <TableHead>
                                     <TableRow>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Guía / Tracking</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Guía origen</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }} align="center">Bultos</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Casillero</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Cliente</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Asesor</TableCell>
@@ -226,12 +235,30 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                         return (
                                             <TableRow key={idx} hover>
                                                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem' }}>
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                                                        {g.tracking || '—'}
-                                                        {g.total_boxes && g.total_boxes > 1 && (
-                                                            <Chip label={`${g.total_boxes} cajas`} size="small" sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 700, fontSize: '0.65rem' }} />
-                                                        )}
-                                                    </Box>
+                                                    {g.tracking || '—'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {g.guia_origen ? (
+                                                        <>
+                                                            {g.origen_carrier && (
+                                                                <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 700 }}>
+                                                                    {g.origen_carrier}
+                                                                </Typography>
+                                                            )}
+                                                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-all' }}>
+                                                                {g.guia_origen}
+                                                            </Typography>
+                                                        </>
+                                                    ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                                                </TableCell>
+                                                <TableCell align="center">
+                                                    {/* El chip vivía pegado al tracking; ahora tiene columna propia.
+                                                        Solo resalta cuando son varias cajas: un master con hijas. */}
+                                                    {g.total_boxes && g.total_boxes > 1 ? (
+                                                        <Chip label={`${g.total_boxes} bultos`} size="small" sx={{ bgcolor: '#1565C0', color: '#FFF', fontWeight: 700, fontSize: '0.65rem' }} />
+                                                    ) : (
+                                                        <Typography variant="body2" color="text.secondary">{g.total_boxes || 1}</Typography>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     {g.box_id ? (
@@ -266,7 +293,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                     })}
                                     {filtered.length > 100 && (
                                         <TableRow>
-                                            <TableCell colSpan={6} sx={{ textAlign: 'center', color: 'text.secondary', py: 1 }}>
+                                            <TableCell colSpan={8} sx={{ textAlign: 'center', color: 'text.secondary', py: 1 }}>
                                                 … y {filtered.length - 100} más
                                             </TableCell>
                                         </TableRow>
