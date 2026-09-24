@@ -1973,8 +1973,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 const esArchivo = item.tipo === 'a';
                 const c = item.dato;
                 const autorId = esArchivo ? c.uploaded_by : c.author_id;
-                const autorNombre = esArchivo ? c.uploaded_by_name : c.author_name;
-                const mine = myId != null && Number(autorId) === Number(myId);
+                // Un archivo que copió Cajito lleva el id de un super admin para
+                // los permisos, pero no lo subió esa persona: el nombre lo dice.
+                const porCajito = esArchivo && (c as any).por_cajito === true;
+                const autorNombre = porCajito ? 'Cajito' : (esArchivo ? c.uploaded_by_name : c.author_name);
+                const mine = !porCajito && myId != null && Number(autorId) === Number(myId);
                 const responder = () => {
                   setCitando(esArchivo
                     ? { tipo: 'archivo', id: c.id, autor: autorNombre || '—', texto: '', url: c.url, file_name: c.file_name }

@@ -2220,6 +2220,13 @@ async function ensureCitasComentario() {
     await pool.query(`ALTER TABLE task_comments
       ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER REFERENCES task_comments(id) ON DELETE SET NULL,
       ADD COLUMN IF NOT EXISTS reply_to_attachment_id INTEGER REFERENCES task_attachments(id) ON DELETE SET NULL`);
+    // Los archivos que Cajito copia solo del ticket se guardaban con el id del
+    // super admin cuyo usuario usa por dentro, así que en la tarea decían
+    // "subió: Aldo Campos" sin que Aldo hubiera tocado nada. El id se conserva
+    // para los permisos; la marca es para que el nombre diga la verdad, igual
+    // que ya se hacía con el autor de la tarea.
+    await pool.query(`ALTER TABLE task_attachments
+      ADD COLUMN IF NOT EXISTS por_cajito BOOLEAN NOT NULL DEFAULT FALSE`);
     citasReady = true;
   } catch (e: any) { console.warn('ensureCitasComentario:', e?.message); }
 }

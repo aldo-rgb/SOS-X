@@ -2747,7 +2747,12 @@ export const reportarErrorDeTicket = async (
         // nuestro bucket (disco local/externa), se guarda la URL tal cual.
         const fileKey = s3KeyFromUrl(String(u)) || String(u);
         const fileName = fileKey.split('/').pop()?.split('?')[0] || 'archivo';
-        await pool.query(`INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4)`, [taskId, fileKey, fileName, Number(uid)]);
+        // por_cajito: el archivo lo copió el juez automático, no la persona
+        // cuyo id se usa para los permisos. Así la tarea lo puede decir.
+        await pool.query(
+          `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by, por_cajito)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [taskId, fileKey, fileName, Number(uid), porCajito === true]);
         copied++;
       }
     }

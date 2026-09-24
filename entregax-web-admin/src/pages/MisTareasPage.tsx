@@ -2054,8 +2054,11 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 const esArchivo = item.tipo === 'a';
                 const d = item.dato;
                 const autorId = esArchivo ? d.uploaded_by : d.author_id;
-                const autorNombre = esArchivo ? d.uploaded_by_name : d.author_name;
-                const mine = MY_ID > 0 && Number(autorId) === Number(MY_ID);
+                // Un archivo que copió Cajito lleva el id de un super admin para
+                // los permisos, pero no lo subió esa persona: el nombre lo dice.
+                const porCajito = esArchivo && (d as any).por_cajito === true;
+                const autorNombre = porCajito ? 'Cajito' : (esArchivo ? d.uploaded_by_name : d.author_name);
+                const mine = !porCajito && MY_ID > 0 && Number(autorId) === Number(MY_ID);
                 const nameColor = authorColor(autorId, autorNombre);
                 const responder = () => {
                   setCitando(esArchivo
