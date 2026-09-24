@@ -8191,6 +8191,43 @@ export default function DashboardAdvisor() {
                 </Collapse>
               )}
 
+              {/* ── Archivos ya cargados de esta guía ──
+                  Va FUERA del bloque de "por cobrar". Estaba dentro, y ese bloque
+                  solo se abre cuando la paquetería elegida admite cobro al
+                  destino; al reabrir el diálogo el interruptor arranca apagado
+                  siempre, así que el asesor nunca veía los archivos que ya había
+                  subido. Christian González limpió caché, cambió de navegador y
+                  de computadora sin que eso pudiera cambiar nada (tarea 606).
+                  Lo que ya está cargado es información de la guía, no parte del
+                  formulario de por cobrar. */}
+              {instrDocsCargando && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>
+                  Revisando si ya hay archivos cargados…
+                </Typography>
+              )}
+              {instrDocs.length > 0 && (
+                <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7' }}>
+                  <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 700, display: 'block', mb: 0.5 }}>
+                    ✓ Ya cargaste {instrDocs.length} {instrDocs.length === 1 ? 'archivo' : 'archivos'} en esta guía
+                  </Typography>
+                  {instrDocs.map((d: any) => (
+                    <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                      <AttachFileIcon sx={{ fontSize: 14, color: '#2E7D32' }} />
+                      <Box component="a" href={d.url} target="_blank" rel="noopener noreferrer"
+                        sx={{ fontSize: 12, color: '#1565C0', wordBreak: 'break-all' }}>
+                        {d.nombre}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                        · {new Date(d.fecha).toLocaleDateString('es-MX')}
+                      </Typography>
+                    </Box>
+                  ))}
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    Solo sube otro si falta alguno: no reemplaza a los anteriores.
+                  </Typography>
+                </Box>
+              )}
+
               {/* ── Documentos para paquetería por cobrar ── */}
               <Collapse in={instrIsCollect}>
                 <Box sx={{ mt: 2, p: 2, borderRadius: 2, border: '1px solid #FFB74D', bgcolor: '#FFFDE7' }}>
@@ -8221,33 +8258,6 @@ export default function DashboardAdvisor() {
 
                   {/* Guía externa */}
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Guía de paquetería (opcional)</Typography>
-                  {instrDocsCargando && (
-                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                      Revisando si ya hay archivos cargados…
-                    </Typography>
-                  )}
-                  {instrDocs.length > 0 && (
-                    <Box sx={{ mb: 1, p: 1, borderRadius: 1, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7' }}>
-                      <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 700, display: 'block', mb: 0.5 }}>
-                        ✓ Ya cargaste {instrDocs.length} {instrDocs.length === 1 ? 'archivo' : 'archivos'} en esta guía
-                      </Typography>
-                      {instrDocs.map((d: any) => (
-                        <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-                          <AttachFileIcon sx={{ fontSize: 14, color: '#2E7D32' }} />
-                          <Box component="a" href={d.url} target="_blank" rel="noopener noreferrer"
-                            sx={{ fontSize: 12, color: '#1565C0', wordBreak: 'break-all' }}>
-                            {d.nombre}
-                          </Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                            · {new Date(d.fecha).toLocaleDateString('es-MX')}
-                          </Typography>
-                        </Box>
-                      ))}
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                        Solo sube otro si falta alguno: no reemplaza a los anteriores.
-                      </Typography>
-                    </Box>
-                  )}
                   <Button
                     component="label"
                     variant="outlined"

@@ -2429,6 +2429,40 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
 
     const baseUrl = `${(req as any).protocol}://${(req as any).get('host')}`;
 
+    /**
+     * Deja registro de los archivos adjuntos de la guía.
+     *
+     * Estaba escrito solo dentro de la rama PKG y con 'PKG' fijo, así que en una
+     * guía DHL o marítima el archivo se subía a S3 y no quedaba ni una fila que
+     * apuntara a él: el asesor lo cargaba, el sistema le decía que todo bien y
+     * el documento no volvía a aparecer nunca (tarea 606). Los clientes de
+     * Christian tienen 62 guías DHL y 140 marítimas.
+     *
+     * También guarda TODOS los archivos, no solo el primero. multer acepta
+     * hasta 15 por campo y se guardaba únicamente el [0]; los demás quedaban en
+     * S3 sin referencia.
+     */
+    const guardarAdjuntos = async (tipoGuia: 'PKG' | 'MAR' | 'DHL') => {
+      try {
+        const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
+        const grupos: Array<[string, any[]]> = [
+          ['factura_embarque', (files?.factura || []) as any[]],
+          ['guia_externa', (files?.guiaExterna || []) as any[]],
+        ];
+        for (const [docType, lista] of grupos) {
+          for (const f of lista) {
+            await pool.query(
+              `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [shipmentId, tipoGuia, advisorId, docType, fileUrl(f), f.originalname]
+            );
+          }
+        }
+      } catch (docErr) {
+        console.warn('[assignAdvisorShipmentInstructions] No se pudo guardar documento adjunto:', docErr);
+      }
+    };
+
     let clientId: number;
 
     if (type === 'PKG') {
@@ -2586,23 +2620,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           );
         }
       }
-      try {
-        const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
-        if (files?.factura?.[0]) {
-          await pool.query(
-            `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, 'PKG', $2, 'factura_embarque', $3, $4)`,
-            [shipmentId, advisorId, fileUrl(files.factura[0]), files.factura[0].originalname]
-          );
-        }
-        if (files?.guiaExterna?.[0]) {
-          await pool.query(
-            `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, 'PKG', $2, 'guia_externa', $3, $4)`,
-            [shipmentId, advisorId, fileUrl(files.guiaExterna[0]), files.guiaExterna[0].originalname]
-          );
-        }
-      } catch (docErr) {
-        console.warn('[assignAdvisorShipmentInstructions] No se pudo guardar documento adjunto:', docErr);
-      }
+      await guardarAdjuntos('PKG');
     } else if (type === 'MAR') {
       const marCheck = await pool.query(`
         SELECT mo.id, mo.user_id FROM maritime_orders mo
@@ -2638,6 +2656,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         [addressId, shipmentId, carrierKey || null, isCollectBool, marCostTotal]
       );
       console.log(`🚢 [Instrucciones asesor MAR] ${uid} carrier=${carrierKey || '-'} collect=${isCollectBool} costo=$${marCostTotal}`);
+      await guardarAdjuntos('MAR');
     } else if (type === 'DHL') {
       const dhlCheck = await pool.query(`
         SELECT ds.id, ds.user_id FROM dhl_shipments ds
@@ -2689,6 +2708,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         [addressId, shipmentId, carrierKey || null, isCollectBool, dhlCostPerBox]
       );
       console.log(`🚚 [Instrucciones asesor DHL] ${uid} carrier=${carrierKey || '-'} collect=${isCollectBool} costo/caja=$${dhlCostPerBox}`);
+      await guardarAdjuntos('DHL');
     } else {
       return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
     }
