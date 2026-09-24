@@ -2347,7 +2347,10 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
   // Si ya viene scopeado (preScoped) se muestra tal cual; si no y hay myId, se
   // filtra a "mis tareas" (responsable, sin leer, o esperando mi confirmación).
   const base = (myId && !preScoped)
-    ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0 || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId)))
+    // cierre_sin_ver: se terminó una tarea donde estoy involucrado y todavía no
+    // la he abierto. Sin esto, un involucrado solo veía la tarea si tenía
+    // comentarios sin leer, así que el cierre se le esfumaba (tarea 670).
+    ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0 || (t as any).cierre_sin_ver === true || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId)))
     : tasks;
   // Orden (menor = más arriba): sin leer primero; luego en espera que ME toca
   // confirmar (soy quien la asignó); luego lo normal; al fondo las en espera
@@ -2534,6 +2537,7 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
                 <Text style={styles.mxCardFolio}>#{t.id} </Text>{t.title}
               </Text>
               {t.status === 'awaiting_confirmation' && <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#B07206', marginTop: 2 }}>⏳ En espera</Text>}
+              {(t as any).cierre_sin_ver === true && <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#2E7D46', marginTop: 2 }}>✅ Terminada · ábrela para quitarla</Text>}
               {(t.mention_count || 0) > 0 ? (
                 <View style={[styles.mxUnread, styles.mencionChip]}><Ionicons name="at" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.mention_count}</Text></View>
               ) : (t.unread_count || 0) > 0 && (

@@ -652,6 +652,10 @@ export default function MisTareasPage() {
                 sx={{ height: 20, fontSize: 11, bgcolor: '#5E35B1', color: '#fff', fontWeight: 800,
                       boxShadow: '0 0 0 2px rgba(94,53,177,0.28)' }} />
             : (t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
+          {(t as any).cierre_sin_ver === true && (
+            <Chip label="✅ Terminada · ábrela para quitarla" size="small"
+              sx={{ height: 20, fontSize: 11, bgcolor: '#2E7D46', color: '#fff', fontWeight: 700 }} />
+          )}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>
           {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
@@ -830,6 +834,9 @@ export default function MisTareasPage() {
   // que /tasks/mine devuelve (donde estoy involucrado).
   const isMine = (t: Task) => Number(t.assignee_id) === MY_ID
     || (t.unread_count || 0) > 0
+    // Se terminó una tarea donde estoy involucrado y aún no la abro: se queda a
+    // la vista hasta que la vea. Antes se esfumaba al cerrarse (tarea 670).
+    || (t as any).cierre_sin_ver === true
     || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID)
     || (t as any).espera_tu_respuesta === true;
   const esperaAOtro = (t: Task) =>

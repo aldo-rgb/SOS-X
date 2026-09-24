@@ -1098,7 +1098,34 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const includeAll = buscando || String(req.query.all || '') === 'true';
     // Las tareas en espera de confirmación siguen siendo "pendientes" (aún no se
     // cierran): deben aparecer en la lista hasta que quien asignó las confirme.
-    const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status IN ('open','awaiting_confirmation')`;
+    //
+    // Y una tarea TERMINADA se le queda a sus involucrados hasta que la abran.
+    // Antes desaparecía en el instante en que se cerraba y el involucrado nunca
+    // se enteraba del desenlace: de ahí el "se me desapareció" (tarea 670, la
+    // reportó Juan Segura). No es un caso raro — 353 de 583 tareas completadas
+    // se cerraron de un golpe, sin pasar por 'esperando confirmación', y 263 de
+    // ésas tenían involucrados. El caso más común ni siquiera admite
+    // confirmación: en 244 cierres el creador y el responsable son la misma
+    // persona, así que no hay a quién esperar.
+    //
+    // Se limpia sola: en cuanto el involucrado la abre, task_reads se actualiza
+    // y la tarea sale de su lista. No hace falta un plazo ni un botón.
+    //
+    // El corte de fecha es para no revivir el pasado: sin él reaparecerían 745
+    // tareas ya cerradas (377 solo para una persona), porque nadie ha "leído"
+    // una terminada nunca. Solo aplica a lo que se cierre de aquí en adelante.
+    const CIERRES_VISIBLES_DESDE = '2026-09-24';
+    const cierreSinVerCond = `(
+      t.status = 'completed'
+      AND t.completed_at IS NOT NULL
+      AND t.completed_at >= TIMESTAMP '${CIERRES_VISIBLES_DESDE}'
+      AND EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1)
+      AND COALESCE((SELECT tr.last_read_at FROM task_reads tr
+                     WHERE tr.task_id = t.id AND tr.user_id = $1), TIMESTAMPTZ '1970-01-01') < t.completed_at
+    )`;
+    const statusCond = includeAll
+      ? `t.status <> 'cancelled'`
+      : `(t.status IN ('open','awaiting_confirmation') OR ${cierreSinVerCond})`;
 
     // El super admin busca en TODAS las tareas del equipo; los demás, solo entre
     // las suyas. Fuera de una búsqueda nadie ve tareas ajenas: el alcance amplio
@@ -1150,6 +1177,10 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
                 WHERE cc.task_id = t.id AND cc.author_id <> $1
                   AND cc.mentions @> to_jsonb($1::int)
                   AND cc.created_at > COALESCE((SELECT last_read_at FROM task_reads tr WHERE tr.task_id = t.id AND tr.user_id = $1), TIMESTAMPTZ '1970-01-01'))::int AS mention_count,
+             -- Se terminó y este involucrado todavía no la ha abierto. La
+             -- pantalla la deja a la vista y la marca como terminada, en vez de
+             -- que se esfume sin que se entere (tarea 670).
+             ${cierreSinVerCond} AS cierre_sin_ver,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
