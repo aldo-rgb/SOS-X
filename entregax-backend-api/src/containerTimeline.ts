@@ -56,6 +56,10 @@ export const ensureLineaTiempo = async (): Promise<void> => {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_ctl_contenedor_paso
        ON container_timeline_events (container_id, paso)`).catch(() => {});
   await asegurarColumna('container_timeline_events', 'fotos', `JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  // Caja seca y sello con los que sale la carga de El Paso. Los manda el correo
+  // del almacén y los confirma TCG al cruzar (tarea 654).
+  await asegurarColumna('containers', 'caja_seca', 'VARCHAR(30)');
+  await asegurarColumna('containers', 'sello', 'VARCHAR(30)');
   listo = true;
 };
 
@@ -288,6 +292,27 @@ export const registrarPasoManual = async (req: AuthRequest, res: Response): Prom
 const REMITENTE_ALMACEN = /redquadrat/i;
 const PATRON_CONTENEDOR = /\b[A-Z]{4}\d{7}\b/g;
 
+// En el correo de SALIDA vienen la caja seca que se lleva la carga y su sello:
+//
+//   Container #: 539005
+//   Seal #: EU-446177
+//
+// Arriba se explica por qué "Container #" NO se usa para identificar el
+// contenedor marítimo. Pero ese dato sí sirve para otra cosa: es lo que el
+// equipo de TCG tiene que confirmar al cruzar (tarea 654), y hasta ahora había
+// que ir a buscarlo al correo a mano. Se guarda en el contenedor para que en el
+// Módulo TCG salga ya puesto.
+const PATRON_CAJA = /Container\s*#\s*:?\s*([A-Z0-9-]{3,20})/i;
+const PATRON_SELLO = /Seal\s*#\s*:?\s*([A-Z0-9-]{3,20})/i;
+
+export const cajaYSelloDelCorreo = (cuerpo: string): { caja: string | null; sello: string | null } => {
+  const texto = String(cuerpo || '');
+  return {
+    caja: texto.match(PATRON_CAJA)?.[1]?.trim() || null,
+    sello: texto.match(PATRON_SELLO)?.[1]?.trim() || null,
+  };
+};
+
 /** Qué paso es el correo, por su asunto. */
 const pasoDelCorreo = (asunto: string): number | null => {
   const a = String(asunto || '').toUpperCase();
@@ -336,6 +361,23 @@ export const procesarCorreosDeAlmacen = async (): Promise<{ registrados: number;
         fotos,
         correoFolio: c.folio,
       });
+      // La caja seca y el sello del correo de salida se guardan en el
+      // contenedor: es lo que el Módulo TCG le muestra ya puesto al cruzar
+      // (tarea 654). Se escriben aunque el paso ya existiera, por si el dato
+      // llegó en un correo posterior.
+      if (paso === 6) {
+        const { caja, sello } = cajaYSelloDelCorreo(String(c.cuerpo || ''));
+        if (caja || sello) {
+          await pool.query(
+            `UPDATE containers
+                SET caja_seca = COALESCE($2, caja_seca),
+                    sello = COALESCE($3, sello),
+                    updated_at = NOW()
+              WHERE id = $1`,
+            [cont.rows[0].id, caja, sello]
+          ).catch((e: any) => console.warn('[linea-tiempo] caja/sello:', e?.message));
+        }
+      }
       if (r === 'nuevo') {
         registrados++;
         // El correo no solo deja el evento: mueve el estatus del contenedor.

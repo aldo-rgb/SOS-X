@@ -1309,6 +1309,11 @@ import {
   lineaDeTiempo, registrarPasoManual, procesarCorreosHandler, lineaDeTiempoCliente, buscarContenedor, hitosEnLote,
 } from './containerTimeline';
 import {
+  listarContenedoresTcg,
+  avanzarEtapaTcg,
+  resumenTcg,
+} from './tcgController';
+import {
   listarDirectorioFiscal, crearEnDirectorioFiscal,
   actualizarEnDirectorioFiscal, quitarDeDirectorioFiscal,
 } from './directorioFiscal';
@@ -7244,6 +7249,13 @@ app.post('/api/containers/:id/linea-tiempo', authenticateToken, requireMinLevel(
 // El cliente la ve desde "Ver Detalles" de su embarque marítimo.
 app.get('/api/client/containers/:numero/linea-tiempo', authenticateToken, lineaDeTiempoCliente);
 app.post('/api/containers/linea-tiempo/procesar-correos', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), procesarCorreosHandler);
+
+// Módulo TCG: el tramo mexicano del contenedor (cruce, tránsito y entrega).
+// Va con COUNTER_STAFF porque el usuario de TCG se da de alta con ese rol y con
+// permiso solo a este módulo, igual que china@entregax.com (tarea 654).
+app.get('/api/maritime/tcg/contenedores', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listarContenedoresTcg);
+app.get('/api/maritime/tcg/resumen', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resumenTcg);
+app.post('/api/maritime/tcg/:id/avanzar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), avanzarEtapaTcg);
 
 app.get('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listarPrealertas);
 app.post('/api/admin/dhl/prealertas', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), crearPrealerta);

@@ -58,6 +58,7 @@ import SupplierPaymentsPage from './SupplierPaymentsPage';
 import InboundEmailsPage from './InboundEmailsPage';
 import InboundEmailsAirPage from './InboundEmailsAirPage';
 import MaritimeApiPage from './MaritimeApiPage';
+import TcgModulePage from './TcgModulePage';
 import ElpApiPage from './ElpApiPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
@@ -154,6 +155,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     inbound_emails_air: <EmailIcon />,
     maritime_api: <ApiIcon />,
     elp_api: <ApiIcon />,
+    tcg: <BoatIcon />,
     air_api: <ApiIcon />,
     routes: <RouteIcon />,
     air_routes: <FlightIcon />,
@@ -205,6 +207,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'inbound_emails', status: 'active' },
         { key: 'maritime_api', status: 'active' },
         { key: 'elp_api', status: 'active' },
+        { key: 'tcg', status: 'active' },
         { key: 'anticipos', status: 'active' },
         { key: 'transporte_control', status: 'active' },
         { key: 'demora_control', status: 'active' },
@@ -841,6 +844,14 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (selectedModule === 'elp_api' && selectedService === 'china_sea') {
             return (
                 <ElpApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Módulo TCG (tcg) - solo china_sea. El tramo mexicano del contenedor:
+        // cruce, tránsito y entrega (tarea 654).
+        if (selectedModule === 'tcg' && selectedService === 'china_sea') {
+            return (
+                <TcgModulePage onBack={() => setSelectedModule(null)} />
             );
         }
 

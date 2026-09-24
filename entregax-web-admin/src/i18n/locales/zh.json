@@ -728,6 +728,7 @@
       "air_routes": "空运路线",
       "maritime_api": "中国海运API",
       "elp_api": "ELP API",
+      "tcg": "TCG 模块",
       "air_api": "中国空运API",
       "routes": "路线",
       "last_mile": "Skydropx",

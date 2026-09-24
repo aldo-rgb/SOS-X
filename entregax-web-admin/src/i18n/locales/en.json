@@ -767,6 +767,7 @@
       "air_routes": "Air Routes",
       "maritime_api": "China Maritime API",
       "elp_api": "ELP API",
+      "tcg": "TCG Module",
       "air_api": "China Air API",
       "routes": "Routes",
       "last_mile": "Skydropx",
