@@ -188,9 +188,13 @@ export default function DashboardCounterStaff() {
   useEffect(() => {
     api.get('/panels/me')
       .then(r => {
-        const llaves: string[] = (r.data?.panels || r.data || [])
-          .map((p: any) => String(p?.panel_key ?? p ?? ''));
-        setTieneOperaciones(llaves.some(k => k.startsWith('ops_')));
+        // OJO: el endpoint devuelve TODOS los paneles activos, cada uno con su
+        // can_view en true o false. Mirar solo la llave da siempre que sí; hay
+        // que filtrar por can_view, igual que hace el menú.
+        const conAcceso: string[] = (r.data?.panels || [])
+          .filter((p: any) => p?.can_view)
+          .map((p: any) => String(p?.panel_key || ''));
+        setTieneOperaciones(conAcceso.some(k => k.startsWith('ops_')));
       })
       .catch(() => setTieneOperaciones(true)); // ante la duda, no se esconde nada
   }, []);
