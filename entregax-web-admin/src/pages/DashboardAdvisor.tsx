@@ -2209,6 +2209,27 @@ export default function DashboardAdvisor() {
   const [nationalGuideShipment, setNationalGuideShipment] = useState<AdvisorShipment | null>(null);
   const [nationalGuideFiles, setNationalGuideFiles] = useState<File[]>([]);
   const [nationalGuideUploading, setNationalGuideUploading] = useState(false);
+  /**
+   * Abre la guía nacional ya cargada de un embarque.
+   *
+   * El PDF se sirve desde un endpoint protegido, así que no basta con poner la
+   * URL en una pestaña nueva: hay que pedirlo con el token y abrir el blob.
+   */
+  const abrirGuiaNacional = async (s: AdvisorShipment) => {
+    try {
+      const base = s.serviceType === 'SEA_CHN_MX' ? 'maritime'
+        : s.serviceType === 'AA_DHL' ? 'dhl'
+        : 'packages';
+      const r = await api.get(`/${base}/${s.id}/national-guide.pdf`, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      const v = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!v) setSnackbar({ open: true, message: 'Tu navegador bloqueó la ventana. Permite las ventanas emergentes para verla.', severity: 'warning' });
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: 'No se pudo abrir la guía cargada', severity: 'error' });
+    }
+  };
+
   const submitNationalGuide = async () => {
     if (!nationalGuideShipment || nationalGuideFiles.length === 0) return;
     setNationalGuideUploading(true);
@@ -7136,6 +7157,26 @@ export default function DashboardAdvisor() {
             <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: '#1A1A1A', fontWeight: 600 }}>
               Guía: {nationalGuideShipment.tracking}
             </Typography>
+          )}
+          {/* Si ya hay una guía cargada se dice y se puede abrir desde aquí.
+              Sin esto no había forma de saberlo y se volvía a subir la misma. */}
+          {nationalGuideShipment?.labelPrinted && (
+            <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7' }}>
+              <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 700, display: 'block' }}>
+                ✓ Esta guía ya tiene un archivo cargado
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<VisibilityIcon />}
+                onClick={() => abrirGuiaNacional(nationalGuideShipment)}
+                sx={{ textTransform: 'none', color: '#1565C0', px: 0, minWidth: 0 }}
+              >
+                Ver la guía cargada
+              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Si subes otra, reemplaza a la anterior.
+              </Typography>
+            </Box>
           )}
           <Button
             component="label"
