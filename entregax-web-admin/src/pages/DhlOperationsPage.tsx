@@ -64,6 +64,7 @@ import {
   QrCode2 as _QrCode2Icon,
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
+  SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
@@ -236,7 +237,14 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   // Eliminar guía (super_admin)
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
   const [deleting, setDeleting] = useState(false);
-  
+
+  // Cambiar la suite de una guía capturada con el cliente equivocado, sin
+  // borrarla y volverla a capturar (tarea 673).
+  const [suiteDialog, setSuiteDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
+  const [suiteDestino, setSuiteDestino] = useState('');
+  const [suiteMotivo, setSuiteMotivo] = useState('');
+  const [guardandoSuite, setGuardandoSuite] = useState(false);
+
   // Form: Recibir paquete - Ahora usa DhlReceptionWizard
 
   // Quote result
@@ -914,6 +922,21 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                           </Tooltip>
                         )}
                         {canDeleteDhl && (
+                          <Tooltip title="Cambiar suite">
+                            <IconButton
+                              size="small"
+                              color="info"
+                              onClick={() => {
+                                setSuiteDestino('');
+                                setSuiteMotivo('');
+                                setSuiteDialog({ open: true, shipment });
+                              }}
+                            >
+                              <SwapHorizIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canDeleteDhl && (
                           <Tooltip title="Eliminar guía">
                             <IconButton
                               size="small"
@@ -1547,6 +1570,84 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             disabled={statusDialog.saving || statusDialog.newStatus === statusDialog.shipment?.status}
           >
             {statusDialog.saving ? 'Guardando...' : 'Cambiar Status'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔁 Dialog: Cambiar suite
+          Una guía capturada con el cliente equivocado se mueve aquí, en lugar
+          de borrarla y volverla a capturar, que es lo que descuadra los cobros. */}
+      <Dialog
+        open={suiteDialog.open}
+        onClose={() => !guardandoSuite && setSuiteDialog({ open: false, shipment: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#0288d1', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SwapHorizIcon />
+            Cambiar suite
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Alert severity="info" sx={{ mt: 1 }}>
+            Mueve la guía al cliente correcto sin borrarla. No borres y vuelvas a
+            capturar: si la guía ya entró en un cobro, el pago deja de cuadrar.
+          </Alert>
+          <Box>
+            <Typography variant="body2">
+              Guía: <strong>{suiteDialog.shipment?.inbound_tracking}</strong>
+            </Typography>
+            <Typography variant="body2">
+              Hoy está en: {suiteDialog.shipment?.client_name} ({suiteDialog.shipment?.client_box_id})
+            </Typography>
+          </Box>
+          <TextField
+            label="Suite correcta"
+            placeholder="S105"
+            value={suiteDestino}
+            onChange={(e) => setSuiteDestino(e.target.value.toUpperCase())}
+            fullWidth
+            autoFocus
+            disabled={guardandoSuite}
+          />
+          <TextField
+            label="Motivo (opcional)"
+            value={suiteMotivo}
+            onChange={(e) => setSuiteMotivo(e.target.value)}
+            fullWidth
+            disabled={guardandoSuite}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSuiteDialog({ open: false, shipment: null })} disabled={guardandoSuite}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            disabled={guardandoSuite || !suiteDialog.shipment || !suiteDestino.trim()}
+            onClick={async () => {
+              if (!suiteDialog.shipment) return;
+              setGuardandoSuite(true);
+              try {
+                const token = localStorage.getItem('token');
+                const r = await axios.patch(
+                  `${API_URL}/api/admin/dhl/shipments/${suiteDialog.shipment.id}/suite`,
+                  { box_id: suiteDestino.trim(), motivo: suiteMotivo.trim() },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setSnackbar({ open: true, message: r.data?.message || 'Suite actualizada', severity: 'success' });
+                setSuiteDialog({ open: false, shipment: null });
+                fetchShipments();
+                fetchStats();
+              } catch (err: any) {
+                setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar la suite', severity: 'error' });
+              } finally {
+                setGuardandoSuite(false);
+              }
+            }}
+          >
+            {guardandoSuite ? 'Moviendo…' : 'Mover guía'}
           </Button>
         </DialogActions>
       </Dialog>

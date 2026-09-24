@@ -4,6 +4,7 @@
 // ============================================
 
 import { Request, Response } from 'express';
+import { PoolClient } from 'pg';
 import { pool } from './db';
 import * as skydropx from './services/skydropxService';
 import { createNotification } from './notificationController';
@@ -1533,6 +1534,83 @@ function estimateBoxDimensions(imageBase64: string): { length_cm: number; width_
 }
 
 // =========================================
+// ¿LA GUIA YA ENTRO EN UN COBRO?
+// =========================================
+// Una guía que ya va dentro de una orden de pago no se puede borrar ni cambiar
+// de suite: el pago la referencia por id y, si desaparece, el cobro ya no cuadra
+// guía por guía y nadie puede reconstruir qué se pagó (tarea 673).
+//
+// Devuelve el folio del cobro que la retiene, o null si está libre.
+const cobroQueRetieneGuia = async (
+  client: PoolClient,
+  ship: any
+): Promise<string | null> => {
+  // Se busca primero el cobro concreto para poder nombrarlo: decirle al
+  // operador "está en el cobro UW-84444F3F" le sirve, "ya está pagada" no.
+  //
+  // pobox_payments.package_ids puede traer los ids como número o como texto, y
+  // los ids de DHL colisionan con los de packages: de ahí el filtro por
+  // service_type.
+  const pago = await client.query(
+    `SELECT payment_reference, id FROM pobox_payments
+      WHERE service_type = 'AA_DHL'
+        AND status <> 'cancelled'
+        AND jsonb_typeof(package_ids) = 'array'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(package_ids) e WHERE e = $1
+        )
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [String(ship.id)]
+  );
+  if (pago.rows.length > 0) {
+    return String(pago.rows[0].payment_reference || `pago #${pago.rows[0].id}`);
+  }
+
+  const guias = [ship.secondary_tracking, ship.inbound_tracking]
+    .filter(Boolean)
+    .map((g: any) => String(g));
+  if (guias.length > 0) {
+    const orden = await client.query(
+      `SELECT folio FROM advisor_payment_orders
+        WHERE status <> 'cancelado'
+          AND jsonb_typeof(trackings) = 'array'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(trackings) t WHERE t = ANY($1::text[])
+          )
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [guias]
+    );
+    if (orden.rows.length > 0) return String(orden.rows[0].folio);
+  }
+
+  // Red de seguridad: ya tiene dinero aplicado aunque no encontremos la orden.
+  if (Number(ship.monto_pagado || 0) > 0) {
+    return String(ship.payment_reference || 'un pago ya registrado');
+  }
+
+  return null;
+};
+
+// Deja constancia en audit_log de lo que se hizo con una guía, con la fila
+// completa en metadata. El borrado no dejaba ningún rastro y los montos con que
+// se capturó una guía eliminada eran irrecuperables (tarea 673).
+const registrarMovimientoGuia = async (
+  client: PoolClient,
+  accion: string,
+  ship: any,
+  userId: number,
+  detalles: Record<string, any>
+) => {
+  await client.query(
+    `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details, metadata)
+     VALUES ($1, 'dhl_shipment', $2, $3, $4::jsonb, $5::jsonb)`,
+    [accion, ship.id, userId || null, JSON.stringify(detalles), JSON.stringify(ship)]
+  );
+};
+
+// =========================================
 // ELIMINAR GUIA DHL (solo Super Admin)
 // =========================================
 // DELETE /api/admin/dhl/shipments/:id
@@ -1561,7 +1639,7 @@ export const deleteDhlShipment = async (req: Request, res: Response) => {
   try {
     await client.query('BEGIN');
     const found = await client.query(
-      'SELECT id, inbound_tracking FROM dhl_shipments WHERE id = $1 FOR UPDATE',
+      'SELECT * FROM dhl_shipments WHERE id = $1 FOR UPDATE',
       [id]
     );
     if (found.rows.length === 0) {
@@ -1569,6 +1647,28 @@ export const deleteDhlShipment = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Guia no encontrada' });
     }
     const ship = found.rows[0];
+
+    // Candado: si la guía ya va dentro de un cobro, borrarla descuadra el pago.
+    // Se captura con la suite equivocada, se borra, se recaptura con la correcta
+    // y el pago queda apuntando a un id que ya no existe (tarea 673).
+    const cobro = await cobroQueRetieneGuia(client, ship);
+    if (cobro) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `Esta guía ya está incluida en el cobro ${cobro}. No se puede eliminar porque el pago dejaría de cuadrar. Si la suite está equivocada usa "Cambiar suite"; si el cobro ya está pagado, repórtalo para resolverlo junto con el pago.`,
+        cobro,
+      });
+    }
+
+    // Constancia del borrado con la fila completa: antes no quedaba ningún
+    // rastro y los montos de una guía eliminada eran irrecuperables.
+    await registrarMovimientoGuia(client, 'dhl_shipment_delete', ship, userId, {
+      inbound_tracking: ship.inbound_tracking,
+      secondary_tracking: ship.secondary_tracking,
+      box_id: ship.box_id,
+      total_cost_mxn: ship.total_cost_mxn,
+      motivo: String(req.body?.motivo || '').trim() || null,
+    });
 
     // Limpieza de dependencias conocidas (best-effort por tabla).
     // SAVEPOINT is required: a failed query aborts the entire PG transaction,
@@ -1603,6 +1703,116 @@ export const deleteDhlShipment = async (req: Request, res: Response) => {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error eliminando guia DHL:', error);
     return res.status(500).json({ error: 'Error al eliminar guia', details: error?.message });
+  } finally {
+    client.release();
+  }
+};
+
+// =========================================
+// CAMBIAR LA SUITE DE UNA GUIA DHL
+// =========================================
+// PATCH /api/admin/dhl/shipments/:id/suite
+// body: { box_id: string, motivo?: string }
+//
+// Cuando una guía se captura con la suite equivocada, hasta ahora la única
+// salida era borrarla y volverla a capturar. Eso es lo que rompió el cobro de
+// la tarea 673. Aquí se reasigna al cliente correcto sin borrar nada.
+export const cambiarSuiteDhlShipment = async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const userId = (req as any).user?.userId;
+  const role = String((req as any).user?.role || '').toLowerCase();
+  const boxIdDestino = String(req.body?.box_id || '').trim().toUpperCase();
+
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+  if (!boxIdDestino) {
+    return res.status(400).json({ error: 'Indica la suite a la que pertenece la guía' });
+  }
+
+  // Mismo permiso que eliminar: es una corrección de la misma naturaleza.
+  if (!['super_admin', 'admin'].includes(role)) {
+    const perm = await pool.query(
+      `SELECT 1 FROM user_panel_permissions
+        WHERE user_id = $1 AND panel_key = 'ops_mx_cedis' AND can_edit = TRUE
+        LIMIT 1`,
+      [userId]
+    );
+    if (perm.rows.length === 0) {
+      return res.status(403).json({ error: 'No autorizado para cambiar la suite. Requiere permiso de edición del módulo DHL Monterrey.' });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      'SELECT * FROM dhl_shipments WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (found.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Guia no encontrada' });
+    }
+    const ship = found.rows[0];
+
+    if (String(ship.box_id || '').toUpperCase() === boxIdDestino) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `La guía ya está en la suite ${boxIdDestino}` });
+    }
+
+    // Mover de cliente una guía ya cobrada mueve dinero entre dos cuentas: eso
+    // no se resuelve desde esta pantalla.
+    const cobro = await cobroQueRetieneGuia(client, ship);
+    if (cobro) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `Esta guía ya está incluida en el cobro ${cobro}. Cambiarla de suite movería dinero entre dos clientes, así que hay que resolverlo junto con el pago. Repórtalo en vez de borrarla.`,
+        cobro,
+      });
+    }
+
+    const destino = await client.query(
+      `SELECT id, box_id, full_name FROM users
+        WHERE UPPER(TRIM(box_id)) = $1 AND is_active = TRUE
+        LIMIT 1`,
+      [boxIdDestino]
+    );
+    if (destino.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `No existe un cliente activo con la suite ${boxIdDestino}` });
+    }
+    const cliente = destino.rows[0];
+
+    await registrarMovimientoGuia(client, 'dhl_shipment_suite_change', ship, userId, {
+      inbound_tracking: ship.inbound_tracking,
+      secondary_tracking: ship.secondary_tracking,
+      suite_anterior: ship.box_id,
+      suite_nueva: cliente.box_id,
+      user_id_anterior: ship.user_id,
+      user_id_nuevo: cliente.id,
+      motivo: String(req.body?.motivo || '').trim() || null,
+    });
+
+    await client.query(
+      `UPDATE dhl_shipments
+          SET user_id = $1, box_id = $2, updated_at = NOW()
+        WHERE id = $3`,
+      [cliente.id, cliente.box_id, id]
+    );
+    await client.query('COMMIT');
+
+    console.log(`[DHL] Guia #${id} (${ship.inbound_tracking}) movida de ${ship.box_id} a ${cliente.box_id} por usuario #${userId}`);
+    return res.json({
+      success: true,
+      message: `Guía ${ship.inbound_tracking} movida de ${ship.box_id} a ${cliente.box_id} (${cliente.full_name}). El costo se queda como se capturó: revísalo si la tarifa del cliente nuevo es distinta.`,
+      shipment_id: id,
+      box_id: cliente.box_id,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error cambiando suite de guia DHL:', error);
+    return res.status(500).json({ error: 'Error al cambiar la suite', details: error?.message });
   } finally {
     client.release();
   }

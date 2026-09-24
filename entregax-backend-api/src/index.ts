@@ -1301,6 +1301,7 @@ import {
   getDhlPaymentBatches,
   getDhlProfitability,
   deleteDhlShipment,
+  cambiarSuiteDhlShipment,
   updateDhlShipmentProductType,
   getDhlImportTaxSetting,
   getDhlImportTaxExpenses,
@@ -7385,6 +7386,7 @@ app.patch('/api/admin/dhl/shipments/:id/status', authenticateToken, requireMinLe
 // Eliminar guía DHL: super_admin/admin, o usuario de operaciones con permiso de
 // edición del panel DHL Monterrey (ops_mx_cedis). La verificación fina va dentro.
 app.delete('/api/admin/dhl/shipments/:id', authenticateToken, deleteDhlShipment);
+app.patch('/api/admin/dhl/shipments/:id/suite', authenticateToken, cambiarSuiteDhlShipment);
 app.get('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxSetting);
 app.get('/api/admin/dhl/import-tax/expenses', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxExpenses);
 app.put('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlImportTaxSetting);
