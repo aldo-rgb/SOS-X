@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
     Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-    DialogTitle, Divider, IconButton, Paper, Stack, TextField, Typography,
+    DialogTitle, Divider, IconButton, InputAdornment, Paper, Stack, TextField, Typography,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -27,8 +27,11 @@ import {
     CheckCircle as CheckIcon,
     Place as PlaceIcon,
     Warning as WarningIcon,
+    Search as SearchIcon,
+    Close as CloseIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import { limpiarEscaneo } from '../utils/scanInput';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#F05A28';
@@ -91,6 +94,8 @@ export default function TcgModulePage({ onBack }: { onBack: () => void }) {
     const [error, setError] = useState<string | null>(null);
     const [ok, setOk] = useState<string | null>(null);
 
+    const [busqueda, setBusqueda] = useState('');
+
     // Confirmación
     const [elegido, setElegido] = useState<ContenedorTcg | null>(null);
     const [caja, setCaja] = useState('');
@@ -141,6 +146,14 @@ export default function TcgModulePage({ onBack }: { onBack: () => void }) {
 
     const cfg = ETAPAS.find(e => e.key === etapa)!;
 
+    // El buscador alcanza también el BL, la referencia, la semana y la caja y el
+    // sello: quien llama por teléfono dice cualquiera de esos, no siempre el
+    // número de contenedor.
+    const termino = busqueda.trim().toLowerCase();
+    const visibles = !termino ? lista : lista.filter(c =>
+        [c.contenedor, c.bl, c.referencia, c.semana, c.caja_seca, c.sello, c.cliente, c.entrega_ciudad]
+            .filter(Boolean).join(' ').toLowerCase().includes(termino));
+
     return (
         <Box>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -181,20 +194,39 @@ export default function TcgModulePage({ onBack }: { onBack: () => void }) {
             </Stack>
 
             <Alert severity="info" sx={{ mb: 2 }}>{cfg.ayuda}</Alert>
+
+            <TextField
+                size="small"
+                fullWidth
+                placeholder="Buscar por contenedor, BL, referencia, caja o sello…"
+                value={busqueda}
+                onChange={e => setBusqueda(limpiarEscaneo(e.target.value))}
+                sx={{ mb: 2 }}
+                InputProps={{
+                    startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+                    endAdornment: busqueda ? (
+                        <InputAdornment position="end">
+                            <IconButton size="small" onClick={() => setBusqueda('')}><CloseIcon fontSize="small" /></IconButton>
+                        </InputAdornment>
+                    ) : null,
+                }}
+            />
             {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
             {ok && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setOk(null)}>{ok}</Alert>}
 
             {loading ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
-            ) : lista.length === 0 ? (
+            ) : visibles.length === 0 ? (
                 <Paper sx={{ p: 5, textAlign: 'center', borderRadius: 3 }}>
                     <Typography color="text.secondary">
-                        🎉 No hay contenedores esperando en “{cfg.titulo}”.
+                        {termino
+                            ? `Ningún contenedor de esta etapa coincide con “${busqueda}”.`
+                            : `🎉 No hay contenedores esperando en “${cfg.titulo}”.`}
                     </Typography>
                 </Paper>
             ) : (
                 <Stack spacing={1.5}>
-                    {lista.map(c => (
+                    {visibles.map(c => (
                         <Paper key={c.id} sx={{ p: 2, borderRadius: 3, borderLeft: `5px solid ${cfg.color}` }}>
                             <Stack direction="row" spacing={2} alignItems="flex-start" sx={{ flexWrap: 'wrap' }}>
                                 <Box sx={{ minWidth: 200 }}>
