@@ -12263,8 +12263,21 @@ export default function DashboardClient() {
                     } else if (isDhl && displayMonto > 0) {
                       // DHL MTY: monto es MXN
                       montoMXN = displayMonto;
-                      costoUSD = tcConfig > 0 ? displayMonto / tcConfig : 0;
-                      tcToShow = tcConfig;
+                      // El tipo de cambio que vale es el que quedó congelado en la
+                      // guía al recibirla, no el de hoy. Con el vigente, el monto
+                      // que ve el cliente se mueve solo cada vez que cambia el TC,
+                      // aunque ya haya pagado: la guía 5535278431 se cobró a 17.43
+                      // y la pantalla la dividía entre 17.48 (TKT-2026-2836). Es el
+                      // mismo criterio que ya usan la app móvil y la rama de PO Box
+                      // de aquí arriba.
+                      const tcGuiaDhl = Number((selectedPackage as any).exchange_rate) || 0;
+                      tcToShow = tcGuiaDhl > 0 ? tcGuiaDhl : tcConfig;
+                      // Y lo que se muestra en dólares es SÓLO la importación. Antes
+                      // se dividía el monto completo —importación, impuesto, flete y
+                      // garantía— y salía rotulado "Costo de envío", que no es
+                      // ninguna de las dos cosas.
+                      const importacionMXN = Math.max(0, montoMXN - (Number(selectedPackage.national_shipping_cost) || 0) - (Number(selectedPackage.import_tax_mxn) || 0));
+                      costoUSD = tcToShow > 0 ? importacionMXN / tcToShow : 0;
                       if (selectedPackage.product_type) detailLine = dhlTypeLabel;
                     } else if (displayMonto > 0) {
                       // Otros con monto: verificar moneda
@@ -12314,7 +12327,14 @@ export default function DashboardClient() {
                       <Paper sx={{ p: 2, bgcolor: isPaid ? '#e8f5e9' : '#fff3e0' }}>
                         {/* Costo de Envío en USD */}
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Typography variant="body2" color="text.secondary">📦 Costo de envío:</Typography>
+                          {/* En DHL este renglón es la importación, no el envío: el
+                              flete nacional y los impuestos van en su propia línea
+                              más abajo. Llamarlo "Costo de envío" hizo que un
+                              cliente leyera 271.60 dólares como si fueran pesos de
+                              flete y reclamara que salía baratísimo (TKT-2026-2836). */}
+                          <Typography variant="body2" color="text.secondary">
+                            {isDhl ? '📦 Importación DHL:' : '📦 Costo de envío:'}
+                          </Typography>
                           <Typography variant="body1" fontWeight="bold" color={accentColor}>
                             ${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                           </Typography>

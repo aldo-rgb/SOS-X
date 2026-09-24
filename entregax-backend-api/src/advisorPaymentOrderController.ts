@@ -168,6 +168,13 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         -- Cuánto falta por cobrar. El asesor veía "Parcial" sin monto y tenía
         -- que abrir la orden y sacar la resta a mano.
         COALESCE(pp.saldo_pendiente, 0) AS saldo_pendiente,
+        -- Descuentos ya aplicados y servicio real de la orden: el PDF los
+        -- necesita para imprimir el renglón del saldo y para decidir si arma el
+        -- desglose de DHL o el de PO Box. Van también en la rama de abajo: las
+        -- dos mitades del UNION tienen que llevar las mismas columnas.
+        COALESCE(pp.wallet_applied, 0) AS wallet_applied,
+        COALESCE(pp.credit_applied, 0) AS credit_applied,
+        pp.service_type_cfg,
         apo.created_at
       FROM advisor_payment_orders apo
       LEFT JOIN LATERAL (
@@ -178,6 +185,25 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
                    - COALESCE(p2.voucher_total, 0)
                    - COALESCE(p2.wallet_applied, 0)
                    - COALESCE(p2.credit_applied, 0)) AS saldo_pendiente,
+               -- Estos dos ya se usaban arriba para restar, pero no salían del
+               -- endpoint. El PDF los lee de aquí para imprimir el renglón del
+               -- descuento, así que sin devolverlos el documento sigue enseñando
+               -- guías que suman más que el total a pagar (tarea 634).
+               COALESCE(p2.wallet_applied, 0) AS wallet_applied,
+               COALESCE(p2.credit_applied, 0) AS credit_applied,
+               -- Servicio real de la orden. El PDF decide con esto si arma el
+               -- desglose de DHL —importación, impuestos, envío— o el de PO Box.
+               -- Se calculaba aquí abajo sólo para elegir la cuenta bancaria y
+               -- nunca se devolvía, así que toda orden DHL se imprimía con las
+               -- columnas de PO Box y su envío nacional no aparecía por ningún
+               -- lado (TKT-2026-2836).
+               COALESCE(
+                 apo.service_type_cfg,
+                 (SELECT UPPER(owl.service_type) FROM openpay_webhook_logs owl
+                   WHERE owl.transaction_id = COALESCE(apo.payment_reference, p2.payment_reference)
+                     AND owl.service_type IS NOT NULL
+                   ORDER BY owl.id DESC LIMIT 1)
+               ) AS service_type_cfg,
                fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario,
                (SELECT COUNT(*) FROM payment_vouchers pv
                  WHERE pv.payment_order_id = p2.id AND pv.status = 'pending_review')
@@ -263,6 +289,18 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
             - COALESCE(pp.voucher_total, 0)
             - COALESCE(pp.wallet_applied, 0)
             - COALESCE(pp.credit_applied, 0)) AS saldo_pendiente,
+        -- Mismas tres columnas que arriba, en el mismo orden. Aquí el servicio
+        -- sale del propio cobro; el fallback al log cubre las órdenes viejas
+        -- que se crearon antes de que ese campo existiera.
+        COALESCE(pp.wallet_applied, 0) AS wallet_applied,
+        COALESCE(pp.credit_applied, 0) AS credit_applied,
+        COALESCE(
+          pp.service_type,
+          (SELECT UPPER(owl.service_type) FROM openpay_webhook_logs owl
+            WHERE owl.transaction_id = pp.payment_reference
+              AND owl.service_type IS NOT NULL
+            ORDER BY owl.id DESC LIMIT 1)
+        ) AS service_type_cfg,
         pp.created_at
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
