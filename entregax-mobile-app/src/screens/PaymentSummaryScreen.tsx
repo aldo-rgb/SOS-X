@@ -125,17 +125,20 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     if (isPickup) {
       return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0);
     }
-    // 📮 DHL (AA_DHL): el saldo (total_cost_mxn del embarque) incluye importación
-    // + impuestos DHL, pero NO la paquetería nacional (national_cost_mxn está en
-    // columna aparte). Se suma explícitamente para que el total refleje el
-    // envío nacional (bug: el modal cobraba $4,311.75 en vez de $4,773.75).
+    // 📮 DHL (AA_DHL): el saldo que manda el backend YA trae todo —importación
+    // con su impuesto, paquetería nacional y GEX—, porque se arma sumando
+    // import_cost_mxn + national_cost_mxn + GEX y no confiando en
+    // total_cost_mxn, que es ambiguo entre guías viejas y nuevas.
+    //
+    // `national_shipping_cost` viaja aparte SOLO para pintar el renglón del
+    // desglose. Sumarlo aquí lo cobraba dos veces (TKT-2026-2876: $11,121.00
+    // en pantalla por dos cajas que valían $10,173.00, $474.00 de Paquete
+    // Express repetido en cada una).
     const isDhl = pp.shipment_type === 'dhl' || pp.servicio === 'AA_DHL' || pp.servicio === 'DHL_MTY';
     if (isDhl) {
       const baseDhl = parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0;
-      const nationalDhl = parseFloat(pp.national_shipping_cost) || 0;
-      const gexDhl = parseFloat(pp.gex_total_cost) || 0;
       const extraDhl = parseFloat(pp.extra_charges_total) || 0;
-      return sum + baseDhl + nationalDhl + gexDhl + extraDhl;
+      return sum + baseDhl + extraDhl;
     }
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
