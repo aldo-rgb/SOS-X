@@ -257,6 +257,28 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
       await notaDeOperacion(ticketId, v).catch((e) => console.error('[JUEZ] nota de operación:', e?.message));
     }
 
+    // Cajito a veces se contradice: etiqueta ERROR_SISTEMA o CAPTURA y en la
+    // misma explicación escribe que NO hay falla del sistema. Cuando eso pasa
+    // le creemos a la explicación y no a la etiqueta: levantar la tarea manda a
+    // desarrollo un caso que su propia investigación ya descartó, y deja al
+    // asesor esperando a que alguien lo rebote (TKT-2026-2870: "Es una
+    // confusión de casillero al levantar el ticket, no una falla del sistema",
+    // y aun así se abrió la tarea 680).
+    //
+    // No es un filtro por tema: es un filtro por contradicción. Un ticket que
+    // dice "no me deja asignar instrucciones" sigue siendo error nuestro,
+    // porque ahí la explicación no se desdice.
+    const SE_DESDICE = /\bno\s+(?:es\s+|fue\s+|hay\s+)?(?:una?\s+)?(?:falla|error)\s+(?:de|del)\s+sistema\b|\bno\s+es\s+un\s+error\s+nuestro\b|\bno\s+hay\s+nada\s+roto\b/i;
+    if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))
+        && SE_DESDICE.test(String(v.explicacion || ''))) {
+      console.warn(
+        `[JUEZ] ${v.folio}: concluyó ${v.conclusion} pero su explicación dice que no hay falla del sistema. ` +
+        `No se levanta tarea; se deja para Servicio a Cliente.`);
+      await notaParaServicioACliente(ticketId, v).catch((e) => console.error('[JUEZ] nota por contradicción:', e?.message));
+      const g0 = await pool.query(`SELECT metadata->'cajito' AS c FROM support_tickets WHERE id = $1`, [ticketId]);
+      return g0.rows[0]?.c || null;
+    }
+
     if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))) {
       // El reporte lo levanta el sistema con el mismo camino del botón, para que
       // la tarea salga idéntica a la que crearía una persona.
