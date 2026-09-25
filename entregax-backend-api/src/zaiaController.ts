@@ -183,14 +183,42 @@ export const zaiaVerify = async (req: Request, res: Response): Promise<any> => {
 export const zaiaHealth = async (req: Request, res: Response): Promise<any> => {
   if (!autorizado(req, res)) return;
   const a = await actor();
+  // Aquí es donde ZAIA descubre qué puede hacer, así que tiene que decir la
+  // verdad. Decía etapa 'consulta' y escritura_habilitada: false cuando hace
+  // rato que ya escribe —tareas y ahora calendario—, y si ZAIA se guía por
+  // esto para decidir qué intentar, nunca usa la mitad del canal.
   res.json({
     ok: true,
-    etapa: 'consulta',
-    escritura_habilitada: false,
+    etapa: 'consulta y escritura',
+    escritura_habilitada: true,
     zona_horaria_respuestas: 'UTC',
     estados_validos: ESTADOS,
     topes_por_minuto: { consulta: 120, cajito: 20 },
     actor: a ? { id: a.id, nombre: a.nombre, role: a.role } : null,
+    capacidades: {
+      consultar: [
+        'GET /api/zaia/tareas', 'GET /api/zaia/tarea/:id',
+        'GET /api/zaia/tickets', 'GET /api/zaia/ticket/:folio',
+        'GET /api/zaia/personas', 'GET /api/zaia/avisos',
+        'POST /api/zaia/preguntar',
+      ],
+      tareas: [
+        'POST /api/zaia/apuntar-pendiente', 'POST /api/zaia/comentar-tarea',
+        'POST /api/zaia/editar-tarea', 'POST /api/zaia/cerrar-tarea',
+        'POST /api/zaia/reabrir-tarea', 'POST /api/zaia/revisar-tarea',
+      ],
+      calendario: [
+        'GET /api/zaia/calendario?desde=YYYY-MM-DD&hasta=YYYY-MM-DD',
+        'POST /api/zaia/agendar',
+        'POST /api/zaia/mover-evento',
+        'POST /api/zaia/borrar-evento',
+      ],
+    },
+    notas_calendario: [
+      'Las fechas entran y salen en UTC ISO-8601 con Z, por ejemplo 2026-09-25T15:00:00Z.',
+      'Solo se ven los eventos de esta cuenta o donde la invitaron; la agenda de otras personas no se consulta.',
+      'Solo se mueven o borran los eventos creados por esta cuenta.',
+    ],
     generado_en: new Date().toISOString(),
   });
 };
