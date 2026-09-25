@@ -1191,3 +1191,353 @@ export const zaiaTicketDetalle = async (req: Request, res: Response): Promise<an
     res.status(500).json({ error: 'No se pudo leer el ticket.' });
   }
 };
+
+// ============================================================
+// CALENDARIO
+//
+// ZAIA entra al calendario con la cuenta de dirección (ZAIA_ACTOR_ID), así que
+// ve exactamente lo que vería Aldo en /calendario: sus eventos y aquellos donde
+// lo invitaron, nunca la agenda ajena. Esa regla no es un permiso que se pueda
+// ampliar aquí: el calendario la tiene puesta a propósito porque un jefe que ve
+// las citas médicas de su gente no tiene un permiso, tiene una fuga.
+//
+// Escribir va un paso más cerrado que leer: ZAIA solo puede mover o borrar
+// eventos que creó la propia cuenta. Aldo, como gerencia, sí puede editar el
+// evento de otro desde la web; darle esa mano a una IA es otra cosa, y un
+// evento ajeno borrado por equivocación no se recupera.
+//
+// Fechas: entran y salen en UTC ISO-8601 con Z, igual que el resto del canal.
+// ============================================================
+
+/** Normaliza una fecha ISO a UTC. Devuelve null si no es una fecha real. */
+const fechaUtc = (v: any): string | null => {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+};
+
+/** Un día suelto (YYYY-MM-DD) para los rangos de lectura. */
+const soloDia = (v: any): string | null => {
+  const s = String(v || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+};
+
+// GET /api/zaia/calendario?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+export const zaiaCalendario = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    const { ensureCalendarTables } = await import('./calendarController');
+    await ensureCalendarTables();
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const desde = soloDia(req.query.desde) || hoy;
+    const hasta = soloDia(req.query.hasta) || desde;
+    if (hasta < desde) {
+      return res.status(400).json({ error: '"hasta" no puede ser anterior a "desde".' });
+    }
+
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const ISO = (c: string) => `to_char(${c}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+    // Misma regla que el calendario de la web: lo que creó o donde lo invitaron.
+    const eventos = await pool.query(
+      `SELECT e.id, e.title AS titulo, e.description AS descripcion, e.location AS lugar,
+              ${ISO('e.start_at')} AS inicia, ${ISO('e.end_at')} AS termina,
+              e.all_day AS todo_el_dia, e.color,
+              (e.created_by = $3) AS lo_creo_el,
+              COALESCE((
+                SELECT json_agg(json_build_object('id', u.id, 'nombre', u.full_name) ORDER BY u.full_name)
+                  FROM calendar_event_participants p JOIN users u ON u.id = p.user_id
+                 WHERE p.event_id = e.id
+              ), '[]'::json) AS participantes
+         FROM calendar_events e
+        WHERE e.start_at < ($2::date + interval '1 day')
+          AND COALESCE(e.end_at, e.start_at) >= $1::date
+          AND (e.created_by = $3 OR EXISTS (
+                SELECT 1 FROM calendar_event_participants p
+                 WHERE p.event_id = e.id AND p.user_id = $3))
+        ORDER BY e.start_at ASC`,
+      [desde, hasta, a.id]
+    );
+
+    // Tareas con fecha. La cuenta es de dirección, así que ve todas las del
+    // rango, igual que en la web.
+    const fecha = `COALESCE(t.commitment_date, t.due_at)`;
+    const tareas = await pool.query(
+      `SELECT t.id, t.title AS titulo, t.eisenhower, t.status AS estado,
+              ${ISO(fecha)} AS fecha,
+              (t.commitment_date IS NOT NULL) AS es_compromiso,
+              b.name AS categoria, u.full_name AS responsable
+         FROM tasks t
+         LEFT JOIN task_boards b ON b.id = t.board_id
+         LEFT JOIN users u ON u.id = t.assignee_id
+        WHERE t.status <> 'cancelled' AND ${fecha} IS NOT NULL
+          AND ${fecha} < ($2::date + interval '1 day') AND ${fecha} >= $1::date
+        ORDER BY ${fecha} ASC`,
+      [desde, hasta]
+    );
+
+    await registrar({
+      endpoint: 'GET /api/zaia/calendario', ip: ipDe(req),
+      pregunta: `${desde} a ${hasta}`,
+      respuesta: `${eventos.rowCount} evento(s), ${tareas.rowCount} tarea(s)`,
+      ms: Date.now() - t0,
+    });
+    res.json({
+      desde, hasta, de: a.nombre,
+      eventos: eventos.rows,
+      tareas: tareas.rows,
+      nota: 'Solo los eventos de esta cuenta o donde la invitaron. La agenda de otras personas no se consulta desde aquí.',
+    });
+  } catch (e: any) {
+    console.error('[zaia] calendario:', e);
+    await registrar({ endpoint: 'GET /api/zaia/calendario', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo leer el calendario.' });
+  }
+};
+
+/** Trae el evento y verifica que sea de la cuenta de ZAIA. */
+const eventoPropio = async (
+  id: number, actorId: number
+): Promise<{ evento: any } | { status: number; error: any }> => {
+  if (!Number.isFinite(id) || id <= 0) {
+    return { status: 400, error: { error: 'Manda un "evento_id" válido.' } };
+  }
+  const r = await pool.query(`SELECT * FROM calendar_events WHERE id = $1`, [id]);
+  const ev = r.rows[0];
+  if (!ev) return { status: 404, error: { error: `No existe el evento ${id}.` } };
+  if (Number(ev.created_by) !== Number(actorId)) {
+    return {
+      status: 403,
+      error: {
+        error: `El evento ${id} lo creó otra persona y desde aquí no se toca.`,
+        pista: 'Solo se pueden mover o borrar los eventos creados por esta cuenta.',
+      },
+    };
+  }
+  return { evento: ev };
+};
+
+// POST /api/zaia/agendar
+// { titulo, inicia, termina?, todo_el_dia?, lugar?, descripcion?, color?, invitados_ids? }
+export const zaiaAgendar = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    const { ensureCalendarTables } = await import('./calendarController');
+    await ensureCalendarTables();
+
+    const titulo = String(req.body?.titulo || '').trim().slice(0, 300);
+    if (!titulo) return res.status(400).json({ error: 'Falta el "titulo" del evento.' });
+
+    const inicia = fechaUtc(req.body?.inicia);
+    if (!inicia) {
+      return res.status(400).json({
+        error: 'Falta "inicia" o no es una fecha válida.',
+        pista: 'Mándala en UTC ISO-8601, por ejemplo 2026-09-25T15:00:00Z.',
+      });
+    }
+    const termina = req.body?.termina ? fechaUtc(req.body.termina) : null;
+    if (req.body?.termina && !termina) {
+      return res.status(400).json({ error: '"termina" no es una fecha válida. Usa UTC ISO-8601.' });
+    }
+    if (termina && termina < inicia) {
+      return res.status(400).json({ error: 'El evento no puede terminar antes de empezar.' });
+    }
+
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const invitados: number[] = Array.isArray(req.body?.invitados_ids)
+      ? req.body.invitados_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+
+    const r = await pool.query(
+      `INSERT INTO calendar_events (title, description, location, start_at, end_at, all_day, color, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [titulo, String(req.body?.descripcion || '').trim() || null,
+       String(req.body?.lugar || '').trim() || null, inicia, termina,
+       !!req.body?.todo_el_dia, String(req.body?.color || '').trim() || null, a.id]
+    );
+    const eventoId = Number(r.rows[0].id);
+
+    for (const p of Array.from(new Set<number>([a.id, ...invitados]))) {
+      await pool.query(
+        `INSERT INTO calendar_event_participants (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [eventoId, p]);
+    }
+    // Se avisa a los invitados, no al creador. Igual que al agendar desde la web.
+    try {
+      const { createCustomNotification } = require('./notificationController');
+      for (const p of invitados) {
+        if (Number(p) === a.id) continue;
+        await createCustomNotification(p, '📅 Nuevo evento en tu calendario', titulo, 'info', 'calendar', { event_id: eventoId }, '/calendario');
+      }
+    } catch { /* el aviso es opcional, el evento ya quedó */ }
+
+    await registrar({
+      endpoint: 'POST /api/zaia/agendar', ip: ipDe(req),
+      pregunta: `${titulo} @ ${inicia}`,
+      respuesta: `evento ${eventoId} creado`, ms: Date.now() - t0,
+    });
+    res.json({
+      ok: true, evento_id: eventoId, titulo, inicia, termina,
+      invitados: invitados.length,
+      mensaje: `Quedó agendado "${titulo}".`,
+    });
+  } catch (e: any) {
+    console.error('[zaia] agendar:', e);
+    await registrar({ endpoint: 'POST /api/zaia/agendar', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo agendar el evento.' });
+  }
+};
+
+// POST /api/zaia/mover-evento
+// { evento_id, titulo?, inicia?, termina?, todo_el_dia?, lugar?, descripcion?, color?, invitados_ids? }
+export const zaiaMoverEvento = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    const { ensureCalendarTables } = await import('./calendarController');
+    await ensureCalendarTables();
+
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const id = parseInt(String(req.body?.evento_id ?? ''), 10);
+    const hallado = await eventoPropio(id, a.id);
+    if ('error' in hallado) return res.status(hallado.status).json(hallado.error);
+
+    const b = req.body || {};
+    const sets: string[] = []; const params: any[] = []; let i = 1;
+    const set = (col: string, val: any) => { sets.push(`${col} = $${i++}`); params.push(val); };
+
+    if (b.titulo !== undefined) {
+      const t = String(b.titulo || '').trim().slice(0, 300);
+      if (!t) return res.status(400).json({ error: 'El título no puede quedar vacío.' });
+      set('title', t);
+    }
+    if (b.inicia !== undefined) {
+      const f = fechaUtc(b.inicia);
+      if (!f) return res.status(400).json({ error: '"inicia" no es una fecha válida. Usa UTC ISO-8601.' });
+      set('start_at', f);
+    }
+    if (b.termina !== undefined) {
+      if (b.termina === null || String(b.termina).trim() === '') set('end_at', null);
+      else {
+        const f = fechaUtc(b.termina);
+        if (!f) return res.status(400).json({ error: '"termina" no es una fecha válida. Usa UTC ISO-8601.' });
+        set('end_at', f);
+      }
+    }
+    if (b.descripcion !== undefined) set('description', String(b.descripcion || '').trim() || null);
+    if (b.lugar !== undefined) set('location', String(b.lugar || '').trim() || null);
+    if (b.todo_el_dia !== undefined) set('all_day', !!b.todo_el_dia);
+    if (b.color !== undefined) set('color', String(b.color || '').trim() || null);
+
+    if (!sets.length && !Array.isArray(b.invitados_ids)) {
+      return res.status(400).json({ error: 'No mandaste nada que cambiar.' });
+    }
+
+    // Todo el cambio va en una transacción. Si la validación de fechas falla a
+    // la mitad, se deshace COMPLETO: antes se revertían las fechas a mano y el
+    // título se quedaba cambiado mientras la respuesta decía "no cambié nada".
+    const cx = await pool.connect();
+    try {
+      await cx.query('BEGIN');
+
+      if (sets.length) {
+        sets.push('updated_at = NOW()');
+        params.push(id);
+        await cx.query(`UPDATE calendar_events SET ${sets.join(', ')} WHERE id = $${i}`, params);
+      }
+
+      // El evento no puede terminar antes de empezar, ya con los valores finales.
+      const fin = await cx.query(`SELECT start_at, end_at FROM calendar_events WHERE id = $1`, [id]);
+      const f = fin.rows[0];
+      if (f?.end_at && new Date(f.end_at) < new Date(f.start_at)) {
+        await cx.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'El evento no puede terminar antes de empezar. No cambié nada.',
+          pista: 'Si lo mueves más tarde, manda también "termina".',
+        });
+      }
+
+      if (Array.isArray(b.invitados_ids)) {
+        const ids = b.invitados_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n) && n > 0);
+        await cx.query(`DELETE FROM calendar_event_participants WHERE event_id = $1`, [id]);
+        for (const p of Array.from(new Set<number>([a.id, ...ids]))) {
+          await cx.query(
+            `INSERT INTO calendar_event_participants (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [id, p]);
+        }
+      }
+
+      await cx.query('COMMIT');
+    } catch (err) {
+      await cx.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      cx.release();
+    }
+
+    await registrar({
+      endpoint: 'POST /api/zaia/mover-evento', ip: ipDe(req),
+      pregunta: `evento ${id}`, respuesta: 'actualizado', ms: Date.now() - t0,
+    });
+    res.json({ ok: true, evento_id: id, mensaje: 'Listo, el evento quedó actualizado.' });
+  } catch (e: any) {
+    console.error('[zaia] mover evento:', e);
+    await registrar({ endpoint: 'POST /api/zaia/mover-evento', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo actualizar el evento.' });
+  }
+};
+
+// POST /api/zaia/borrar-evento  { evento_id }
+export const zaiaBorrarEvento = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    const { ensureCalendarTables } = await import('./calendarController');
+    await ensureCalendarTables();
+
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const id = parseInt(String(req.body?.evento_id ?? ''), 10);
+    const hallado = await eventoPropio(id, a.id);
+    if ('error' in hallado) return res.status(hallado.status).json(hallado.error);
+    const ev = hallado.evento;
+
+    // Un evento borrado no se recupera, así que queda su copia en la bitácora.
+    await pool.query(
+      `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details, metadata)
+       VALUES ('zaia_borro_evento', 'calendar_event', $1, $2, $3::jsonb, $4::jsonb)`,
+      [id, a.id, JSON.stringify({ titulo: ev.title, inicia: ev.start_at }), JSON.stringify(ev)]
+    );
+    await pool.query(`DELETE FROM calendar_events WHERE id = $1`, [id]);
+
+    await registrar({
+      endpoint: 'POST /api/zaia/borrar-evento', ip: ipDe(req),
+      pregunta: `evento ${id} (${ev.title})`, respuesta: 'borrado', ms: Date.now() - t0,
+    });
+    res.json({ ok: true, evento_id: id, mensaje: `Borré "${ev.title}" del calendario.` });
+  } catch (e: any) {
+    console.error('[zaia] borrar evento:', e);
+    await registrar({ endpoint: 'POST /api/zaia/borrar-evento', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
+    res.status(500).json({ error: 'No se pudo borrar el evento.' });
+  }
+};

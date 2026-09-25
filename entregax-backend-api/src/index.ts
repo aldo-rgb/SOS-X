@@ -641,7 +641,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle, zaiaCalendario, zaiaAgendar, zaiaMoverEvento, zaiaBorrarEvento } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import {
   requestAdvisor,
@@ -17817,6 +17817,13 @@ app.post('/api/zaia/apuntar-pendiente', zaiaApuntarPendiente);  // crea tarea; e
 app.post('/api/zaia/comentar-tarea', zaiaComentarTarea);       // comenta sin cerrar
 app.post('/api/zaia/reabrir-tarea', zaiaReabrirTarea);         // la regresa a pendientes, con motivo
 app.post('/api/zaia/editar-tarea', zaiaEditarTarea);            // cambia solo los campos que se mandan
+// Calendario. Lee la agenda de la cuenta de dirección y puede agendar, mover y
+// borrar SUS propios eventos. La agenda de otras personas no se consulta ni se
+// toca desde aquí.
+app.get('/api/zaia/calendario', zaiaCalendario);
+app.post('/api/zaia/agendar', zaiaAgendar);
+app.post('/api/zaia/mover-evento', zaiaMoverEvento);
+app.post('/api/zaia/borrar-evento', zaiaBorrarEvento);
 app.post('/api/zaia/avisos/prueba', zaiaAvisoPrueba);
 app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse al día
 
