@@ -63,6 +63,12 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
   });
   const [saving, setSaving] = useState(false);
   const [rolePickerVisible, setRolePickerVisible] = useState(false);
+  // Fecha de nacimiento: hasta ahora solo se podía capturar desde la web, y de
+  // 80 empleados activos solo uno la tenía. De aquí salen los cumpleaños del
+  // calendario, así que sin ella ese apartado queda vacío.
+  const [nacimientoVisible, setNacimientoVisible] = useState(false);
+  const [nacimientoTexto, setNacimientoTexto] = useState('');
+  const [guardandoNacimiento, setGuardandoNacimiento] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -144,6 +150,47 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
     const s = String(d).substring(0, 10);
     const [y, m, day] = s.split('-');
     return `${day}/${m}/${y}`;
+  };
+
+  const abrirNacimiento = () => {
+    const actual = String(profile?.user?.fecha_nacimiento || '').substring(0, 10);
+    setNacimientoTexto(actual);
+    setNacimientoVisible(true);
+  };
+
+  const guardarNacimiento = async () => {
+    const v = nacimientoTexto.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      Alert.alert('Fecha inválida', 'Escríbela como AAAA-MM-DD, por ejemplo 1990-03-25.');
+      return;
+    }
+    // Que sea una fecha real y no un 2026-02-31, y que tenga sentido para una
+    // persona: ni del futuro ni de hace 120 años.
+    const d = new Date(`${v}T12:00:00Z`);
+    if (isNaN(d.getTime()) || d.toISOString().substring(0, 10) !== v) {
+      Alert.alert('Fecha inválida', 'Ese día no existe en el calendario.');
+      return;
+    }
+    const hoy = new Date();
+    const anios = (hoy.getTime() - d.getTime()) / (365.25 * 24 * 3600 * 1000);
+    if (anios < 0) { Alert.alert('Fecha inválida', 'La fecha de nacimiento no puede ser del futuro.'); return; }
+    if (anios > 120) { Alert.alert('Fecha inválida', 'Revisa el año, parece un error de captura.'); return; }
+
+    if (!selectedUser) return;
+    setGuardandoNacimiento(true);
+    try {
+      await api.put(`/api/admin/hr/employees/${selectedUser.id}`,
+        { fechaNacimiento: v },
+        { headers: { Authorization: `Bearer ${token}` } });
+      // Refrescar en pantalla sin recargar todo el perfil.
+      setProfile((p: any) => (p ? { ...p, user: { ...(p.user || {}), fecha_nacimiento: v } } : p));
+      setNacimientoVisible(false);
+      Alert.alert('Listo', 'Se guardó la fecha de nacimiento.');
+    } catch (e: any) {
+      Alert.alert('No se pudo guardar', e?.response?.data?.error || 'Intenta de nuevo.');
+    } finally {
+      setGuardandoNacimiento(false);
+    }
   };
 
   const roleColor = (role: string) => {
@@ -400,6 +447,18 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
                       </View>
                     ))}
 
+                    {/* Se toca para capturarla. De aquí salen los cumpleaños
+                        del calendario. */}
+                    <TouchableOpacity style={styles.detailRow} onPress={abrirNacimiento} activeOpacity={0.6}>
+                      <Text style={styles.detailLabel}>Fecha de Nacimiento</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
+                        <Text style={[styles.detailValue, !profile?.user?.fecha_nacimiento && { color: ORANGE }]}>
+                          {profile?.user?.fecha_nacimiento ? fmtDate(profile.user.fecha_nacimiento) : 'Agregar'}
+                        </Text>
+                        <Ionicons name="pencil" size={15} color={ORANGE} />
+                      </View>
+                    </TouchableOpacity>
+
                     <Text style={styles.sectionSubtitle}>Finanzas</Text>
                     {(() => {
                       const salario = profile?.payroll?.salario_bruto
@@ -519,6 +578,42 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
             </>
           ) : null}
         </SafeAreaView>
+      </Modal>
+
+      {/* Fecha de nacimiento. Sin selector de calendario a propósito: la app no
+          trae uno y el resto de las pantallas capturan fechas así. */}
+      <Modal visible={nacimientoVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 14, padding: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: BLACK }}>Fecha de nacimiento</Text>
+            <Text style={{ fontSize: 13, color: '#666', marginTop: 6 }}>
+              {selectedUser?.full_name}
+            </Text>
+            <TextInput
+              style={[styles.input, { marginTop: 14 }]}
+              placeholder="AAAA-MM-DD"
+              placeholderTextColor="#999"
+              value={nacimientoTexto}
+              onChangeText={setNacimientoTexto}
+              keyboardType="numbers-and-punctuation"
+              autoFocus
+              editable={!guardandoNacimiento}
+            />
+            <Text style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
+              Por ejemplo 1990-03-25. Se usa para el cumpleaños en el calendario.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 18, marginTop: 20 }}>
+              <TouchableOpacity onPress={() => setNacimientoVisible(false)} disabled={guardandoNacimiento}>
+                <Text style={{ fontSize: 15, color: '#666', fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarNacimiento} disabled={guardandoNacimiento}>
+                <Text style={{ fontSize: 15, color: ORANGE, fontWeight: '700' }}>
+                  {guardandoNacimiento ? 'Guardando…' : 'Guardar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Role picker modal */}
