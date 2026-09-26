@@ -806,23 +806,55 @@ export const TOOLS: ToolDef[] = [
     name: 'search_clients',
     requiredCapability: 'cajito.read.clients',
     readOnly: true,
-    description: 'Busca CLIENTES por número de casillero (box_id, p.ej. "S1", "S96", "S2345"), nombre o correo, y devuelve sus datos. ÚSALA siempre que pidan información/detalles de un cliente o cuando den un número que empieza con "S" seguido de dígitos (eso es un casillero de cliente, NO una guía).',
+    description: 'Busca CLIENTES por número de casillero (box_id, p.ej. "S1", "S96", "S2345"), nombre o correo, y devuelve sus datos, INCLUIDO EL ASESOR que lo atiende. ÚSALA siempre que pidan información/detalles de un cliente, de quién es un casillero o a qué asesor le toca, o cuando den un número que empieza con "S" seguido de dígitos (eso es un casillero de cliente, NO una guía). Acepta varios casilleros de un jalón separados por coma o espacio ("S96, S105 S2345"), que es como llegan cuando alguien pega una lista.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Casillero (S2345), nombre o correo del cliente (mín 2 caracteres)' }
+        query: { type: 'string', description: 'Casillero (S2345), nombre o correo del cliente (mín 2 caracteres). También varios casilleros separados por coma o espacio.' }
       },
       required: ['query']
     },
     handler: async ({ query }) => {
       const q = String(query || '').trim();
       if (q.length < 2) return { error: 'query muy corto (mín 2)' };
+
+      // El asesor es la pregunta que más se hace sobre un cliente y no venía:
+      // Christian pegó una lista de casilleros para avisarle a cada asesor y
+      // Cajito los encontró pero no supo de quién era cada uno (CJD-2026-0026).
+      // Se resuelve igual que en el resto del sistema: advisor_id y, si no hay,
+      // quien lo refirió.
+      const SELECT = `
+        SELECT u.id, u.box_id, u.full_name, u.email, u.phone, u.created_at,
+               a.id AS asesor_id,
+               COALESCE(a.full_name, 'sin asesor asignado') AS asesor,
+               a.email AS asesor_email
+          FROM users u
+          LEFT JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)`;
+
+      // Una lista de casilleros pegada de un Excel llega como "S96, S105 S2345".
+      // Buscarla como texto único no encuentra nada; se parte y se buscan todos.
+      const casilleros = q.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+      const todosSonCasilleros = casilleros.length > 1 && casilleros.every(s => /^S\d+$/i.test(s));
+      if (todosSonCasilleros) {
+        const r = await pool.query(
+          `${SELECT} WHERE UPPER(u.box_id) = ANY($1::text[]) ORDER BY u.box_id LIMIT $2`,
+          [casilleros.map(s => s.toUpperCase()), MAX_ROWS]
+        );
+        const hallados = new Set(r.rows.map((x: any) => String(x.box_id || '').toUpperCase()));
+        const faltantes = casilleros.map(s => s.toUpperCase()).filter(s => !hallados.has(s));
+        return {
+          count: r.rows.length,
+          clients: r.rows,
+          pedidos: casilleros.length,
+          no_encontrados: faltantes.length ? faltantes : undefined,
+        };
+      }
+
       const like = `%${q}%`;
       const r = await pool.query(
-        `SELECT id, box_id, full_name, email, phone, created_at
-           FROM users
-          WHERE box_id ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1
-          ORDER BY box_id NULLS LAST
+        `${SELECT}
+          WHERE u.box_id ILIKE $1 OR u.full_name ILIKE $1 OR u.email ILIKE $1
+          ORDER BY u.box_id NULLS LAST
           LIMIT $2`,
         [like, MAX_ROWS]
       );
