@@ -632,18 +632,29 @@ export const startCarteraVencidaCron = () => {
 export const startDhlPagoRezagadoCron = () => {
   cron.schedule('30 5 * * *', async () => {
     try {
-      const { destrabarPagosRezagados } = await import('./dhlPagoRezagado');
+      const { destrabarPagosRezagados, destrabarComisionesFaltantes } = await import('./dhlPagoRezagado');
       const r = await destrabarPagosRezagados();
       if (r.destrabadas.length > 0) {
         console.warn(`🔧 [CRON] Guías DHL rezagadas destrabadas: ${r.destrabadas.length} ` +
           `(${r.destrabadas.map(x => x.orden).join(', ')})`);
+      }
+
+      // Segunda pasada: la guía sí quedó marcada pagada, pero la comisión nunca
+      // nació. La generación se pide sin esperarla y sin reintento, así que un
+      // fallo la perdía para siempre y el asesor se enteraba meses después
+      // (tarea 684). Va después a propósito: la pasada de arriba pudo acabar de
+      // marcar guías que ahora necesitan su comisión.
+      const c = await destrabarComisionesFaltantes();
+      if (c.generadas.length > 0) {
+        console.warn(`🔧 [CRON] Comisiones DHL que faltaban: ${c.generadas.length} generadas ` +
+          `(guías ${c.generadas.map(x => x.guia).join(', ')})`);
       }
     } catch (error) {
       console.error('❌ [CRON] Error destrabando guías DHL rezagadas:', error);
     }
   });
 
-  console.log('📅 [CRON] Revisión de guías DHL pagadas sin marcar programada a las 05:30 hrs');
+  console.log('📅 [CRON] Revisión de guías DHL pagadas sin marcar y sin comisión programada a las 05:30 hrs');
 };
 
 export const startMJCustomerSyncCron = () => {
