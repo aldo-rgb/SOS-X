@@ -494,6 +494,23 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       if (!value || value === lastEvalTracking2Ref.current) return;
       lastEvalTracking2Ref.current = value;
 
+      // Las etiquetas de clasificación —General y Específica— son para separar
+      // la carga, no son guías. Cuando una se escanea aquí se queda guardada
+      // como si fuera el número de guía, y después nadie puede identificar esa
+      // línea: en la orden UW-84444F3F apareció una línea que solo decía
+      // "DHL-ESPECIFICA" por $4,158.20, el asesor no supo de quién era y la
+      // reportó como guía de otro cliente. Era de él (tarea 687).
+      if (value === SCAN_CODE_STANDARD_N || value === SCAN_CODE_HIGH_VALUE_N) {
+        setTracking2Warning('Esa es la etiqueta de clasificación, no una guía. Escanea el número corto master de la guía (Ej: 9650623485).');
+        playErrorBeep();
+        setTimeout(() => {
+          setTracking2('');
+          setTracking2Warning(null);
+          lastEvalTracking2Ref.current = '';
+          tracking2InputRef.current?.focus();
+        }, 1100);
+        return;
+      }
       if (is2LMXCode(value)) {
         setTracking2Warning('Código de referencia interna. Ingresa el número corto master (Ej: 9650623485).');
         playErrorBeep();
