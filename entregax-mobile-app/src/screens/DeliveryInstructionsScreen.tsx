@@ -1124,7 +1124,13 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     }
 
     // Ocurre = recoger en sucursal: confirmación explícita (tarea 589).
-    if (pqtxOcurreInfo?.usedZip && selectedCarrier === 'paquete_express') {
+    //
+    // Salvo que la dirección ya esté dada de alta como Ocurre: ahí el cliente
+    // lo decidió al crearla y volvérselo a preguntar solo estorba (tarea 683).
+    const dirSeleccionada = addresses.find((a: any) => a.id === selectedAddressId);
+    const direccionYaEsOcurre = !!(dirSeleccionada as any)?.is_ocurre;
+
+    if (pqtxOcurreInfo?.usedZip && selectedCarrier === 'paquete_express' && !direccionYaEsOcurre) {
       const ciudad = (pqtxOcurreInfo as any).branch?.cityName;
       const ok = await new Promise<boolean>((resolve) => Alert.alert(
         'Entrega en sucursal (Ocurre)',

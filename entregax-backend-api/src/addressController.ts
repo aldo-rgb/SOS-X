@@ -593,9 +593,12 @@ export const getMyAddresses = async (req: Request, res: Response): Promise<void>
         }
 
         const result = await pool.query(
+            // is_ocurre viaja con la dirección: sin él, la pantalla no sabe que
+            // el cliente YA aceptó la entrega en sucursal cuando la dio de alta,
+            // y se lo vuelve a preguntar al asignar instrucciones (tarea 683).
             `SELECT id, alias, recipient_name as contact_name, street, exterior_number, interior_number,
                     neighborhood as colony, city, state, zip_code, phone, reference, reception_hours,
-                    is_default, default_for_service, carrier_config, created_at
+                    is_default, default_for_service, carrier_config, is_ocurre, created_at
              FROM addresses
              WHERE user_id = $1 AND (internal_only IS NULL OR internal_only = FALSE)
              ORDER BY is_default DESC, created_at DESC`,

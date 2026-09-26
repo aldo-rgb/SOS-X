@@ -4036,7 +4036,16 @@ export default function DashboardClient() {
     // Ocurre = recoger en sucursal. Antes se aplicaba casi en silencio y la
     // guía salía a sucursal aunque el cliente esperaba entrega a domicilio
     // (tarea 589). Se pide confirmación explícita.
-    if (pqtxOcurreInfo?.usedZip && selectedCarrierService === 'paquete_express') {
+    //
+    // Salvo que la dirección YA esté dada de alta como Ocurre: ahí el cliente
+    // lo decidió al crearla y preguntárselo otra vez solo estorba. A Sankie Guo
+    // la dejó atorada: su dirección de Veracruz tiene el Ocurre prendido, el
+    // sistema se lo volvía a preguntar y al no aceptar le decía que aceptara
+    // Ocurre... que era justo lo que ya tenía puesto (tarea 683).
+    const dirSeleccionada = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+    const direccionYaEsOcurre = !!(dirSeleccionada as any)?.is_ocurre;
+
+    if (pqtxOcurreInfo?.usedZip && selectedCarrierService === 'paquete_express' && !direccionYaEsOcurre) {
       const ok = window.confirm(`Paquete Express no tiene entrega a domicilio para esta dirección.\n\n` +
           `La guía saldrá como OCURRE: el destinatario tendrá que RECOGER en la sucursal (C.P. ${pqtxOcurreInfo.usedZip}${pqtxOcurreInfo.branch?.cityName ? ', ' + pqtxOcurreInfo.branch?.cityName : ''}).\n\n` +
           `¿Continuar así?`);
@@ -4046,7 +4055,7 @@ export default function DashboardClient() {
       if (!ok) {
         setSnackbar({
           open: true,
-          message: 'No se guardó nada. Para usar Paquete Express en esta dirección hay que aceptar la entrega en sucursal (Ocurre), o elegir otra paquetería.',
+          message: 'No se guardó nada. Para usar Paquete Express en esta dirección hay que aceptar la entrega en sucursal (Ocurre), elegir otra paquetería, o marcar la dirección como Ocurre para que no se te vuelva a preguntar.',
           severity: 'info',
         });
         return;
