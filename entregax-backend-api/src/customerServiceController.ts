@@ -2249,13 +2249,29 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
   }
 
   try {
-    // Verificar PIN de director/super_admin
+    // Quién puede autorizar un DESCUENTO con su PIN.
+    //
+    // Dirección siempre, y además quien esté en PIN_SUPERVISOR_CORREOS: la
+    // lista que ya usa bodega para habilitar a una persona por nombre propio
+    // sin tener que cambiarle el rol. Ahí está Ricardo Méndez, gerente de
+    // Servicio a Cliente, que YA tenía su PIN corto pero esta consulta lo
+    // rechazaba por rol. El efecto era que los descuentos que él autorizaba
+    // terminaban firmados con el PIN de la cuenta genérica: los 113 del
+    // sistema aparecen a nombre de "Administrador EntregaX", que no es nadie.
+    //
+    // A propósito NO se abre a branch_manager, aunque esos sí tengan PIN de
+    // bodega: un descuento es dinero que se deja de cobrar, no un movimiento
+    // de almacén.
+    const { PIN_SUPERVISOR_CORREOS } = await import('./warehouseController');
     const pinResult = await pool.query(
-      `SELECT id, full_name, role FROM users WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1) AND role IN ('director', 'super_admin')`,
-      [pin]
+      `SELECT id, full_name, role FROM users
+        WHERE (supervisor_pin = $1 OR supervisor_pin_corto = $1)
+          AND COALESCE(is_active, TRUE) = TRUE
+          AND (role IN ('director', 'super_admin') OR LOWER(email) = ANY($2::text[]))`,
+      [pin, PIN_SUPERVISOR_CORREOS]
     );
     if (pinResult.rows.length === 0) {
-      return res.status(403).json({ error: 'PIN de autorización inválido. Se requiere PIN de director.' });
+      return res.status(403).json({ error: 'PIN de autorización inválido. Se requiere el PIN de alguien autorizado para aprobar descuentos.' });
     }
     const autorizador = pinResult.rows[0];
 
