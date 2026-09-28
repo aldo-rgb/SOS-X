@@ -6563,9 +6563,16 @@ export default function DashboardClient() {
                   </Button>
                   )}
 
-                  {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones
-                      Y ninguno tiene etiqueta de paquetería impresa (ya comprometidos) */}
-                  {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) &&
+                  {/* La opción vive hasta que se imprime la etiqueta de paquetería.
+                      Antes se escondía en cuanto la guía tenía una dirección, y eso
+                      dejaba al cliente sin forma de corregirla ni de disparar el
+                      envío: Sergio Omar Sánchez (S1202) tenía dos reempaques con su
+                      dirección puesta pero sin guía nacional, y el boton no le salía
+                      justo porque el sistema creia que ese paso ya estaba hecho
+                      (TKT-2026-2822, tarea 697).
+                      El candado de verdad es la etiqueta: una vez impresa la guía ya
+                      esta comprometida con la paqueteria y ahi si no se toca. */}
+                  {getSelectedPackages().length > 0 &&
                    !getSelectedPackages().some(pkg => hasPrintedLabel(pkg)) && (
                     <Button
                       variant="contained"
@@ -6606,7 +6613,16 @@ export default function DashboardClient() {
                         px: isMobile ? 1.5 : 2,
                       }}
                     >
-                      {isMobile ? '📍 Dirección' : t('cd.packages.assignInstructions')}
+                      {/* Si TODAS las seleccionadas ya traen dirección, lo que va a
+                          hacer es cambiarla, no asignarla. Decirle "asignar" a algo
+                          que ya está puesto confunde. */}
+                      {(() => {
+                        const sel = getSelectedPackages();
+                        const todasConDireccion = sel.length > 0 &&
+                          sel.every(pkg => pkg.has_delivery_instructions || pkg.assigned_address_id);
+                        if (isMobile) return todasConDireccion ? '📍 Cambiar' : '📍 Dirección';
+                        return todasConDireccion ? 'Cambiar instrucciones de entrega' : t('cd.packages.assignInstructions');
+                      })()}
                     </Button>
                   )}
                 </>
