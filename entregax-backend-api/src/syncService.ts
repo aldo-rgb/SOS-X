@@ -249,7 +249,11 @@ export async function logSyncAttempt(opts: {
     await pool.query(
       `INSERT INTO sync_debug_log (endpoint, remote_ip, key_prefix, has_sig, diag, body_size, body_preview)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [opts.endpoint, opts.remoteIp || null, keyPrefix, !!opts.sig, opts.diag, raw.length, raw.slice(0, 400)]);
+      // 4000 y no 400: el recorte anterior cortaba el payload a la mitad justo
+      // donde venían los campos del adjunto, y para diagnosticar por qué no
+      // llegaba una foto había que adivinar qué mandaron. Un evento de estos
+      // ronda los 600 bytes; 4000 cubre de sobra sin engordar la tabla.
+      [opts.endpoint, opts.remoteIp || null, keyPrefix, !!opts.sig, opts.diag, raw.length, raw.slice(0, 4000)]);
   } catch (e: any) { console.error('[sync] logSyncAttempt:', e?.message); }
 }
 

@@ -2520,13 +2520,23 @@ export async function applyInboundTaskEvent(opts: {
     }
     case 'task.comment_added': {
       const body = String(opts.body?.body || '').trim();
-      const adjunto = String(opts.body?.attachment_url || opts.body?.image_url || '').trim();
+      // El adjunto no siempre viene en `attachment_url`. Grupo Rino mandó el
+      // comprobante de un depósito de $400,000 con `attachment_url` en null y
+      // el archivo en otro campo, así que la foto se ignoró en silencio y la
+      // tarea quedó sin comprobante (tarea 698). Se aceptan los nombres que
+      // usan de su lado en vez de exigir uno solo.
+      const b = opts.body || {};
+      const adjunto = String(
+        b.attachment_url || b.image_url || b.attachment_download_url ||
+        b.download_url || b.attachment_path || b.file_url || ''
+      ).trim();
       if (!body && !adjunto) return { ok: false, error: 'Comentario vacío' };
       // Si el comentario trae imagen, se baja igual que un adjunto suelto: antes
       // se ignoraba el campo y la foto se quedaba de su lado.
       let urlComentario: string | null = null;
       if (adjunto) {
-        const g = await ingestExternalAttachment(taskId, adjunto, String(opts.body?.file_name || 'imagen'), actorId);
+        const nombreAdj = String(b.file_name || b.attachment_name || 'comprobante').trim() || 'comprobante';
+        const g = await ingestExternalAttachment(taskId, adjunto, nombreAdj, actorId);
         if (!g) urlComentario = adjunto;
       }
       await pool.query(
