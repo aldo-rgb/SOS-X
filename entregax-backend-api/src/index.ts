@@ -15247,9 +15247,14 @@ app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
 // Cargo extra cobrable (CEX): si la guía ya está pagada, genera orden de cobro.
 app.post('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createCargoExtra);
 app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listCargosExtra);
-// 💸 Descuentos aplicados, vista de conjunto. Solo dirección para arriba
-// (director, admin, super_admin): es dinero que se deja de cobrar.
-app.get('/api/cs/descuentos', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listDescuentos);
+// 💸 Descuentos aplicados, vista de conjunto: es dinero que se deja de cobrar.
+//
+// Permiso GESTIONABLE, igual que los cargos por validar de abajo. Antes estaba
+// cableado a dirección, y por eso el panel no aparecía en la pantalla de
+// Permisos: no había forma de dárselo a alguien sin tocar código. Dirección
+// sigue entrando por nivel, como en el resto de paneles.
+const puedeVerDescuentos = requirePanelPermissionOrRoles('cs_descuentos', ['super_admin', 'admin', 'director']);
+app.get('/api/cs/descuentos', authenticateToken, puedeVerDescuentos, listDescuentos);
 // Validación de cargos de impuestos DHL antes de cobrárselos al cliente (tarea
 // 482). Mismo nivel que descuentos: es decidir si se le sube dinero a alguien.
 // Permiso GESTIONABLE desde la pantalla de Permisos, no rol cableado: quien
@@ -15991,7 +15996,8 @@ async function ensureRequiredColumns() {
         ('cs_chartback',     'Chartback — Reactivación', 'customer_service', 'Sync',            'Asignar asesores a clientes chartback para contactarlos', TRUE, 10),
         ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11),
         ('cs_payment_orders_history', 'Historial de Órdenes de Pago', 'customer_service', 'ReceiptLong', 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo', TRUE, 12),
-        ('cs_cargos_validar', 'Cargos por Validar', 'customer_service', 'Gavel', 'Impuestos DHL que el sistema calculó y esperan visto bueno antes de cobrarse al cliente', TRUE, 13)
+        ('cs_cargos_validar', 'Cargos por Validar', 'customer_service', 'Gavel', 'Impuestos DHL que el sistema calculó y esperan visto bueno antes de cobrarse al cliente', TRUE, 13),
+        ('cs_descuentos',    'Descuentos Aplicados', 'customer_service', 'Percent', 'Cuánto se deja de cobrar, en qué guías y quién lo autoriza', TRUE, 14)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,

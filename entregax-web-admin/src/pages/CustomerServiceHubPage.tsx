@@ -53,6 +53,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'cartera': 'cs_cartera',
   'delayed': 'cs_delayed',
   'cargos_validar': 'cs_cargos_validar',
+  'descuentos': 'cs_descuentos',
   'assign_client': 'cs_assign_client',
   'lead_registration': 'cs_lead_registration',
   'referidos': 'cs_referidos',
@@ -586,9 +587,9 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   // 'cargos_validar' se filtra por PERMISO como el resto: quien valida cambia
   // con el organigrama y debe poder moverse desde la pantalla de Permisos, sin
   // tocar codigo. Dirección entra por rol, igual que en los demás paneles.
-  const filteredTools = serviceTools.filter(tool =>
-    tool.key === 'descuentos' ? esDireccion
-      : (esDireccion || hasPermission(tool.key)));
+  // 'descuentos' tambien se filtra por PERMISO: antes estaba cableado a
+  // direccion y por eso ni siquiera aparecia en la pantalla de Permisos.
+  const filteredTools = serviceTools.filter(tool => esDireccion || hasPermission(tool.key));
 
   // Si no tiene permisos para ninguna herramienta
   if (filteredTools.length === 0) {
