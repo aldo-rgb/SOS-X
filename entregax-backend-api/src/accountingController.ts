@@ -289,7 +289,27 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
         if (search) {
             params.push(`%${search}%`);
             const i = params.length;
-            conds.push(`(f.folio ILIKE $${i} OR f.receptor_rfc ILIKE $${i} OR f.receptor_razon_social ILIKE $${i} OR f.uuid_sat ILIKE $${i})`);
+            // La REFERENCIA DE PAGO va en la búsqueda: es por donde Contabilidad
+            // amarra una factura con su cobro. Se mostraba en la columna "Orden"
+            // pero no se consultaba, así que buscar "RO-5585C7D9" contestaba
+            // "no hay facturas" aunque la factura estuviera ahí (tarea 699,
+            // Leonardo Reyna).
+            //
+            // Se busca la MISMA referencia que se pinta en la columna, o sea el
+            // COALESCE de abajo: la de la factura, la de la orden de pago, o el
+            // payment_id pelón. Sólo 17 de 815 facturas traen payment_reference
+            // propio; las otras 196 la resuelven por la orden, y por eso va el
+            // EXISTS en vez de un simple ILIKE.
+            //
+            // Ojo al tocar esto: este WHERE se reusa en la consulta de respaldo
+            // de abajo, que no trae el LATERAL `po`. Por eso el EXISTS lleva su
+            // propia subconsulta y aquí no se puede citar `po` ni `u`.
+            conds.push(`(f.folio ILIKE $${i} OR f.receptor_rfc ILIKE $${i} OR f.receptor_razon_social ILIKE $${i} OR f.uuid_sat ILIKE $${i}
+                         OR f.payment_reference ILIKE $${i} OR f.payment_id ILIKE $${i}
+                         OR EXISTS (SELECT 1 FROM pobox_payments pp_b
+                                     WHERE (pp_b.payment_reference = COALESCE(f.payment_reference, f.payment_id)
+                                            OR pp_b.id::text = f.payment_id)
+                                       AND pp_b.payment_reference ILIKE $${i}))`);
         }
         const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 

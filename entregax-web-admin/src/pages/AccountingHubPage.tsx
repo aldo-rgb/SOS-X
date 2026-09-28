@@ -451,7 +451,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <TextField
           size="small"
-          placeholder="Buscar folio, UUID, RFC o razón social…"
+          placeholder="Buscar folio, referencia de pago, UUID, RFC o razón social…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && load()}
