@@ -44,6 +44,19 @@ const CON_ORDEN_PAGADA = `(
                   AND pp_g.user_id = d_g.user_id
                   AND d_g.paid_at IS NOT NULL
                   AND ABS(EXTRACT(EPOCH FROM (pp_g.paid_at - d_g.paid_at))) < 5)
+    -- Un REEMPAQUE se cobra como UNA sola guía: la orden guarda el id del
+    -- master (US-REPACK-…) y las hijas viajan adentro. La comisión, en cambio,
+    -- nace en cada hija, así que al buscarle su orden no la encontraba nunca y
+    -- el asesor no cobraba aunque el cliente ya hubiera pagado. Mismo caso que
+    -- el grupo multicaja de DHL de arriba, con el amarre por master_id.
+    -- Christian lo reportó por dos reempaques suyos; al medirlo eran 130
+    -- comisiones de 4 asesores por $11,132.26 (tarea 689).
+    OR EXISTS (SELECT 1 FROM pobox_payments pp_r
+                 JOIN packages p_r ON p_r.id = ac.shipment_id
+                WHERE ac.shipment_type = 'PKG'
+                  AND p_r.master_id IS NOT NULL
+                  AND pp_r.status IN ('completed','paid')
+                  AND pp_r.package_ids @> to_jsonb(p_r.master_id))
     OR EXISTS (SELECT 1 FROM advisor_payment_orders apo_o
                 WHERE apo_o.status = 'pagado'
                   AND (apo_o.package_uids ? ('PKG-' || ac.shipment_id::text)
