@@ -72,6 +72,9 @@ const boardIcon = (name?: string, type?: string): string => {
 };
 const myRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
 const isSuperAdmin = myRole === 'super_admin';
+// Para saber cuáles comentarios son míos: solo el autor puede editarlos o
+// borrarlos, que es la misma regla que aplica el backend.
+const MY_ID = (() => { try { return Number(JSON.parse(localStorage.getItem('user') || '{}')?.id) || 0; } catch { return 0; } })();
 
 const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
@@ -1269,11 +1272,34 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   };
   /** Mensaje o archivo al que se está contestando (cita estilo WhatsApp). */
   const [citando, setCitando] = useState<null | { tipo: 'comentario' | 'archivo'; id: number; autor: string; texto: string; url?: string | null; file_name?: string | null }>(null);
+  // Editar y borrar el propio comentario. El backend ya lo permitía; aquí no
+  // había por dónde, así que un comentario mandado por error —una contraseña
+  // pegada, por ejemplo— se quedaba en el hilo para siempre.
+  const [editandoComentario, setEditandoComentario] = useState<number | null>(null);
+  const [textoEditado, setTextoEditado] = useState('');
   /**
    * Al citar hay que bajar al compositor y dejar el cursor listo: quedarse
    * arriba obligaba a buscar el campo y darle click para poder escribir.
    */
   const campoComentario = useRef<HTMLInputElement | null>(null);
+  const guardarComentarioEditado = async () => {
+    const texto = textoEditado.trim();
+    if (!editandoComentario || !texto) return;
+    try {
+      await axios.patch(`${API_URL}/tasks/${data.id}/comments/${editandoComentario}`, { body: texto }, H());
+      setEditandoComentario(null); setTextoEditado('');
+      reload();
+    } catch { notify('Error al editar el comentario', 'error'); }
+  };
+
+  const borrarComentario = async (commentId: number) => {
+    if (!window.confirm('¿Borrar este comentario? No se puede deshacer.')) return;
+    try {
+      await axios.delete(`${API_URL}/tasks/${data.id}/comments/${commentId}`, H());
+      reload();
+    } catch { notify('Error al borrar el comentario', 'error'); }
+  };
+
   const irAEscribir = () => setTimeout(() => {
     campoComentario.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     campoComentario.current?.focus();
@@ -1518,6 +1544,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               const esArchivo = item.tipo === 'a';
               const d = item.dato;
               const autor = esArchivo ? d.uploaded_by_name : d.author_name;
+              // Solo el autor edita o borra lo suyo, igual que en el backend.
+              const esMio = !esArchivo && MY_ID > 0 && Number(d.author_id) === MY_ID;
               const responder = () => {
                 setCitando(esArchivo
                   ? { tipo: 'archivo', id: d.id, autor: autor || '—', texto: '', url: d.url, file_name: d.file_name }
@@ -1531,11 +1559,23 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                     <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
                       <b>{autor || '—'}</b> · {new Date(d.created_at).toLocaleString('es-MX')}
                     </Typography>
+                    {!esArchivo && !!d.edited_at && (
+                      <Typography variant="caption" sx={{ color: '#9AA0A6', fontSize: 10.5, mr: 0.5 }}>editado</Typography>
+                    )}
                     <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#5E35B1', opacity: 0.35 }}
                       onClick={responder} title="Responder a esto"><ReplyIcon sx={{ fontSize: 15 }} /></IconButton>
-                    {esArchivo && (
+                    {esArchivo ? (
                       <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#C0392B', opacity: 0.35 }}
                         onClick={() => setDelAttId(d.id)} title="Eliminar archivo"><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+                    ) : esMio && editandoComentario !== d.id && (
+                      <>
+                        <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#3A7D53', opacity: 0.35 }}
+                          onClick={() => { setEditandoComentario(d.id); setTextoEditado(d.body || ''); }}
+                          title="Editar"><EditIcon sx={{ fontSize: 14 }} /></IconButton>
+                        <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#C0392B', opacity: 0.35 }}
+                          onClick={() => borrarComentario(d.id)}
+                          title="Borrar"><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+                      </>
                     )}
                   </Box>
                   {/* Lo citado, clickeable para saltar al original. */}
@@ -1571,6 +1611,21 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                         </Box>
                       )}
                     </a>
+                  ) : editandoComentario === d.id ? (
+                    <Box sx={{ mt: 0.5 }}>
+                      <TextField
+                        fullWidth multiline minRows={2} size="small" autoFocus
+                        value={textoEditado}
+                        onChange={(e) => setTextoEditado(e.target.value)}
+                      />
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.75 }}>
+                        <Button size="small" variant="contained"
+                          disabled={!textoEditado.trim()}
+                          onClick={guardarComentarioEditado}>Guardar</Button>
+                        <Button size="small"
+                          onClick={() => { setEditandoComentario(null); setTextoEditado(''); }}>Cancelar</Button>
+                      </Box>
+                    </Box>
                   ) : (
                     <>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{d.body}</Typography>
