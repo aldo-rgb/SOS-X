@@ -3163,10 +3163,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         const isProcessingSelection = isPOBoxUSA && firstSelectedPkg?.status === 'processing';
         // Bodega = recibido en USA, en tránsito a MTY, o ya recibido en CEDIS MTY.
         // En todos esos casos el cliente aún puede asignar instrucciones de entrega.
+        // 'reempacado' va en la lista por lo mismo que ya está en isSelectable:
+        // cuando bodega cierra el reempaque el master pasa de 'received' a
+        // 'reempacado', y un reempaque terminado es justo lo que está listo para
+        // decirle a dónde va. Sin esto, seleccionar SOLO reempaques no ofrecía
+        // nada, y seleccionarlos junto a una guía normal sí — porque todo esto
+        // se decide con el PRIMER paquete de la selección (TKT-2026-2822,
+        // tarea 697, Sergio Omar Sánchez S1202).
+        // Se compara como texto porque el tipo de `status` no lista todos los
+        // estados que existen de verdad en la base —'received_mty' y
+        // 'reempacado' no están— y con el tipo estricto TypeScript marcaba la
+        // comparación como imposible aunque en producción sí ocurre.
+        const estadoSeleccion = String(firstSelectedPkg?.status || '');
         const isWarehouseSelection = isPOBoxUSA && (
-          firstSelectedPkg?.status === 'received' ||
-          firstSelectedPkg?.status === 'in_transit' ||
-          firstSelectedPkg?.status === 'received_mty'
+          ['received', 'in_transit', 'received_mty', 'reempacado'].includes(estadoSeleccion)
         );
 
         // 🚚 Pick Up en sucursal: ya tiene "instrucciones" (recoge el cliente, sin
@@ -3185,8 +3195,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             || (p as any).status === 'ready_pickup'
             || (p as any).needs_instructions === false);
         
+        // Una guía con dirección puesta pero SIN etiqueta de paquetería impresa
+        // todavía se puede corregir: el envío no está comprometido. Se usa más
+        // abajo, pero SOLO cuando no hay nada que cobrar — si hay saldo, el
+        // botón tiene que seguir diciendo "Pagar", que es lo que la mayoría
+        // necesita. Mismo criterio de la etiqueta que se aplicó en el portal.
+        const ningunaConEtiqueta = !packages
+          .filter(p => selectedIds.includes(p.id))
+          .some(p => !!((p as any).national_label_url || (p as any).national_tracking));
+        const esTipoConInstrucciones = isMaritimeSelection || isChinaAirSelection
+          || isDHLSelection || isTdiExpressSelection || isWarehouseSelection;
+
         // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío) - SOLO si NO tienen instrucciones
-        const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isTdiExpressSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
+        const needsInstructions = esTipoConInstrucciones && !allSelectedHaveInstructions;
         
         // Calcular total a pagar para paquetes procesando
         // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado Y que no estén pagados
@@ -3252,21 +3273,32 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
         // 🚫 "Solicitar Envío" está desactivado: solo se muestra el FAB cuando hay
         // una acción real (asignar instrucciones o pagar). En cualquier otro caso, ocultamos el botón.
-        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup;
+        // Cuando ya está todo pagado y con dirección, pero sin etiqueta impresa,
+        // la única acción que queda útil es corregir la entrega. Ahí es donde se
+        // quedaban atorados los reempaques de Sergio: pagados, con dirección y
+        // sin envío generado, así que no salía ni "Pagar" ni "Asignar" y la
+        // pantalla no ofrecía nada (tarea 697).
+        const nadaQueCobrar = !(isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup);
+        const soloCambiarEntrega = !needsInstructions && esTipoConInstrucciones && nadaQueCobrar && ningunaConEtiqueta;
+        const mostrarInstrucciones = needsInstructions || soloCambiarEntrega;
+
+        const showFab = mostrarInstrucciones || isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup;
         if (!showFab) return null;
 
         return (
           <FAB
-            icon={needsInstructions
+            icon={mostrarInstrucciones
               ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isTdiExpressSelection ? "airplane-takeoff" : isDHLSelection ? "truck-delivery" : "package-variant")
               : "credit-card"}
-            label={needsInstructions 
-              ? `📋 Asignar Instrucciones (${selectedIds.length})`
+            label={mostrarInstrucciones
+              ? (soloCambiarEntrega
+                  ? `📋 Cambiar Instrucciones (${selectedIds.length})`
+                  : `📋 Asignar Instrucciones (${selectedIds.length})`)
               : `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`}
             style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup) && { backgroundColor: '#4CAF50' }]}
             color="white"
             onPress={() => {
-              if (needsInstructions) {
+              if (mostrarInstrucciones) {
                 handleMaritimeInstructions();
               } else {
                 if (!entregaxPaymentsEnabled) {
