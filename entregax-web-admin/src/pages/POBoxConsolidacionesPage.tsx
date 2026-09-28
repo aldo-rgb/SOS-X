@@ -250,13 +250,17 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const toggleAll = () => { const all = getAllPackages().filter(filterByEstado); setSelected(all.every(p => selected.has(p.id)) ? new Set() : new Set(all.map(p => p.id))); };
 
   // ── Reporte rows ────────────────────────────────────────────────────
-  const getReporteRows = () => {
+  // `incluir` decide qué guías entran. Sin él se comporta como siempre: solo
+  // las seleccionadas. Se parametrizó para poder exportar lo que se está
+  // viendo en pantalla sin tener que seleccionar 309 guías a mano (tarea 686).
+  const getReporteRows = (incluir?: (p: any) => boolean) => {
+    const pasa = incluir || ((p: any) => selected.has(p.id));
     const rows: ReporteRow[] = [];
     let totalUsd = 0; let totalMxn = 0;
     const involvedConsolIds = new Set<number>();
     consolidaciones.forEach((c) => {
       (c.packages || []).forEach((p) => {
-        if (!selected.has(p.id)) return;
+        if (!pasa(p)) return;
         // Los masters multi-caja "normales" ya los filtra el backend; los únicos
         // masters que llegan aquí son REPACK: SÍ se cobran (una sola guía, el
         // costo del reempaque; sus hijas van adentro y no se cobran aparte).
@@ -320,7 +324,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
   };
 
   // ── Generar Excel (CSV) desde filas ────────────────────────────────
-  const generateExcelFromRows = (rows: ReporteRow[], refId: number, supplierName: string) => {
+  const generateExcelFromRows = (rows: ReporteRow[], refId: number, supplierName: string, nombreArchivo?: string) => {
     const headers = ['No.', 'Consolidación', '# Cliente', 'Guía Origen', 'Guía', 'Ingresada', 'Recibida MTY', 'Peso (lb)', 'Medidas (in)', 'USD', 'TC', 'MXN', 'Estado', 'Motivo'];
     const csvRows = rows.map((r: ReporteRow, idx: number) => [
       idx + 1, `#${r.consolidacion_id}`, r.client_box_id || '', r.tracking_provider || '', r.tracking,
@@ -340,9 +344,34 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `referencia-${refId}-${supplierName.replace(/\s+/g, '_')}.csv`;
+    a.download = nombreArchivo || `referencia-${refId}-${supplierName.replace(/\s+/g, '_')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ── Exportar a Excel lo que se está viendo ──────────────────────────
+  // Hasta ahora solo se podía exportar una referencia YA generada. Lo que se
+  // necesitaba era bajar el listado con los filtros puestos, sin tener que
+  // generar una referencia ni seleccionar guía por guía (tarea 686, Ricardo).
+  const exportarVistaAExcel = () => {
+    const visibles = getAllPackages().filter(filterByEstado);
+    const aExportar = selected.size > 0 ? visibles.filter(p => selected.has(p.id)) : visibles;
+    if (aExportar.length === 0) {
+      setSnackbar({ open: true, message: 'No hay guías que exportar con los filtros puestos.', severity: 'info' });
+      return;
+    }
+    const ids = new Set(aExportar.map(p => p.id));
+    const { rows } = getReporteRows((p: any) => ids.has(p.id));
+
+    // El nombre dice qué trae: proveedor, si es una selección y el rango de
+    // fechas. Sin eso, tres descargas del mismo día son indistinguibles.
+    const prov = (proveedorSel?.name || 'proveedor').replace(/\s+/g, '_');
+    const rango = filtroDesde || filtroHasta
+      ? `_${filtroDesde || 'inicio'}_a_${filtroHasta || 'hoy'}`
+      : `_${new Date().toISOString().slice(0, 10)}`;
+    const marca = selected.size > 0 ? '_seleccion' : '';
+    generateExcelFromRows(rows, 0, prov, `pagos-pendientes_${prov}${rango}${marca}.csv`);
+    setSnackbar({ open: true, message: `${rows.length} guía(s) exportadas.`, severity: 'success' });
   };
 
   // ── Orden de Pago desde referencia (con REF #) ─────────────────────
@@ -555,6 +584,16 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
         <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroConsolId === 'todos' && !filtroTracking.trim()}
           onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); setFiltroConsolId('todos'); setFiltroTracking(''); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
           Limpiar filtros
+        </Button>
+        <Button
+          size="small"
+          variant="outlined"
+          color="success"
+          startIcon={<GridOnIcon />}
+          disabled={loadingConsolidaciones || consolidaciones.length === 0}
+          onClick={exportarVistaAExcel}
+        >
+          {selected.size > 0 ? `Exportar selección (${selected.size})` : 'Exportar a Excel'}
         </Button>
         <Typography variant="body2" color="text.secondary">
           {filtroDesde || filtroHasta
