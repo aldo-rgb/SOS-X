@@ -1286,7 +1286,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     const texto = textoEditado.trim();
     if (!editandoComentario || !texto) return;
     try {
-      await axios.patch(`${API_URL}/tasks/${data.id}/comments/${editandoComentario}`, { body: texto }, H());
+      await axios.patch(`${API_URL}/tasks/${id}/comments/${editandoComentario}`, { body: texto }, H());
       setEditandoComentario(null); setTextoEditado('');
       reload();
     } catch { notify('Error al editar el comentario', 'error'); }
@@ -1295,7 +1295,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const borrarComentario = async (commentId: number) => {
     if (!window.confirm('¿Borrar este comentario? No se puede deshacer.')) return;
     try {
-      await axios.delete(`${API_URL}/tasks/${data.id}/comments/${commentId}`, H());
+      await axios.delete(`${API_URL}/tasks/${id}/comments/${commentId}`, H());
       reload();
     } catch { notify('Error al borrar el comentario', 'error'); }
   };
@@ -1529,7 +1529,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             {/* Videos, con su tira de cuadros. Aparte del hilo porque un video
                 de 30s genera hasta 12 cuadros y meterlos aquí sepultaría la
                 conversación. */}
-            <VideosAdjuntos scope="task" refId={data.id} />
+            <VideosAdjuntos scope="task" refId={id} />
 
             {/* Comentarios y archivos en un solo hilo, por hora: las fotos que
                 llegan con el ticket ya no viven en una bandeja aparte.
