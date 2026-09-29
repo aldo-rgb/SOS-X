@@ -482,7 +482,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
               Faltan <Text style={{ fontWeight: '800' }}>{missingCount}</Text> de {packages.length} paquetes por escanear.
             </Text>
             <Text style={[styles.dialogText, { color: '#666', marginTop: 8 }]}>
-              Los escaneados quedarán como recibidos en MTY. Los faltantes se marcarán como retrasados.
+              Los escaneados quedarán como recibidos en tu sucursal. Los faltantes se marcarán como retrasados.
             </Text>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
               <TouchableOpacity style={[styles.btnSecondary, { flex: 1 }]} onPress={() => setConfirmPartial(false)}>

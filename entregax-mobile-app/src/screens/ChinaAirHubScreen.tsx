@@ -29,7 +29,12 @@ const MODULES: Module[] = [
   {
     id: 'reception',
     title: 'Recibir AWB',
-    subtitle: 'Escanea las guías que llegaron en una AWB y registra la recepción en MTY',
+    // Dice "tu CEDIS" y no "MTY" porque este módulo lo usan las tres bodegas:
+    // el escaneo guarda el estado de la sucursal del operador (received_cdmx,
+    // received_gdl, received_mty), nunca MTY a fuerza. El texto viejo hacía que
+    // Román, de CEDIS CDMX, creyera que el sistema lo tenía dado de alta en
+    // Monterrey — y de paso que sus recepciones se iban a la bodega equivocada.
+    subtitle: 'Escanea las guías que llegaron en una AWB y registra la recepción en tu CEDIS',
     icon: 'qr-code-outline',
     screen: 'ChinaAirReception',
     color: ORANGE,
