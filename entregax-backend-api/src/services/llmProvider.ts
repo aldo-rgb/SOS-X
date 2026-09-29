@@ -356,7 +356,7 @@ export function esFaltaDeCuota(e: any): boolean {
   return SIN_CUOTA.test(txt);
 }
 
-function llaveDe(name: 'openai' | 'anthropic'): boolean {
+export function llaveDe(name: 'openai' | 'anthropic'): boolean {
   return name === 'anthropic' ? !!process.env.ANTHROPIC_API_KEY : !!process.env.OPENAI_API_KEY;
 }
 

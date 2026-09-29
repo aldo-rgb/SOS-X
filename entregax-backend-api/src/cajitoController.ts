@@ -25,6 +25,8 @@ import {
   getModelName,
   getFriendlyModelLabel,
   isProviderKeyConfigured,
+  llaveDe,
+  proveedorActivo,
   LlmMessage,
   LlmContentBlock,
 } from './services/llmProvider';
@@ -4707,6 +4709,17 @@ export const getHealth = async (req: AuthRequest, res: Response): Promise<void> 
     provider: getProviderName(),
     model: getModelName(),
     modelLabel: getFriendlyModelLabel(),
+    // Llave por llave, y NO el valor: apiKeyConfigured ya sólo dice que existe
+    // alguna de las dos, que es justo lo que no sirve cuando lo que quieres
+    // saber es si el respaldo va a poder entrar. Nombres exactos como los lee
+    // el proceso: si en Railway la variable se llama de otro modo, aquí sale
+    // false y se ve de inmediato.
+    llaves: {
+      OPENAI_API_KEY: llaveDe('openai'),
+      ANTHROPIC_API_KEY: llaveDe('anthropic'),
+    },
+    respaldo_disponible: llaveDe(getProviderName() === 'anthropic' ? 'openai' : 'anthropic'),
+    contestando: proveedorActivo(),
     toolCount: TOOLS.length,
     readOnly: TOOLS.every(t => t.readOnly === true),
     ready: hasKey && enabled,
