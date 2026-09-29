@@ -649,6 +649,17 @@ export const startDhlPagoRezagadoCron = () => {
         console.warn(`🔧 [CRON] Comisiones DHL que faltaban: ${c.generadas.length} generadas ` +
           `(guías ${c.generadas.map(x => x.guia).join(', ')})`);
       }
+
+      // Tercera pasada, el mismo problema del lado de PO Box: el cobro queda
+      // confirmado pero la orden del asesor se queda en "pendiente" y la
+      // comisión no nace. Lo provocan las rutas de comprobante, crédito,
+      // monedero y PayPal, que marcan el pago y no sincronizan (tarea 708).
+      const { destrabarOrdenesDeAsesor } = await import('./ordenAsesorRezagada');
+      const o = await destrabarOrdenesDeAsesor();
+      if (o.ordenes > 0 || o.comisiones > 0) {
+        console.warn(`🔧 [CRON] Órdenes de asesor rezagadas: ${o.ordenes} marcadas pagadas, ` +
+          `${o.comisiones} comisión(es) generada(s)`);
+      }
     } catch (error) {
       console.error('❌ [CRON] Error destrabando guías DHL rezagadas:', error);
     }
