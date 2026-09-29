@@ -331,20 +331,145 @@ class AnthropicProvider implements LlmProvider {
   }
 }
 
+// ------------ Respaldo cuando se acaba la cuota ---------------
+// El 28-sep ZAIA le pidió a Cajito la dirección aérea de S1 y lo que volvió no
+// fue una respuesta sino un 429 de Anthropic: "your organization has crossed
+// its monthly API usage threshold… You will regain access on 2026-10-01".
+// Cajito quedó mudo tres días por una razón que no tiene nada que ver con lo
+// que le preguntaron.
+//
+// El proyecto ya hablaba los dos idiomas —OpenAI y Anthropic— pero el
+// proveedor se elegía a mano con CAJITO_PROVIDER y nadie estaba viendo el
+// tablero a las 8 de la noche. Ahora, si el de casa se queda sin cuota, la
+// pregunta se va sola al otro y el usuario ni se entera.
+//
+// Qué cuenta como "sin cuota": 429 (tope de gasto o de ritmo), 402, saldo
+// agotado y la falta de llave. Un error de programación —un modelo que no
+// existe, un mensaje mal armado— NO cae aquí: ese hay que verlo, no taparlo
+// cambiando de proveedor.
+const SIN_CUOTA = /rate.?limit|insufficient.?quota|enforced.?spend.?limit|credit balance|exceeded your current quota|billing/i;
+
+export function esFaltaDeCuota(e: any): boolean {
+  const status = Number(e?.status ?? e?.statusCode ?? 0);
+  if (status === 429 || status === 402) return true;
+  const txt = [e?.error?.type, e?.error?.message, e?.message, e?.code].filter(Boolean).join(' ');
+  return SIN_CUOTA.test(txt);
+}
+
+function llaveDe(name: 'openai' | 'anthropic'): boolean {
+  return name === 'anthropic' ? !!process.env.ANTHROPIC_API_KEY : !!process.env.OPENAI_API_KEY;
+}
+
+function modeloPorDefecto(name: 'openai' | 'anthropic'): string {
+  const explicito = (process.env.CAJITO_MODEL_RESPALDO || '').trim();
+  if (explicito) return name === 'anthropic' ? remapRetiredClaude(explicito) : explicito;
+  return name === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o-mini';
+}
+
+// Mientras el de casa esté castigado, las preguntas se van directo al respaldo
+// en vez de gastar una llamada fallida —y su latencia— cada vez.
+const CASTIGO_MS = 10 * 60 * 1000;
+let castigadoHasta = 0;
+let ultimoMotivo = '';
+
+/** Sólo para pruebas: deja el castigo en cero entre casos. */
+export function _limpiarCastigo(): void { castigadoHasta = 0; ultimoMotivo = ''; }
+
+export class ProveedorConRespaldo implements LlmProvider {
+  name: 'openai' | 'anthropic';
+  model: string;
+  private principal: LlmProvider;
+  private respaldo: LlmProvider | null;
+
+  constructor(principal: LlmProvider, respaldo: LlmProvider | null) {
+    this.principal = principal;
+    this.respaldo = respaldo;
+    this.name = principal.name;
+    this.model = principal.model;
+  }
+
+  async complete(req: LlmCompletionRequest): Promise<LlmCompletionResponse> {
+    // Sin llave no hay nada que intentar: se va derecho al respaldo en vez de
+    // gastar una llamada que ya sabemos que truena.
+    const castigado = Date.now() < castigadoHasta || !llaveDe(this.principal.name);
+    if (!castigado) {
+      try {
+        const r = await this.principal.complete(req);
+        // Contestó: se levanta el castigo aunque no hubiera vencido.
+        castigadoHasta = 0;
+        ultimoMotivo = '';
+        return r;
+      } catch (e: any) {
+        if (!this.respaldo || !esFaltaDeCuota(e)) throw e;
+        castigadoHasta = Date.now() + CASTIGO_MS;
+        ultimoMotivo = String(e?.error?.message || e?.message || 'sin cuota').slice(0, 300);
+        console.warn(`[cajito] ${this.principal.name} sin cuota → paso a ${this.respaldo.name}. Motivo: ${ultimoMotivo}`);
+      }
+    } else if (this.respaldo) {
+      console.log(`[cajito] ${this.principal.name} sigue castigado ${Math.ceil((castigadoHasta - Date.now()) / 1000)}s, voy directo a ${this.respaldo.name}`);
+    }
+
+    if (!this.respaldo) throw new Error('No hay proveedor de respaldo configurado.');
+    try {
+      return await this.respaldo.complete(req);
+    } catch (e: any) {
+      // Si el respaldo también está sin cuota, el mensaje tiene que decir que
+      // fallaron los dos: si no, alguien va a ir a recargar la cuenta
+      // equivocada.
+      if (esFaltaDeCuota(e)) {
+        throw new Error(
+          `Los dos proveedores están sin cuota. ${this.principal.name}: ${ultimoMotivo || 'sin cuota'}. ` +
+          `${this.respaldo.name}: ${String(e?.error?.message || e?.message || '').slice(0, 300)}`
+        );
+      }
+      throw e;
+    }
+  }
+}
+
+/** Qué proveedor está contestando ahora mismo, para mostrarlo en la interfaz. */
+export function proveedorActivo(): { nombre: 'openai' | 'anthropic'; de_respaldo: boolean; motivo: string } {
+  const principal = getProviderName();
+  const enRespaldo = Date.now() < castigadoHasta;
+  const otro: 'openai' | 'anthropic' = principal === 'anthropic' ? 'openai' : 'anthropic';
+  return {
+    nombre: enRespaldo && llaveDe(otro) ? otro : principal,
+    de_respaldo: enRespaldo && llaveDe(otro),
+    motivo: enRespaldo ? ultimoMotivo : '',
+  };
+}
+
 // ------------ Factory ----------------------------------------
 let cached: LlmProvider | null = null;
 export function getLlmProvider(): LlmProvider {
   const name = getProviderName();
   const model = getModelName();
   if (cached && cached.name === name && cached.model === model) return cached;
-  cached = name === 'anthropic' ? new AnthropicProvider(model) : new OpenAiProvider(model);
+  const principal = name === 'anthropic' ? new AnthropicProvider(model) : new OpenAiProvider(model);
+  const otro: 'openai' | 'anthropic' = name === 'anthropic' ? 'openai' : 'anthropic';
+  const respaldo = llaveDe(otro)
+    ? (otro === 'anthropic'
+        ? new AnthropicProvider(modeloPorDefecto('anthropic'))
+        : new OpenAiProvider(modeloPorDefecto('openai')))
+    : null;
+  cached = new ProveedorConRespaldo(principal, respaldo);
   return cached;
 }
 
 // Modelos "amigables" para mostrar en la UI (chip)
 export function getFriendlyModelLabel(): string {
-  const provider = getProviderName();
-  const model = getModelName();
+  // Si está contestando el respaldo, el chip tiene que decirlo: si no, alguien
+  // ve "Claude" en pantalla mientras en realidad contesta GPT y no entiende
+  // por qué cambió el tono de las respuestas.
+  const activo = proveedorActivo();
+  if (activo.de_respaldo) {
+    const m = modeloPorDefecto(activo.nombre);
+    return `${etiquetaDe(activo.nombre, m)} (respaldo)`;
+  }
+  return etiquetaDe(getProviderName(), getModelName());
+}
+
+function etiquetaDe(provider: 'openai' | 'anthropic', model: string): string {
   if (provider === 'anthropic') {
     if (/opus/i.test(model)) return 'Claude Opus';
     if (/3-7-sonnet|3\.7-sonnet/i.test(model)) return 'Claude 3.7 Sonnet';
@@ -359,7 +484,7 @@ export function getFriendlyModelLabel(): string {
 }
 
 export function isProviderKeyConfigured(): boolean {
-  const provider = getProviderName();
-  if (provider === 'anthropic') return !!process.env.ANTHROPIC_API_KEY;
-  return !!process.env.OPENAI_API_KEY;
+  // Basta con que UNO de los dos tenga llave: si el de casa no la tiene, el
+  // respaldo contesta igual y no tiene caso apagar a Cajito.
+  return llaveDe('openai') || llaveDe('anthropic');
 }

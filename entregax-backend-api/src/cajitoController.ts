@@ -2229,6 +2229,172 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- DIRECCIÓN A DÓNDE MANDAR LA MERCANCÍA --------------------
+  // "¿Cuál es la dirección aérea de S1?" es de las preguntas más comunes que se
+  // le hacen a un asesor, y Cajito no tenía con qué contestarla: no había
+  // ninguna herramienta que leyera service_warehouse_addresses. ZAIA la pidió
+  // el 28-sep para mandar un equipo a Guangzhou y se quedó sin respuesta.
+  //
+  // El texto que sale de aquí es EL MISMO que copia el botón "Compartir" de la
+  // app (ServicesGuideScreen.getFullShipmentText): mismos encabezados, mismo
+  // orden y la misma nota en chino para reenviarle al proveedor. Se replica al
+  // pie de la letra a propósito — si Cajito contestara con un formato propio,
+  // el asesor tendría que reacomodarlo antes de pegárselo al cliente, y ahí es
+  // donde se pierden renglones como el del唛头.
+  {
+    name: 'direccion_de_envio',
+    requiredCapability: 'cajito.access',
+    readOnly: true,
+    description: 'La dirección a la que un cliente manda su mercancía, ya personalizada con su número de casillero (Shipping Mark / 唛头), lista para copiar y pegar tal cual. Sirve para los cinco servicios: Aéreo China (AIR), Marítimo China (LOG), TDI Express (TDX), Terrestre USA a México (PO Box) y Trámite Aduanal Monterrey. Trae dirección, contacto, teléfono, horario, instrucciones de empaque, cómo enviar y la nota en chino para reenviarle al proveedor. Funciona con CUALQUIER cliente: dale el casillero (S1, S191…) o su nombre. Sin servicio devuelve los cinco.',
+    parameters: {
+      type: 'object',
+      properties: {
+        casillero: { type: 'string', description: 'Casillero del cliente (S1, S191…) o su nombre. Es lo que va como Shipping Mark.' },
+        servicio: { type: 'string', description: 'aereo | maritimo | tdi_express | usa | cedis. Vacío = los cinco.' },
+      },
+      required: ['casillero'],
+    },
+    handler: async ({ casillero, servicio }) => {
+      const q = String(casillero || '').trim();
+      if (!q) return { error: 'Dime de qué cliente: su casillero (S1, S191…) o su nombre.' };
+
+      // El casillero exacto gana sobre el parecido: "S1" no debe traer S191.
+      const cli = await pool.query(
+        `SELECT id, box_id, full_name FROM users
+          WHERE UPPER(box_id) = UPPER($1)
+             OR (LENGTH($1) > 3 AND full_name ILIKE '%' || $1 || '%')
+          ORDER BY (UPPER(box_id) = UPPER($1)) DESC LIMIT 5`, [q]);
+      if (!cli.rows.length) {
+        return { error: `No encontré ningún cliente con casillero o nombre "${q}". Verifica el número de casillero.` };
+      }
+      const exacto = cli.rows.some((r: any) => String(r.box_id || '').toUpperCase() === q.toUpperCase());
+      if (cli.rows.length > 1 && !exacto) {
+        return {
+          ambiguo: true,
+          mensaje: `"${q}" empata con varios clientes. Dime cuál:`,
+          candidatos: cli.rows.map((r: any) => ({ casillero: r.box_id, nombre: r.full_name })),
+        };
+      }
+      const cliente = cli.rows[0];
+      const box = cliente.box_id || 'S-XXX';
+      const nombre = String(cliente.full_name || 'TU NOMBRE').toUpperCase();
+
+      const ALIAS: Record<string, string> = {
+        aereo: 'china_air', aéreo: 'china_air', air: 'china_air', china_air: 'china_air',
+        avion: 'china_air', avión: 'china_air',
+        maritimo: 'china_sea', marítimo: 'china_sea', mar: 'china_sea', sea: 'china_sea',
+        china_sea: 'china_sea', log: 'china_sea',
+        tdi: 'tdi_express', tdx: 'tdi_express', express: 'tdi_express', tdi_express: 'tdi_express',
+        usa: 'usa_pobox', pobox: 'usa_pobox', po_box: 'usa_pobox', usa_pobox: 'usa_pobox',
+        terrestre: 'usa_pobox',
+        cedis: 'mx_cedis', mty: 'mx_cedis', monterrey: 'mx_cedis', mx_cedis: 'mx_cedis',
+        aduanal: 'mx_cedis', dhl: 'mx_cedis',
+      };
+      const pedido = String(servicio || '').trim().toLowerCase().replace(/\s+/g, '_');
+      const tipos: string[] = pedido
+        ? ([ALIAS[pedido]].filter(Boolean) as string[])
+        : ['china_air', 'tdi_express', 'china_sea', 'mx_cedis', 'usa_pobox'];
+      if (pedido && !tipos.length) {
+        return { error: `No conozco el servicio "${servicio}". Son: aéreo, marítimo, tdi_express, usa, cedis.` };
+      }
+
+      const NOMBRE_SERVICIO: Record<string, string> = {
+        china_air: 'Aéreo China',
+        china_sea: 'Marítimo China',
+        tdi_express: 'TDI Express',
+        usa_pobox: 'Terrestre USA a México',
+        mx_cedis: 'Trámite Aduanal Monterrey',
+      };
+
+      // Nota en chino para reenviarle al proveedor. Es la misma de la app, con
+      // el唛头 del cliente sustituido.
+      const notaChina = (tipo: string): string | null => {
+        if (tipo === 'china_sea') return [
+          '🇨🇳 中文说明（请转发给您的供应商）:',
+          '发货前，请供应商联系 Sankie Guo（郭先生）',
+          '电话 / 微信：13828423184',
+          '并提供完整装箱单（Packing List），以获取装运单（S/O）。',
+          `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+          '⚠️ 未提前联系确认，仓库将无法收货。',
+        ].join('\n');
+        if (tipo === 'tdi_express') return [
+          '🇨🇳 中文说明（请转发给您的供应商）:',
+          '发货前，请供应商联系 KEVAN LI',
+          '电话 / 微信：13560452668',
+          `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+          '⚠️ 不接受无唛头货物及到付件。',
+        ].join('\n');
+        if (tipo === 'china_air') return [
+          '🇨🇳 中文说明（请转发给您的供应商）:',
+          '发货前，请供应商联系冯小姐',
+          '电话 / 微信：+13068841004',
+          `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+          '⚠️ 不接受无唛头货物及到付件。',
+        ].join('\n');
+        return null;
+      };
+
+      const salida: any[] = [];
+      for (const tipo of tipos) {
+        const dir = await pool.query(
+          `SELECT alias, address_line1, address_line2, city, state, zip_code, country,
+                  contact_name, contact_phone, business_hours, special_instructions
+             FROM service_warehouse_addresses
+            WHERE service_type = $1 AND is_active = TRUE
+            ORDER BY is_primary DESC, sort_order ASC LIMIT 1`, [tipo]);
+        const a = dir.rows[0];
+        if (!a) { salida.push({ servicio: NOMBRE_SERVICIO[tipo], error: 'No hay dirección configurada para este servicio.' }); continue; }
+
+        const ins = await pool.query(
+          `SELECT packaging_instructions, shipping_instructions, general_notes
+             FROM service_instructions WHERE service_type = $1 AND is_active = TRUE LIMIT 1`, [tipo]);
+        const i = ins.rows[0] || {};
+
+        // El bloque de dirección cambia por servicio, igual que en la app.
+        let bloque: string;
+        if (tipo === 'usa_pobox') {
+          bloque = `${String(a.address_line1 || '').replace('(S-Numero de Cliente)', box)}\n`
+            + `ATTN: ${nombre}\n${a.city || ''}, ${a.state || ''} ${a.zip_code || ''}\n${a.contact_phone || ''}`;
+        } else if (tipo === 'china_air' || tipo === 'china_sea' || tipo === 'tdi_express') {
+          bloque = `${a.address_line1 || ''}\n${a.address_line2 ? a.address_line2 + '\n' : ''}`
+            + `Shipping Mark / 唛头: ${box}\nContacto: ${a.contact_name || ''}\n${a.contact_phone || ''}`;
+        } else {
+          bloque = `${a.address_line1 || ''}\n${a.city || ''}, ${a.state || ''} ${a.zip_code || ''}\n`
+            + `A nombre de: ${nombre} (${box})\n${a.contact_phone || ''}`;
+        }
+
+        const lineas: string[] = [
+          `📦 INSTRUCCIONES DE ENVÍO - ${(NOMBRE_SERVICIO[tipo] || tipo).toUpperCase()}`,
+          '',
+          '📍 DIRECCIÓN DE ENVÍO:',
+          bloque,
+        ];
+        if (a.business_hours) lineas.push('', `🕐 Horario: ${a.business_hours}`);
+        if (i.packaging_instructions) lineas.push('', '📦 INSTRUCCIONES DE EMPAQUE:', i.packaging_instructions);
+        if (i.shipping_instructions) lineas.push('', '🚚 CÓMO ENVIAR:', i.shipping_instructions);
+        if (i.general_notes) lineas.push('', '⚠️ NOTAS IMPORTANTES:', i.general_notes);
+        const nc = notaChina(tipo);
+        if (nc) lineas.push('', '─'.repeat(30), '', nc);
+        lineas.push('', '✅ Enviado vía EntregaX Paquetería');
+
+        salida.push({
+          servicio: NOMBRE_SERVICIO[tipo],
+          shipping_mark: box,
+          texto_para_copiar: lineas.join('\n'),
+        });
+      }
+
+      return {
+        cliente: { casillero: box, nombre: cliente.full_name },
+        // La instrucción es para el modelo: este texto se entrega COMPLETO.
+        // Resumirlo lo vuelve inservible — el proveedor en China necesita los
+        // caracteres chinos y el唛头 exactamente como vienen.
+        instruccion: 'Entrega el texto_para_copiar íntegro, tal cual, sin resumirlo, sin traducirlo y sin quitarle los renglones en chino. Es para pegarse tal como está.',
+        direcciones: salida,
+      };
+    }
+  },
+
   // -------------------- CHINA AÉREO: RECEPCIONES DE MOJIE --------------------
   // Las guías AIR… llegan del sistema de MoJie a china_receipts. Antes Cajito no
   // tenía cómo verlas: en el TKT-2026-2229 las capturas del asesor eran tres
