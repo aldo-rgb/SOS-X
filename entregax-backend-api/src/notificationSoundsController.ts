@@ -33,6 +33,7 @@ export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description
   { key: 'task_new',           label: '📋 Tarea nueva',                 description: 'Te asignan o involucran en una tarea (Mis Tareas / flujos).', group: 'Tareas' },
   { key: 'task_completed',     label: '✅ Tarea terminada',             description: 'Una tarea en la que estás involucrado se marca como completada.', group: 'Tareas' },
   { key: 'task_comment',       label: '💬 Respuesta en tarea',          description: 'Alguien comenta o te menciona en una tarea en la que participas.', group: 'Tareas' },
+  { key: 'container_new',      label: '🚢 Contenedor dado de alta',     description: 'Se registra un contenedor nuevo, venga de donde venga (correo, captura manual o sincronización). Avisa a Dirección, Admin y Super Admin.', group: 'Operación' },
 ];
 
 // ─── Tonos EMPAQUETADOS en el build nativo (para segundo plano) ───

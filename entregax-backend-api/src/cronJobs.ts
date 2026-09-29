@@ -2376,7 +2376,29 @@ export const startComprobantesPorAutorizarCron = () => {
   console.log('📅 [CRON] Comprobantes por autorizar: 11:00am lun-sáb');
 };
 
+/**
+ * Aviso de contenedor nuevo a Dirección, Admin y Super Admin.
+ *
+ * Cada dos minutos y no al momento del alta porque los contenedores entran por
+ * siete rutas distintas —correo, lectura con IA, sincronización de MJ y captura
+ * manual— y colgar el aviso de cada una garantiza que la octava nazca muda.
+ * Mirando la tabla quedan cubiertas todas, incluidas las que no existen aún.
+ */
+export const startAvisoContenedorNuevoCron = () => {
+  cron.schedule('*/2 * * * *', async () => {
+    try {
+      const { avisarContenedoresNuevos } = await import('./avisoContenedorNuevo');
+      const r = await avisarContenedoresNuevos();
+      if (r.avisados > 0) console.log(`🚢 [CRON] Contenedores nuevos avisados: ${r.avisados}`);
+    } catch (e: any) {
+      console.error('❌ [CRON] Aviso de contenedor nuevo:', e?.message || e);
+    }
+  });
+  console.log('📅 [CRON] Aviso de contenedor nuevo: cada 2 minutos');
+};
+
 export const initCronJobs = () => {
+  startAvisoContenedorNuevoCron();
   startComprobantesPorAutorizarCron();
   startCargosPorValidarCron();
   startHidalgoListasParaEnviarCron();
