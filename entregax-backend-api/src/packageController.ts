@@ -7801,7 +7801,12 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
       addressId,
       carrierService,
       notes,
-      applyToFullShipment,
+      // Aquí venía `applyToFullShipment`. La pantalla lo mandaba, este endpoint
+      // lo recibía y NUNCA lo leía: el modal decía "aplicar a todo el embarque"
+      // y cotizaba "× N cajas", pero el servidor solo tocaba los ids que le
+      // llegaban. Lo que de verdad define el alcance es `packageIds`, y desde
+      // la tarea 702 la pantalla manda el embarque aéreo completo. Se quita
+      // para que nadie vuelva a creer que el backend obedece esa bandera.
       totalBoxes,
       isCollect,
       wantsFacturaPaqueteria,

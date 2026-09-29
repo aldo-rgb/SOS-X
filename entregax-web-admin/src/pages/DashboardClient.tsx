@@ -4096,7 +4096,10 @@ export default function DashboardClient() {
         ? `Ocurre CP ${pqtxOcurreInfo.usedZip}${deliveryNotes ? '\n' + deliveryNotes : ''}`
         : deliveryNotes;
       formData.append('notes', notesWithOcurre);
-      formData.append('applyToFullShipment', String(applyToFullShipment));
+      // `applyToFullShipment` ya no se manda: el backend nunca lo leyó. El
+      // alcance real lo define packageIds, que desde la tarea 702 trae el
+      // embarque aéreo completo. Aquí sigue viva como estado de pantalla
+      // porque de ella dependen los precios que se muestran por caja.
       formData.append('totalBoxes', String(totalBoxes));
       formData.append('isCollect', String(selectedCarrierService === 'por_cobrar'));
       formData.append('wantsFacturaPaqueteria', String(wantsFacturaPaqueteria));
