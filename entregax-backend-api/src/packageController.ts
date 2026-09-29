@@ -5784,6 +5784,52 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         WHERE id = $3${ownerCondition}
                         RETURNING id, tracking_internal
                     `, [deliveryAddressId, deliveryInstructions, realId, effCarrierAir, effCostAir]);
+
+                    // La app manda el id de UNA caja (el master del embarque
+                    // aéreo es sintético y toma el id de su primera caja), no el
+                    // id con offset del recibo. Sin esto se acomodaba 1 caja de
+                    // 78 y el embarque seguía "Sin Instrucciones" — el mismo
+                    // agujero que la web (TKT-2026-2907, tarea 702). La rama de
+                    // arriba ya reparte al embarque completo; ésta faltaba.
+                    if (result.rowCount && result.rowCount > 0) {
+                        const air = await pool.query(
+                            `SELECT child_no, china_receipt_id, user_id
+                               FROM packages
+                              WHERE id = $1 AND child_no ILIKE 'AIR%'`, [realId]);
+                        const cajaAerea = air.rows[0];
+                        if (cajaAerea) {
+                            const fnoAir = String(cajaAerea.child_no).split('-')[0] || '';
+                            const hermanas = await pool.query(`
+                                UPDATE packages
+                                SET assigned_address_id = $1,
+                                    notes = COALESCE($2, notes),
+                                    national_carrier = $4,
+                                    national_shipping_cost = COALESCE($5, national_shipping_cost),
+                                    needs_instructions = false,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE id <> $3
+                                  AND user_id = $6
+                                  AND ($7::int IS NOT NULL AND china_receipt_id = $7::int
+                                       OR $7::int IS NULL AND child_no ILIKE $8)
+                                RETURNING id
+                            `, [deliveryAddressId, deliveryInstructions, realId, effCarrierAir,
+                                effCostAir, cajaAerea.user_id, cajaAerea.china_receipt_id ?? null,
+                                fnoAir + '-%']);
+                            console.log(`✈️ [Instrucciones] Embarque aéreo ${fnoAir}: ${hermanas.rowCount} caja(s) hermana(s)`);
+                            if (cajaAerea.china_receipt_id) {
+                                await pool.query(
+                                    `UPDATE china_receipts
+                                        SET delivery_address_id = $1,
+                                            delivery_instructions = COALESCE($2, delivery_instructions),
+                                            national_carrier = $3,
+                                            updated_at = CURRENT_TIMESTAMP
+                                      WHERE id = $4 AND user_id = $5`,
+                                    [deliveryAddressId, deliveryInstructions, effCarrierAir,
+                                     cajaAerea.china_receipt_id, cajaAerea.user_id]
+                                ).catch((e: any) => console.warn('[Instrucciones] china_receipts:', e?.message));
+                            }
+                        }
+                    }
                 }
                 break;
             }
@@ -7899,6 +7945,14 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
 
       // Update all selected packages
       let updatedCount = 0;
+      // ✈️ Embarques de Aéreo China ya propagados en esta llamada. La pantalla
+      // puede mandar UNA caja (el chip "Asignar Instrucciones" del master
+      // virtual) o las 78 (la palomita), y en el segundo caso no tiene caso
+      // repartir el embarque completo una vez por caja.
+      const embarquesAereosPropagados = new Set<string>();
+      // Para no contar dos veces: si la pantalla ya mandó las 78 cajas, el
+      // propio ciclo las cuenta y la propagación no debe volver a sumarlas.
+      const idsRecibidos = new Set<number>(pkgIds.map(Number));
       for (const pkgId of pkgIds) {
         // Resolver owner real del paquete: admins pueden operar en nombre de cualquier cliente.
         let resolvedOwner: number | null = null;
@@ -8004,8 +8058,92 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             wantsFacturaBool,
             nationalDeliveryZip,
           ]);
+
+          // ✈️ Aéreo China: las cajas de un mismo embarque NO cuelgan de un
+          // master. Son filas sueltas hermanadas por el FNO que llevan en
+          // `child_no` ("AIR2624505RYxXy-001" … "-078") y, casi siempre, por
+          // `china_receipt_id`. La propagación de arriba va por `master_id`, y
+          // de las 12,545 cajas aéreas que hay en packages NINGUNA lo tiene:
+          // para este servicio nunca hizo nada.
+          //
+          // Por eso S191 asignó instrucciones cinco veces seguidas y las cinco
+          // "se guardaron": cada intento pintaba UNA caja de 78, el embarque
+          // seguía viéndose "Sin Instrucciones" y el aviso decía la verdad
+          // literal —"1 paquete(s)"— que ella leía como "mi envío"
+          // (TKT-2026-2907, tarea 702).
+          //
+          // Se reparte al embarque completo, que es lo que ya hace el otro
+          // camino de asignación (assignDeliveryInstructions propaga con
+          // `WHERE china_receipt_id = …`), acotado al mismo dueño.
+          const air = await client.query(
+            `SELECT child_no, china_receipt_id, user_id
+               FROM packages
+              WHERE id = $1 AND child_no ILIKE 'AIR%'`, [pkgId]);
+          const cajaAerea = air.rows[0];
+          if (cajaAerea) {
+            const fno = String(cajaAerea.child_no).split('-')[0] || '';
+            const llave = cajaAerea.china_receipt_id
+              ? `r${cajaAerea.china_receipt_id}`
+              : `f${fno.toLowerCase()}`;
+            if (!embarquesAereosPropagados.has(llave)) {
+              embarquesAereosPropagados.add(llave);
+              const hermanas = await client.query(`
+                UPDATE packages
+                SET assigned_address_id = $4,
+                    carrier = $2,
+                    national_carrier = $2,
+                    national_shipping_cost = $3,
+                    notes = COALESCE($5, notes),
+                    needs_instructions = false,
+                    is_collect = $6,
+                    collect_carrier = $7,
+                    wants_factura_paqueteria = $8,
+                    national_delivery_zip = $9,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id <> $1
+                  AND user_id = $10
+                  AND ($11::int IS NOT NULL AND china_receipt_id = $11::int
+                       OR $11::int IS NULL AND child_no ILIKE $12)
+                RETURNING id
+              `, [
+                pkgId,
+                carrierService,
+                +(carrierCostPerBox).toFixed(2),
+                addrId,
+                notes || null,
+                isCollectBool,
+                isCollectBool ? carrierService : null,
+                wantsFacturaBool,
+                nationalDeliveryZip,
+                cajaAerea.user_id,
+                cajaAerea.china_receipt_id ?? null,
+                fno + '-%',
+              ]);
+              // Las hermanas cuentan: si no, el aviso seguiría diciendo
+              // "1 paquete(s)" después de haber acomodado las 78. Solo las que
+              // no venían ya en la lista, para no contarlas dos veces.
+              const nuevas = hermanas.rows.filter(r => !idsRecibidos.has(Number(r.id))).length;
+              updatedCount += nuevas;
+              console.log(`✈️ [Bulk Assign] Embarque aéreo ${fno}: ${hermanas.rowCount} hermana(s) actualizadas (${nuevas} nuevas) además de la ${pkgId}`);
+
+              // El recibo también guarda la dirección: es de donde lee la otra
+              // vista del envío aéreo, y si se queda atrás las dos se
+              // contradicen.
+              if (cajaAerea.china_receipt_id) {
+                await client.query(
+                  `UPDATE china_receipts
+                      SET delivery_address_id = $1,
+                          delivery_instructions = COALESCE($2, delivery_instructions),
+                          national_carrier = $3,
+                          updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $4 AND user_id = $5`,
+                  [addrId, notes || null, carrierService, cajaAerea.china_receipt_id, cajaAerea.user_id]
+                ).catch((e: any) => console.warn('[Bulk Assign] no se pudo actualizar china_receipts:', e?.message));
+              }
+            }
+          }
         }
-        
+
         // If not found in packages, try maritime_orders
         if (!result.rowCount || result.rowCount === 0) {
           const maritimeResult = await client.query(`

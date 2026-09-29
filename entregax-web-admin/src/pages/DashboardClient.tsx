@@ -3378,6 +3378,20 @@ export default function DashboardClient() {
     return grouped;
   }, [packages, serviceFilter, searchTerm, historyPackages, instructionFilter]);
 
+  // Guías que hay que mandar al asignar instrucciones desde una tarjeta.
+  //
+  // Un embarque de Aéreo China se ve como UNA tarjeta ("MULTI • 78 cajas") pero
+  // por dentro son 78 guías sueltas; el master es sintético y su `id` es el de
+  // la primera caja. La palomita de selección ya expandía el grupo, pero los
+  // botones de "Asignar Instrucciones" mandaban `[pkg.id]` — una sola caja de
+  // 78— y por eso el cotizador decía "1 caja" y el embarque se quedaba en
+  // "Sin Instrucciones" por más veces que el cliente lo intentara
+  // (TKT-2026-2907, tarea 702).
+  const idsParaInstrucciones = (pkg: PackageTracking): number[] => {
+    const hijas = (pkg as PackageTracking & { _airGroupChildIds?: number[] })._airGroupChildIds;
+    return hijas && hijas.length > 0 ? hijas : [pkg.id];
+  };
+
   // Contadores por tipo de servicio (para badges en botones de filtro)
   // Importante: para AIR contamos cada grupo de hermanas (mismo prefijo
   // AIR<X>-NNN) como UN master, igual que se muestran agrupadas en el listado.
@@ -6939,7 +6953,7 @@ export default function DashboardClient() {
                             clickable={!hasPrintedLabel(pkg)}
                             onClick={hasPrintedLabel(pkg) ? undefined : (e) => {
                               e.stopPropagation();
-                              setSelectedPackageIds([pkg.id]);
+                              setSelectedPackageIds(idsParaInstrucciones(pkg));
                               setDeliveryModalOpen(true);
                             }}
                             sx={{ 
@@ -9263,7 +9277,7 @@ export default function DashboardClient() {
                                 startIcon={<LocationOnIcon />}
                                 sx={{ bgcolor: ORANGE, borderRadius: 2 }}
                                 onClick={() => {
-                                  setSelectedPackageIds([pkg.id]);
+                                  setSelectedPackageIds(idsParaInstrucciones(pkg));
                                   setDeliveryModalOpen(true);
                                 }}
                               >
@@ -9560,7 +9574,7 @@ export default function DashboardClient() {
                                 size="small"
                                 startIcon={<EditIcon />}
                                 onClick={() => {
-                                  setSelectedPackageIds([pkg.id]);
+                                  setSelectedPackageIds(idsParaInstrucciones(pkg));
                                   setDeliveryModalOpen(true);
                                 }}
                               >
@@ -11852,7 +11866,7 @@ export default function DashboardClient() {
                               size="small"
                               color="primary"
                               onClick={() => {
-                                setSelectedPackageIds([selectedPackage.id]);
+                                setSelectedPackageIds(idsParaInstrucciones(selectedPackage));
                                 setSelectedPackage(null);
                                 setDeliveryModalOpen(true);
                               }}
@@ -12009,7 +12023,7 @@ export default function DashboardClient() {
                           size="small"
                           startIcon={<EditIcon />}
                           onClick={() => {
-                            setSelectedPackageIds([selectedPackage.id]);
+                            setSelectedPackageIds(idsParaInstrucciones(selectedPackage));
                             setSelectedPackage(null);
                             setDeliveryModalOpen(true);
                           }}
