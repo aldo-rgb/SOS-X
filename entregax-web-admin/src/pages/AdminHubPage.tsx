@@ -60,6 +60,7 @@ import InboundEmailsAirPage from './InboundEmailsAirPage';
 import MaritimeApiPage from './MaritimeApiPage';
 import TcgModulePage from './TcgModulePage';
 import ElpApiPage from './ElpApiPage';
+import BuzonIntegracionPage from './BuzonIntegracionPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
 import AirRoutesPage from './AirRoutesPage';
@@ -171,6 +172,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     suppliers: <BranchIcon />,
     carrier_options: <LocalShippingIcon />,
     payment_query: <ApiIcon />,
+    buzon_integracion: <EmailIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -239,6 +241,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
         { key: 'payment_query', status: 'active' },
+        { key: 'buzon_integracion', status: 'active' },
         { key: 'coverage', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
@@ -837,6 +840,14 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (selectedModule === 'maritime_api' && selectedService === 'china_sea') {
             return (
                 <MaritimeApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Buzón de integración: los recados con el equipo técnico del proveedor
+        // con el que se está construyendo la conexión.
+        if (selectedModule === 'buzon_integracion') {
+            return (
+                <BuzonIntegracionPage onBack={() => setSelectedModule(null)} />
             );
         }
 

@@ -760,6 +760,7 @@
       "verifications": "KYC Verifications",
       "consolidations": "Consolidations",
       "customs": "Customs Clearance",
+      "buzon_integracion": "Integration Inbox",
       "coverage": "Coverage",
       "inventory": "Inventory",
       "inbound_emails": "Maritime Emails",

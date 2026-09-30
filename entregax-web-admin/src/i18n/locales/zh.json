@@ -721,6 +721,7 @@
       "verifications": "KYC验证",
       "consolidations": "拼柜",
       "customs": "海关清关",
+      "buzon_integracion": "集成信箱",
       "coverage": "覆盖范围",
       "inventory": "库存",
       "inbound_emails": "海运邮件",

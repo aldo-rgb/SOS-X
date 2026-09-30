@@ -644,6 +644,7 @@ import {
 } from './advisorPanelController';
 import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle, zaiaCalendario, zaiaAgendar, zaiaMoverEvento, zaiaBorrarEvento } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
+import { buzonVerify, buzonEscribir, buzonLeer, buzonAdminLeer, buzonAdminEscribir } from './buzonSocio';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17897,6 +17898,16 @@ app.post('/api/zaia/mover-evento', zaiaMoverEvento);
 app.post('/api/zaia/borrar-evento', zaiaBorrarEvento);
 app.post('/api/zaia/avisos/prueba', zaiaAvisoPrueba);
 app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse al día
+
+// ---- Buzón de socios externos ------------------------------------------
+// Un hilo de recados con una empresa con la que se está construyendo una
+// integración. Escribir pide llave + firma; leer solo llave, porque un GET no
+// lleva cuerpo que firmar. La pantalla interna va con la sesión normal.
+app.post('/api/buzon/:socio/verify', buzonVerify);
+app.post('/api/buzon/:socio/mensajes', buzonEscribir);
+app.get('/api/buzon/:socio/mensajes', buzonLeer);
+app.get('/api/admin/buzon/:socio', authenticateToken, requireMinLevel(ROLES.ADMIN), buzonAdminLeer);
+app.post('/api/admin/buzon/:socio', authenticateToken, requireMinLevel(ROLES.ADMIN), buzonAdminEscribir);
 
 // 🎥 Videos en tickets y tareas. El CEDIS graba con el celular; el archivo sube
 // DIRECTO a S3 con URL firmada porque 60-90MB no caben por la API. Al
