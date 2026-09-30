@@ -48,7 +48,13 @@ async function ensureSchema(): Promise<void> {
       asunto       TEXT,
       cuerpo       TEXT NOT NULL,
       responde_a   INTEGER,                  -- id del mensaje que contesta
-      leido_at     TIMESTAMPTZ,              -- cuándo lo leyó el destinatario
+      -- Dos marcas distintas a propósito. recogido_at es que el SISTEMA del
+      -- destinatario se lo bajó; leido_at es que una PERSONA lo vio. Con una
+      -- sola, un agente que consulta cada pocos minutos deja todo en "leído"
+      -- aunque sea de madrugada y nadie lo haya abierto, y la señal deja de
+      -- servir para lo único que servía: saber si hay que insistir.
+      recogido_at  TIMESTAMPTZ,              -- se lo bajó el sistema del otro lado
+      leido_at     TIMESTAMPTZ,              -- lo abrió una persona
       entregado_at TIMESTAMPTZ,              -- cuándo se avisó por webhook
       intentos     INTEGER NOT NULL DEFAULT 0,
       ultimo_error TEXT,
@@ -56,6 +62,8 @@ async function ensureSchema(): Promise<void> {
     )`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_buzon_socio ON buzon_mensajes(socio, id)`);
+  // La columna nació después que la tabla: al principio solo había `leido_at`.
+  await pool.query(`ALTER TABLE buzon_mensajes ADD COLUMN IF NOT EXISTS recogido_at TIMESTAMPTZ`);
   esquemaListo = true;
 }
 
@@ -163,6 +171,7 @@ const aSalida = (m: any) => ({
   asunto: m.asunto || null,
   cuerpo: m.cuerpo,
   responde_a: m.responde_a ? Number(m.responde_a) : null,
+  recogido: !!m.recogido_at,
   leido: !!m.leido_at,
   fecha: new Date(m.created_at).toISOString(),
 });
@@ -226,11 +235,11 @@ export const buzonLeer = async (req: Request, res: Response): Promise<any> => {
     const r = await pool.query(
       `SELECT * FROM buzon_mensajes WHERE socio = $1 AND id > $2 ORDER BY id LIMIT 200`,
       [socio, desde]);
-    // Los nuestros que acaba de ver quedan marcados como leídos: así de este
-    // lado se distingue "todavía no lo ve" de "ya lo vio y no ha contestado".
-    const nuestros = r.rows.filter((m: any) => m.de === 'entregax' && !m.leido_at).map((m: any) => m.id);
+    // Bajarlo NO es leerlo. Esto solo marca que su sistema ya lo tiene; que una
+    // persona lo haya abierto se marca aparte, con POST /leidos.
+    const nuestros = r.rows.filter((m: any) => m.de === 'entregax' && !m.recogido_at).map((m: any) => m.id);
     if (nuestros.length) {
-      await pool.query(`UPDATE buzon_mensajes SET leido_at = NOW() WHERE id = ANY($1::int[])`, [nuestros]);
+      await pool.query(`UPDATE buzon_mensajes SET recogido_at = NOW() WHERE id = ANY($1::int[])`, [nuestros]);
     }
     res.json({
       ok: true,
@@ -240,6 +249,44 @@ export const buzonLeer = async (req: Request, res: Response): Promise<any> => {
   } catch (e: any) {
     console.error('[buzon] leer:', e?.message);
     res.status(500).json({ ok: false, error: 'No se pudo leer el buzón.' });
+  }
+};
+
+/**
+ * POST /api/buzon/:socio/leidos — "una persona de aquí ya lo vio".
+ *
+ * Lo llama SU interfaz cuando alguien abre el recado, no su agente al
+ * consultarlo. Es opcional: si nunca lo llaman, de este lado los mensajes se
+ * quedan en "lo recogió su sistema", que es la verdad y no una verdad a medias.
+ *
+ * Body: { ids: [3, 7] }  ·  sin ids, marca todos los nuestros ya recogidos.
+ */
+export const buzonMarcarLeidos = async (req: Request, res: Response): Promise<any> => {
+  const socio = norm(req.params.socio);
+  const d = revisar(req, socio, true);
+  if (d !== 'ok') return rechazar(res, d);
+  try {
+    await ensureSchema();
+    const b = (req as any).rawBody
+      ? JSON.parse((req as any).rawBody.toString('utf8'))
+      : (req.body || {});
+    const ids = Array.isArray(b.ids)
+      ? b.ids.map((x: any) => Number(x)).filter((x: number) => Number.isInteger(x) && x > 0)
+      : [];
+    const r = ids.length
+      ? await pool.query(
+          `UPDATE buzon_mensajes SET leido_at = COALESCE(leido_at, NOW())
+            WHERE socio = $1 AND de = 'entregax' AND id = ANY($2::int[]) RETURNING id`,
+          [socio, ids])
+      : await pool.query(
+          `UPDATE buzon_mensajes SET leido_at = COALESCE(leido_at, NOW())
+            WHERE socio = $1 AND de = 'entregax' AND recogido_at IS NOT NULL AND leido_at IS NULL
+            RETURNING id`,
+          [socio]);
+    res.json({ ok: true, marcados: r.rows.map((x: any) => Number(x.id)) });
+  } catch (e: any) {
+    console.error('[buzon] marcar leidos:', e?.message);
+    res.status(500).json({ ok: false, error: 'No se pudieron marcar los mensajes.' });
   }
 };
 
@@ -254,6 +301,13 @@ export const buzonAdminLeer = async (req: Request, res: Response): Promise<any> 
   try {
     await ensureSchema();
     const r = await pool.query(`SELECT * FROM buzon_mensajes WHERE socio = $1 ORDER BY id`, [socio]);
+    // Esta pantalla solo la abre una persona, así que abrirla ES leerlos. Se
+    // marcan los de ellos para que del otro lado sepan que alguien los vio y no
+    // solo que el servidor los tiene.
+    const suyos = r.rows.filter((m: any) => m.de === 'socio' && !m.leido_at).map((m: any) => m.id);
+    if (suyos.length) {
+      await pool.query(`UPDATE buzon_mensajes SET leido_at = NOW(), recogido_at = COALESCE(recogido_at, NOW()) WHERE id = ANY($1::int[])`, [suyos]);
+    }
     res.json({
       ok: true,
       socio,

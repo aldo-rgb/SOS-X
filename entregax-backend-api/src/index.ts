@@ -644,7 +644,7 @@ import {
 } from './advisorPanelController';
 import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle, zaiaCalendario, zaiaAgendar, zaiaMoverEvento, zaiaBorrarEvento } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
-import { buzonVerify, buzonEscribir, buzonLeer, buzonAdminLeer, buzonAdminEscribir } from './buzonSocio';
+import { buzonVerify, buzonEscribir, buzonLeer, buzonMarcarLeidos, buzonAdminLeer, buzonAdminEscribir } from './buzonSocio';
 import {
   requestAdvisor,
   lookupAdvisor,
@@ -17906,6 +17906,8 @@ app.get('/api/zaia/avisos', zaiaAvisos);      // avisos salientes, para ponerse 
 app.post('/api/buzon/:socio/verify', buzonVerify);
 app.post('/api/buzon/:socio/mensajes', buzonEscribir);
 app.get('/api/buzon/:socio/mensajes', buzonLeer);
+// "una persona de aquí ya lo vio": bajarlo no es leerlo.
+app.post('/api/buzon/:socio/leidos', buzonMarcarLeidos);
 app.get('/api/admin/buzon/:socio', authenticateToken, requireMinLevel(ROLES.ADMIN), buzonAdminLeer);
 app.post('/api/admin/buzon/:socio', authenticateToken, requireMinLevel(ROLES.ADMIN), buzonAdminEscribir);
 

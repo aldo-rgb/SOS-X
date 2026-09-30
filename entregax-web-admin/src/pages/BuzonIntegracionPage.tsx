@@ -29,6 +29,7 @@ interface Mensaje {
     autor: string | null;
     asunto: string | null;
     cuerpo: string;
+    recogido: boolean;
     leido: boolean;
     entregado?: boolean;
     ultimo_error?: string | null;
@@ -212,17 +213,25 @@ export default function BuzonIntegracionPage({ onBack }: { onBack: () => void })
                                     {m.cuerpo}
                                 </Typography>
 
-                                {/* Solo en los nuestros: si ya lo leyeron. En los de ellos
-                                    sobra, porque leerlos es justamente estar en esta pantalla. */}
+                                {/* Solo en los nuestros. En los de ellos sobra, porque
+                                    leerlos es justamente estar en esta pantalla.
+
+                                    Tres estados, no dos: que su servidor se lo baje NO es
+                                    que alguien lo haya leído. Con un agente consultando
+                                    cada pocos minutos, un solo estado dejaría todo en
+                                    "leído" aunque nadie lo haya abierto. */}
                                 {nuestro && (
                                     <>
                                         <Divider sx={{ my: 1 }} />
                                         <Stack direction="row" spacing={1} alignItems="center">
                                             {m.leido ? (
-                                                <Chip size="small" icon={<DoneAllIcon />} label="Ya lo leyeron"
+                                                <Chip size="small" icon={<DoneAllIcon />} label="Lo leyó una persona"
                                                       color="success" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                                            ) : m.recogido ? (
+                                                <Chip size="small" icon={<DoneAllIcon />} label="Lo recogió su sistema"
+                                                      color="info" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                                             ) : (
-                                                <Chip size="small" icon={<ScheduleIcon />} label="Sin leer"
+                                                <Chip size="small" icon={<ScheduleIcon />} label="Sin entregar"
                                                       variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                                             )}
                                             {m.ultimo_error && (
