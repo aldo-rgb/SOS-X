@@ -430,6 +430,11 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           length: shipment.length_cm || 30,
           width: shipment.width_cm || 30,
           height: shipment.height_cm || 30,
+          // El origen es el CEDIS donde esta la caja y cambia el precio: PQTX cobra
+          // por bandas de kilometros. Solo las 'PKG-' se pueden consultar por id sin
+          // confundirse con un DHL o maritimo, que comparten numeracion.
+          packageId: /^PKG-(\d+)$/.test(String(shipment.uid || ''))
+            ? Number(String(shipment.uid).split('-')[1]) : null,
         }),
       });
       const data = await res.json();

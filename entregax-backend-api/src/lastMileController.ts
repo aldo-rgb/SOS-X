@@ -763,6 +763,9 @@ export const quoteShipping = async (req: Request, res: Response) => {
           length: dimensions?.length || 30,
           width: dimensions?.width || 30,
           height: dimensions?.height || 30,
+          // Si el front dice de qué caja se trata, el origen sale de su CEDIS.
+          packageId: req.body?.packageId ?? null,
+          packageIds: req.body?.packageIds ?? null,
         }, {
           headers: { Authorization: req.headers.authorization || '' },
           timeout: 25000,

@@ -188,6 +188,38 @@ export async function sucursalDelOperador(userId?: number | null): Promise<strin
 }
 
 /**
+ * Sucursal desde la que sale una caja de PO Box.
+ *
+ * El origen real no es la sucursal de quien está capturando: es la bodega donde
+ * la caja está físicamente, y eso lo dice `packages.current_branch_id`. Importa
+ * porque el cliente no tiene sucursal asignada (ninguno de los 1,000 la tiene),
+ * así que cuando el propio cliente pide su envío el usuario no dice nada del
+ * origen; la caja sí.
+ *
+ * Hoy hay 124 guías de Paquete Express que salieron de cajas en CEDIS CDMX y se
+ * cotizaron como si salieran de Monterrey.
+ *
+ * Si la caja no tiene sucursal (10,476 históricas no la tienen) se cae a la de
+ * quien opera, y de ahí a MTY.
+ */
+export async function sucursalDePaquete(packageId?: number | null,
+                                        respaldoUserId?: number | null): Promise<string> {
+  if (packageId) {
+    try {
+      const r = await pool.query(
+        `SELECT UPPER(b.code) AS code
+           FROM packages p JOIN branches b ON b.id = p.current_branch_id
+          WHERE p.id = $1`, [packageId]);
+      const code = String(r.rows[0]?.code || '').trim();
+      if (code) return code === 'CC' ? 'MTY' : code;
+    } catch (e: any) {
+      console.warn(`[PQTX] no se pudo leer la sucursal del paquete ${packageId}: ${e?.message}`);
+    }
+  }
+  return sucursalDelOperador(respaldoUserId);
+}
+
+/**
  * Las dos formas en que puede mandarse una contraseña de Paquete Express.
  *
  * La de Monterrey está guardada en base64 —decodifica a un texto legible que

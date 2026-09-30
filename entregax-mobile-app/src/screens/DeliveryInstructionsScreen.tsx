@@ -161,7 +161,20 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     [multiplePackages, pkg]
   );
   const isMultiple = allPackages.length > 1;
-  
+
+  // Paquete Express cobra por bandas de kilometros desde el origen, asi que el
+  // CEDIS donde esta la caja cambia el precio. Se manda una caja de referencia
+  // para que el backend lo resuelva. Solo las que viven en `packages`: los ids de
+  // dhl_shipments y maritime_orders se pisan con los de packages y apuntarian a
+  // otra bodega.
+  const idParaOrigen = useMemo(() => {
+    const otraTabla = ['dhl', 'maritime', 'container'];
+    const caja = allPackages.find((p: any) =>
+      p?.id != null && !otraTabla.includes(String(p?.shipment_type || '').toLowerCase()));
+    return caja?.id ?? null;
+  }, [allPackages]);
+
+
   // Función helper para detectar si un paquete es REPACK (consolidación)
   const isRepackPackage = (p: any): boolean => {
     const tracking = p.tracking_internal || p.tracking || '';
@@ -594,6 +607,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
             weight: totalWeight,
             dimensions: avgDimensions,
             packageCount: allPackages.length,
+            packageId: idParaOrigen,
           }),
           signal: quoteController.signal,
         });
@@ -645,6 +659,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               packageCount,
               weight: totalWeight > 0 ? Math.ceil(totalWeight / packageCount) : 1,
               length: 30, width: 30, height: 30,
+              packageId: idParaOrigen,
             }),
           });
           if (pqtxRes.ok) {

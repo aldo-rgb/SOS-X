@@ -2138,6 +2138,11 @@ export default function DashboardAdvisor() {
       const perBoxWeight = boxes > 1
         ? Math.max(0.5, (shipment.weight || boxes) / boxes)
         : (shipment.weight || 1);
+      // Paquete Express cobra por bandas de kilómetros desde el origen, así que el
+      // CEDIS donde está la caja cambia el precio. El uid trae la tabla: solo las
+      // 'PKG-' viven en `packages` y pueden consultarse por id sin confundirse con
+      // un envío DHL o marítimo, que comparten numeración.
+      const uidPkg = /^PKG-(\d+)$/.exec(String(shipment.uid || ''));
       const res = await api.post('/shipping/pqtx-quote', {
         destZipCode: zipCode,
         packageCount: boxes,
@@ -2145,6 +2150,7 @@ export default function DashboardAdvisor() {
         length: shipment.lengthCm || 30,
         width: shipment.widthCm || 30,
         height: shipment.heightCm || 30,
+        packageId: uidPkg ? Number(uidPkg[1]) : null,
       });
       if (res.data.success) {
         if (res.data.available === false) {

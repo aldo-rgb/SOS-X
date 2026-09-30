@@ -1221,6 +1221,14 @@ export default function DashboardClient() {
 
     const packageCount = selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
 
+    // El precio de Paquete Express depende del CEDIS de donde sale la caja (su
+    // tarifario va por bandas de kilómetros), así que le decimos al backend cuál
+    // caja es. Solo de las que viven en `packages`: los ids de dhl_shipments y
+    // maritime_orders se pisan con los de packages y apuntarían a otra bodega.
+    const tipoOtraTabla = ['dhl', 'maritime', 'container'];
+    const cajaParaOrigen = selected.find(p =>
+      p.id != null && !tipoOtraTabla.includes(String((p as any).shipment_type || '').toLowerCase()));
+
     const fetchPqtxQuote = async () => {
       // Reset state
       setPqtxNoCoverage(false);
@@ -1241,6 +1249,7 @@ export default function DashboardClient() {
             length: avgLength,
             width: avgWidth,
             height: avgHeight,
+            packageId: cajaParaOrigen?.id ?? null,
           }),
         });
         const data = await res.json();

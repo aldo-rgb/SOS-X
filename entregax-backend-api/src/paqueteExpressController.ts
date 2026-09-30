@@ -90,43 +90,72 @@ const PQTX_USER = process.env.PQTX_USER || 'WSQURBANWOD';
 const PQTX_PASSWORD = process.env.PQTX_PASSWORD || 'UWEyNzczNjI1MCQ=';
 const PQTX_BILL_CLIENT_ID = process.env.PQTX_BILL_CLIENT_ID || '27736250';
 
-// Cache del JWT token
-let cachedJwtToken: string | null = null;
+// Cache del JWT token, UNO POR SUCURSAL: son cuentas distintas.
+const tokensPorSucursal = new Map<string, string>();
 
 // ============================================
 // HELPER: Obtener JWT Token (con cache)
 // ============================================
-export async function getJwtToken(): Promise<string> {
-  if (cachedJwtToken) return cachedJwtToken;
+/**
+ * Token de Paquete Express, uno por SUCURSAL.
+ *
+ * Antes habia una sola cuenta y un solo token cacheado. Con dos cuentas
+ * —Monterrey y CDMX— cachear uno solo significaria que la primera sucursal que
+ * entrara le prestaria su sesion a la otra, y las guias volverian a salir con
+ * la cuenta equivocada. El cache ahora es por sucursal.
+ *
+ * Se prueban las dos formas de la contrasena (tal cual y codificada) porque
+ * quien da de alta una cuenta pega lo que le dieron, sin saber que la de
+ * Monterrey esta en base64. Ver `formasDePassword`.
+ */
+export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
+  const suc = String(sucursal || 'MTY').toUpperCase();
+  const enCache = tokensPorSucursal.get(suc);
+  if (enCache) return enCache;
 
+  const { credencialesDe, formasDePassword } = await import('./pqtxSucursal');
+  const cred = credencialesDe(suc);
   const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/loginv1/login`;
-  const body = {
-    header: {
-      security: {
-        user: PQTX_USER,
-        password: PQTX_PASSWORD
+
+  let ultimoError = '';
+  const formas = formasDePassword(cred.password);
+  for (let i = 0; i < formas.length; i++) {
+    const body = { header: { security: { user: cred.user, password: formas[i] } } };
+    try {
+      const response = await axios.post(url, body, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+      });
+      // La API PQTX responde con header:null y token en body.response.data.token
+      const respBody = response.data?.body?.response;
+      const token = respBody?.data?.token || respBody;
+
+      let obtenido: string | null = null;
+      if (respBody?.success === true && respBody?.data?.token) obtenido = respBody.data.token;
+      else if (response.data?.header?.staTrans === 'ok' && typeof token === 'string') obtenido = token;
+
+      if (obtenido) {
+        if (i > 0) console.warn(`[PQTX] ${suc}: la contrasena funciono en el segundo formato. Guardada asi esta bien, no hay que cambiarla.`);
+        tokensPorSucursal.set(suc, obtenido);
+        return obtenido;
       }
+      ultimoError = respBody?.messages || response.data?.header?.desTrans || 'sin detalle';
+    } catch (e: any) {
+      ultimoError = e?.response?.data?.header?.desTrans || e?.message || 'error de red';
     }
-  };
-
-  const response = await axios.post(url, body, {
-    headers: { 'Content-Type': 'application/json' },
-    timeout: 15000,
-  });
-
-  // La API PQTX responde con header:null y token en body.response.data.token
-  const respBody = response.data?.body?.response;
-  const token = respBody?.data?.token || respBody;
-
-  if (respBody?.success === true && respBody?.data?.token) {
-    cachedJwtToken = respBody.data.token;
-    return cachedJwtToken!;
-  } else if (response.data?.header?.staTrans === 'ok' && typeof token === 'string') {
-    cachedJwtToken = token;
-    return cachedJwtToken!;
   }
 
-  throw new Error(`Error al obtener token PQTX: ${respBody?.messages || response.data?.header?.desTrans || 'Unknown error'}`);
+  // Si la cuenta de la sucursal no entra, se despacha con la de Monterrey antes
+  // que dejar a la bodega sin poder generar guías: una credencial mal capturada
+  // no debe parar la operación. La guía sigue saliendo con el domicilio de la
+  // sucursal —lo que se estaba corrigiendo— y solo cambia quién la paga, que es
+  // el mismo cliente 27736250 en las dos cuentas.
+  if (suc !== 'MTY') {
+    console.error(`[PQTX] ${suc}: no se pudo entrar con el usuario ${cred.user} (${ultimoError}). Se despacha con la cuenta de MTY; revisa PQTX_${suc}_USER y PQTX_${suc}_PASSWORD en Railway.`);
+    return getJwtToken('MTY');
+  }
+
+  throw new Error(`Error al obtener token PQTX para ${suc} (usuario ${cred.user}): ${ultimoError}`);
 }
 
 // ============================================
@@ -154,17 +183,18 @@ export async function pqtxLogin(req: Request, res: Response) {
     const respBody = response.data?.body?.response;
 
     if (respBody?.success === true && respBody?.data?.token) {
-      cachedJwtToken = respBody.data.token;
+      tokensPorSucursal.set('MTY', respBody.data.token);
       res.json({
         success: true,
-        token: cachedJwtToken,
+        token: respBody.data.token,
         message: 'Token obtenido correctamente'
       });
     } else if (response.data?.header?.staTrans === 'ok') {
-      cachedJwtToken = response.data.body?.response || null;
+      const t = response.data.body?.response || null;
+      if (t) tokensPorSucursal.set('MTY', t);
       res.json({
         success: true,
-        token: cachedJwtToken,
+        token: t,
         message: 'Token obtenido correctamente'
       });
     } else {
@@ -1280,7 +1310,8 @@ export async function pqtxGetConfig(req: Request, res: Response) {
         user: PQTX_USER,
         billClientId: PQTX_BILL_CLIENT_ID,
         quoteUser: PQTX_QUOTE_USER,
-        hasToken: !!cachedJwtToken,
+        hasToken: tokensPorSucursal.size > 0,
+        sucursalesConSesion: Array.from(tokensPorSucursal.keys()),
         environment: PQTX_BASE_URL.includes('qa') ? 'QA (Testing)' : 'Producción',
       },
     });
@@ -1298,7 +1329,8 @@ export async function pqtxGetConfig(req: Request, res: Response) {
 //   - Si cotización PQTX < $300 → cobrar $400 MXN total
 //   - Si cotización PQTX >= $300 → cotización + $100 MXN por caja
 // ============================================
-const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY (origen para cotizar/generar guías PQTX)
+// El origen ya no es una constante del módulo: sale de la sucursal que despacha
+// (ver pqtxSucursal.ts). Había un solo CP fijo, el de Monterrey, para todo.
 
 // Regla de precio de última milla al cliente (unificada domicilio / Ocurre / panel):
 //   costo PQTX por caja < $300  → $400
@@ -1315,6 +1347,17 @@ export interface PqtxQuoteInput {
   length?: number;
   width?: number;
   height?: number;
+  /**
+   * Sucursal que despacha (MTY, CDMX…). De aquí sale el CP de ORIGEN, y el
+   * origen decide el precio: Paquete Express cobra por bandas de kilómetros, así
+   * que cotizar una caja de CDMX declarando Monterrey la mete en la banda
+   * equivocada. Si no viene, se resuelve del paquete o de quien opera.
+   */
+  sucursal?: string | null;
+  /** Caja que se va a enviar; su `current_branch_id` es el origen verdadero. */
+  packageId?: number | null;
+  /** Quien está operando, como respaldo cuando la caja no tiene sucursal. */
+  userId?: number | null;
 }
 
 // Núcleo reutilizable de cotización de última milla. Devuelve un objeto (no HTTP)
@@ -1332,6 +1375,19 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
   if (!destZipCode) {
     return { success: false, available: false, packageCount, error: 'Se requiere CP destino' };
   }
+
+  // Origen: la sucursal que despacha. En ese orden —la que nos dijeron, la de la
+  // caja, la de quien opera— y al final MTY, que es como funcionaba antes.
+  const { sucursalDePaquete, remitenteDeSucursal, credencialesDe } = await import('./pqtxSucursal');
+  const sucursal = String(input.sucursal || '').trim().toUpperCase()
+    || await sucursalDePaquete(input.packageId, input.userId);
+  const origen = await remitenteDeSucursal(sucursal);
+  const cred = credencialesDe(sucursal);
+  // La colonia del origen va como 'CENTRO' a propósito: es lo que se ha estado
+  // mandando y Paquete Express no la valida contra el CP. El dato que sí mueve la
+  // tarifa es el código postal.
+  const origenCotiza = { zipCode: origen.zip, colonyName: 'CENTRO' };
+
   try {
     // PQTX rechaza cotizaciones con más de 6 líneas de captura
     // ("NO SE PUEDEN ENVIAR MAS DE 6 LINEAS DE CAPTURA"). Como aquí la cotización
@@ -1339,7 +1395,7 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
     // sondeamos con un máximo de 6 líneas y facturamos por el conteo real.
     const linesToQuote = Math.min(Math.max(1, packageCount), 6);
 
-    console.log(`[PQTX-CLIENT] Params recibidos: ZIP=${destZipCode}, boxes=${packageCount}, lineas=${linesToQuote}, weight=${weight}, dims=${length}x${width}x${height}`);
+    console.log(`[PQTX-CLIENT] Params recibidos: origen=${sucursal} CP ${origen.zip}, ZIP=${destZipCode}, boxes=${packageCount}, lineas=${linesToQuote}, weight=${weight}, dims=${length}x${width}x${height}`);
 
     // Construir paquetes para la cotización
     const shipments = [];
@@ -1359,10 +1415,10 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
     const body = {
       header: {
         security: {
-          user: PQTX_QUOTE_USER,
-          password: PQTX_QUOTE_PASSWORD,
+          user: cred.quoteUser,
+          password: cred.quotePassword,
           type: 1,
-          token: PQTX_QUOTE_TOKEN,
+          token: cred.quoteToken,
         },
         device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
         target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
@@ -1372,7 +1428,7 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
       body: {
         request: {
           data: {
-            clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
+            clientAddrOrig: { ...origenCotiza },
             clientAddrDest: { zipCode: destZipCode, colonyName: (input.colonyName || '').trim().toUpperCase() || 'CENTRO' },
             services: { dlvyType: '1', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
             otherServices: { otherServices: [] },
@@ -1430,13 +1486,13 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
       const tryOcurre = async (zip: string) => {
         const ocurreBody = {
           header: {
-            security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+            security: { user: cred.quoteUser, password: cred.quotePassword, type: 1, token: cred.quoteToken },
             device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
             target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
             output: 'JSON', language: null,
           },
           body: { request: { data: {
-            clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
+            clientAddrOrig: { ...origenCotiza },
             clientAddrDest: { zipCode: zip, colonyName: 'CENTRO' },
             services: { dlvyType: '2', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
             otherServices: { otherServices: [] },
@@ -1541,7 +1597,15 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
 
 // Endpoint HTTP: envuelve el núcleo reutilizable.
 export async function pqtxClientQuote(req: Request, res: Response) {
-  const result = await quotePqtxClientPrice(req.body || {});
+  // El origen sale de la caja si el frontend la manda, y si no de quien consulta.
+  // Un cliente no tiene sucursal, así que ahí el dato bueno es el de la caja.
+  const b = req.body || {};
+  const packageId = Number(b.packageId ?? (Array.isArray(b.packageIds) ? b.packageIds[0] : null)) || null;
+  const result = await quotePqtxClientPrice({
+    ...b,
+    packageId,
+    userId: (req as any).user?.userId || (req as any).user?.id || null,
+  });
   if (!result || result.success === false) {
     // Falta CP → 400. Error transitorio de PQTX → fallback $400/caja (comportamiento previo).
     if (result?.error === 'Se requiere CP destino') {
@@ -1605,16 +1669,28 @@ export async function generateOnePqtxGuide(params: {
   shipmentTable?: 'packages' | 'dhl_shipments';
 }): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; noCoverage?: boolean; raw?: any }> {
   const persistTable = params.shipmentTable === 'dhl_shipments' ? 'dhl_shipments' : 'packages';
-  const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY
-  const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
-  const PQTX_ORIGIN_STATE = process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON';
-  const PQTX_ORIGIN_MUN = process.env.PQTX_ORIGIN_MUN || 'MONTERREY';
-  const PQTX_ORIGIN_COL = process.env.PQTX_ORIGIN_COL || 'TORREMOLINOS';
-  const PQTX_ORIGIN_STREET = process.env.PQTX_ORIGIN_STREET || 'REVOLUCION SUR';
-  const PQTX_ORIGIN_NUM = process.env.PQTX_ORIGIN_NUM || '3866 B8';
-  const PQTX_ORIGIN_PHONE = process.env.PQTX_ORIGIN_PHONE || '8120029375';
-  const PQTX_ORIGIN_NAME = process.env.PQTX_ORIGIN_NAME || 'ENTREGAX';
-  const PQTX_ORIGIN_EMAIL = process.env.PQTX_ORIGIN_EMAIL || 'operaciones@entregax.com';
+
+  // El remitente sale de la SUCURSAL de quien despacha, no de un origen fijo.
+  // Estaba clavado en la bodega de Monterrey para todo el sistema: las guias
+  // despachadas desde CDMX salian con domicilio de MTY impreso y, peor, se
+  // cotizaban desde MTY. El tarifario de Paquete Express cobra por bandas de
+  // kilometros, asi que el origen equivocado mete la guia en la banda
+  // equivocada (reporte de Roman, CEDIS CDMX).
+  const { sucursalDelOperador, remitenteDeSucursal, describirOrigen } = await import('./pqtxSucursal');
+  const sucursalPqtx = await sucursalDelOperador(params.createdBy);
+  const rem = await remitenteDeSucursal(sucursalPqtx);
+  const PQTX_ORIGIN_ZIP = rem.zip;
+  const PQTX_ORIGIN_CITY = rem.city;
+  const PQTX_ORIGIN_STATE = rem.state;
+  const PQTX_ORIGIN_MUN = rem.mun;
+  const PQTX_ORIGIN_COL = rem.col;
+  const PQTX_ORIGIN_STREET = rem.street;
+  const PQTX_ORIGIN_NUM = rem.num;
+  const PQTX_ORIGIN_PHONE = rem.phone;
+  const PQTX_ORIGIN_NAME = rem.name;
+  const PQTX_ORIGIN_EMAIL = rem.email;
+  // Queda en el log: es lo primero que se pregunta cuando una guia sale mal.
+  console.log(`[PQTX-GEN] remitente ${describirOrigen(sucursalPqtx)}`);
 
   const piecesArr = params.pieces && params.pieces.length > 0
     ? params.pieces
@@ -2187,8 +2263,19 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       return;
     }
 
-    const token = await getJwtToken();
+    // El token es el de la SUCURSAL de quien despacha: son dos cuentas y
+    // pedir el generico haria que la guia saliera con la cuenta equivocada,
+    // que es justo lo que se esta corrigiendo.
     const userId = (req as any).user?.userId || (req as any).user?.id || null;
+    const { sucursalDePaquete: sucCaja, remitenteDeSucursal: remSuc } = await import('./pqtxSucursal');
+    // La caja de PO Box sabe en qué CEDIS está; el envío DHL no guarda sucursal,
+    // ahí manda la de quien despacha. El id no se puede consultar en `packages`
+    // cuando es DHL: los ids de las dos tablas se pisan.
+    const sucursalDespacha = await sucCaja(isDhl ? null : Number(packageId), userId);
+    const token = await getJwtToken(sucursalDespacha);
+    // Mismo origen para buscar la sucursal Ocurre más cercana: si se busca desde
+    // Monterrey una caja que sale de CDMX, la "más cercana" no es la más cercana.
+    const originZipSucursal = (await remSuc(sucursalDespacha)).zip;
 
     // Si el cliente eligió Ocurre, usar el CP de la sucursal para la guía PQTX
     console.log(`[PQTX-GEN-DEBUG] pkg.national_delivery_zip="${pkg.national_delivery_zip}" pkg.zip_code="${pkg.zip_code}" pkg.destination_zip="${pkg.destination_zip}"`);
@@ -2226,9 +2313,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // mecanismo que el ocurre manual). Así la guía sale a sucursal, no a domicilio.
     if (!ocurreZipClean && !pkg.national_delivery_zip && pkg.addr_is_ocurre === true && pkg.zip_code) {
       try {
-        const originZip = process.env.PQTX_ORIGIN_ZIP || '64410';
         const quotePieces = [{ weight: Number(pkg.weight) || 1, length: Number(pkg.pkg_length) || 30, width: Number(pkg.pkg_width) || 30, height: Number(pkg.pkg_height) || 30 }];
-        const branch = await findNearestOcurreBranch(originZip, String(pkg.zip_code), quotePieces);
+        const branch = await findNearestOcurreBranch(originZipSucursal, String(pkg.zip_code), quotePieces);
         if (branch?.usedZip) {
           effectiveZip = branch.usedZip;
           ocurreBranchCity = branch.cityName || null;
@@ -2333,9 +2419,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       let ocurreOffer: { usedZip: string; nearestBranch: boolean; cityName: string | null } | null = null;
       if ((result as any).noCoverage && !ocurreZipClean) {
         try {
-          const originZip = process.env.PQTX_ORIGIN_ZIP || '64410';
           ocurreOffer = await findNearestOcurreBranch(
-            originZip,
+            originZipSucursal,
             String(pkg.zip_code || '').trim(),
             piecesData.map((p) => ({ weight: p.weight, length: p.pkgLength, width: p.pkgWidth, height: p.pkgHeight }))
           );

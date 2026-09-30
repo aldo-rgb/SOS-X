@@ -557,7 +557,15 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                             const PQTX_QUOTE_USER = process.env.PQTX_QUOTE_USER || 'WSQURBANWOD';
                             const PQTX_QUOTE_PASSWORD = process.env.PQTX_QUOTE_PASSWORD || '1234';
                             const PQTX_QUOTE_TOKEN = process.env.PQTX_QUOTE_TOKEN || '4DB7391907B749C5E063350AA8C0215D';
-                            const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860';
+                            // 64860 estaba MAL: el CP de CEDIS Monterrey es 64410,
+                            // como consta en su direccion registrada (Jacaranda 112,
+                            // Col Del Prado). Con dos numeros distintos en dos
+                            // archivos, el sistema cotizaba diferente segun por donde
+                            // entrara el calculo. Ahora sale del remitente de la
+                            // sucursal, igual que la guia.
+                            const { sucursalDelOperador: sucOpQ, remitenteDeSucursal: remSucQ } = await import('./pqtxSucursal');
+                            const sucCotiza = await sucOpQ((req as any).user?.userId || (req as any).user?.id || null);
+                            const PQTX_ORIGIN_ZIP = (await remSucQ(sucCotiza)).zip;
 
                             // Construir paquetes para cotización
                             const shipments = boxes.map((box: BoxItem, idx: number) => ({
@@ -5546,6 +5554,9 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                         destZipCode: String(zip), packageCount: boxes,
                                         weight: perBoxWeight, length: Number(d.l) || 30,
                                         width: Number(d.w) || 30, height: Number(d.h) || 30,
+                                        // El origen es el CEDIS donde está la caja, no Monterrey
+                                        // por omisión: la tarifa de PQTX va por bandas de kilómetros.
+                                        packageId, userId,
                                     });
                                     if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);
                                 }
@@ -7982,6 +7993,9 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                   const q = await quotePqtxClientPrice({
                     destZipCode: String(d.zip), packageCount: 1,
                     weight: peso, length: l, width: w, height: h,
+                    // Un envío DHL no guarda sucursal: el origen es el de quien
+                    // asigna. No se puede buscar el id en `packages`, se pisan.
+                    userId: (req as any).user?.userId || (req as any).user?.id || null,
                   });
                   if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);
                 } catch (qErr: any) {

@@ -2329,6 +2329,10 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
             destZipCode: String(zip), packageCount: boxesA,
             weight: perBoxWeightA, length: Number(d.l) || 30,
             width: Number(d.w) || 30, height: Number(d.h) || 30,
+            // El origen decide la banda de kilómetros y con ella el precio. En una
+            // caja de PO Box lo dice la caja; en DHL/marítimo, la sucursal del asesor.
+            packageId: (kind !== 'DHL' && kind !== 'MAR') ? pid : null,
+            userId: (req as any).user?.userId || (req as any).user?.id || null,
           });
           pqtxPerBox = (q && q.available && Number(q.pricePerBox) > 0) ? Number(q.pricePerBox) : 400;
         } else {
