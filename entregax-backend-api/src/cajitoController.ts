@@ -1958,6 +1958,110 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // -------------------- COMISIONES DE UNA GUÍA --------------------
+  // "¿Ya se pagó la comisión de estas guías, y si no, entra al próximo corte?"
+  // es de lo que más preguntan los asesores, y Cajito no tenía con qué: no
+  // había ninguna herramienta de comisiones (CJD-2026-0030, tarea 721).
+  //
+  // La comisión propia y el override del líder viven en la MISMA fila: el
+  // asesor está en advisor_id y el líder en leader_id, con su monto aparte. No
+  // hay que buscar dos veces ni cruzar tablas para contestar por los dos.
+  //
+  // Lo de "entra al próximo corte" se contesta con el MISMO predicado con el
+  // que se arma el corte, importado de commissionCuts. Reimplementarlo aquí
+  // habría sido prometer pagos que el corte no incluye en cuanto alguien
+  // ajustara una de las dos copias.
+  {
+    name: 'comisiones_de_guia',
+    requiredCapability: 'cajito.read.payments',
+    readOnly: true,
+    description: 'Estado de la comisión de una o varias GUÍAS: cuánto le toca al asesor, cuánto al líder por override, si ya se pagó (y en qué corte) o si sigue pendiente. Cuando está pendiente dice además si YA ENTRA al próximo corte o qué le falta para entrar. Úsala siempre que pregunten por comisiones de guías, si ya se pagaron, o si van a caer en el próximo corte.',
+    parameters: {
+      type: 'object',
+      properties: {
+        guias: { type: 'string', description: 'Una o varias guías separadas por coma, espacio o salto de línea (US-…, JJD…, AIR…, etc.).' },
+      },
+      required: ['guias'],
+    },
+    handler: async ({ guias }) => {
+      const lista = String(guias || '')
+        .split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).slice(0, 60);
+      if (!lista.length) return { error: 'Dame al menos una guía.' };
+
+      const { ELEGIBLE } = await import('./commissionCuts');
+
+      const r = await pool.query(
+        `SELECT ac.id, ac.tracking AS guia, ac.shipment_type AS tipo, ac.service_type AS servicio,
+                ac.client_name AS cliente,
+                ac.advisor_name AS asesor, ac.commission_amount_mxn AS comision_asesor,
+                ac.leader_name AS lider, ac.leader_override_amount AS override_lider,
+                ac.status AS estado, ac.cut_id AS corte,
+                to_char(ac.paid_to_advisor_at, 'YYYY-MM-DD') AS pagada_el,
+                to_char(cc.period_start, 'YYYY-MM-DD') AS corte_desde,
+                to_char(cc.period_end, 'YYYY-MM-DD') AS corte_hasta,
+                COALESCE(ac.awaiting_client_payment, FALSE) AS espera_pago_del_cliente,
+                COALESCE(ac.penalized, FALSE) AS penalizada,
+                ac.penalized_reason AS motivo_penalizacion,
+                (${ELEGIBLE}) AS entra_al_proximo_corte
+           FROM advisor_commissions ac
+           LEFT JOIN commission_cuts cc ON cc.id = ac.cut_id
+          WHERE UPPER(ac.tracking) = ANY($1::text[])
+          ORDER BY ac.tracking`,
+        [lista.map(g => g.toUpperCase())]
+      );
+
+      const filas = r.rows.map((x: any) => {
+        const pendiente = x.estado !== 'paid';
+        // Cuando NO entra al corte, el asesor necesita saber por qué, no un
+        // "no" pelón: casi siempre es que el cliente aún no paga.
+        let falta: string | null = null;
+        if (pendiente && !x.entra_al_proximo_corte) {
+          falta = x.penalizada ? `penalizada${x.motivo_penalizacion ? `: ${x.motivo_penalizacion}` : ''}`
+                : x.espera_pago_del_cliente ? 'marcada como "espera el pago del cliente"'
+                : 'no hay una orden PAGADA que la respalde todavía';
+        }
+        return {
+          guia: x.guia, tipo: x.tipo, cliente: x.cliente,
+          asesor: x.asesor, comision_asesor: x.comision_asesor,
+          lider: x.lider || '(sin líder)', override_lider: x.override_lider,
+          estado: x.estado === 'paid' ? 'PAGADA' : 'PENDIENTE',
+          ...(x.estado === 'paid'
+            ? { pagada_el: x.pagada_el, corte: x.corte, periodo_del_corte: `${x.corte_desde} a ${x.corte_hasta}` }
+            : { entra_al_proximo_corte: !!x.entra_al_proximo_corte, le_falta: falta }),
+        };
+      });
+
+      const encontradas = new Set(filas.map(f => String(f.guia || '').toUpperCase()));
+      const sinComision = lista.filter(g => !encontradas.has(g.toUpperCase()));
+
+      const suma = (campo: 'comision_asesor' | 'override_lider', filtro: (f: any) => boolean) =>
+        +filas.filter(filtro).reduce((s, f: any) => s + (Number(f[campo]) || 0), 0).toFixed(2);
+
+      return {
+        total_guias_consultadas: lista.length,
+        con_comision: filas.length,
+        // Que una guía no tenga comisión no siempre es error: puede no haberse
+        // pagado aún o estar marcada sin comisión. Se nombra para que Cajito no
+        // conteste solo por las que encontró y deje las otras en silencio.
+        guias_sin_comision_registrada: sinComision,
+        resumen: {
+          pagado_al_asesor: suma('comision_asesor', f => f.estado === 'PAGADA'),
+          pagado_al_lider: suma('override_lider', f => f.estado === 'PAGADA'),
+          pendiente_que_entra_al_proximo_corte: {
+            asesor: suma('comision_asesor', f => f.estado === 'PENDIENTE' && f.entra_al_proximo_corte),
+            lider: suma('override_lider', f => f.estado === 'PENDIENTE' && f.entra_al_proximo_corte),
+          },
+          pendiente_que_NO_entra_todavia: {
+            asesor: suma('comision_asesor', f => f.estado === 'PENDIENTE' && !f.entra_al_proximo_corte),
+            lider: suma('override_lider', f => f.estado === 'PENDIENTE' && !f.entra_al_proximo_corte),
+          },
+        },
+        detalle: filas,
+        nota: 'El override del líder sale de la misma bolsa y ya viene partido: el monto que aparece es lo que le toca a él, no el total.',
+      };
+    }
+  },
+
   {
     name: 'asesores_de_guias',
     requiredCapability: 'cajito.read.clients',

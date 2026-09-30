@@ -22,7 +22,7 @@ import { pool } from './db';
 import { AEREO_PAID_ORDER_SQL, XPAY_COMPLETED_SQL, GEX_PAID_SQL } from './commissionController';
 
 /** Una comisión es cobrable si hay una orden PAGADA que la respalde. */
-const CON_ORDEN_PAGADA = `(
+export const CON_ORDEN_PAGADA = `(
     EXISTS (SELECT 1 FROM pobox_payments pp_o
              WHERE ac.shipment_type = 'PKG'
                AND pp_o.status IN ('completed','paid')
@@ -69,8 +69,15 @@ const CON_ORDEN_PAGADA = `(
                   AND NULLIF(w_o.gex_folio, '') IS NOT NULL AND w_o.status = 'active')
 )`;
 
-/** Lo que entra a un corte: pendiente, cobrable y con orden pagada. */
-const ELEGIBLE = `
+/**
+ * Lo que entra a un corte: pendiente, cobrable y con orden pagada.
+ *
+ * Se exporta para que Cajito conteste con EXACTAMENTE el mismo criterio con el
+ * que se arma el corte. Reimplementarlo allá era garantizar que los dos se
+ * separaran con el primer ajuste y que Cajito prometiera pagos que el corte no
+ * iba a incluir (tarea 721).
+ */
+export const ELEGIBLE = `
       ac.status = 'pending'
   AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE
   AND COALESCE(ac.penalized, false) = false
