@@ -1780,6 +1780,18 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
              (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message,
              EXISTS (SELECT 1 FROM tasks tk WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled') AS error_reported,
+             -- QUÉ tarea, no solo que existe. Saber que "ya se reportó" sin el
+             -- número deja a quien atiende sin forma de llegar a la respuesta:
+             -- el ticket no deja levantar otra tarea y tampoco dice dónde está
+             -- la que ya se contestó. Yliana se topó con eso en el
+             -- TKT-2026-2879, cuya tarea (la 687) llevaba cuatro días resuelta
+             -- (tarea 734).
+             (SELECT tk.id FROM tasks tk
+               WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled'
+               ORDER BY tk.id LIMIT 1) AS error_task_id,
+             (SELECT tk.status FROM tasks tk
+               WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled'
+               ORDER BY tk.id LIMIT 1) AS error_task_status,
              -- Mensajes del cliente POSTERIORES a la última respuesta. Es lo que
              -- de verdad necesita ver quien atiende la bandeja: no "yo no lo he
              -- leído" —que en una bandeja compartida confunde: Ricardo sí,

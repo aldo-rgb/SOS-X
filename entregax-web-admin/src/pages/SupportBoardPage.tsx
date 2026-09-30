@@ -134,6 +134,8 @@ interface SupportTicket {
   status: 'open_ai' | 'waiting_client' | 'escalated_human' | 'resolved';
   priority: string;
   error_reported?: boolean;
+  error_task_id?: number | null;
+  error_task_status?: string | null;
   creator_type?: 'client' | 'employee';
   creator_role?: string;
   department_id?: number;
@@ -1033,8 +1035,11 @@ export default function SupportBoardPage() {
       const d = await r.json().catch(() => ({}));
       setReportSnack({
         msg: r.ok
-          ? (d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).`
-                       : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}" con lo que investigó Cajito.`)
+          ? (d.already
+              // El número, no el folio: el folio ya lo tiene en pantalla. Sin el
+              // número no hay forma de llegar a la tarea que ya contestó esto.
+              ? `Ya existe la tarea #${d.task_id} para este error. Búscala en Mis Tareas.`
+              : `Tarea #${d.task_id} creada: "Error localizado ${selectedTicket.ticket_folio}" con lo que investigó Cajito.`)
           : (d.error || 'No se pudo reportar el error'),
         sev: r.ok ? 'success' : 'error',
       });
@@ -1056,7 +1061,9 @@ export default function SupportBoardPage() {
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setReportSnack({ msg: d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).` : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
+        setReportSnack({ msg: d.already
+          ? `Ya existe la tarea #${d.task_id} para este error. Búscala en Mis Tareas.`
+          : `Tarea #${d.task_id} creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
         setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client', error_reported: true } : prev));
         await loadTickets();
         await loadStats();
@@ -2211,9 +2218,27 @@ export default function SupportBoardPage() {
                     El backend nunca validó la categoría. */}
                 {(
                   selectedTicket.error_reported ? (
-                    <Button variant="outlined" color="success" startIcon={<ResolvedIcon />} disabled>
-                      Reportado
-                    </Button>
+                    /* Antes decía solo "Reportado" y quedaba deshabilitado: quien
+                       atendía el ticket sabía que ya se había levantado una tarea,
+                       pero no CUÁL, y el ticket tampoco dejaba levantar otra. Sin
+                       el número no hay forma de llegar a la respuesta. Yliana se
+                       topó con eso en el TKT-2026-2879, cuya tarea llevaba cuatro
+                       días contestada (tarea 734). */
+                    <Tooltip title={
+                      selectedTicket.error_task_id
+                        ? `Este ticket ya tiene la tarea #${selectedTicket.error_task_id}${
+                            selectedTicket.error_task_status === 'completed' ? ', que ya está resuelta' : ''
+                          }. Búscala por su número en Mis Tareas para ver la respuesta.`
+                        : 'Este ticket ya tiene una tarea de error levantada.'
+                    }>
+                      <span>
+                        <Button variant="outlined" color="success" startIcon={<ResolvedIcon />} disabled>
+                          {selectedTicket.error_task_id
+                            ? `Tarea #${selectedTicket.error_task_id}${selectedTicket.error_task_status === 'completed' ? ' · resuelta' : ''}`
+                            : 'Reportado'}
+                        </Button>
+                      </span>
+                    </Tooltip>
                   ) : (
                     <>
                     {puedeInvestigar && (
