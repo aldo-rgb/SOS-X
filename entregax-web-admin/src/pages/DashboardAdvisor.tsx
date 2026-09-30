@@ -962,6 +962,25 @@ export default function DashboardAdvisor() {
   const [formalQuoteDialogOpen, setFormalQuoteDialogOpen] = useState(false);
   const [quoteRequestOpen, setQuoteRequestOpen] = useState(false);
   const [formalQuoteClient, setFormalQuoteClient] = useState<any | null>(null);
+  /**
+   * Nombre y casillero de un cliente, venga como venga.
+   *
+   * El mismo desplegable se llena de dos fuentes con formatos distintos:
+   * /advisor/clients devuelve camelCase (fullName, boxId) y el prellenado desde
+   * un ticket arma el objeto en snake_case (full_name, box_id). La etiqueta leía
+   * solo snake_case, así que con la lista normal caía al guión y no pintaba el
+   * casillero: el asesor veía "— · correo" y no podía saber a quién elegía
+   * (tarea 716/671).
+   *
+   * Se leen LAS DOS formas en vez de renombrar una: arreglar un solo lado
+   * dejaba el otro roto, y ya pasó una vez.
+   */
+  const datosCliente = (o: any) => ({
+    nombre: o?.fullName ?? o?.full_name ?? o?.name ?? '',
+    casillero: o?.boxId ?? o?.box_id ?? '',
+    email: o?.email ?? '',
+    telefono: o?.phone ?? '',
+  });
   const [formalQuoteClients, setFormalQuoteClients] = useState<any[]>([]);
   const [formalQuoteServicio, setFormalQuoteServicio] = useState<'maritimo' | 'aereo' | 'pobox' | 'dhl'>('maritimo');
   const [formalQuoteSubservicio, setFormalQuoteSubservicio] = useState<string>('');
@@ -6723,10 +6742,14 @@ export default function DashboardAdvisor() {
         : 0;
       const body: any = {
         clientId: formalQuoteClient?.id || null,
-        clientName: formalQuoteClient?.full_name || formalQuoteClient?.name,
-        clientBoxId: formalQuoteClient?.box_id,
-        clientEmail: formalQuoteClient?.email,
-        clientPhone: formalQuoteClient?.phone,
+        // Mismo cuidado con las dos formas. El backend vuelve a resolver el
+        // cliente por su id y pisa esto, así que la cotización salía bien
+        // aunque aquí fuera undefined; se manda correcto de todos modos para
+        // no depender de ese rescate.
+        clientName: datosCliente(formalQuoteClient).nombre || undefined,
+        clientBoxId: datosCliente(formalQuoteClient).casillero || undefined,
+        clientEmail: datosCliente(formalQuoteClient).email || undefined,
+        clientPhone: datosCliente(formalQuoteClient).telefono || undefined,
         servicio: formalQuoteServicio,
         subservicio: formalQuoteSubservicio || undefined,
         categoria: formalQuoteCategoria,
@@ -9003,7 +9026,14 @@ export default function DashboardAdvisor() {
                 }}
                 filterOptions={(x) => x}
                 noOptionsText="Sin resultados"
-                getOptionLabel={(o: any) => o ? `${o.full_name || o.name || '—'}${o.box_id ? ` · Box ${o.box_id}` : ''}${o.email ? ` · ${o.email}` : ''}` : ''}
+                getOptionLabel={(o: any) => {
+                  if (!o) return '';
+                  const d = datosCliente(o);
+                  // El casillero va PRIMERO: es como el asesor identifica a su
+                  // cliente, y era justo lo que no se veía.
+                  return [d.casillero && `${d.casillero}`, d.nombre || '—', d.email]
+                    .filter(Boolean).join(' · ');
+                }}
                 isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
                 renderInput={(params) => <TextField {...params} size="small" label="Buscar cliente por nombre / box / email" />}
               />
