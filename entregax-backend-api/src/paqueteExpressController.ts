@@ -14,6 +14,56 @@ import { pool, asegurarColumna } from './db';
 const PQTX_BASE_URL = process.env.PQTX_BASE_URL || 'https://qaglp.paquetexpress.com.mx';
 
 /**
+ * Si estamos en producción y nadie puso PQTX_BASE_URL, NO se generan guías.
+ *
+ * El valor por omisión de arriba apunta a QA. Sin esta guarda, borrar esa
+ * variable de Railway no rompía nada visible: el backend arrancaba igual y
+ * empezaba a emitir guías de prueba, con números de rastreo que no existen en
+ * Paquete Express. Las guías quedan etiquetadas `qa` y ocultas del listado, así
+ * que nadie se enteraría hasta que un cliente reclamara que su rastreo no sirve
+ * —y para entonces las cajas ya salieron con una etiqueta invalida pegada.
+ *
+ * Se bloquea solo la generación de guías, que es lo que crea algo falso, y no se
+ * tira el proceso entero: que falte la configuración de una paqueteria no es
+ * razón para dejar sin cobranza, rastreo ni tickets a todo el sistema. El error
+ * dice exactamente qué poner.
+ */
+const PQTX_QA_POR_OMISION = !process.env.PQTX_BASE_URL
+  && String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+if (PQTX_QA_POR_OMISION) {
+  console.error('[PQTX] ⛔ Falta PQTX_BASE_URL y el valor por omisión es el de QA. '
+    + 'No se van a generar guías: saldrían con números de rastreo que no existen. '
+    + 'Ponla en Railway con el valor de producción (https://cc.paquetexpress.com.mx) y redespliega.');
+}
+
+/**
+ * El motivo del rechazo de Paquete Express, legible.
+ *
+ * `messages` a veces llega como objeto y a veces como lista, así que
+ * interpolarlo tal cual dejaba en el log "Error al obtener token PQTX para MTY:
+ * [object Object]" — que no dice si la contraseña está mal, si el usuario no
+ * existe o si la cuenta está bloqueada, que es justo lo que hay que saber.
+ */
+function motivoPqtx(v: any): string {
+  if (!v) return '';
+  if (typeof v === 'string') return v.trim();
+  if (Array.isArray(v)) return v.map(motivoPqtx).filter(Boolean).join(' · ');
+  const directo = v.desTrans || v.message || v.messages || v.description || v.error;
+  if (directo && directo !== v) return motivoPqtx(directo);
+  if (v.header) return motivoPqtx(v.header);
+  try { return JSON.stringify(v).slice(0, 300); } catch { return String(v); }
+}
+
+/** Se llama antes de pedirle una guía a Paquete Express. */
+function exigirAmbienteConfigurado(): void {
+  if (PQTX_QA_POR_OMISION) {
+    throw new Error('Paquete Express no está configurado: falta la variable PQTX_BASE_URL. '
+      + 'Avisa a sistemas; mientras no se ponga, las guías saldrían con rastreos que no existen.');
+  }
+}
+
+/**
  * Nombre y contacto para la guía de Paquetexpress: su API rechaza la guía
  * entera si pasan de 50 caracteres ("contacto string is too long, maximum
  * allowed: 50"). Pasó con US-0999901977 (S186), cuyo receptor quedó guardado
@@ -109,6 +159,7 @@ const tokensPorSucursal = new Map<string, string>();
  * Monterrey esta en base64. Ver `formasDePassword`.
  */
 export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
+  exigirAmbienteConfigurado();
   const suc = String(sucursal || 'MTY').toUpperCase();
   const enCache = tokensPorSucursal.get(suc);
   if (enCache) return enCache;
@@ -139,9 +190,9 @@ export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
         tokensPorSucursal.set(suc, obtenido);
         return obtenido;
       }
-      ultimoError = respBody?.messages || response.data?.header?.desTrans || 'sin detalle';
+      ultimoError = motivoPqtx(respBody?.messages) || motivoPqtx(response.data?.header?.desTrans) || 'sin detalle';
     } catch (e: any) {
-      ultimoError = e?.response?.data?.header?.desTrans || e?.message || 'error de red';
+      ultimoError = motivoPqtx(e?.response?.data) || e?.message || 'error de red';
     }
   }
 
@@ -1668,6 +1719,13 @@ export async function generateOnePqtxGuide(params: {
   // envíos DHL se usa dhl_shipments, que no tiene pqtx_shipment_id).
   shipmentTable?: 'packages' | 'dhl_shipments';
 }): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; noCoverage?: boolean; raw?: any }> {
+  // Antes que nada: si el ambiente quedó apuntando a QA por descuido, no se
+  // emite nada. Una guía de prueba pegada a una caja real es peor que no tenerla.
+  if (PQTX_QA_POR_OMISION) {
+    return { ok: false, error: 'Paquete Express no está configurado: falta la variable PQTX_BASE_URL. '
+      + 'Avisa a sistemas; mientras no se ponga, la guía saldría con un rastreo que no existe.' };
+  }
+
   const persistTable = params.shipmentTable === 'dhl_shipments' ? 'dhl_shipments' : 'packages';
 
   // El remitente sale de la SUCURSAL de quien despacha, no de un origen fijo.
