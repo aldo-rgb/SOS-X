@@ -803,6 +803,119 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- RECUPERACIÓN DE CLIENTES (CHARTBACK) --------------------
+  // Los casilleros que dejaron de enviar viven en `legacy_clients` con
+  // `chartback = true`, y se le reparten a un asesor por `recovery_advisor_id`
+  // para que los contacte desde la app. Cajito no tenía cómo verlos: Christian
+  // preguntó a qué asesor estaban asignados los del módulo y no supo contestar
+  // (CJD-2026-0029, tarea 719).
+  //
+  // Ojo con los dos "asesores" de la tabla: `asesor` es texto libre que viene
+  // del sistema anterior y casi siempre está vacío; el que vale aquí es
+  // `recovery_advisor_id`, que es el que le asignó Dirección para recuperarlo.
+  {
+    name: 'clientes_en_recuperacion',
+    requiredCapability: 'cajito.read.clients',
+    readOnly: true,
+    description: 'Los casilleros del módulo de Recuperación de Clientes (chartback): quiénes son, en qué estado va su recuperación y A QUÉ ASESOR están asignados. Úsala cuando pregunten por "recuperación", "chartback", "clientes que dejaron de enviar" o a quién le tocan esos casilleros. Sin filtros da el resumen por asesor; con un asesor o un casillero, el detalle.',
+    parameters: {
+      type: 'object',
+      properties: {
+        asesor: { type: 'string', description: 'Nombre del asesor, o "sin asesor" para los que nadie tiene asignados.' },
+        casillero: { type: 'string', description: 'Un casillero concreto (S1234) o nombre del cliente.' },
+        estado: { type: 'string', description: 'pending | callback | recovered | not_interested | no_answer' },
+        solo_recuperados: { type: 'boolean', description: 'true = solo los que ya se recuperaron.' },
+      },
+    },
+    handler: async ({ asesor, casillero, estado, solo_recuperados }) => {
+      const cond: string[] = [];
+      const params: any[] = [];
+
+      // El módulo son los que están EN chartback; los recuperados ya salieron
+      // de la lista activa, por eso se piden aparte.
+      if (solo_recuperados) cond.push(`LOWER(TRIM(COALESCE(lc.chartback_status,''))) = 'recovered'`);
+      else cond.push(`(lc.chartback = TRUE OR LOWER(TRIM(COALESCE(lc.chartback_status,''))) = 'recovered')`);
+
+      const sinAsesor = String(asesor || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (sinAsesor === 'sin asesor' || sinAsesor === 'sin asignar' || sinAsesor === 'ninguno') {
+        cond.push(`lc.recovery_advisor_id IS NULL`);
+      } else if (asesor) {
+        params.push(`%${String(asesor).trim()}%`);
+        cond.push(`u.full_name ILIKE $${params.length}`);
+      }
+      if (casillero) {
+        params.push(`%${String(casillero).trim()}%`);
+        cond.push(`(lc.box_id ILIKE $${params.length} OR lc.full_name ILIKE $${params.length})`);
+      }
+      if (estado) {
+        params.push(String(estado).trim().toLowerCase());
+        cond.push(`LOWER(TRIM(COALESCE(lc.chartback_status,''))) = $${params.length}`);
+      }
+      const where = `WHERE ${cond.join(' AND ')}`;
+
+      // Sin filtros son 863 casilleros: devolverlos uno por uno no le sirve a
+      // nadie y se come el contexto. Se da el reparto por asesor y ya pedirán
+      // el detalle del que les interese.
+      if (!asesor && !casillero && !estado) {
+        const r = await pool.query(
+          `SELECT COALESCE(u.full_name, 'SIN ASESOR ASIGNADO') AS asesor,
+                  COUNT(*)::int AS casilleros,
+                  COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(lc.chartback_status,''))) = 'recovered')::int AS ya_recuperados,
+                  COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(lc.chartback_status,''))) = 'callback')::int AS por_volver_a_llamar,
+                  COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(lc.chartback_status,''))) = 'not_interested')::int AS no_interesados
+             FROM legacy_clients lc
+             LEFT JOIN users u ON u.id = lc.recovery_advisor_id
+             ${where}
+            GROUP BY 1 ORDER BY 2 DESC`, params);
+        const total = r.rows.reduce((s: number, x: any) => s + Number(x.casilleros), 0);
+        return {
+          total_casilleros: total,
+          por_asesor: r.rows,
+          nota: 'Reparto del módulo de Recuperación. Para ver los casilleros de alguien en concreto, vuelve a preguntar con su nombre en "asesor".',
+        };
+      }
+
+      // El total se cuenta aparte del listado. Si se devolviera `r.rows.length`
+      // y el filtro trae más del tope, Cajito contestaría "Christian tiene 25
+      // casilleros" cuando tiene 129: un número redondo y falso, que es peor
+      // que no dar número.
+      const tot = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM legacy_clients lc
+           LEFT JOIN users u ON u.id = lc.recovery_advisor_id ${where}`, params);
+      const total = Number(tot.rows[0]?.n) || 0;
+      if (total === 0) return { total: 0, mensaje: 'No hay casilleros en Recuperación con esos filtros.' };
+
+      const r = await pool.query(
+        `SELECT lc.box_id AS casillero, lc.full_name AS cliente, lc.email, lc.phone AS telefono,
+                COALESCE(lc.chartback_status, 'pending') AS estado,
+                COALESCE(u.full_name, 'SIN ASESOR ASIGNADO') AS asesor_de_recuperacion,
+                to_char(lc.chartback_i_since, 'YYYY-MM-DD') AS en_recuperacion_desde,
+                to_char(lc.next_contact_at, 'YYYY-MM-DD') AS proximo_contacto
+           FROM legacy_clients lc
+           LEFT JOIN users u ON u.id = lc.recovery_advisor_id
+           ${where}
+          ORDER BY lc.box_id
+          LIMIT ${MAX_ROWS}`, params);
+
+      // Desglose por estado del total COMPLETO, no de lo que cupo: así la
+      // respuesta sigue siendo útil aunque la lista venga recortada.
+      const porEstado = await pool.query(
+        `SELECT COALESCE(lc.chartback_status,'pending') AS estado, COUNT(*)::int AS n
+           FROM legacy_clients lc LEFT JOIN users u ON u.id = lc.recovery_advisor_id
+           ${where} GROUP BY 1 ORDER BY 2 DESC`, params);
+
+      return {
+        total,
+        por_estado: porEstado.rows,
+        mostrados: r.rows.length,
+        ...(total > r.rows.length ? {
+          aviso: `Son ${total} casilleros; aquí van los primeros ${r.rows.length} por orden de casillero. Afina con "estado" o "casillero" si necesitas otros.`,
+        } : {}),
+        casilleros: r.rows,
+      };
+    }
+  },
+
   // -------------------- CLIENTES --------------------
   {
     name: 'search_clients',
