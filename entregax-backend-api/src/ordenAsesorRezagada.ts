@@ -153,8 +153,13 @@ export async function destrabarOrdenesDeAsesor(): Promise<{ ordenes: number; com
 }
 
 async function contarComisiones(paquetes: number[]): Promise<number> {
+  // Sin filtrar por tipo. Filtraba shipment_type='PKG' y por eso la primera
+  // corrida reportó "0 comisiones" justo cuando acababa de generar la de S58,
+  // que es DHL: los ids de una orden pueden resolver a packages, a
+  // dhl_shipments o a maritime_orders, y el tipo lo decide el generador, no
+  // esta cuenta.
   const r = await pool.query(
     `SELECT COUNT(*)::int AS n FROM advisor_commissions
-      WHERE shipment_type = 'PKG' AND shipment_id = ANY($1::int[])`, [paquetes]);
+      WHERE shipment_id = ANY($1::int[])`, [paquetes]);
   return Number(r.rows[0]?.n) || 0;
 }
