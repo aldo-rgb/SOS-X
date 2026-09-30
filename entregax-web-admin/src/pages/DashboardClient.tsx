@@ -3392,6 +3392,65 @@ export default function DashboardClient() {
     return hijas && hijas.length > 0 ? hijas : [pkg.id];
   };
 
+  // ── Guía nacional propia del cliente (tarea 718) ──────────────────────────
+  // Antes solo la podía subir el asesor. Todo lo demás ya estaba puesto: el
+  // endpoint no pide rol, y el módulo de etiquetado ya distingue si la subió el
+  // cliente o un asesor y la imprime tal cual. Lo único que faltaba era el
+  // botón de este lado.
+  const [subiendoGuiaNacional, setSubiendoGuiaNacional] = useState(false);
+
+  /**
+   * Puede subir la suya mientras el envío no haya salido y la etiqueta no sea
+   * NUESTRA. Puede reemplazar la que él mismo subió —se equivocó de archivo,
+   * la paquetería se la cambió— pero no pisar una que ya generamos y pagamos.
+   */
+  const puedeSubirGuiaPropia = (pkg: PackageTracking): boolean => {
+    // FCL NO: un contenedor vive en `containers` y no tiene ruta de guía
+    // nacional. Su id COLISIONA con el de packages, así que mandarlo por la
+    // ruta de paquetes le escribiría la etiqueta a la guía de otro cliente que
+    // por casualidad tenga ese mismo número. Es el mismo choque de ids que ya
+    // costó comisiones mal pagadas; aquí costaría cajas mal etiquetadas.
+    const svcCrudo = String(pkg.shipment_type || (pkg as any).servicio || '').toLowerCase();
+    if (svcCrudo.includes('fcl')) return false;
+
+    const estado = String(pkg.status || '');
+    if (['delivered', 'out_for_delivery', 'sent', 'returned_to_warehouse'].includes(estado)) return false;
+    const fuente = String((pkg as any).national_label_source || '').toLowerCase();
+    if (fuente === 'generated') return false;
+    // national_tracking sin etiqueta propia = guía de paquetería ya contratada.
+    if (pkg.national_tracking && fuente !== 'uploaded') return false;
+    return true;
+  };
+
+  const subirGuiaNacionalPropia = async (pkg: PackageTracking, files: FileList) => {
+    if (!files.length) return;
+    setSubiendoGuiaNacional(true);
+    try {
+      const fd = new FormData();
+      Array.from(files).forEach(f => fd.append('files', f));
+      // Cada servicio vive en su tabla y tiene su propia ruta, igual que en el
+      // panel del asesor.
+      const svc = String(pkg.shipment_type || (pkg as any).servicio || '').toLowerCase();
+      const base = svc.includes('sea') || svc.includes('maritim') ? 'maritime'
+        : svc.includes('dhl') ? 'dhl'
+        : 'packages';
+      await api.post(`/${base}/${pkg.id}/national-guide`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSnackbar({ open: true, message: '✅ Guía subida. La usaremos para enviar tu paquete.', severity: 'success' });
+      setSelectedPackage(null);
+      loadData();
+    } catch (e: any) {
+      setSnackbar({
+        open: true,
+        message: e?.response?.data?.error || 'No se pudo subir la guía',
+        severity: 'error',
+      });
+    } finally {
+      setSubiendoGuiaNacional(false);
+    }
+  };
+
   // Contadores por tipo de servicio (para badges en botones de filtro)
   // Importante: para AIR contamos cada grupo de hermanas (mismo prefijo
   // AIR<X>-NNN) como UN master, igual que se muestran agrupadas en el listado.
@@ -11883,6 +11942,51 @@ export default function DashboardClient() {
                           </Tooltip>
                         )}
                       </Box>
+
+                      {/* ── Subir mi propia guía de paquetería ──
+                          El cliente que ya tiene contrato con su paquetería
+                          manda su guía y nosotros la pegamos en la caja, en vez
+                          de generar (y cobrarle) una nuestra. Hasta ahora solo
+                          la podía subir su asesor, lo que obligaba a mandársela
+                          por WhatsApp y esperar (tarea 718). */}
+                      {puedeSubirGuiaPropia(selectedPackage) && (
+                        <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F1F8E9', border: '1px solid #C5E1A5' }}>
+                          <Typography variant="caption" sx={{ color: '#33691E', fontWeight: 700, display: 'block', mb: 0.5 }}>
+                            📤 ¿Tienes tu propia guía de paquetería?
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                            Súbela y la pegamos en tu caja. Acepta PDF o foto; si son varias
+                            páginas, súbelas juntas.
+                            {String((selectedPackage as any).national_label_source || '').toLowerCase() === 'uploaded'
+                              && ' Ya subiste una: si subes otra, reemplaza a la anterior.'}
+                          </Typography>
+                          <Button
+                            component="label"
+                            variant="outlined"
+                            size="small"
+                            disabled={subiendoGuiaNacional}
+                            startIcon={subiendoGuiaNacional
+                              ? <CircularProgress size={14} sx={{ color: '#33691E' }} />
+                              : <AttachFileIcon />}
+                            sx={{ textTransform: 'none', borderColor: '#C5E1A5', color: '#33691E' }}
+                          >
+                            {subiendoGuiaNacional ? 'Subiendo…' : 'Subir mi guía'}
+                            <input
+                              type="file"
+                              hidden
+                              multiple
+                              accept=".pdf,image/*"
+                              onChange={(e) => {
+                                const fs = e.target.files;
+                                // Se limpia para poder reintentar con el MISMO archivo.
+                                const copia = fs;
+                                e.target.value = '';
+                                if (copia && copia.length) subirGuiaNacionalPropia(selectedPackage, copia);
+                              }}
+                            />
+                          </Button>
+                        </Box>
+                      )}
                       {(() => {
                         // Resolver dirección completa desde deliveryAddresses
                         const addrId = selectedPackage.delivery_address_id || selectedPackage.assigned_address_id;

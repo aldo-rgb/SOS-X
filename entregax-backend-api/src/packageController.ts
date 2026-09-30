@@ -4222,6 +4222,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_carrier: pkg.national_carrier || null,
                 national_tracking: pkg.national_tracking || null,
                 national_label_url: pkg.national_label_url || null,
+                // Quién puso la etiqueta. El portal lo necesita para saber si el cliente
+                // puede subir la suya: puede reemplazar la que él mismo subió, pero no
+                // una que ya generamos nosotros (tarea 718).
+                national_label_source: pkg.national_label_source || null,
                 // national_shipping_cost se inyecta abajo (IIFE) con el fallback de catálogo (Evisa, etc.)
                 destination_city: pkg.destination_city,
                 destination_country: pkg.destination_country,
@@ -4375,6 +4379,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             national_carrier: pkg.national_carrier || null,
             national_tracking: pkg.national_tracking || null,
             national_label_url: pkg.national_label_url || null,
+            // Quién puso la etiqueta. El portal lo necesita para saber si el cliente
+            // puede subir la suya: puede reemplazar la que él mismo subió, pero no
+            // una que ya generamos nosotros (tarea 718).
+            national_label_source: pkg.national_label_source || null,
             destination_city: 'CEDIS MTY',
             destination_country: 'MX',
             image_url: null,
@@ -4570,6 +4578,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             national_carrier: pkg.national_carrier || null,
             national_tracking: pkg.national_tracking || null,
             national_label_url: pkg.national_label_url || null,
+            // Quién puso la etiqueta. El portal lo necesita para saber si el cliente
+            // puede subir la suya: puede reemplazar la que él mismo subió, pero no
+            // una que ya generamos nosotros (tarea 718).
+            national_label_source: pkg.national_label_source || null,
             destination_city: 'CEDIS MTY',
             destination_country: 'MX',
             image_url: pkg.evidence_urls && pkg.evidence_urls.length > 0 ? pkg.evidence_urls[0] : null,
@@ -4673,6 +4685,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_carrier: pkg.national_carrier || null,
                 national_tracking: pkg.national_tracking || null,
                 national_label_url: pkg.national_label_url || null,
+                // Quién puso la etiqueta. El portal lo necesita para saber si el cliente
+                // puede subir la suya: puede reemplazar la que él mismo subió, pero no
+                // una que ya generamos nosotros (tarea 718).
+                national_label_source: pkg.national_label_source || null,
                 destination_city: 'MTY',
                 destination_country: 'MX',
                 image_url: pkg.photos && pkg.photos.length > 0 ? pkg.photos[0] : null,
@@ -4839,6 +4855,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_carrier: pkg.national_carrier || null,
                 national_tracking: pkg.national_tracking || null,
                 national_label_url: pkg.national_label_url || null,
+                // Quién puso la etiqueta. El portal lo necesita para saber si el cliente
+                // puede subir la suya: puede reemplazar la que él mismo subió, pero no
+                // una que ya generamos nosotros (tarea 718).
+                national_label_source: pkg.national_label_source || null,
                 destination_city: 'CEDIS MTY',
                 destination_country: 'MX',
                 image_url: null,
@@ -6345,10 +6365,54 @@ const mergeUploadedFilesToPdf = async (
     return Buffer.from(pdfBytes);
 };
 
+/**
+ * ¿Quien sube la guía nacional tiene derecho a tocar ESTE envío?
+ *
+ * Los tres endpoints de subida recibían un id y escribían, sin comparar una
+ * sola vez contra el dueño. Estaba contenido porque el botón solo vivía en el
+ * panel del asesor, que únicamente ve a sus clientes; pero al abrirle la subida
+ * al cliente (tarea 718) cada cliente tiene un token válido, y cambiar el
+ * número de la petición no requiere hackear nada: podía escribirle la etiqueta
+ * a la guía de cualquier otro. Y como la llave en S3 es determinista por envío,
+ * la REEMPLAZA sin dejar copia. Nadie se entera hasta que CEDIS imprime y la
+ * caja sale con la dirección de un extraño.
+ *
+ * Reglas, las mismas que ya usa el panel del asesor:
+ *  · staff (cualquier rol que no sea 'client') pasa;
+ *  · el cliente dueño del envío pasa;
+ *  · el asesor del dueño pasa.
+ */
+async function puedeTocarGuiaNacional(
+    req: Request, tabla: 'packages' | 'maritime_orders' | 'dhl_shipments', id: number
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    const userId = Number((req as any).user?.userId || (req as any).user?.id) || 0;
+    const role = String((req as any).user?.role || '').toLowerCase();
+    if (!userId) return { ok: false, status: 401, error: 'No autenticado' };
+    // Staff: el panel de cada quien ya acota lo que ve; aquí no se estrecha más
+    // para no romper operación (bodega, CEDIS, soporte).
+    if (role && role !== 'client') return { ok: true };
+
+    const r = await pool.query(`SELECT user_id FROM ${tabla} WHERE id = $1`, [id]);
+    if (!r.rows.length) return { ok: false, status: 404, error: 'Envío no encontrado' };
+    const dueno = Number(r.rows[0].user_id) || 0;
+    if (dueno === userId) return { ok: true };
+
+    const asesor = await pool.query(
+        `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+        [dueno, userId]);
+    if (asesor.rowCount) return { ok: true };
+
+    console.warn(`[national-guide] usuario ${userId} intentó subir etiqueta a ${tabla}#${id}, que es de ${dueno}`);
+    return { ok: false, status: 403, error: 'Ese envío no es tuyo' };
+}
+
 export const uploadNationalGuide = async (req: Request, res: Response): Promise<any> => {
     try {
         const pkgId = parseInt(String(req.params.id), 10);
         if (!pkgId) return res.status(400).json({ error: 'ID de paquete inválido' });
+
+        const permiso = await puedeTocarGuiaNacional(req, 'packages', pkgId);
+        if (!permiso.ok) return res.status(permiso.status).json({ error: permiso.error });
 
         const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
         if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
@@ -6396,6 +6460,9 @@ export const uploadMaritimeNationalGuide = async (req: Request, res: Response): 
     try {
         const orderId = parseInt(String(req.params.id), 10);
         if (!orderId) return res.status(400).json({ error: 'ID de orden inválido' });
+
+        const permiso = await puedeTocarGuiaNacional(req, 'maritime_orders', orderId);
+        if (!permiso.ok) return res.status(permiso.status).json({ error: permiso.error });
 
         const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
         if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
@@ -6464,6 +6531,9 @@ export const uploadDhlNationalGuide = async (req: Request, res: Response): Promi
     try {
         const dhlId = parseInt(String(req.params.id), 10);
         if (!dhlId) return res.status(400).json({ error: 'ID inválido' });
+
+        const permiso = await puedeTocarGuiaNacional(req, 'dhl_shipments', dhlId);
+        if (!permiso.ok) return res.status(permiso.status).json({ error: permiso.error });
 
         const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
         if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
