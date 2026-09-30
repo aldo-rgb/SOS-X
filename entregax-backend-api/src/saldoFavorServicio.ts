@@ -18,6 +18,7 @@
 import { Response } from 'express';
 import { pool } from './db';
 import { resolveOrderService } from './orderService';
+import { markDhlGroupPaid } from './dhlGroup';
 
 interface AuthRequest extends Request {
   user?: { userId?: number; id?: number; role?: string };
@@ -152,7 +153,7 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
 
     await client.query('BEGIN');
     const o = await client.query(
-      `SELECT id, user_id, amount, status, payment_reference, currency,
+      `SELECT id, user_id, amount, status, payment_reference, currency, package_ids,
               COALESCE(wallet_applied, 0) AS wallet_applied
          FROM pobox_payments WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [orderId, userId]
@@ -234,11 +235,72 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
         RETURNING amount`,
       [aplicar, orderId, servicio]);
 
+    // Si el saldo cubrió TODA la orden, hay que cerrarla aquí mismo.
+    //
+    // Antes esto solo bajaba el monto a cero y se quedaba ahí: la orden seguía
+    // en "pendiente" y las guías sin pagar, aunque no restara un peso por
+    // cobrar. El monedero general sí lo cierra —mismo caso, otro archivo—, así
+    // que el resultado dependía de cuál de las dos bolsas usara el cliente.
+    //
+    // Lo reportó Jaqueline Minero por el cliente S342 (TKT-2026-2985): se
+    // aplicaron $8,697 a las 21:28, la cotización siguió apareciendo pendiente
+    // y alguien de cobranza la cerró a mano dos horas después. Sin eso se
+    // queda colgada para siempre, porque ya no hay nada que conciliar.
+    const restante = Number(upd.rows[0]?.amount ?? 0);
+    const quedoCubierta = restante <= 0.009;
+    if (quedoCubierta) {
+      await client.query(
+        `UPDATE pobox_payments
+            SET status = 'completed', paid_at = NOW(), payment_method = 'wallet'
+          WHERE id = $1`, [orderId]);
+
+      // Las guías. Un envío DHL vive en dhl_shipments y su id se repite con el
+      // de packages, así que la tabla se decide por el servicio de la orden y
+      // no por el número: preguntar por el id en la tabla equivocada le marca
+      // pagada la caja de otro cliente.
+      const ids: number[] = (() => {
+        try {
+          const raw = typeof orden.package_ids === 'string' ? JSON.parse(orden.package_ids) : orden.package_ids;
+          return Array.isArray(raw) ? raw.map(Number).filter(Boolean) : [];
+        } catch { return []; }
+      })();
+      if (ids.length > 0) {
+        if (String(servicio).toUpperCase() === 'AA_DHL') {
+          await markDhlGroupPaid(client, ids, { onlyUnpaid: true });
+        } else {
+          await client.query(
+            `UPDATE packages
+                SET payment_status = 'paid', client_paid = TRUE,
+                    monto_pagado = COALESCE(assigned_cost_mxn, 0), saldo_pendiente = 0
+              WHERE id = ANY($1) OR master_id = ANY($1)`, [ids]);
+        }
+      }
+
+      // Queda el rastro del cobro, igual que cualquier otro pago. Sin esto, una
+      // orden liquidada con saldo no aparece en la conciliación y parece que
+      // nunca se pagó.
+      // payload_json es NOT NULL. El mismo INSERT existe en el monedero general
+      // sin esa columna, envuelto en un try/catch, y por eso llevaba fallando
+      // en silencio desde siempre: 10 órdenes pagadas con monedero y CERO
+      // rastros en la bitácora. Un catch que se traga el error convierte un
+      // bug en un hueco invisible.
+      await client.query(
+        `INSERT INTO openpay_webhook_logs
+           (transaction_id, monto_recibido, monto_neto, concepto, fecha_pago,
+            estatus_procesamiento, user_id, tipo_pago, service_type, payload_json)
+         VALUES ($1, $2, $2, $3, NOW(), 'procesado', $4, 'wallet', $5, $6::jsonb)`,
+        [`WALLET-${orden.payment_reference}`, aplicar,
+         `Saldo a favor de ${nombreServicio(servicio)} aplicado a ${orden.payment_reference}`,
+         userId, servicio,
+         JSON.stringify({ origen: 'billetera_servicio', servicio, pobox_payment_id: orderId, packageIds: ids })]);
+    }
+
     await client.query('COMMIT');
     res.json({
       success: true,
       aplicado: aplicar,
-      nuevoMonto: Number(upd.rows[0]?.amount) || 0,
+      nuevoMonto: restante,
+      ordenLiquidada: quedoCubierta,
       saldoRestante: +(disponible - aplicar).toFixed(2),
       servicio, servicioNombre: nombreServicio(servicio),
     });

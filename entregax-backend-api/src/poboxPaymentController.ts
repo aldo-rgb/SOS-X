@@ -3115,16 +3115,22 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                 // El pago del cliente NO marca costing_paid (pago a proveedor).
             }
             try {
+                // payload_json es NOT NULL y este INSERT no la traía, así que
+                // siempre reventaba y el catch de abajo se lo tragaba: 10
+                // órdenes pagadas con monedero y cero rastros en la bitácora.
+                // Una orden liquidada con saldo no aparecía en la conciliación
+                // y parecía que nunca se pagó.
                 await client.query(
                     `INSERT INTO openpay_webhook_logs (
                         transaction_id, monto_recibido, monto_neto, concepto,
-                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
-                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'wallet', 'POBOX_USA')`,
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type, payload_json
+                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'wallet', 'POBOX_USA', $5::jsonb)`,
                     [
                         `WALLET-${order.payment_reference}`,
                         applied,
                         `Pago PO Box (Saldo a favor) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
                         userId,
+                        JSON.stringify({ origen: 'wallet_general', pobox_payment_id: orderId, packageIds: packageIds || [] }),
                     ]
                 );
             } catch (logErr) {
