@@ -1108,6 +1108,10 @@ import {
   elpAdminResendNotify,
   elpAdminGetSettings,
   elpAdminUpdateSettings,
+  elpAdminGetPrecios,
+  elpAdminUpsertPrecio,
+  elpAdminGetTarifasNacionales,
+  elpAdminUpdateTarifaNacional,
 } from './elpController';
 import {
   importLegacyClients,
@@ -8656,6 +8660,13 @@ app.get('/api/elp/admin/stats', authenticateToken, requireMinLevel(ROLES.COUNTER
 app.post('/api/elp/admin/containers/:id/notify', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminResendNotify);
 app.get('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetSettings);
 app.put('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpdateSettings);
+// Precio mensual del contenedor dedicado y tarifas del tramo nacional (tarea
+// 671). Leer lo puede el mostrador —necesita saber qué se cotiza—; capturar
+// precios es de admin: de estos numeros sale lo que se le cobra al cliente.
+app.get('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetPrecios);
+app.put('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpsertPrecio);
+app.get('/api/elp/admin/tarifas-nacionales', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetTarifasNacionales);
+app.put('/api/elp/admin/tarifas-nacionales/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpdateTarifaNacional);
 
 // ========== TARIFAS FCL POR CLIENTE/RUTA ==========
 app.get('/api/admin/fcl-rates/base-price', authenticateToken, getFclBasePrice);

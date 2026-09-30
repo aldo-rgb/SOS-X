@@ -546,3 +546,144 @@ export const elpAdminUpdateSettings = async (req: AuthRequest, res: Response): P
     res.status(500).json({ error: e.message });
   }
 };
+
+// ============================================================
+// TARIFAS DEL CONTENEDOR DEDICADO (tarea 671)
+// ============================================================
+// Viven aquí porque el precio es de las rutas ELP y desde aquí se administran.
+// El cálculo está en elpTarifas.ts; esto solo es la puerta.
+
+/** GET /api/elp/admin/precios — precios mensuales por ruta ELP. */
+export const elpAdminGetPrecios = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { asegurarEsquemaTarifas, precioVigente, periodoDe, UTILIDAD_USD } = await import('./elpTarifas');
+    await asegurarEsquemaTarifas();
+
+    const rutas = await pool.query(
+      `SELECT id, code, name FROM maritime_routes WHERE COALESCE(elp_enabled,false) = TRUE ORDER BY code`);
+
+    const out = [] as any[];
+    for (const r of rutas.rows) {
+      const vig = await precioVigente(Number(r.id));
+      const hist = await pool.query(
+        `SELECT to_char(periodo,'YYYY-MM') AS mes, flete_usd, liberacion_usd, utilidad_usd,
+                (flete_usd + liberacion_usd + utilidad_usd) AS total_usd,
+                capturado_por_nombre, to_char(updated_at,'YYYY-MM-DD HH24:MI') AS actualizado
+           FROM elp_precios_mensuales WHERE route_id = $1
+          ORDER BY periodo DESC LIMIT 12`, [r.id]);
+      out.push({ route_id: r.id, code: r.code, name: r.name, vigente: vig, historial: hist.rows });
+    }
+    res.json({ ok: true, utilidad_fija_usd: UTILIDAD_USD, periodo_actual: periodoDe(), rutas: out });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminGetPrecios:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** PUT /api/elp/admin/precios — capturar el precio de una ruta para un mes. */
+export const elpAdminUpsertPrecio = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { asegurarEsquemaTarifas, UTILIDAD_USD } = await import('./elpTarifas');
+    await asegurarEsquemaTarifas();
+
+    const routeId = parseInt(String(req.body?.route_id), 10);
+    const periodo = String(req.body?.periodo || '').trim();     // 'YYYY-MM' o 'YYYY-MM-01'
+    const flete = Number(req.body?.flete_usd);
+    const liberacion = Number(req.body?.liberacion_usd);
+
+    if (!routeId) return res.status(400).json({ error: 'Falta la ruta' });
+    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(periodo)) return res.status(400).json({ error: 'Periodo inválido, usa AAAA-MM' });
+    // Un flete en cero no es un dato, es un campo que se quedó vacío. Cotizar con
+    // él daría un precio que no cubre ni el barco.
+    if (!isFinite(flete) || flete <= 0) return res.status(400).json({ error: 'El flete internacional debe ser mayor a 0' });
+    if (!isFinite(liberacion) || liberacion <= 0) return res.status(400).json({ error: 'El costo de liberación debe ser mayor a 0' });
+
+    const esRutaElp = await pool.query(
+      `SELECT 1 FROM maritime_routes WHERE id = $1 AND COALESCE(elp_enabled,false) = TRUE`, [routeId]);
+    if (!esRutaElp.rowCount) return res.status(400).json({ error: 'Esa ruta no está habilitada para ELP' });
+
+    const per = periodo.length === 7 ? `${periodo}-01` : periodo;
+    const nombre = (req as any).user?.full_name || (req as any).user?.email || 'Admin';
+    const uid = (req as any).user?.userId || (req as any).user?.id || null;
+
+    const r = await pool.query(
+      `INSERT INTO elp_precios_mensuales
+         (route_id, periodo, flete_usd, liberacion_usd, utilidad_usd, capturado_por, capturado_por_nombre, notas)
+       VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (route_id, periodo) DO UPDATE
+         SET flete_usd = EXCLUDED.flete_usd,
+             liberacion_usd = EXCLUDED.liberacion_usd,
+             capturado_por = EXCLUDED.capturado_por,
+             capturado_por_nombre = EXCLUDED.capturado_por_nombre,
+             notas = EXCLUDED.notas,
+             updated_at = NOW()
+       RETURNING id, to_char(periodo,'YYYY-MM') AS mes,
+                 (flete_usd + liberacion_usd + utilidad_usd) AS total_usd`,
+      [routeId, per, flete, liberacion, UTILIDAD_USD, uid, nombre, req.body?.notas || null]);
+
+    console.log(`💲 [ELP] precio ${r.rows[0].mes} ruta ${routeId} = $${r.rows[0].total_usd} por ${nombre}`);
+    res.json({ ok: true, precio: r.rows[0] });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminUpsertPrecio:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** GET /api/elp/admin/tarifas-nacionales — los 32 estados y su cobertura. */
+export const elpAdminGetTarifasNacionales = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { sembrarEstados } = await import('./elpTarifas');
+    await sembrarEstados();
+    const r = await pool.query(
+      `SELECT id, estado, cobertura, tarifa_usd, cp_desde, cp_hasta, notas,
+              to_char(updated_at,'YYYY-MM-DD HH24:MI') AS actualizado
+         FROM elp_tarifas_nacionales ORDER BY estado, cp_desde NULLS FIRST`);
+    const resumen = {
+      incluidos: r.rows.filter((x: any) => x.cobertura === 'incluido').length,
+      con_tarifa: r.rows.filter((x: any) => x.cobertura === 'con_tarifa').length,
+      sin_cobertura: r.rows.filter((x: any) => x.cobertura === 'sin_cobertura').length,
+    };
+    res.json({ ok: true, resumen, tarifas: r.rows });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminGetTarifasNacionales:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** PUT /api/elp/admin/tarifas-nacionales/:id — cambiar la cobertura de un estado. */
+export const elpAdminUpdateTarifaNacional = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { asegurarEsquemaTarifas } = await import('./elpTarifas');
+    await asegurarEsquemaTarifas();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ error: 'Id inválido' });
+
+    const cobertura = String(req.body?.cobertura || '').trim();
+    if (!['incluido', 'con_tarifa', 'sin_cobertura'].includes(cobertura)) {
+      return res.status(400).json({ error: 'Cobertura inválida' });
+    }
+    // Una tarifa en 0 con cobertura 'con_tarifa' es contradictoria: si no se
+    // cobra nada, el estado está INCLUIDO y así debe verse. Cero se lee como
+    // "no cobramos"; incluido dice "ya está pagado".
+    let tarifa: number | null = null;
+    if (cobertura === 'con_tarifa') {
+      tarifa = Number(req.body?.tarifa_usd);
+      if (!isFinite(tarifa) || tarifa <= 0) {
+        return res.status(400).json({ error: 'Con tarifa, el monto debe ser mayor a 0. Si no se cobra extra, marca el estado como Incluido.' });
+      }
+    }
+
+    const uid = (req as any).user?.userId || (req as any).user?.id || null;
+    const r = await pool.query(
+      `UPDATE elp_tarifas_nacionales
+          SET cobertura = $1, tarifa_usd = $2, notas = $3, actualizado_por = $4, updated_at = NOW()
+        WHERE id = $5
+        RETURNING id, estado, cobertura, tarifa_usd`,
+      [cobertura, tarifa, req.body?.notas || null, uid, id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'No encontré ese estado' });
+    res.json({ ok: true, tarifa: r.rows[0] });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminUpdateTarifaNacional:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};

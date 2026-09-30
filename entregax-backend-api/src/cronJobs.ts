@@ -2397,7 +2397,29 @@ export const startAvisoContenedorNuevoCron = () => {
   console.log('📅 [CRON] Aviso de contenedor nuevo: cada 2 minutos');
 };
 
+/**
+ * Recordatorio del precio mensual del contenedor dedicado ELP (tarea 671).
+ *
+ * Corre a diario pero solo actúa en los últimos cinco días del mes, y levanta
+ * UNA tarea por mes. Va a diario y no un día fijo porque los meses no miden lo
+ * mismo: "cinco días antes de que acabe" es el 26 en octubre y el 23 en febrero.
+ */
+export const startElpPrecioMensualCron = () => {
+  cron.schedule('0 9 * * *', async () => {
+    try {
+      const { faltanCincoDiasOMenos, recordarPrecioElp } = await import('./elpPrecioMensualCron');
+      if (!faltanCincoDiasOMenos()) return;
+      const r = await recordarPrecioElp();
+      if (r.creada) console.warn(`💲 [CRON] Tarea de precio ELP creada. Faltan: ${r.faltan.join(', ')}`);
+    } catch (e: any) {
+      console.error('❌ [CRON] Recordatorio de precio ELP:', e?.message || e);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Precio mensual ELP: 9:00am, últimos 5 días del mes');
+};
+
 export const initCronJobs = () => {
+  startElpPrecioMensualCron();
   startAvisoContenedorNuevoCron();
   startComprobantesPorAutorizarCron();
   startCargosPorValidarCron();
