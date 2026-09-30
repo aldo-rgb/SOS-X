@@ -36,6 +36,8 @@ import EmailIcon from '@mui/icons-material/Email';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import SearchIcon from '@mui/icons-material/Search';
+import PriceIcon from '@mui/icons-material/AttachMoney';
+import MapIcon from '@mui/icons-material/Map';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -194,6 +196,92 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
     }
   };
 
+  // ── Precios del mes y tarifas nacionales (tarea 671) ──────────────────────
+  const [preciosOpen, setPreciosOpen] = useState(false);
+  const [precios, setPrecios] = useState<any | null>(null);
+  const [precioForm, setPrecioForm] = useState<Record<number, { flete: string; liberacion: string }>>({});
+  const [precioGuardando, setPrecioGuardando] = useState<number | null>(null);
+  const [tarifasOpen, setTarifasOpen] = useState(false);
+  const [tarifas, setTarifas] = useState<any[]>([]);
+  const [tarifasResumen, setTarifasResumen] = useState<any | null>(null);
+  const [tarifaGuardando, setTarifaGuardando] = useState<number | null>(null);
+  const [aviso, setAviso] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
+
+  /** Mes que se está capturando: siempre el SIGUIENTE, que es para el que se pide. */
+  const mesSiguiente = (() => {
+    const d = new Date();
+    const n = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  const abrirPrecios = async () => {
+    setPreciosOpen(true);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/precios`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.ok) {
+        setPrecios(data);
+        // El formulario arranca con lo que ya está vigente, no en blanco: casi
+        // siempre el flete se mueve poco y así se corrige en vez de teclear todo.
+        const f: Record<number, { flete: string; liberacion: string }> = {};
+        for (const r of data.rutas || []) {
+          f[r.route_id] = {
+            flete: r.vigente ? String(r.vigente.flete_usd) : '',
+            liberacion: r.vigente ? String(r.vigente.liberacion_usd) : '',
+          };
+        }
+        setPrecioForm(f);
+      }
+    } catch { setAviso({ tipo: 'error', texto: 'No se pudieron cargar los precios' }); }
+  };
+
+  const guardarPrecio = async (routeId: number) => {
+    const f = precioForm[routeId];
+    if (!f) return;
+    setPrecioGuardando(routeId);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/precios`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          route_id: routeId, periodo: mesSiguiente,
+          flete_usd: Number(f.flete), liberacion_usd: Number(f.liberacion),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'No se pudo guardar');
+      setAviso({ tipo: 'success', texto: `Precio de ${mesSiguiente} guardado: $${Number(data.precio.total_usd).toLocaleString('en-US')} USD` });
+      await abrirPrecios();
+    } catch (e: any) {
+      setAviso({ tipo: 'error', texto: e?.message || 'No se pudo guardar el precio' });
+    } finally { setPrecioGuardando(null); }
+  };
+
+  const abrirTarifas = async () => {
+    setTarifasOpen(true);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/tarifas-nacionales`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.ok) { setTarifas(data.tarifas || []); setTarifasResumen(data.resumen); }
+    } catch { setAviso({ tipo: 'error', texto: 'No se pudieron cargar las tarifas' }); }
+  };
+
+  const guardarTarifa = async (t: any, cobertura: string, tarifaUsd: string) => {
+    setTarifaGuardando(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/tarifas-nacionales/${t.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cobertura, tarifa_usd: Number(tarifaUsd) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'No se pudo guardar');
+      await abrirTarifas();
+    } catch (e: any) {
+      setAviso({ tipo: 'error', texto: e?.message || 'No se pudo guardar la tarifa' });
+    } finally { setTarifaGuardando(null); }
+  };
+
   const openEmailsEditor = async () => {
     try {
       const res = await fetch(`${API_URL}/api/elp/admin/settings`, { headers: { Authorization: `Bearer ${token}` } });
@@ -245,6 +333,14 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
             Contenedores de rutas habilitadas para el proveedor ELP (trámite / CBP)
           </Typography>
         </Box>
+        {/* Precio del contenedor dedicado y tarifas del tramo nacional
+            (tarea 671). Viven aquí porque el precio es de las rutas ELP. */}
+        <Button startIcon={<PriceIcon />} onClick={abrirPrecios} variant="outlined" sx={{ mr: 1 }}>
+          Precios del mes
+        </Button>
+        <Button startIcon={<MapIcon />} onClick={abrirTarifas} variant="outlined" sx={{ mr: 1 }}>
+          Tarifas nacional
+        </Button>
         <Button startIcon={<EditIcon />} onClick={openEmailsEditor} variant="outlined" sx={{ mr: 1 }}>
           Destinatarios del correo
         </Button>
@@ -451,6 +547,122 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {/* ── Precio mensual del contenedor dedicado (tarea 671) ── */}
+      <Dialog open={preciosOpen} onClose={() => setPreciosOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>💲 Precio del contenedor dedicado — {mesSiguiente}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            El precio se arma con el flete internacional del mes, el costo de liberación con entrega
+            en CDMX y una utilidad fija de <strong>${Number(precios?.utilidad_fija_usd || 5000).toLocaleString('en-US')} USD</strong>.
+            Cada ruta lleva el suyo: son puertos distintos.
+          </Typography>
+
+          {(precios?.rutas || []).map((r: any) => {
+            const f = precioForm[r.route_id] || { flete: '', liberacion: '' };
+            const total = (Number(f.flete) || 0) + (Number(f.liberacion) || 0) + Number(precios?.utilidad_fija_usd || 5000);
+            const puedeGuardar = Number(f.flete) > 0 && Number(f.liberacion) > 0;
+            return (
+              <Box key={r.route_id} sx={{ mb: 2.5, p: 2, borderRadius: 2, border: '1px solid #E0E0E0' }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>{r.code}</Typography>
+                {r.vigente ? (
+                  <Typography variant="caption" sx={{ display: 'block', mb: 1.5,
+                    color: r.vigente.es_del_mes_anterior ? '#C62828' : 'text.secondary' }}>
+                    {r.vigente.es_del_mes_anterior ? '⚠️ ' : ''}
+                    Vigente: ${Number(r.vigente.total_usd).toLocaleString('en-US')} USD (periodo {String(r.vigente.periodo).slice(0, 7)})
+                    {r.vigente.es_del_mes_anterior && ' — se está sosteniendo el precio anterior'}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: '#C62828' }}>
+                    ⚠️ Esta ruta no tiene ningún precio publicado: hoy no cotiza.
+                  </Typography>
+                )}
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <TextField label="Flete internacional (USD)" size="small" type="number"
+                    value={f.flete}
+                    onChange={(e) => setPrecioForm(p => ({ ...p, [r.route_id]: { ...f, flete: e.target.value } }))}
+                    sx={{ width: 210 }} />
+                  <TextField label="Liberación (USD)" size="small" type="number"
+                    value={f.liberacion}
+                    onChange={(e) => setPrecioForm(p => ({ ...p, [r.route_id]: { ...f, liberacion: e.target.value } }))}
+                    sx={{ width: 190 }} />
+                  <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 150 }}>
+                    = ${total.toLocaleString('en-US')} USD
+                  </Typography>
+                  <Button variant="contained" size="small" disabled={!puedeGuardar || precioGuardando === r.route_id}
+                    onClick={() => guardarPrecio(r.route_id)}>
+                    {precioGuardando === r.route_id ? 'Guardando…' : 'Guardar'}
+                  </Button>
+                </Box>
+              </Box>
+            );
+          })}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPreciosOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Tarifas del tramo nacional, por estado (tarea 671) ── */}
+      <Dialog open={tarifasOpen} onClose={() => setTarifasOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>🗺️ Tarifas nacional</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Lo que se suma al precio del contenedor según el estado de entrega.
+            Un estado <strong>sin cobertura</strong> no cotiza: al cliente se le pide que contacte a su asesor.
+          </Typography>
+          {tarifasResumen && (
+            <Typography variant="caption" sx={{ display: 'block', mb: 2, color: 'text.secondary' }}>
+              {tarifasResumen.incluidos} incluidos · {tarifasResumen.con_tarifa} con tarifa · {tarifasResumen.sin_cobertura} sin cobertura
+            </Typography>
+          )}
+          <Table size="small">
+            <TableBody>
+              {tarifas.map((t: any) => (
+                <TableRow key={t.id}>
+                  <TableCell sx={{ fontWeight: 600, width: 190 }}>{t.estado}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {(['incluido', 'con_tarifa', 'sin_cobertura'] as const).map(c => (
+                        <Chip key={c} size="small" clickable
+                          label={c === 'incluido' ? 'Incluido' : c === 'con_tarifa' ? 'Con tarifa' : 'Sin cobertura'}
+                          color={t.cobertura === c ? (c === 'incluido' ? 'success' : c === 'con_tarifa' ? 'primary' : 'default') : 'default'}
+                          variant={t.cobertura === c ? 'filled' : 'outlined'}
+                          disabled={tarifaGuardando === t.id}
+                          onClick={() => {
+                            if (c === 'con_tarifa') {
+                              const v = window.prompt(`Tarifa de ${t.estado} en USD (se suma al precio del contenedor):`,
+                                t.tarifa_usd ? String(t.tarifa_usd) : '');
+                              if (v === null) return;
+                              guardarTarifa(t, c, v);
+                            } else {
+                              guardarTarifa(t, c, '0');
+                            }
+                          }} />
+                      ))}
+                      {t.cobertura === 'con_tarifa' && (
+                        <Typography variant="body2" sx={{ fontWeight: 700, ml: 0.5 }}>
+                          +${Number(t.tarifa_usd || 0).toLocaleString('en-US')} USD
+                        </Typography>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setTarifasOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {aviso && (
+        <Alert severity={aviso.tipo} onClose={() => setAviso(null)}
+          sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1400, maxWidth: 420 }}>
+          {aviso.texto}
+        </Alert>
       )}
 
       {/* Editor de destinatarios del correo de aviso */}

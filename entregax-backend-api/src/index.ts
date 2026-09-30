@@ -14443,6 +14443,55 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
         // Subservicio: 'fcl_40' = contenedor completo 40 pies (sólo cantidad)
         if (subservicio === 'fcl_40') {
           const qty = Math.max(parseInt(cantidad as any) || 1, 1);
+
+          // Contenedor dedicado: el precio sale del mes vigente de la ruta más
+          // la tarifa del estado de entrega (tarea 671). Sustituye al número
+          // suelto de pricing_tiers, que llevaba desde el 31 de julio sin
+          // tocarse y cotizaba 27,000 cuando el real de octubre es 31,900.
+          //
+          // `route_id` llega desde el cotizador. Sin ruta no se adivina: cada
+          // una tiene su precio porque son puertos distintos.
+          const routeId = parseInt(String((req.body as any)?.route_id ?? ''), 10);
+          const estadoEntrega = String((req.body as any)?.estado || '').trim();
+          const cpEntrega = String((req.body as any)?.cp || '').trim() || null;
+
+          if (routeId && estadoEntrega) {
+            const { cotizarContenedorElp } = await import('./elpTarifas');
+            const c: any = await cotizarContenedorElp(routeId, estadoEntrega, cpEntrega);
+            if (!c.cotiza) {
+              // Un destino sin tarifa NO se cotiza. Mostrar el precio base
+              // sería enseñarle al cliente un número que no cubre llevarle la
+              // caja hasta su ciudad, y ya pasó que un cliente exigiera que se
+              // le respetara lo que vio.
+              return res.status(200).json({
+                cotiza: false, servicio: 'maritimo', subservicio: 'fcl_40',
+                motivo: c.motivo, estado: estadoEntrega,
+              });
+            }
+            const totalUsd = c.total_usd * qty;
+            resultado = {
+              ...resultado,
+              subservicio: 'fcl_40',
+              cantidad: qty,
+              cbm_cobrable: (66 * qty).toFixed(2),
+              categoria: 'FCL 40 Pies',
+              tipo_calculo: 'contenedor',
+              estado: estadoEntrega,
+              cp: cpEntrega,
+              cobertura: c.cobertura,
+              periodo_precio: c.periodo,
+              precio_desactualizado: c.precio_desactualizado,
+              desglose_contenedor: c.desglose,
+              precio_unitario_usd: c.total_usd.toFixed(2),
+              precio_usd: totalUsd.toFixed(2),
+              precio_mxn: (totalUsd * fxRate).toFixed(2),
+              tiempo_estimado: '45-60 días',
+            };
+            break;
+          }
+
+          // Sin ruta ni estado se mantiene el camino de siempre, para no romper
+          // a quien todavía no manda esos datos.
           const fclRes = await pool.query(`
             SELECT pt.price, pt.is_flat_fee, pc.name AS category
             FROM pricing_tiers pt

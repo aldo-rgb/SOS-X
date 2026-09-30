@@ -195,7 +195,8 @@ export async function tarifaDeDestino(estado: string, cp?: string | null): Promi
 export type Cotizacion =
   | { cotiza: true; total_usd: number; base_usd: number; nacional_usd: number;
       cobertura: CoberturaEstado; periodo: string; precio_desactualizado: boolean;
-      desglose: { flete_usd: number; liberacion_usd: number; utilidad_usd: number; nacional_usd: number } }
+      es_tarifa_pactada?: boolean;
+      desglose: Record<string, number> }
   | { cotiza: false; motivo: string };
 
 /**
@@ -207,10 +208,30 @@ export type Cotizacion =
  * cotizador le mostró.
  */
 export async function cotizarContenedorElp(
-  routeId: number, estado: string, cp?: string | null, fecha: Date = new Date()
+  routeId: number, estado: string, cp?: string | null, fecha: Date = new Date(),
+  legacyClientId?: number | null
 ): Promise<Cotizacion> {
+  // Tarifa pactada: manda sobre el precio del mes. Son acuerdos cerrados con el
+  // cliente —S87 tiene 15,000 en la ruta de El Paso cuando el precio de octubre
+  // es 31,900— y no se renegocian solos porque suba el flete. El tramo nacional
+  // sí se sigue sumando: lo pactado es el contenedor, no la entrega en su
+  // ciudad.
+  let pactado: number | null = null;
+  if (legacyClientId) {
+    const r = await pool.query(
+      `SELECT custom_price_usd FROM fcl_client_rates
+        WHERE legacy_client_id = $1 AND (route_id = $2 OR route_id IS NULL)
+          AND custom_price_usd IS NOT NULL
+        ORDER BY (route_id IS NOT NULL) DESC LIMIT 1`,
+      [legacyClientId, routeId]);
+    if (r.rows.length) pactado = Number(r.rows[0].custom_price_usd) || null;
+  }
+
   const precio = await precioVigente(routeId, fecha);
-  if (!precio) {
+  // Con tarifa pactada NO hace falta precio del mes: el acuerdo ya fija el
+  // número. Si no, el cliente con precio cerrado dejaría de cotizar por un dato
+  // que a él no le aplica.
+  if (!precio && pactado == null) {
     return { cotiza: false, motivo: 'Todavía no hay precio publicado para esta ruta. Contacta a tu asesor.' };
   }
   const dest = await tarifaDeDestino(estado, cp);
@@ -218,19 +239,24 @@ export async function cotizarContenedorElp(
     return { cotiza: false, motivo: 'Requerimos revisar más detalles, contacta a tu asesor.' };
   }
   const nacional = dest.cobertura === 'incluido' ? 0 : dest.tarifa_usd;
+  const base = pactado != null ? pactado : precio!.total_usd;
   return {
     cotiza: true,
-    base_usd: precio.total_usd,
+    base_usd: base,
     nacional_usd: nacional,
-    total_usd: +(precio.total_usd + nacional).toFixed(2),
+    total_usd: +(base + nacional).toFixed(2),
     cobertura: dest.cobertura,
-    periodo: precio.periodo,
-    precio_desactualizado: precio.es_del_mes_anterior,
-    desglose: {
-      flete_usd: precio.flete_usd,
-      liberacion_usd: precio.liberacion_usd,
-      utilidad_usd: precio.utilidad_usd,
-      nacional_usd: nacional,
-    },
+    periodo: pactado != null ? 'tarifa pactada' : precio!.periodo,
+    // Un precio pactado nunca está "desactualizado": no depende del mes.
+    precio_desactualizado: pactado != null ? false : precio!.es_del_mes_anterior,
+    es_tarifa_pactada: pactado != null,
+    desglose: pactado != null
+      ? { pactado_usd: pactado, nacional_usd: nacional }
+      : {
+          flete_usd: precio!.flete_usd,
+          liberacion_usd: precio!.liberacion_usd,
+          utilidad_usd: precio!.utilidad_usd,
+          nacional_usd: nacional,
+        },
   };
 }
