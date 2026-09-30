@@ -789,6 +789,33 @@ export default function DashboardAdvisor() {
   // el asesor no sabía si ya los había mandado y los cargaba otra vez (tarea 606).
   const [instrDocs, setInstrDocs] = useState<any[]>([]);
   const [instrDocsCargando, setInstrDocsCargando] = useState(false);
+  // Subir documentos a una guía YA instruida. Antes solo se podían adjuntar en
+  // el momento exacto de asignar instrucciones, y la factura y la constancia
+  // casi siempre llegan después de cotizar (tarea 714). Va por su propia ruta:
+  // volver a guardar instrucciones recotiza la guía, y subir un PDF no debe
+  // poder cambiarle el monto al cliente.
+  const [instrDocSubiendo, setInstrDocSubiendo] = useState(false);
+  const subirDocDespues = async (campo: 'factura' | 'constancia' | 'guiaExterna', file: File) => {
+    if (!instrShipment) return;
+    setInstrDocSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append(campo, file);
+      await api.post(`/advisor/shipments/${instrShipment.uid}/documentos`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      await cargarInstrDocs(instrShipment.uid);
+      setSnackbar({ open: true, message: 'Documento agregado a la guía', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({
+        open: true,
+        message: e?.response?.data?.error || 'No se pudo subir el documento',
+        severity: 'error',
+      });
+    } finally {
+      setInstrDocSubiendo(false);
+    }
+  };
   const cargarInstrDocs = async (uid: string) => {
     setInstrDocs([]); setInstrDocsCargando(true);
     try {
@@ -8322,6 +8349,59 @@ export default function DashboardAdvisor() {
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                     Solo sube otro si falta alguno: no reemplaza a los anteriores.
                   </Typography>
+                </Box>
+              )}
+
+              {/* ── Agregar documentos a una guía ya instruida ──
+                  Los papeles casi nunca están listos al asignar instrucciones:
+                  la factura y la constancia salen después de cotizar, y hasta
+                  ahora el único camino era volver a guardar instrucciones, que
+                  RECOTIZA la guía (tarea 714). Esto sube el archivo por su
+                  propia ruta, sin tocar instrucciones ni costos.
+                  Se muestra solo cuando la guía ya tiene instrucciones: en una
+                  que apenas se va a instruir, los campos de arriba son los que
+                  toca usar. */}
+              {!!instrShipment?.hasInstructions && (
+                <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7' }}>
+                  <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 700, display: 'block', mb: 0.75 }}>
+                    📎 Agregar un documento a esta guía
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Si la factura o la constancia te llegaron después, súbelas aquí. No cambia las
+                    instrucciones ni el monto cotizado.
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    {([
+                      ['factura', 'Factura'],
+                      ['constancia', 'Constancia'],
+                      ['guiaExterna', 'Guía'],
+                    ] as Array<['factura' | 'constancia' | 'guiaExterna', string]>).map(([campo, etiqueta]) => (
+                      <Button
+                        key={campo}
+                        component="label"
+                        variant="outlined"
+                        size="small"
+                        disabled={instrDocSubiendo}
+                        startIcon={<AttachFileIcon />}
+                        sx={{ textTransform: 'none', borderColor: '#A5D6A7', color: '#2E7D32' }}
+                      >
+                        {etiqueta}
+                        <input
+                          type="file"
+                          hidden
+                          accept=".pdf,image/*"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            // Se limpia el input para poder volver a elegir el
+                            // MISMO archivo si el primer intento falló.
+                            e.target.value = '';
+                            if (f) subirDocDespues(campo, f);
+                          }}
+                        />
+                      </Button>
+                    ))}
+                    {instrDocSubiendo && <CircularProgress size={18} sx={{ alignSelf: 'center', color: '#2E7D32' }} />}
+                  </Box>
                 </Box>
               )}
 

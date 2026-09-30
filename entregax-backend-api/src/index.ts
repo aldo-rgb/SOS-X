@@ -638,6 +638,7 @@ import {
   getAdvisorPackages,
   assignAdvisorShipmentInstructions,
   getAdvisorShipmentDocs,
+  subirAdvisorShipmentDocs,
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
@@ -7681,6 +7682,10 @@ app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDel
 // Archivos ya cargados de una guia, para que el asesor vea que ya los subio y
 // no los vuelva a cargar (tarea 606).
 app.get('/api/advisor/shipments/:uid/documentos', authenticateToken, getAdvisorShipmentDocs);
+// Agregar documentos DESPUES de haber instruido la guia. Va aparte de
+// /instructions a proposito: esa ruta recotiza la guia, y subir una factura no
+// debe poder cambiarle el monto al cliente (tarea 714).
+app.post('/api/advisor/shipments/:uid/documentos', authenticateToken, uploadDeliveryDocs, subirAdvisorShipmentDocs);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
 
 // ========== COTIZACIONES FORMALES POR ASESOR (PDF) ==========

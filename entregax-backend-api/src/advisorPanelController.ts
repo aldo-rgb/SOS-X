@@ -2854,6 +2854,74 @@ export const getAdvisorShipmentDocs = async (req: Request, res: Response): Promi
     res.status(500).json({ error: 'No se pudieron cargar los archivos' });
   }
 };
+/**
+ * Subir factura, constancia o guía de paquetería a una guía YA instruida.
+ *
+ * Hasta ahora los documentos solo entraban por las dos rutas que asignan
+ * instrucciones, y el bloque para subirlos vive dentro de ese diálogo. Pero los
+ * papeles casi nunca están listos en ese momento: la factura y la constancia se
+ * consiguen después de cotizar, que es justo lo que reportó Christian
+ * (CJD-2026-0027, tarea 714).
+ *
+ * El único camino era volver a guardar instrucciones, y eso RECOTIZA: el
+ * backend recalcula assigned_cost_mxn y saldo_pendiente con el precio que mande
+ * la pantalla, así que subir un PDF podía cambiarle el monto al cliente si la
+ * tarifa se movió. Por eso este endpoint va aparte y NO toca instrucciones ni
+ * costos: solo guarda archivos.
+ */
+export const subirAdvisorShipmentDocs = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+    await asegurarColumna('package_documents', 'shipment_type', "VARCHAR(8) NOT NULL DEFAULT 'PKG'");
+
+    const uid = String(req.params.uid || '');
+    const [tipo, idTxt] = uid.split('-');
+    const id = parseInt(idTxt || '', 10);
+    if (!id || !tipo) return res.status(400).json({ error: 'Guia no valida' });
+
+    // Mismo candado que para verlos: la guía tiene que ser de un cliente suyo.
+    const tabla = tipo === 'DHL' ? 'dhl_shipments' : tipo === 'MAR' ? 'maritime_orders' : 'packages';
+    const dueno = await pool.query(
+      `SELECT 1 FROM ${tabla} t JOIN users u ON u.id = t.user_id
+        WHERE t.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) LIMIT 1`,
+      [id, advisorId]);
+    if (!dueno.rowCount) return res.status(403).json({ error: 'Guia no encontrada o sin permiso' });
+
+    const files = (req as any).files as { [campo: string]: Express.Multer.File[] } | undefined;
+    const baseUrl = `${(req as any).protocol}://${(req as any).get('host')}`;
+    const fileUrl = (f: any) => f.location || `${baseUrl}/uploads/delivery/${f.filename}`;
+    const shipmentType = tipo === 'DHL' ? 'DHL' : tipo === 'MAR' ? 'MAR' : 'PKG';
+
+    // Los mismos nombres de campo y los mismos doc_type que usa el guardado de
+    // instrucciones, para que los archivos queden indistinguibles vengan por
+    // donde vengan.
+    const grupos: Array<[string, any[]]> = [
+      ['factura_embarque', (files?.factura || []) as any[]],
+      ['constancia', (files?.constancia || []) as any[]],
+      ['guia_externa', (files?.guiaExterna || []) as any[]],
+    ];
+
+    let guardados = 0;
+    for (const [docType, lista] of grupos) {
+      for (const f of lista) {
+        await pool.query(
+          `INSERT INTO package_documents (package_id, shipment_type, uploaded_by, doc_type, file_url, original_filename)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, shipmentType, advisorId, docType, fileUrl(f), f.originalname]);
+        guardados++;
+      }
+    }
+
+    if (guardados === 0) return res.status(400).json({ error: 'No llegó ningún archivo' });
+    console.log(`📎 [advisor] ${guardados} documento(s) agregados a ${uid} por el asesor ${advisorId}`);
+    res.json({ success: true, guardados });
+  } catch (e: any) {
+    console.error('[advisor] subir documentos de la guia:', e?.message);
+    res.status(500).json({ error: 'No se pudieron guardar los archivos' });
+  }
+};
+
 export const getAdvisorShipmentDetail = async (req: Request, res: Response): Promise<any> => {
   try {
     const rawUid: string = (Array.isArray(req.params.uid) ? req.params.uid[0] : req.params.uid) as string;
