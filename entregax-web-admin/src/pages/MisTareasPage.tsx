@@ -1183,7 +1183,22 @@ export default function MisTareasPage() {
       ) : loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : tasks.length === 0 && events.length === 0 ? (
-        <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
+        /* Buscando, el mensaje NO puede ser "no tienes pendientes 🎉".
+           Juan le pidió a Ricardo revisar la tarea 670; Ricardo la buscó por
+           número, no está entre sus involucrados y la app le contestó que no
+           tenía pendientes. Los dos concluyeron que la tarea se había
+           "desaparecido" y que el arreglo de visibilidad no servía, cuando lo
+           que pasaba es que esa tarea no era suya. Un felicitación cuando el
+           usuario está buscando algo concreto miente sobre lo que ocurrió. */
+        searchText.trim() ? (
+          <Alert severity="info">
+            No encontré ninguna tarea tuya que coincida con «{searchText.trim()}».
+            Si alguien te pidió revisarla, pídele que te agregue como involucrado:
+            solo se ven las tareas propias o en las que participas.
+          </Alert>
+        ) : (
+          <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
+        )
       ) : visibleTasks.length === 0 ? (
         personalOk.length === 0 && hidePersonal ? (
           <Alert severity="info" action={<Button size="small" color="inherit" onClick={() => setShowPersonal(true)}>Mostrar personales</Button>}>
