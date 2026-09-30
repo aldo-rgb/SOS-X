@@ -163,14 +163,29 @@ export const depositar = async (
       [saldoNuevo, billetera.id]
     );
     
-    // Sincronizar con wallet_balance en users
+    // Abonar al saldo a favor REAL.
+    //
+    // Esto decía `wallet_balance = $1` con el saldo total de billetera_digital,
+    // y el comentario lo llamaba "sincronizar". No sincronizaba: SOBREESCRIBÍA.
+    //
+    // `billetera_digital` es un espejo parcial —solo se entera de los bonos de
+    // referido, de los descuentos sobre guía ya pagada y de algún abono
+    // manual—, mientras que `users.wallet_balance` es el saldo de verdad: lo
+    // alimentan los excedentes de pago, los ajustes de servicio a cliente y las
+    // correcciones, y es el que se descuenta al cobrar. Los dos números llevan
+    // meses separándose.
+    //
+    // Con el overwrite, el siguiente descuento aprobado sobre una guía pagada
+    // le habría borrado a S1656 $64,650.79 de un plumazo, sin error y sin
+    // rastro; entre los 14 clientes afectados había $96,204.35 en riesgo
+    // (tarea 709). Se suma el MONTO, que es lo único que este movimiento sabe.
     await client.query(
-      'UPDATE users SET wallet_balance = $1 WHERE id = $2',
-      [saldoNuevo, usuarioId]
+      'UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2',
+      [monto, usuarioId]
     );
-    
+
     await client.query('COMMIT');
-    
+
     return {
       success: true,
       transaccion_id: transRes.rows[0].id,
@@ -238,14 +253,15 @@ export const retirar = async (
       [saldoNuevo, billetera.id]
     );
     
-    // Sincronizar con wallet_balance en users
+    // Restar del saldo a favor REAL. Misma razón que en depositar: aquí decía
+    // `wallet_balance = <total del espejo>` y pisaba el saldo bueno.
     await client.query(
-      'UPDATE users SET wallet_balance = $1 WHERE id = $2',
-      [saldoNuevo, usuarioId]
+      'UPDATE users SET wallet_balance = GREATEST(COALESCE(wallet_balance, 0) - $1, 0) WHERE id = $2',
+      [monto, usuarioId]
     );
-    
+
     await client.query('COMMIT');
-    
+
     return {
       success: true,
       transaccion_id: transRes.rows[0].id,
@@ -416,10 +432,11 @@ export const liberarSaldoPendiente = async (
       [nuevoSaldoActual, nuevoSaldoPendiente, billetera.id]
     );
     
-    // Sincronizar con wallet_balance en users
+    // Liberar al saldo a favor REAL. Lo que se libera es el MONTO, no el total
+    // del espejo: aquí también se estaba pisando el saldo bueno.
     await client.query(
-      'UPDATE users SET wallet_balance = $1 WHERE id = $2',
-      [nuevoSaldoActual, usuarioId]
+      'UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2',
+      [monto, usuarioId]
     );
     
     await client.query('COMMIT');

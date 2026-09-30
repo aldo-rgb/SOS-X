@@ -90,6 +90,17 @@ export default function SaldoFavorScreen({ navigation }: any) {
    * puede usar en el mismo servicio que lo generó.
    */
   const [saldoFavor, setSaldoFavor] = useState<any | null>(null);
+  /**
+   * El saldo a favor DE VERDAD: `users.wallet_balance`.
+   *
+   * Es el que muestra la web y, sobre todo, el que se descuenta al cobrar. Esta
+   * pantalla enseñaba como número principal el de `billetera_digital`, que es
+   * otra bolsa: un espejo parcial que solo se entera de los bonos de referido y
+   * de algún descuento. Las dos llevaban meses separándose, así que S20 veía
+   * $0.00 teniendo $5,769.20, y a S2797 le mostraba $15,523.31 que ya había
+   * usado para bajar su crédito (tarea 709, TKT-2026-2936).
+   */
+  const [saldoReal, setSaldoReal] = useState<number | null>(null);
   // Referencia FIJA para fondear la cartera general. No cambia nunca: el
   // cliente la guarda en su banco y deposita con ella cuantas veces quiera.
   const [fondeo, setFondeo] = useState<any | null>(null);
@@ -124,7 +135,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
         'Authorization': `Bearer ${token}`,
       };
 
-      const [resumenRes, txRes, referidosRes, kitRes, favorRes, fondeoRes] = await Promise.all([
+      const [resumenRes, txRes, referidosRes, kitRes, favorRes, fondeoRes, realRes] = await Promise.all([
         fetch(`${API_URL}/api/billetera/resumen`, { headers }),
         fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers }),
         fetch(`${API_URL}/api/referidos/mis-referidos`, { headers }),
@@ -133,7 +144,14 @@ export default function SaldoFavorScreen({ navigation }: any) {
         fetch(`${API_URL}/api/saldo-favor`, { headers }),
         // Su referencia fija para meterle dinero a la cartera general.
         fetch(`${API_URL}/api/wallet/funding-reference`, { headers }),
+        // El saldo a favor real. Misma fuente que la web y que el cobro.
+        fetch(`${API_URL}/api/wallet/status`, { headers }),
       ]);
+
+      if (realRes.ok) {
+        const d = await realRes.json();
+        setSaldoReal(Number(d?.wallet_balance ?? 0) || 0);
+      }
 
       if (favorRes.ok) {
         const d = await favorRes.json();
@@ -338,9 +356,13 @@ export default function SaldoFavorScreen({ navigation }: any) {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
+          {/* El número grande es el saldo REAL, no el del monedero de
+              referidos: es el que la web muestra y el que se descuenta al
+              pagar. Si por lo que sea no llegó, se cae al del espejo antes que
+              enseñar un cero falso. */}
           <Text style={styles.balanceLabel}>{ST.available}</Text>
           <Text style={styles.balanceAmount}>
-            {saldo ? formatMoney(saldo.disponible) : '$0.00'}
+            {formatMoney(saldoReal ?? (saldo ? saldo.disponible : 0))}
           </Text>
           <Text style={styles.balanceCurrency}>{saldo?.moneda || 'MXN'}</Text>
 
@@ -447,6 +469,16 @@ export default function SaldoFavorScreen({ navigation }: any) {
             </LinearGradient>
           </TouchableOpacity>
         )}
+
+        {/* De aquí para abajo TODO es del monedero de referidos: lo ganado por
+            invitar, lo usado de esa bolsa y el historial de esos movimientos.
+            Va rotulado a propósito. Antes colgaba directo del número grande y
+            lo contradecía: el cliente veía su saldo arriba y abajo "Aún no
+            tienes movimientos", porque son dos bolsas distintas. */}
+        <View style={styles.bolsaHead}>
+          <Ionicons name="people-outline" size={16} color="#666" />
+          <Text style={styles.bolsaTitle}>Tu monedero de referidos</Text>
+        </View>
 
         {/* Info cards */}
         <View style={styles.infoCards}>
@@ -694,6 +726,9 @@ const styles = StyleSheet.create({
     marginBottom: 16, borderWidth: 1, borderColor: '#A5D6A7',
   },
   favorHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  // Rótulo que separa el saldo real de la bolsa de referidos.
+  bolsaHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 20, marginBottom: 8, paddingHorizontal: 4 },
+  bolsaTitle: { fontSize: 13, fontWeight: '700', color: '#666', letterSpacing: 0.3 },
   favorTitle: { fontSize: 13.5, fontWeight: '800', color: '#1B5E20' },
   favorTotal: { fontSize: 26, fontWeight: '800', color: '#1B5E20', marginTop: 4 },
   favorNota: { fontSize: 11.5, color: '#33691E', lineHeight: 16, marginTop: 4 },
