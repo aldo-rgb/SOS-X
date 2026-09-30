@@ -938,6 +938,54 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 ? recalculatedAmount
                 : Number(totalAmount);
 
+        // El monto lo calcula el navegador y aquí solo se recalcula cuando hubo
+        // duplicados que filtrar. En todo lo demás se acepta lo que llegó, sin
+        // contrastarlo contra nada.
+        //
+        // Se cuela así: si el cliente arma la orden con un master Y sus cajas a
+        // la vista, la pantalla suma el master y otra vez sus cajas, pero manda
+        // solo el id del master. La orden RO-1719C82D de Oscar Cortez (S186)
+        // cobró $1,852.08 cuando debía cobrar $1,153.22: los $698.86 de más son
+        // exactamente sus dos cajas de $349.43, el mismo envío contado dos veces
+        // (TKT-2026-2955).
+        //
+        // NO se corrige el monto automáticamente y es a propósito: el flete de
+        // última milla no siempre queda grabado en la guía, así que recalcular a
+        // ciegas cobraría de MENOS en las órdenes que sí lo traen. Se deja el
+        // aviso con los dos números para que se vea y se pueda revisar; corregir
+        // a ciegas un cobro es peor que cobrar mal una vez.
+        try {
+            const idsParaCotejo = filteredPackageIds.map(Number).filter(Boolean);
+            if (idsParaCotejo.length > 0 && Number(finalTotalAmount) > 0) {
+                const base = await pool.query(
+                    `SELECT COALESCE(SUM(COALESCE(saldo_pendiente, assigned_cost_mxn, 0)), 0) AS guias,
+                            COALESCE(SUM(COALESCE(gex_total_cost, 0)), 0) AS gex,
+                            COALESCE(SUM(COALESCE(national_shipping_cost, 0)), 0) AS flete
+                       FROM packages WHERE id = ANY($1::int[])`, [idsParaCotejo]);
+                const b = base.rows[0] || {};
+                const esperado = Number(b.guias || 0) + Number(b.gex || 0) + Number(b.flete || 0);
+                const sobra = Number(finalTotalAmount) - esperado;
+                if (esperado > 0 && sobra > 1) {
+                    const hijas = await pool.query(
+                        `SELECT COALESCE(SUM(COALESCE(pobox_service_cost, assigned_cost_mxn, 0)), 0) AS suma
+                           FROM packages WHERE master_id = ANY($1::int[])`, [idsParaCotejo]);
+                    const sumaHijas = Number(hijas.rows[0]?.suma || 0);
+                    const pareceDuplicado = sumaHijas > 0 && Math.abs(sobra - sumaHijas) < 1;
+                    console.warn(
+                        `[orden-pago] ⚠️ user ${userId}: el navegador pidió $${Number(finalTotalAmount).toFixed(2)} ` +
+                        `y las guías suman $${esperado.toFixed(2)} (guías ${Number(b.guias).toFixed(2)} + ` +
+                        `garantía ${Number(b.gex).toFixed(2)} + flete ${Number(b.flete).toFixed(2)}). ` +
+                        `Sobran $${sobra.toFixed(2)}.` +
+                        (pareceDuplicado
+                            ? ` COINCIDE con la suma de las cajas hijas ($${sumaHijas.toFixed(2)}): es el mismo envío contado dos veces.`
+                            : ` Puede ser flete de última milla no grabado en la guía.`) +
+                        ` Guías: ${idsParaCotejo.join(', ')}`);
+                }
+            }
+        } catch (e: any) {
+            console.warn('[orden-pago] no se pudo cotejar el monto:', e?.message);
+        }
+
         // DHL: el total lo calcula el navegador y una versión vieja le suma la
         // paquetería nacional dos veces. El candado existía solo en el alta de
         // órdenes del asesor, así que por aquí seguían pasando dobles
