@@ -141,6 +141,42 @@ export async function sucursalDelOperador(userId?: number | null): Promise<strin
   }
 }
 
+/**
+ * Las dos formas en que puede mandarse una contraseña de Paquete Express.
+ *
+ * La de Monterrey está guardada en base64 —decodifica a un texto legible que
+ * contiene el número de cliente— y se manda tal cual, sin procesar. Pero eso no
+ * está escrito en ningún lado: quien registre otra cuenta va a pegar la
+ * contraseña como se la dieron, en texto plano, y el login va a fallar con un
+ * error que no explica nada.
+ *
+ * En vez de pedirle a alguien que entienda base64 para dar de alta una cuenta,
+ * se prueban las dos formas: primero la que parece correcta y, si el proveedor
+ * la rechaza, la otra. Se intenta una sola vez por proceso porque el token se
+ * cachea.
+ *
+ * El orden importa: si el valor guardado YA es base64 válido de texto legible,
+ * se manda tal cual primero (así funciona MTY hoy y no se toca). Si no lo
+ * parece, se manda codificado primero.
+ */
+export function formasDePassword(valor: string): string[] {
+  const v = String(valor || '');
+  if (!v) return [''];
+  const codificado = Buffer.from(v, 'utf8').toString('base64');
+
+  let yaEsBase64 = false;
+  try {
+    const decodificado = Buffer.from(v, 'base64').toString('utf8');
+    yaEsBase64 = decodificado.length > 0
+      && /^[\x20-\x7E]+$/.test(decodificado)
+      && Buffer.from(decodificado, 'utf8').toString('base64') === v;
+  } catch { yaEsBase64 = false; }
+
+  // Sin duplicados: si codificarlo da lo mismo, una sola forma.
+  return yaEsBase64 ? [v, codificado].filter((x, i, a) => a.indexOf(x) === i)
+                    : [codificado, v];
+}
+
 /** Para dejar en el log qué cuenta y qué origen se usaron, que es lo primero que se pregunta cuando una guía sale mal. */
 export function describirOrigen(sucursal: string): string {
   const r = remitenteDe(sucursal);
