@@ -1371,7 +1371,16 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
         const {
             name, code, city, address, phone, allowed_services, is_active,
             latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos,
-            wallet_currency
+            wallet_currency,
+            // Remitente con el que salen las guias de Paqueteria de ESTA sucursal.
+            // Antes el remitente era uno solo, fijo en Monterrey, para todo el
+            // sistema: las guias despachadas desde CDMX salian con domicilio de
+            // MTY y, peor, la tarifa se calculaba desde MTY (el tarifario cobra
+            // por bandas de kilometros). Vive aqui y no en variables de entorno
+            // porque una bodega se muda y eso lo cambia operaciones, no un
+            // despliegue.
+            pqtx_origin_zip, pqtx_origin_state, pqtx_origin_mun,
+            pqtx_origin_col, pqtx_origin_street, pqtx_origin_num, pqtx_origin_phone
         } = req.body;
 
         console.log('Updating branch:', id, 'with data:', JSON.stringify(req.body));
@@ -1406,11 +1415,20 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
                 radio_geocerca_metros = COALESCE($10, radio_geocerca_metros),
                 wifi_ssid = $11,
                 wifi_validation_enabled = COALESCE($12, wifi_validation_enabled),
-                recibe_pagos = COALESCE($13, recibe_pagos)
+                recibe_pagos = COALESCE($13, recibe_pagos),
+                pqtx_origin_zip    = COALESCE($15, pqtx_origin_zip),
+                pqtx_origin_state  = COALESCE($16, pqtx_origin_state),
+                pqtx_origin_mun    = COALESCE($17, pqtx_origin_mun),
+                pqtx_origin_col    = COALESCE($18, pqtx_origin_col),
+                pqtx_origin_street = COALESCE($19, pqtx_origin_street),
+                pqtx_origin_num    = COALESCE($20, pqtx_origin_num),
+                pqtx_origin_phone  = COALESCE($21, pqtx_origin_phone)
             WHERE id = $14
             RETURNING *
         `, [name, code, city, address, phone, servicesArray, is_active, 
-            latitud || null, longitud || null, radio_geocerca_metros, wifi_ssid || null, wifi_validation_enabled, recibe_pagos, id]);
+            latitud || null, longitud || null, radio_geocerca_metros, wifi_ssid || null, wifi_validation_enabled, recibe_pagos, id,
+            pqtx_origin_zip || null, pqtx_origin_state || null, pqtx_origin_mun || null,
+            pqtx_origin_col || null, pqtx_origin_street || null, pqtx_origin_num || null, pqtx_origin_phone || null]);
 
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Sucursal no encontrada' });

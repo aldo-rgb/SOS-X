@@ -58,6 +58,52 @@ const REMITENTE_MTY: Remitente = {
   phone: '8120029375', name: 'ENTREGAX', email: 'operaciones@entregax.com',
 };
 
+/**
+ * Remitente de una sucursal, leído de la base.
+ *
+ * Vive en `branches` y no en variables de entorno porque es dato de operación:
+ * una bodega se muda y eso lo cambia Dirección desde Gestión de Sucursales, no
+ * alguien tocando Railway y redesplegando. Además, cada CEDIS nuevo habría
+ * exigido siete variables más.
+ *
+ * Mismo criterio de TODO O NADA: si a la sucursal le falta cualquier parte del
+ * domicilio se usa el de MTY completo, para no armar un domicilio que mezcle
+ * dos bodegas.
+ */
+export async function remitenteDeSucursal(sucursal: string): Promise<Remitente> {
+  const s = (sucursal || 'MTY').toUpperCase();
+  try {
+    const r = await pool.query(
+      `SELECT pqtx_origin_zip AS zip, city, pqtx_origin_state AS state,
+              pqtx_origin_mun AS mun, pqtx_origin_col AS col,
+              pqtx_origin_street AS street, pqtx_origin_num AS num,
+              pqtx_origin_phone AS phone
+         FROM branches WHERE UPPER(code) = $1 LIMIT 1`, [s]);
+    const b = r.rows[0];
+    if (!b) return { ...REMITENTE_MTY };
+
+    const partes = [b.zip, b.state, b.mun, b.col, b.street, b.num];
+    if (!partes.every(x => !!String(x || '').trim())) {
+      if (partes.some(x => !!String(x || '').trim())) {
+        console.warn(`[PQTX] La sucursal ${s} tiene el remitente incompleto; se usa el de MTY. Captúralo en Gestión de Sucursales.`);
+      }
+      return { ...REMITENTE_MTY };
+    }
+    return {
+      zip: String(b.zip), state: String(b.state), mun: String(b.mun),
+      col: String(b.col), street: String(b.street), num: String(b.num),
+      city: String(b.city || b.mun),
+      phone: String(b.phone || REMITENTE_MTY.phone),
+      name:  v(s, 'ORIGIN_NAME',  REMITENTE_MTY.name),
+      email: v(s, 'ORIGIN_EMAIL', REMITENTE_MTY.email),
+    };
+  } catch (e: any) {
+    console.warn(`[PQTX] no se pudo leer el remitente de ${s}: ${e?.message}. Se usa el de MTY.`);
+    return { ...REMITENTE_MTY };
+  }
+}
+
+/** Versión por variables de entorno. Se conserva como respaldo. */
 export function remitenteDe(sucursal: string): Remitente {
   const s = (sucursal || 'MTY').toUpperCase();
   if (s === 'MTY') return { ...REMITENTE_MTY };
