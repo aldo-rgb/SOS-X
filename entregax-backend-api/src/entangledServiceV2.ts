@@ -24,6 +24,28 @@ const ENTANGLED_SOURCE = process.env.ENTANGLED_SOURCE_TAG || 'XPAY';
 export const ENTANGLED_WEBHOOK_SECRET =
   process.env.ENTANGLED_WEBHOOK_SECRET || '';
 
+/**
+ * En producción, un webhook sin secreto NO se acepta.
+ *
+ * Los webhooks de facturas y pagos a proveedores son públicos por diseño: quien
+ * los verifica es la firma. Sin secreto configurado, la comprobación devolvía
+ * `ok` y cualquiera que supiera la URL podía registrar una factura o un pago —
+ * y lo único que quedaba era un warning en el log, que nadie mira.
+ *
+ * No hay exposición hoy (la variable está puesta), pero borrarla por descuido
+ * abriría el sistema en silencio, que es la peor forma de romperse. Fuera de
+ * producción se siguen aceptando sin firma, para no estorbar en desarrollo.
+ */
+export const SIN_FIRMA_ES_FATAL = (): boolean =>
+  !ENTANGLED_WEBHOOK_SECRET
+  && String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+if (SIN_FIRMA_ES_FATAL()) {
+  console.error('[ENTANGLED] ⛔ Falta ENTANGLED_WEBHOOK_SECRET en producción. '
+    + 'Los webhooks de facturas y pagos a proveedores van a rechazar TODO hasta que se cargue en Railway. '
+    + 'Es a propósito: sin ese secreto no hay forma de saber quién los está llamando.');
+}
+
 export const isEntangledConfigured = (): boolean => Boolean(ENTANGLED_API_KEY);
 
 // Normaliza la base URL para tolerar las tres formas que llegan de configuración:

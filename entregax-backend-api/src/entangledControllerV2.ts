@@ -41,6 +41,7 @@ import {
   rotateApiKey,
   isEntangledConfigured,
   ENTANGLED_WEBHOOK_SECRET,
+  SIN_FIRMA_ES_FATAL,
   EntangledServicio,
   EntangledDivisa,
   EntangledSolicitudPayloadV2,
@@ -2386,6 +2387,13 @@ const verifyWebhookSignature = (
   signatureHeader: string | undefined
 ): { ok: boolean; reason?: string } => {
   if (!ENTANGLED_WEBHOOK_SECRET) {
+    // En producción no se acepta nada sin firma: estos webhooks registran
+    // facturas y pagos a proveedores, y sin secreto no hay forma de saber quién
+    // llama. Ver SIN_FIRMA_ES_FATAL en entangledServiceV2.
+    if (SIN_FIRMA_ES_FATAL()) {
+      console.error('[ENTANGLED v2] Webhook rechazado: falta ENTANGLED_WEBHOOK_SECRET en producción.');
+      return { ok: false, reason: 'El servidor no tiene configurado el secreto de webhooks.' };
+    }
     console.warn('[ENTANGLED v2] ENTANGLED_WEBHOOK_SECRET no configurado: aceptando webhook sin verificar');
     return { ok: true };
   }

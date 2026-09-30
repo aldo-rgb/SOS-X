@@ -37,7 +37,7 @@ import {
   ENTANGLED_WEBHOOK_SECRET,
   EntangledSolicitudPayload,
 } from './entangledService';
-import { notifyCancelledRequestIds } from './entangledServiceV2';
+import { notifyCancelledRequestIds, SIN_FIRMA_ES_FATAL } from './entangledServiceV2';
 
 const getAuthUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -724,6 +724,11 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
 
 const verifyWebhookSignature = (req: Request): { ok: boolean; reason?: string } => {
   if (!ENTANGLED_WEBHOOK_SECRET) {
+    // Mismo criterio que en la v2: en producción, sin secreto no entra nada.
+    if (SIN_FIRMA_ES_FATAL()) {
+      console.error('[ENTANGLED] Webhook rechazado: falta ENTANGLED_WEBHOOK_SECRET en producción.');
+      return { ok: false, reason: 'El servidor no tiene configurado el secreto de webhooks.' };
+    }
     console.warn('[ENTANGLED] ENTANGLED_WEBHOOK_SECRET no configurado: aceptando webhook sin verificar');
     return { ok: true };
   }
