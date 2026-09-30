@@ -3225,8 +3225,24 @@ export default function DashboardClient() {
     }
     
     // Filtro por instrucciones
+    //
+    // Un envío YA ENTREGADO nunca cuenta como "sin instrucciones", aunque no
+    // tenga dirección guardada. Hay 5,864 guías entregadas entre marzo y
+    // septiembre a las que nunca se les grabó la dirección en el paquete —la
+    // caja llegó, pero el dato se quedó en otro lado—, y todas ensuciaban este
+    // filtro: el cliente veía decenas de envíos "pendientes" que en realidad
+    // recibió hace meses, y al abrir el filtro se le seleccionaban todos.
+    // Miriam Aguilar (S191) sola arrastraba 2,308.
+    //
+    // No se borra nada ni se tocan los registros: siguen en su historial y se
+    // pueden rastrear. Solo dejan de contarse como pendientes, que es lo único
+    // que nunca fueron. La sección de "pendientes de asignar" de más abajo ya
+    // los excluía así; esto alinea el filtro con ese mismo criterio.
+    const yaEntregado = (pkg: PackageTracking) =>
+      String(pkg.status || '').toLowerCase() === 'delivered';
     if (instructionFilter === 'sin') {
-      filtered = filtered.filter(pkg => !pkg.has_delivery_instructions && !pkg.delivery_address_id);
+      filtered = filtered.filter(pkg =>
+        !pkg.has_delivery_instructions && !pkg.delivery_address_id && !yaEntregado(pkg));
     } else if (instructionFilter === 'con') {
       filtered = filtered.filter(pkg => pkg.has_delivery_instructions || pkg.delivery_address_id);
     }
@@ -6195,10 +6211,13 @@ export default function DashboardClient() {
                     setInstructionFilter(newFilter);
                     // Auto-seleccionar todos los paquetes filtrados
                     if (newFilter !== 'all') {
+                      // Mismo criterio que el filtro: un envío ya entregado no
+                      // es un pendiente, así que tampoco se autoselecciona.
                       const filtered = packages.filter(pkg =>
                         matchesServiceFilter(pkg, serviceFilter)
                         && !pkg.has_delivery_instructions
                         && !pkg.delivery_address_id
+                        && String(pkg.status || '').toLowerCase() !== 'delivered'
                       ).filter(isPackagePayable);
                       setSelectedPackageIds(filtered.map(p => p.id));
                     } else {
