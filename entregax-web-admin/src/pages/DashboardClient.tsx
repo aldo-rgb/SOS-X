@@ -7016,25 +7016,61 @@ export default function DashboardClient() {
                               '& .MuiChip-label': { px: 0.5 }
                             }}
                           />
+                        ) : hasPrintedLabel(pkg) ? (
+                          /* Ya salió: tiene guía nacional emitida, así que las
+                             instrucciones ya no se pueden cambiar.
+
+                             Antes esto pintaba el MISMO chip rojo "Sin
+                             Instrucciones", sin onClick y sin explicación. El
+                             cliente le daba clic y no pasaba absolutamente nada:
+                             ni ventana, ni mensaje, ni pista de que el envío ya
+                             se había despachado meses atrás. Sankie Guo lo
+                             reportó con tres guías de mayo que llevaban desde
+                             entonces con ese chip (TKT-2026-2964).
+
+                             Un botón que no hace nada y no dice por qué es peor
+                             que no tener botón: el cliente vuelve a intentar,
+                             levanta ticket y alguien gasta el día buscándolo. */
+                          <Tooltip
+                            arrow
+                            title={pkg.national_tracking
+                              ? `Este envío ya salió con la guía ${pkg.national_tracking}. Las instrucciones de entrega ya no se pueden cambiar.`
+                              : 'Este envío ya salió. Las instrucciones de entrega ya no se pueden cambiar.'}
+                          >
+                            <Chip
+                              icon={<ShippingIcon sx={{ fontSize: 14 }} />}
+                              label="Ya enviado"
+                              size="small"
+                              sx={{
+                                bgcolor: '#607D8B',
+                                color: 'white',
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                height: 22,
+                                '& .MuiChip-icon': { color: 'white' },
+                                '& .MuiChip-label': { px: 0.5 }
+                              }}
+                            />
+                          </Tooltip>
                         ) : (
-                          <Chip 
+                          <Chip
                             icon={<CancelIcon sx={{ fontSize: 14 }} />}
-                            label={hasPrintedLabel(pkg) ? 'Sin Instrucciones' : '📍 Asignar Instrucciones'}
+                            label="📍 Asignar Instrucciones"
                             size="small"
-                            clickable={!hasPrintedLabel(pkg)}
-                            onClick={hasPrintedLabel(pkg) ? undefined : (e) => {
+                            clickable
+                            onClick={(e) => {
                               e.stopPropagation();
                               setSelectedPackageIds(idsParaInstrucciones(pkg));
                               setDeliveryModalOpen(true);
                             }}
-                            sx={{ 
-                              bgcolor: '#D32F2F', 
+                            sx={{
+                              bgcolor: '#D32F2F',
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
                               height: 22,
-                              cursor: hasPrintedLabel(pkg) ? 'default' : 'pointer',
-                              '&:hover': hasPrintedLabel(pkg) ? {} : { bgcolor: '#B71C1C' },
+                              cursor: 'pointer',
+                              '&:hover': { bgcolor: '#B71C1C' },
                               '& .MuiChip-icon': { color: 'white' },
                               '& .MuiChip-label': { px: 0.5 }
                             }}
@@ -9335,12 +9371,23 @@ export default function DashboardClient() {
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
                             {/* Botón Asignar */}
                             {hasPrintedLabel(pkg) ? (
-                              <Chip
-                                icon={<ShippingIcon />}
-                                label="Etiqueta impresa - No editable"
-                                color="success"
-                                sx={{ flex: 1, fontWeight: 600 }}
-                              />
+                              /* "Etiqueta impresa" es jerga nuestra: el cliente no
+                                 sabe si eso significa que ya salió o que falta algo.
+                                 Lo que necesita saber es que ya se envió y con qué
+                                 guía puede rastrearlo. */
+                              <Tooltip
+                                arrow
+                                title={pkg.national_tracking
+                                  ? `Guía ${pkg.national_tracking}${pkg.national_carrier ? ` · ${getCarrierDisplayName(pkg.national_carrier, pkg)}` : ''}`
+                                  : 'Las instrucciones de entrega ya no se pueden cambiar.'}
+                              >
+                                <Chip
+                                  icon={<ShippingIcon />}
+                                  label="Ya enviado — no se puede cambiar"
+                                  color="success"
+                                  sx={{ flex: 1, fontWeight: 600 }}
+                                />
+                              </Tooltip>
                             ) : (
                               <Button 
                                 variant="contained" 
