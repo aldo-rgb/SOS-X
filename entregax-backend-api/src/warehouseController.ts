@@ -1297,6 +1297,11 @@ export const getAllBranches = async (_req: Request, res: Response): Promise<void
         const result = await pool.query(`
             SELECT b.id, b.name, b.code, b.city, b.address, b.phone, b.allowed_services, b.is_active, b.created_at,
                    b.latitud, b.longitud, b.radio_geocerca_metros, b.wifi_ssid, b.wifi_validation_enabled, b.recibe_pagos,
+                   -- Remitente de las guías nacionales. Es dato de operación: si la
+                   -- bodega se muda, lo cambia Dirección desde esta pantalla, no
+                   -- alguien tocando variables de Railway y redesplegando.
+                   b.pqtx_origin_zip, b.pqtx_origin_state, b.pqtx_origin_mun,
+                   b.pqtx_origin_col, b.pqtx_origin_street, b.pqtx_origin_num, b.pqtx_origin_phone,
                    COALESCE(w.currency, 'MXN') AS wallet_currency
             FROM branches b
             LEFT JOIN petty_cash_wallets w ON w.branch_id = b.id AND w.owner_type = 'branch'
@@ -1337,13 +1342,20 @@ export const createBranch = async (req: Request, res: Response): Promise<void> =
 
         const result = await pool.query(`
             INSERT INTO branches (name, code, city, address, phone, allowed_services, is_active,
-                                  latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos)
-            VALUES ($1, UPPER($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                                  latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos,
+                                  -- Remitente de guías nacionales: se captura desde el alta para
+                                  -- que un CEDIS nuevo no despache con el domicilio de Monterrey.
+                                  pqtx_origin_zip, pqtx_origin_state, pqtx_origin_mun,
+                                  pqtx_origin_col, pqtx_origin_street, pqtx_origin_num, pqtx_origin_phone)
+            VALUES ($1, UPPER($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             RETURNING *
         `, [
             name, code, city, address || '', phone || '', allowed_services || [], is_active !== false,
             latitud || null, longitud || null, radio_geocerca_metros || 100, wifi_ssid || null, wifi_validation_enabled || false,
-            recibe_pagos !== false
+            recibe_pagos !== false,
+            req.body.pqtx_origin_zip || null, req.body.pqtx_origin_state || null, req.body.pqtx_origin_mun || null,
+            req.body.pqtx_origin_col || null, req.body.pqtx_origin_street || null, req.body.pqtx_origin_num || null,
+            req.body.pqtx_origin_phone || null
         ]);
 
         const branchId = result.rows[0].id;

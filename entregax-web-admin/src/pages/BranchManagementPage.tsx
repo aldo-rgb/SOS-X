@@ -71,6 +71,16 @@ interface Branch {
   recibe_pagos: boolean;
   // Moneda de operación
   wallet_currency: 'MXN' | 'USD';
+  // Remitente que se imprime en las guías nacionales (Paquete Express) y desde
+  // donde se cotiza. Va aparte de `address` porque la paqueteria pide el
+  // domicilio partido en campos y valida el CP.
+  pqtx_origin_zip: string | null;
+  pqtx_origin_state: string | null;
+  pqtx_origin_mun: string | null;
+  pqtx_origin_col: string | null;
+  pqtx_origin_street: string | null;
+  pqtx_origin_num: string | null;
+  pqtx_origin_phone: string | null;
 }
 
 interface User {
@@ -184,6 +194,14 @@ export default function BranchManagementPage() {
     recibe_pagos: true,
     // Moneda
     wallet_currency: 'MXN' as 'MXN' | 'USD',
+    // Remitente de guías nacionales
+    pqtx_origin_zip: '',
+    pqtx_origin_state: '',
+    pqtx_origin_mun: '',
+    pqtx_origin_col: '',
+    pqtx_origin_street: '',
+    pqtx_origin_num: '',
+    pqtx_origin_phone: '',
   });
 
   // Estados para asignación
@@ -277,6 +295,14 @@ export default function BranchManagementPage() {
         recibe_pagos: branch.recibe_pagos !== false,
         // Moneda
         wallet_currency: (branch.wallet_currency || 'MXN') as 'MXN' | 'USD',
+        // Remitente de guías nacionales
+        pqtx_origin_zip: branch.pqtx_origin_zip || '',
+        pqtx_origin_state: branch.pqtx_origin_state || '',
+        pqtx_origin_mun: branch.pqtx_origin_mun || '',
+        pqtx_origin_col: branch.pqtx_origin_col || '',
+        pqtx_origin_street: branch.pqtx_origin_street || '',
+        pqtx_origin_num: branch.pqtx_origin_num || '',
+        pqtx_origin_phone: branch.pqtx_origin_phone || '',
       });
     } else {
       setEditingBranch(null);
@@ -298,6 +324,14 @@ export default function BranchManagementPage() {
         recibe_pagos: true,
         // Moneda
         wallet_currency: 'MXN',
+        // Remitente de guías nacionales
+        pqtx_origin_zip: '',
+        pqtx_origin_state: '',
+        pqtx_origin_mun: '',
+        pqtx_origin_col: '',
+        pqtx_origin_street: '',
+        pqtx_origin_num: '',
+        pqtx_origin_phone: '',
       });
     }
     setOpenBranchDialog(true);
@@ -1248,6 +1282,95 @@ export default function BranchManagementPage() {
               multiline
               rows={2}
             />
+
+            {/* Remitente de las guías nacionales. Va partido en campos porque es
+                lo que pide la paquetería, y de aquí sale además el CP de origen
+                con el que se cotiza: una guía que sale de esta bodega declarando
+                otra ciudad se cobra con la tarifa equivocada. */}
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                Remitente de guías nacionales
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                Es el domicilio que se imprime como remitente en las guías de Paquete Express
+                que salen de esta bodega, y el origen con el que se cotiza el envío.
+                Si falta algún campo se usa el de CEDIS Monterrey completo, para no imprimir
+                una dirección que mezcle dos bodegas.
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 3 }}>
+                  <TextField
+                    label="Código postal"
+                    value={branchForm.pqtx_origin_zip}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_zip: e.target.value.replace(/\D/g, '').slice(0, 5) })}
+                    placeholder="64410"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <TextField
+                    label="Estado"
+                    value={branchForm.pqtx_origin_state}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_state: e.target.value.toUpperCase() })}
+                    placeholder="NUEVO LEON"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 5 }}>
+                  <TextField
+                    label="Municipio o alcaldía"
+                    value={branchForm.pqtx_origin_mun}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_mun: e.target.value.toUpperCase() })}
+                    placeholder="MONTERREY"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 5 }}>
+                  <TextField
+                    label="Colonia"
+                    value={branchForm.pqtx_origin_col}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_col: e.target.value.toUpperCase() })}
+                    placeholder="TORREMOLINOS"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <TextField
+                    label="Calle"
+                    value={branchForm.pqtx_origin_street}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_street: e.target.value.toUpperCase() })}
+                    placeholder="REVOLUCION SUR"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 3 }}>
+                  <TextField
+                    label="Número"
+                    value={branchForm.pqtx_origin_num}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_num: e.target.value.toUpperCase() })}
+                    placeholder="3866 B8"
+                    fullWidth
+                    size="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <TextField
+                    label="Teléfono de contacto"
+                    value={branchForm.pqtx_origin_phone}
+                    onChange={(e) => setBranchForm({ ...branchForm, pqtx_origin_phone: e.target.value })}
+                    placeholder="8120029375"
+                    fullWidth
+                    size="small"
+                    helperText="Opcional: si se deja vacío se usa el de CEDIS Monterrey"
+                  />
+                </Grid>
+              </Grid>
+            </Box>
 
             <FormControl fullWidth>
               <InputLabel>Servicios Permitidos</InputLabel>
