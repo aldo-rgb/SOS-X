@@ -614,12 +614,43 @@ export const TOOLS: ToolDef[] = [
         [variantes, prefijo]
       );
       if (!r.rows.length) {
+        // Que una guía no esté capturada no quiere decir que nadie sepa de
+        // ella: muchas veces YA hay un ticket abierto pidiendo justamente eso.
+        // Ricardo pegó VR958579472YP y la respuesta fue "no sé", cuando la
+        // guía estaba en el TKT-2026-2884 de S204, escalado a CEDIS USA desde
+        // hacía cuatro días y con el reclamo textual de que no aparece
+        // (CJD-2026-0028, tarea 717). El dato estaba, solo que en otra tabla.
+        const tk = await pool.query(
+          // Ojo con el casillero: es el de QUIEN ABRIÓ el ticket, que muchas
+          // veces es el asesor y no el cliente del que se habla. En el
+          // TKT-2026-2884 sale ETX-6053 (Andres Villasana) mientras el cliente
+          // es S204, y eso viene en el texto del ticket, no en el user_id. Se
+          // nombra el campo por lo que de verdad es para que Cajito no lo
+          // presente como el dueño de la guía.
+          `SELECT t.ticket_folio, t.status, t.category,
+                  COALESCE(u.box_id, '') AS casillero_de_quien_reporta,
+                  u.full_name AS lo_reporta,
+                  d.name AS departamento,
+                  to_char(t.created_at, 'YYYY-MM-DD') AS abierto
+             FROM support_tickets t
+             LEFT JOIN users u ON u.id = t.user_id
+             LEFT JOIN support_departments d ON d.id = t.department_id
+            WHERE t.tracking_number ILIKE ANY($1::text[])
+            ORDER BY t.created_at DESC LIMIT 5`,
+          [variantes.map((v: string) => `%${v}%`)]
+        ).catch(() => ({ rows: [] as any[] }));
+
         return {
           found: false,
           probe: variantes,
-          nota: /^LOG/i.test(limpio)
-            ? 'Es un LOG marítimo: esos no viven en paquetes. Consúltalo con lookup_maritimo.'
-            : 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
+          ...(tk.rows.length ? {
+            tickets_que_la_mencionan: tk.rows,
+            nota: `La guía NO está capturada como envío, pero ya hay ticket(s) abierto(s) sobre ella: ${tk.rows.map((x: any) => x.ticket_folio).join(', ')}. Dilo así —que no existe en el sistema y que ya está reportada, con el folio y quién la reportó— en vez de contestar solo que no la encuentras. Para saber de qué CLIENTE es la guía, abre el ticket con get_ticket_thread: el casillero suele venir en el texto, no en quien lo abrió.`,
+          } : {
+            nota: /^LOG/i.test(limpio)
+              ? 'Es un LOG marítimo: esos no viven en paquetes. Consúltalo con lookup_maritimo.'
+              : 'No existe con ese número ni quitándole el sufijo. Antes de concluir que la guía no existe, considera que pudo capturarse con otro formato.',
+          }),
         };
       }
       // Se traduce el origen de la guia a lenguaje llano: dejarlo como
