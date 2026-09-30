@@ -2488,6 +2488,34 @@ export async function applyInboundTaskEvent(opts: {
       break;
     }
     case 'task.completed': {
+      // Que la terminen del otro lado NO la cierra si la tarea pide
+      // confirmación: pasa a 'awaiting_confirmation' y la cierra quien la pidió,
+      // igual que cuando la termina un responsable de aquí.
+      //
+      // Iba directo a 'completed' e ignoraba `requiere_confirmacion`. Juan
+      // levantó la 698, Rino la marcó terminada y la tarea se cerró sola sin
+      // preguntarle: "se me cerró sola y no me pidió confirmación para cerrar",
+      // y encima el problema seguía sin resolverse. El sincronizado se estaba
+      // saltando la regla que respeta nuestro propio flujo.
+      //
+      // Si quien la creó es quien la terminó, o si no pide confirmación, se
+      // cierra de una como antes.
+      const pideConfirmacion = task.requiere_confirmacion !== false;
+      const creatorId = Number(task.created_by) || 0;
+      const laTerminoSuCreador = creatorId > 0 && Number(actorId) === creatorId;
+      const aEspera = pideConfirmacion && creatorId > 0 && !laTerminoSuCreador
+                      && String(task.status || '') !== 'awaiting_confirmation';
+
+      if (aEspera) {
+        await pool.query(
+          `UPDATE tasks SET status='awaiting_confirmation', updated_at=NOW() WHERE id=$1`, [taskId]);
+        await logActivity(taskId, actorId, 'awaiting_confirmation', { via: 'sync' });
+        await notify(creatorId, '🔔 Terminaron una tarea tuya',
+          `"${task.title}" se marcó como terminada en Grupo Rino. Revísala y confírmala si ya quedó.`,
+          { task_id: taskId }, 'task_completed');
+        break;
+      }
+
       const dc = await doneColId();
       await pool.query(
         `UPDATE tasks SET status='completed', completed_at=NOW(), ${dc ? `column_id=${Number(dc)},` : ''} updated_at=NOW() WHERE id=$1`, [taskId]);
