@@ -887,6 +887,10 @@ export default function DashboardAdvisor() {
   const [ticketSuccessFolio, setTicketSuccessFolio] = useState('');
   const [advisorTickets, setAdvisorTickets] = useState<any[]>([]);
   const [advisorTicketsLoading, setAdvisorTicketsLoading] = useState(false);
+  // Búsqueda en "Mis Tickets" (tarea 716). Se filtra en memoria porque el
+  // listado ya viene completo del backend: pedirlo otra vez por cada letra
+  // tecleada solo agregaría espera.
+  const [ticketBusqueda, setTicketBusqueda] = useState('');
   const [selectedAdvisorTicket, setSelectedAdvisorTicket] = useState<any | null>(null);
   const [ticketMessages, setTicketMessages] = useState<any[]>([]);
   const [ticketReply, setTicketReply] = useState('');
@@ -1742,6 +1746,29 @@ export default function DashboardAdvisor() {
     { key: 'clientIssue',       label: 'Aclaración de Cliente',  icon: <ClientIssueIcon />,     color: '#FF9800', noTracking: true  },
     { key: 'other',             label: 'Otro',                 icon: <OtherIcon />,           color: '#9E9E9E', noTracking: true  },
   ];
+
+  /**
+   * Filtro de "Mis Tickets": folio, categoría y número de cliente (tarea 716).
+   *
+   * La categoría se busca por su ETIQUETA en español además de por su clave:
+   * el asesor escribe "facturación", no "invoicing". Se ignoran acentos porque
+   * nadie los teclea al buscar.
+   */
+  const ticketsFiltrados = (lista: any[]): any[] => {
+    const q = ticketBusqueda.trim().toLowerCase();
+    if (!q) return lista;
+    const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const aguja = sinAcentos(q);
+    return lista.filter((t: any) => {
+      const cat = ADVISOR_TICKET_CATEGORIES.find(c => c.key === t.category);
+      const campos = [
+        t.ticket_folio, t.category, cat?.label,
+        t.client_number, t.client_box_id, t.client_name,
+        t.subject, t.tracking_number,
+      ];
+      return campos.some(v => v && sinAcentos(String(v).toLowerCase()).includes(aguja));
+    });
+  };
 
   // Confirmación (con diseño) para archivar un ticket de cotización.
   const [archiveTicket, setArchiveTicket] = useState<any | null>(null);
@@ -6322,6 +6349,32 @@ export default function DashboardAdvisor() {
                   <IconButton size="small" onClick={fetchAdvisorTickets}><RefreshIcon /></IconButton>
                 </Box>
 
+                {/* Buscador (tarea 716). Solo aparece cuando hay suficientes
+                    tickets para que valga la pena: con tres en pantalla una
+                    caja de búsqueda estorba más de lo que ayuda. */}
+                {advisorTickets.length > 5 && (
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Buscar por folio, categoría, cliente…"
+                    value={ticketBusqueda}
+                    onChange={(e) => setTicketBusqueda(e.target.value)}
+                    sx={{ mb: 2 }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
+                      ),
+                      endAdornment: ticketBusqueda ? (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => setTicketBusqueda('')}>
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </InputAdornment>
+                      ) : null,
+                    }}
+                  />
+                )}
+
                 {advisorTicketsLoading ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <CircularProgress size={32} />
@@ -6330,9 +6383,20 @@ export default function DashboardAdvisor() {
                   <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
                     No tienes tickets aún. Crea uno si necesitas ayuda.
                   </Typography>
+                ) : ticketsFiltrados(advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request')).length === 0 ? (
+                  /* Filtró todo. Sin este aviso la lista se queda en blanco y no
+                     se sabe si no hay resultados o si algo se rompió. */
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Ningún ticket coincide con «{ticketBusqueda}».
+                    </Typography>
+                    <Button size="small" onClick={() => setTicketBusqueda('')} sx={{ mt: 1, textTransform: 'none' }}>
+                      Limpiar búsqueda
+                    </Button>
+                  </Box>
                 ) : (
                   <List disablePadding>
-                    {advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request').map((ticket, idx, arr) => (
+                    {ticketsFiltrados(advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request')).map((ticket, idx, arr) => (
                       <Box key={ticket.id}>
                         <ListItem
                           sx={{ px: 1, py: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
