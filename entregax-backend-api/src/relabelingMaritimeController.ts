@@ -16,7 +16,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import {
   generateOnePqtxGuide,
-  getJwtToken,
+  tokenDeSucursal,
   type PqtxAddrCtx,
 } from './paqueteExpressController';
 
@@ -282,8 +282,13 @@ export async function generatePqtxForMaritimeOrder(req: Request, res: Response):
       phone: order.phone,
     };
 
-    const token = await getJwtToken();
+    // Sale del CEDIS de quien reetiqueta. La sucursal que devuelve el token es la
+    // que manda: si la cuenta de esa sucursal no entró, la guía completa va con la
+    // de Monterrey, porque Paquete Express rechaza una guía cuyo usuario no sea el
+    // emisor del token.
     const userId = (req as any).user?.userId || (req as any).user?.id || null;
+    const { sucursalDelOperador } = await import('./pqtxSucursal');
+    const { token, sucursal: sucursalCuenta } = await tokenDeSucursal(await sucursalDelOperador(userId));
 
     const result = await generateOnePqtxGuide({
       pkgId: order.id, // re-using; we'll persist in maritime_orders below anyway
@@ -295,6 +300,7 @@ export async function generatePqtxForMaritimeOrder(req: Request, res: Response):
       token,
       createdBy: userId,
       childIds: [],
+      tokenSucursal: sucursalCuenta,
     });
 
     if (!result.ok) {

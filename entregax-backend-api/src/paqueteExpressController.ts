@@ -159,10 +159,23 @@ const tokensPorSucursal = new Map<string, string>();
  * Monterrey esta en base64. Ver `formasDePassword`.
  */
 export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
+  return (await tokenDeSucursal(sucursal)).token;
+}
+
+/**
+ * El token Y la sucursal cuya cuenta lo emitió, que no siempre es la que se pidió.
+ *
+ * Paquete Express valida que el `user` que va en el cuerpo de la petición sea el
+ * mismo que emitió el JWT: si no, rechaza con "The Claim 'iss' value doesn't
+ * match the required one". Así murió la primera guía de CDMX —token de
+ * URBAN-MEX, usuario WSQURBANWOD en el cuerpo—, y por eso quien pide el token
+ * necesita saber de quién es, no solo el texto.
+ */
+export async function tokenDeSucursal(sucursal: string = 'MTY'): Promise<{ token: string; sucursal: string }> {
   exigirAmbienteConfigurado();
   const suc = String(sucursal || 'MTY').toUpperCase();
   const enCache = tokensPorSucursal.get(suc);
-  if (enCache) return enCache;
+  if (enCache) return { token: enCache, sucursal: suc };
 
   const { credencialesDe, formasDePassword } = await import('./pqtxSucursal');
   const cred = credencialesDe(suc);
@@ -188,7 +201,7 @@ export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
       if (obtenido) {
         if (i > 0) console.warn(`[PQTX] ${suc}: la contrasena funciono en el segundo formato. Guardada asi esta bien, no hay que cambiarla.`);
         tokensPorSucursal.set(suc, obtenido);
-        return obtenido;
+        return { token: obtenido, sucursal: suc };
       }
       ultimoError = motivoPqtx(respBody?.messages) || motivoPqtx(response.data?.header?.desTrans) || 'sin detalle';
     } catch (e: any) {
@@ -198,12 +211,15 @@ export async function getJwtToken(sucursal: string = 'MTY'): Promise<string> {
 
   // Si la cuenta de la sucursal no entra, se despacha con la de Monterrey antes
   // que dejar a la bodega sin poder generar guías: una credencial mal capturada
-  // no debe parar la operación. La guía sigue saliendo con el domicilio de la
-  // sucursal —lo que se estaba corrigiendo— y solo cambia quién la paga, que es
-  // el mismo cliente 27736250 en las dos cuentas.
+  // no debe parar la operación.
+  //
+  // Se devuelve 'MTY' como sucursal, no la pedida, y quien arma la guía usa esa
+  // para TODO —usuario, cliente a facturar y domicilio del remitente—. Mezclar
+  // no es una opción: Paquete Express compara el usuario del cuerpo contra el
+  // emisor del token y rechaza la guía entera.
   if (suc !== 'MTY') {
-    console.error(`[PQTX] ${suc}: no se pudo entrar con el usuario ${cred.user} (${ultimoError}). Se despacha con la cuenta de MTY; revisa PQTX_${suc}_USER y PQTX_${suc}_PASSWORD en Railway.`);
-    return getJwtToken('MTY');
+    console.error(`[PQTX] ${suc}: no se pudo entrar con el usuario ${cred.user} (${ultimoError}). Se despacha con la cuenta y el domicilio de MTY; revisa PQTX_${suc}_USER y PQTX_${suc}_PASSWORD en Railway.`);
+    return tokenDeSucursal('MTY');
   }
 
   throw new Error(`Error al obtener token PQTX para ${suc} (usuario ${cred.user}): ${ultimoError}`);
@@ -1718,6 +1734,13 @@ export async function generateOnePqtxGuide(params: {
   // Tabla donde persistir el national_tracking/label (packages por defecto; para
   // envíos DHL se usa dhl_shipments, que no tiene pqtx_shipment_id).
   shipmentTable?: 'packages' | 'dhl_shipments';
+  /**
+   * Sucursal cuya cuenta emitió `token`, tal como la devolvió `tokenDeSucursal`.
+   * De ella salen el usuario, el cliente a facturar y el domicilio del remitente,
+   * porque Paquete Express exige que el usuario del cuerpo sea el emisor del
+   * token. Si no viene, se resuelve de quien opera.
+   */
+  tokenSucursal?: string;
 }): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; noCoverage?: boolean; raw?: any }> {
   // Antes que nada: si el ambiente quedó apuntando a QA por descuido, no se
   // emite nada. Una guía de prueba pegada a una caja real es peor que no tenerla.
@@ -1734,8 +1757,17 @@ export async function generateOnePqtxGuide(params: {
   // cotizaban desde MTY. El tarifario de Paquete Express cobra por bandas de
   // kilometros, asi que el origen equivocado mete la guia en la banda
   // equivocada (reporte de Roman, CEDIS CDMX).
-  const { sucursalDelOperador, remitenteDeSucursal, describirOrigen } = await import('./pqtxSucursal');
-  const sucursalPqtx = await sucursalDelOperador(params.createdBy);
+  const { sucursalDelOperador, remitenteDeSucursal, credencialesDe, describirOrigen } = await import('./pqtxSucursal');
+  // La sucursal que manda es la de la CUENTA que emitió el token, no la de quien
+  // opera. Son casi siempre la misma; difieren cuando la cuenta de la sucursal no
+  // pudo entrar y se cayó a la de Monterrey. Paquete Express compara el usuario
+  // del cuerpo contra el emisor del token —"The Claim 'iss' value doesn't match
+  // the required one"—, así que usuario, cliente a facturar y domicilio del
+  // remitente tienen que salir todos de aquí.
+  const sucursalPqtx = params.tokenSucursal
+    ? String(params.tokenSucursal).toUpperCase()
+    : await sucursalDelOperador(params.createdBy);
+  const credPqtx = credencialesDe(sucursalPqtx);
   const rem = await remitenteDeSucursal(sucursalPqtx);
   const PQTX_ORIGIN_ZIP = rem.zip;
   const PQTX_ORIGIN_CITY = rem.city;
@@ -1889,7 +1921,8 @@ export async function generateOnePqtxGuide(params: {
   const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/guia`;
   const body = {
     header: {
-      security: { user: PQTX_USER, type: 0, token: params.token },
+      // El usuario tiene que ser el que emitió el token o la guía se rechaza entera.
+      security: { user: credPqtx.user, type: 0, token: params.token },
       device: { appName: null, type: null, ip: 'entregax', idDevice: null },
       target: null, output: null, language: null,
     },
@@ -1897,7 +1930,7 @@ export async function generateOnePqtxGuide(params: {
       request: {
         data: [{
           billRad: 'REQUEST',
-          billClntId: PQTX_BILL_CLIENT_ID,
+          billClntId: credPqtx.billClientId,
           pymtMode: 'PAID',
           pymtType: 'C',
           comt: destComt,
@@ -2330,7 +2363,13 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // ahí manda la de quien despacha. El id no se puede consultar en `packages`
     // cuando es DHL: los ids de las dos tablas se pisan.
     const sucursalDespacha = await sucCaja(isDhl ? null : Number(packageId), userId);
-    const token = await getJwtToken(sucursalDespacha);
+    // `sucursalCuenta` puede no ser `sucursalDespacha`: si la cuenta de la
+    // sucursal no entró, el token es el de MTY y la guía completa —usuario,
+    // facturación y remitente— tiene que ir con MTY, sin mezclar.
+    const { token, sucursal: sucursalCuenta } = await tokenDeSucursal(sucursalDespacha);
+    if (sucursalCuenta !== sucursalDespacha) {
+      console.warn(`[PQTX-GEN] La guía sale con la cuenta de ${sucursalCuenta}, no la de ${sucursalDespacha}.`);
+    }
     // Mismo origen para buscar la sucursal Ocurre más cercana: si se busca desde
     // Monterrey una caja que sale de CDMX, la "más cercana" no es la más cercana.
     const originZipSucursal = (await remSuc(sucursalDespacha)).zip;
@@ -2468,6 +2507,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       createdBy: userId,
       childIds,
       shipmentTable: persistTable,
+      tokenSucursal: sucursalCuenta,
     });
 
     if (!result.ok) {
