@@ -526,18 +526,39 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     } catch {}
   }, [token]);
 
-  // Parseo ordenado de claves "clave|descripcion, ..." → [{clave, descripcion}].
+  // Las partidas viven en una sola cadena: "clave⟨campo⟩descripcion⟨campo⟩id⟨partida⟩…".
   // Cada PARTIDA tiene su propio identificador, no su clave SAT: una factura
   // puede llevar el mismo producto dos veces con distinto precio (TKT-2026-2730).
-  // Formato guardado: "clave|descripcion|idPartida".
-  const parseClaves = (str: string) => str.split(',').map(s => s.trim()).filter(Boolean).map(c => {
-    const p = c.split('|');
+  //
+  // Los separadores son caracteres de control porque ANTES eran la coma y el
+  // pipe, y las descripciones del catálogo SAT traen comas: la 41101700 es
+  // "Equipo de perforación, amoladura, corte, trituración y prensado para
+  // laboratorio". Al partir por coma, esa sola partida se volvía cinco, y el
+  // último pedazo se quedaba con el ID DE PARTIDA en el lugar de la
+  // descripción. Eso es el "pmufntd4p6q79" que salió impreso en la orden de
+  // factura B746845, y la razón de que apareciera el concepto dos veces: el
+  // autobalanceo le echa el total entero a la última partida, así que la buena
+  // quedaba en $0.00 y la basura se llevaba los $46,182.88 (tarea 728).
+  //
+  // Un separador de control no se puede teclear ni viene en ninguna descripción
+  // del SAT, así que el texto ya no puede romper la estructura.
+  const SEP_PARTIDA = '';
+  const SEP_CAMPO = '';
+  const parseClaves = (str: string) => str.split(SEP_PARTIDA).map(s => s.trim()).filter(Boolean).map(c => {
+    const p = c.split(SEP_CAMPO);
+    const clave = (p[0] || '').trim();
     return {
-      clave: (p[0] || '').trim(),
-      descripcion: (p[1] || '').trim(),
-      uid: (p[2] || '').trim() || (p[0] || '').trim(),
+      clave,
+      // Solo hay descripción si la cadena traía los tres campos. Sin esto, una
+      // partida a medias ponía el id donde va el texto que se imprime.
+      descripcion: p.length >= 3 ? (p[1] || '').trim() : '',
+      uid: (p[2] || '').trim() || clave,
     };
   });
+  const armarPieza = (clave: string, descripcion: string, uid: string) =>
+    `${clave}${SEP_CAMPO}${descripcion}${SEP_CAMPO}${uid}`;
+  /** Las claves SAT tal como se capturaron, sin descripciones de por medio. */
+  const clavesDe = (str: string) => parseClaves(str).map(c => c.clave).filter(Boolean);
   const nuevaPartidaId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // Partidas de la factura: cantidad × precio; la ÚLTIMA clave autobalancea.
   const computeMobileLineItems = (claves: { clave: string; descripcion: string; uid: string }[], totalMxn: number) => {
@@ -560,14 +581,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const appendClaveFromHistory = (h: { clave: string; descripcion?: string | null }) => {
     freezeLastBeforeAdd();
-    const piece = `${h.clave}|${h.descripcion || ''}|${nuevaPartidaId()}`;
-    setConceptos(conceptos.trim() ? `${conceptos}, ${piece}` : piece);
+    const piece = armarPieza(h.clave, h.descripcion || '', nuevaPartidaId());
+    setConceptos(conceptos.trim() ? `${conceptos}${SEP_PARTIDA}${piece}` : piece);
   };
 
   const removeClave = (uid: string) => {
     const next = parseClaves(conceptos).filter(c => c.uid !== uid)
-      .map(c => `${c.clave}|${c.descripcion}|${c.uid}`);
-    setConceptos(next.join(', '));
+      .map(c => armarPieza(c.clave, c.descripcion, c.uid));
+    setConceptos(next.join(SEP_PARTIDA));
     setConceptoQty(({ [uid]: _q, ...rest }) => rest);
     setConceptoPrice(({ [uid]: _p, ...rest }) => rest);
   };
@@ -576,8 +597,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     freezeLastBeforeAdd();
     // clave|descripcion|idPartida: la descripción para el chip y el id para que
     // la misma clave pueda ir en dos partidas con distinto precio.
-    const piece = `${opt.clave_prodserv}|${opt.descripcion}|${nuevaPartidaId()}`;
-    setConceptos(conceptos.trim() ? `${conceptos}, ${piece}` : piece);
+    const piece = armarPieza(opt.clave_prodserv, opt.descripcion, nuevaPartidaId());
+    setConceptos(conceptos.trim() ? `${conceptos}${SEP_PARTIDA}${piece}` : piece);
   };
 
   // Autocomplete del catálogo SAT (mismo flujo que web: input de
@@ -784,9 +805,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current);
     // Una clave repetida (dos partidas del mismo producto) se valida UNA vez.
     const claves = Array.from(new Set(
-      conceptos.split(',').map(s => s.trim()).filter(Boolean)
-        .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()))
-        .map(s => s.split('|').slice(0, 2).join('|'))
+      clavesDe(conceptos).filter(k => /^\d{6,10}$/.test(k))
     ));
     if (claves.length === 0) {
       setClaveValidations([]);
@@ -800,7 +819,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
     if (!puedeAsignar) {
       setClaveValidations(claves.map(c => ({
-        clave: c.split('|')[0].trim(),
+        clave: c,
         ok: false,
         loading: false,
         error: 'Captura monto y datos fiscales completos.',
@@ -808,11 +827,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return;
     }
 
-    setClaveValidations(claves.map(c => ({ clave: c.split('|')[0].trim(), ok: false, loading: true })));
+    setClaveValidations(claves.map(c => ({ clave: c, ok: false, loading: true })));
     claveDebounceRef.current = setTimeout(async () => {
       const out: ClaveValidation[] = [];
-      for (const c of claves) {
-        const clave = c.split('|')[0].trim();
+      for (const clave of claves) {
         try {
           const body: any = {
             servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
@@ -1306,7 +1324,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return 'Completa todos los datos fiscales para generar factura';
     }
     if (step === 3 && requiereFactura) {
-      const claves = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).filter(Boolean);
+      const claves = clavesDe(conceptos);
       if (claves.length === 0) return 'Captura al menos una clave SAT (clave_prodserv)';
       if (claveValidations.some(v => v.loading)) return 'Validando claves SAT, espera un momento...';
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
