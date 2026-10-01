@@ -184,15 +184,29 @@ async function canManageBoard(req: Request, boardId: number): Promise<boolean> {
   return r.rows.length > 0;
 }
 
-// ¿Puede editar/gestionar ESTA tarea? Gerencia/líder siempre; en el tablero
-// "personales" (Mis Tareas) también el creador o el asignado.
+// ¿Puede editar/gestionar ESTA tarea? Gerencia y el líder del tablero siempre.
+// Además, QUIEN LA CREÓ, en cualquier tablero: la levantó, sabe para qué es y
+// tiene que poder redirigirla.
+//
+// Antes eso solo valía en el tablero "personales", así que un asesor que
+// levantaba una tarea en Ventas no podía ni cambiarle el responsable. Christian
+// González lo reportó por Cajito: "no puedo reasignar o editar el responsable o
+// participantes" (CJD-2026-0031). Son 122 tareas en tableros de equipo cuyo
+// creador no las podía tocar; 62 de él.
+//
+// El mensaje de error ya decía "o el dueño de la tarea puede editarla": el texto
+// prometía lo correcto y el código no lo cumplía.
+//
+// Esto NO abre el borrado —deleteTask tiene su propia regla— ni deja a nadie
+// editar tareas ajenas. En el tablero personal sigue valiendo también el
+// asignado, porque ahí la tarea es suya aunque se la haya puesto otro.
 async function canEditTask(req: Request, task: { board_id: number; created_by?: number; assignee_id?: number }): Promise<boolean> {
   if (await canManageBoard(req, task.board_id)) return true;
   const uid = authUserId(req);
   if (!uid) return false;
+  if (task.created_by != null && Number(task.created_by) === Number(uid)) return true;
   const bk = await pool.query(`SELECT board_key FROM task_boards WHERE id = $1`, [task.board_id]);
-  if (bk.rows[0]?.board_key === 'personales' &&
-      (Number(task.created_by) === Number(uid) || Number(task.assignee_id) === Number(uid))) return true;
+  if (bk.rows[0]?.board_key === 'personales' && Number(task.assignee_id) === Number(uid)) return true;
   return false;
 }
 
