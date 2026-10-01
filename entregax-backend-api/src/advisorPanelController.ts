@@ -2820,6 +2820,7 @@ export const getAdvisorShipmentDocs = async (req: Request, res: Response): Promi
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
     await asegurarColumna('package_documents', 'shipment_type', "VARCHAR(8) NOT NULL DEFAULT 'PKG'");
+    await asegurarColumna('package_documents', 'deleted_at', 'TIMESTAMPTZ');
 
     const uid = String(req.params.uid || '');
     const [tipo, idTxt] = uid.split('-');
@@ -2840,6 +2841,7 @@ export const getAdvisorShipmentDocs = async (req: Request, res: Response): Promi
          FROM package_documents d
          LEFT JOIN users u ON u.id = d.uploaded_by
         WHERE d.package_id = $1 AND COALESCE(d.shipment_type, 'PKG') = $2
+          AND d.deleted_at IS NULL
         ORDER BY d.created_at DESC`,
       [id, tipo === 'DHL' ? 'DHL' : tipo === 'MAR' ? 'MAR' : 'PKG']);
 
@@ -2873,6 +2875,60 @@ export const getAdvisorShipmentDocs = async (req: Request, res: Response): Promi
  * tarifa se movió. Por eso este endpoint va aparte y NO toca instrucciones ni
  * costos: solo guarda archivos.
  */
+/**
+ * DELETE /api/advisor/shipments/:uid/documentos/:docId
+ *
+ * Quita un archivo subido por error. Lo pidió Christian González en la tarea
+ * 715: "poder eliminar un archivo cargado erróneamente y subir el correcto".
+ *
+ * Se borra en BLANDO. Un documento fiscal es evidencia: si alguien reclama qué
+ * factura se usó en un embarque, un DELETE real deja la pregunta sin respuesta
+ * y sin forma de saber quién lo quitó. El archivo deja de verse y de contar,
+ * pero queda la huella.
+ */
+export const borrarAdvisorShipmentDoc = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+    await asegurarColumna('package_documents', 'shipment_type', "VARCHAR(8) NOT NULL DEFAULT 'PKG'");
+    await asegurarColumna('package_documents', 'deleted_at', 'TIMESTAMPTZ');
+    await asegurarColumna('package_documents', 'deleted_by', 'INTEGER');
+
+    const uid = String(req.params.uid || '');
+    const [tipo, idTxt] = uid.split('-');
+    const id = parseInt(idTxt || '', 10);
+    const docId = parseInt(String(req.params.docId || ''), 10);
+    if (!id || !tipo || !docId) return res.status(400).json({ error: 'Datos incompletos' });
+
+    // Mismo candado que para verlos y subirlos: la guía tiene que ser de un
+    // cliente suyo. Sin esto, con el id del documento se podría borrar el de
+    // cualquier otro asesor.
+    const tabla = tipo === 'DHL' ? 'dhl_shipments' : tipo === 'MAR' ? 'maritime_orders' : 'packages';
+    const dueno = await pool.query(
+      `SELECT 1 FROM ${tabla} t JOIN users u ON u.id = t.user_id
+        WHERE t.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) LIMIT 1`,
+      [id, advisorId]);
+    if (!dueno.rowCount) return res.status(403).json({ error: 'Guia no encontrada o sin permiso' });
+
+    // El documento tiene que ser DE ESA GUÍA, no solo existir.
+    const r = await pool.query(
+      `UPDATE package_documents
+          SET deleted_at = NOW(), deleted_by = $3
+        WHERE id = $1 AND package_id = $2
+          AND COALESCE(shipment_type, 'PKG') = $4
+          AND deleted_at IS NULL
+        RETURNING doc_type, original_filename`,
+      [docId, id, advisorId, tipo === 'DHL' ? 'DHL' : tipo === 'MAR' ? 'MAR' : 'PKG']);
+    if (!r.rowCount) return res.status(404).json({ error: 'El archivo no existe o ya se habia quitado' });
+
+    console.log(`[advisor] asesor ${advisorId} quitó el documento ${docId} (${r.rows[0].doc_type}) de ${uid}`);
+    res.json({ ok: true, quitado: r.rows[0].original_filename || null });
+  } catch (e: any) {
+    console.error('[advisor] borrar documento:', e?.message);
+    res.status(500).json({ error: 'No se pudo quitar el archivo' });
+  }
+};
+
 export const subirAdvisorShipmentDocs = async (req: Request, res: Response): Promise<any> => {
   try {
     const advisorId = getAdvisorId(req);

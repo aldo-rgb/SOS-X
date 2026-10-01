@@ -100,6 +100,7 @@ import {
   Calculate as QuoteIcon,
   Send as SendIcon,
   AttachFile as AttachFileIcon,
+  DeleteOutline as DeleteIcon,
   UploadFile as UploadFileIcon,
   PictureAsPdf as PdfIcon,
   InsertDriveFile as FileIcon,
@@ -814,6 +815,28 @@ export default function DashboardAdvisor() {
       });
     } finally {
       setInstrDocSubiendo(false);
+    }
+  };
+  /**
+   * Quitar un archivo subido por error, que es lo que pidió Christian González
+   * en la tarea 715: "poder eliminarlo y subir el correcto".
+   *
+   * Pregunta antes porque un documento fiscal no es un borrador. Del lado del
+   * servidor el borrado es en blando: deja de verse, pero queda quién lo quitó.
+   */
+  const quitarInstrDoc = async (doc: { id: number; nombre: string }) => {
+    if (!instrShipment) return;
+    if (!window.confirm(`¿Quitar "${doc.nombre}" de esta guía?`)) return;
+    try {
+      await api.delete(`/advisor/shipments/${instrShipment.uid}/documentos/${doc.id}`);
+      await cargarInstrDocs(instrShipment.uid);
+      setSnackbar({ open: true, message: 'Archivo quitado. Ya puedes subir el correcto.', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({
+        open: true,
+        message: e?.response?.data?.error || 'No se pudo quitar el archivo',
+        severity: 'error',
+      });
     }
   };
   const cargarInstrDocs = async (uid: string) => {
@@ -8437,10 +8460,20 @@ export default function DashboardAdvisor() {
                       <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                         · {new Date(d.fecha).toLocaleDateString('es-MX')}
                       </Typography>
+                      <Tooltip title="Quitar este archivo">
+                        <IconButton
+                          size="small"
+                          onClick={() => quitarInstrDoc({ id: d.id, nombre: d.nombre })}
+                          sx={{ p: 0.25, ml: 'auto', color: '#C62828' }}
+                        >
+                          <DeleteIcon sx={{ fontSize: 15 }} />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   ))}
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    Solo sube otro si falta alguno: no reemplaza a los anteriores.
+                    Subir otro no reemplaza a los anteriores. Si te equivocaste de archivo, quítalo
+                    con la papelera y sube el correcto.
                   </Typography>
                 </Box>
               )}

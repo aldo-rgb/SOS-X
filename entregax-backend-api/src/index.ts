@@ -639,6 +639,7 @@ import {
   assignAdvisorShipmentInstructions,
   getAdvisorShipmentDocs,
   subirAdvisorShipmentDocs,
+  borrarAdvisorShipmentDoc,
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
@@ -7691,6 +7692,8 @@ app.get('/api/advisor/shipments/:uid/documentos', authenticateToken, getAdvisorS
 // /instructions a proposito: esa ruta recotiza la guia, y subir una factura no
 // debe poder cambiarle el monto al cliente (tarea 714).
 app.post('/api/advisor/shipments/:uid/documentos', authenticateToken, uploadDeliveryDocs, subirAdvisorShipmentDocs);
+// Quitar un archivo subido por error (borrado en blando: queda quién y cuándo).
+app.delete('/api/advisor/shipments/:uid/documentos/:docId', authenticateToken, borrarAdvisorShipmentDoc);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
 
 // ========== COTIZACIONES FORMALES POR ASESOR (PDF) ==========
