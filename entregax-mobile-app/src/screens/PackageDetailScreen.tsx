@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Modal,
+  Alert,
 } from 'react-native';
 import {
   Appbar,
@@ -28,6 +29,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL, Package } from '../services/api';
 import { shortPqtxGuide } from '../utils/pqtx';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
+import * as DocumentPicker from 'expo-document-picker';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -168,6 +170,83 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsError, setMovementsError] = useState<string | null>(null);
+
+  // ── Guía nacional propia del cliente (tarea 718) ──────────────────────────
+  // Esto ya existía en el portal web y en la pantalla del asesor, pero NO en la
+  // app del cliente, que es justo donde Christian González lo buscó. El
+  // endpoint y el módulo de etiquetado ya estaban: faltaba la puerta de este
+  // lado.
+  const [subiendoGuia, setSubiendoGuia] = useState(false);
+
+  /**
+   * Puede subir la suya mientras el envío no haya salido y la etiqueta no sea
+   * NUESTRA. Puede reemplazar la que él mismo subió —se equivocó de archivo, la
+   * paquetería se la cambió— pero no pisar una que EntregaX ya generó y pagó.
+   *
+   * Mismo criterio que puedeSubirGuiaPropia() en el portal web. Si cambia allá,
+   * cambia aquí.
+   */
+  const puedeSubirGuiaPropia = (): boolean => {
+    const d: any = details || {};
+    // FCL NO: un contenedor vive en `containers` y su id COLISIONA con el de
+    // packages, así que mandarlo por la ruta de paquetes le escribiría la
+    // etiqueta a la guía de otro cliente que por casualidad tenga ese número.
+    const svc = String(d.service_type || (pkg as any)?.shipment_type || (pkg as any)?.servicio || '').toLowerCase();
+    if (svc.includes('fcl')) return false;
+
+    const estado = String(d.status || (pkg as any)?.status || '');
+    if (['delivered', 'out_for_delivery', 'sent', 'returned_to_warehouse'].includes(estado)) return false;
+
+    const fuente = String(d.nationalLabelInfo?.source || d.national_label_source || '').toLowerCase();
+    if (fuente === 'generated') return false;
+    // national_tracking sin etiqueta propia = paquetería ya contratada por nosotros.
+    if (d.national_tracking && fuente !== 'uploaded') return false;
+    return true;
+  };
+
+  const subirGuiaPropia = async () => {
+    try {
+      const sel = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (sel.canceled) return;
+      const archivos = (sel.assets || []).map((a: any) => ({
+        uri: a.uri, name: a.name || 'guia', mimeType: a.mimeType,
+      }));
+      if (archivos.length === 0) return;
+
+      setSubiendoGuia(true);
+      const fd = new FormData();
+      archivos.forEach(f => fd.append('files', {
+        uri: f.uri, name: f.name, type: f.mimeType || 'application/octet-stream',
+      } as any));
+
+      // Cada servicio vive en su tabla y tiene su propia ruta, igual que en el
+      // panel del asesor y en la web.
+      const svc = String((details as any)?.service_type || (pkg as any)?.shipment_type || (pkg as any)?.servicio || '').toLowerCase();
+      const base = svc.includes('sea') || svc.includes('maritim') ? 'maritime'
+        : svc.includes('dhl') ? 'dhl'
+        : 'packages';
+
+      const r = await fetch(`${API_URL}/api/${base}/${pkg.id}/national-guide`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `Error ${r.status}`);
+      }
+      Alert.alert('Listo', 'Tu guía quedó subida. La usaremos para enviar tu paquete.');
+      navigation.goBack();
+    } catch (e: any) {
+      Alert.alert('No se pudo subir', e?.message || 'Intenta de nuevo');
+    } finally {
+      setSubiendoGuia(false);
+    }
+  };
   const [movements, setMovements] = useState<PackageMovement[]>([]);
 
   // 📦 Detectar si es un paquete REPACK (consolidación física = 1 caja)
@@ -758,6 +837,36 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.infoValue}>{details.national_folio_porte || shortPqtxGuide(details.national_tracking)}</Text>
               </View>
             )}
+
+            {/* Subir mi propia guía de paquetería.
+
+                Va aquí, pegado al renglón de la guía nacional, porque es donde
+                el cliente viene a mirar cómo se va a enviar su caja. Ponerlo en
+                otra pantalla obliga a buscarlo, y lo que no se encuentra no
+                existe: Christian González lo buscó en la app y no estaba. */}
+            {puedeSubirGuiaPropia() && (
+              <View style={styles.guiaPropiaBox}>
+                <Text style={styles.guiaPropiaTitulo}>📤 ¿Tienes tu propia guía de paquetería?</Text>
+                <Text style={styles.guiaPropiaTexto}>
+                  {(details as any)?.nationalLabelInfo?.source === 'uploaded'
+                    ? 'Ya subiste una. Si te equivocaste de archivo o la paquetería te la cambió, puedes reemplazarla.'
+                    : 'Súbela y la usamos para enviar tu paquete. Acepta PDF o foto, y si son varias páginas puedes mandarlas juntas.'}
+                </Text>
+                <Button
+                  mode="contained"
+                  icon="upload"
+                  onPress={subirGuiaPropia}
+                  loading={subiendoGuia}
+                  disabled={subiendoGuia}
+                  style={styles.guiaPropiaBoton}
+                  buttonColor={ORANGE}
+                >
+                  {subiendoGuia
+                    ? 'Subiendo…'
+                    : ((details as any)?.nationalLabelInfo?.source === 'uploaded' ? 'Reemplazar mi guía' : 'Subir mi guía')}
+                </Button>
+              </View>
+            )}
           </Card.Content>
         </Card>
 
@@ -1293,6 +1402,17 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  guiaPropiaBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#FFF6F2',
+    borderWidth: 1,
+    borderColor: '#FBD6C7',
+  },
+  guiaPropiaTitulo: { fontSize: 15, fontWeight: '700', color: BLACK, marginBottom: 4 },
+  guiaPropiaTexto: { fontSize: 13, color: '#666', lineHeight: 18, marginBottom: 12 },
+  guiaPropiaBoton: { borderRadius: 8 },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
