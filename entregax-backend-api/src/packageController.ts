@@ -7,6 +7,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
+import { paqueteriaSinFlete } from './fleteNacional';
 
 // Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
 // se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
@@ -4319,15 +4320,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                     if (shipping === 0) {
                         const carrierKey = String(pkg.national_carrier || '').toLowerCase();
                         const carrierPrice = carrierPriceMap[carrierKey] || 0;
-                        // Se mira la CLAVE, no el nombre: 'entregax_pobox' se llama
-                        // "Entregax Local" pero su clave no dice "local", así que
-                        // caía aquí y se le ponía el precio de catálogo de una
-                        // paquetería que no es (TKT-2026-2955). Cualquier
-                        // paquetería nuestra entra por el prefijo, sin depender de
-                        // que alguien agregue la clave nueva a una lista.
-                        const isLocalOrFree = !carrierKey || carrierKey.startsWith('entregax')
-                            || carrierKey.includes('local') || carrierKey.includes('pickup')
-                            || carrierKey.includes('bodega') || carrierKey.includes('rack') || carrierKey.includes('piso') || carrierKey.includes('tarima');
+                        // La regla vive en fleteNacional.ts, una sola vez. Antes
+                        // estaba copiada aquí y en la web, y las dos adivinaban
+                        // leyendo la clave (TKT-2026-2955).
+                        const isLocalOrFree = paqueteriaSinFlete(carrierKey);
                         if (!isLocalOrFree && carrierPrice > 0) shipping = carrierPrice;
                     }
 

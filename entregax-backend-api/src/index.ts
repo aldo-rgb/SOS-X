@@ -15163,6 +15163,13 @@ app.post(['/api/sync/*splat', '/api/webhooks/*splat'], async (req: Request, res:
   });
 });
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
+
+// Revisión del catálogo de fletes al arrancar: avisa si alguna paquetería tiene
+// su propia tarifa capturada y aun así recibiría el fallback de $400. Es el caso
+// que se coló con "Entregax Local" (TKT-2026-2955).
+import('./fleteNacional')
+  .then(({ revisarCatalogoDeFletes }) => revisarCatalogoDeFletes())
+  .catch((e: any) => console.warn('[flete] revisión de catálogo:', e?.message));
 setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min
 // Reintento de adjuntos externos que no se pudieron bajar (ver
 // reintentarAdjuntosPendientes): se recuperan solos cuando acomoden su auth.

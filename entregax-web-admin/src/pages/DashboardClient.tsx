@@ -935,8 +935,14 @@ export default function DashboardClient() {
     //
     // Cualquier paquetería NUESTRA entra aquí por el prefijo, no por que
     // alguien se acuerde de agregar la clave nueva a una lista.
-    const esPaqueteriaPropia = carrier.startsWith('entregax');
-    const isLocalOrFree = !carrier || esPaqueteriaPropia || carrier.includes('local') || carrier.includes('pickup') || carrier.includes('pick up') || ['bodega', 'rack', 'piso', 'tarima'].includes(carrier);
+    // ⚠️ ESPEJO de paqueteriaSinFlete() en entregax-backend-api/src/fleteNacional.ts.
+    //    Si cambia allá, cambia aquí. Ese archivo tiene el porqué y una revisión
+    //    que corre al arrancar el servidor para avisar si una paquetería nueva
+    //    vuelve a caer en esto.
+    const isLocalOrFree = !carrier
+      || carrier.startsWith('entregax')
+      || carrier.includes('local') || carrier.includes('pickup') || carrier.includes('pick up')
+      || ['bodega', 'rack', 'piso', 'tarima'].includes(carrier);
     // En carga aérea (china_air), la paquetería nacional (paquete express) va
     // INCLUIDA en el flete → no se cobra aparte, no aplica el fallback.
     const isAirFreightIncluded = (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX') && carrier.includes('paquete');
