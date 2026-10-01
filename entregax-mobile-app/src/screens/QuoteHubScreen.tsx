@@ -133,6 +133,28 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   // Inputs específicos Marítimo (paridad con web)
   const [maritimeMode, setMaritimeMode] = useState<'volumen' | 'fcl_40'>('volumen');
+  // Contenedor dedicado: el precio depende de la RUTA y del ESTADO de entrega.
+  // Sin esos dos datos el backend no usa el precio del mes y devuelve el número
+  // viejo — es lo que Juan Segura vio el 1-oct (tarea 671).
+  const [elpOpciones, setElpOpciones] = useState<{
+    rutas: Array<{ id: number; nombre: string; origen: string; destino: string; cotiza: boolean }>;
+    estados: Array<{ estado: string; cobertura: string; tarifa_usd: number | null }>;
+  } | null>(null);
+  const [rutaId, setRutaId] = useState<number | null>(null);
+  const [estadoEntrega, setEstadoEntrega] = useState('');
+  useEffect(() => {
+    if (maritimeMode !== 'fcl_40' || elpOpciones) return;
+    fetch(`${API_URL}/api/public/elp/opciones`)
+      .then(r => r.json())
+      .then(d => {
+        setElpOpciones(d);
+        // Una sola ruta cotizable se preselecciona: preguntar algo con una sola
+        // respuesta posible es trabajo para el cliente y nada más.
+        const ok = (d?.rutas || []).filter((x: { cotiza: boolean }) => x.cotiza);
+        if (ok.length === 1) setRutaId(ok[0].id);
+      })
+      .catch(() => setElpOpciones({ rutas: [], estados: [] }));
+  }, [maritimeMode, elpOpciones]);
   // Sub-tipo Aéreo China (paridad con web)
   const [airSubservice, setAirSubservice] = useState<'tdi_aereo' | 'tdi_express'>('tdi_aereo');
   const [estimatedValueUsd, setEstimatedValueUsd] = useState('');
@@ -399,7 +421,12 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       body.userId = user?.id;
       body.category = 'Generico';
       body.cbm = cbm;
-      if (isMaritimeFCL) body.subservicio = 'fcl_40';
+      if (isMaritimeFCL) {
+        body.subservicio = 'fcl_40';
+        // Sin ruta y estado, el backend se queda con el precio suelto de siempre.
+        body.route_id = rutaId;
+        body.estado = estadoEntrega;
+      }
     } else if (selectedService.key === 'dhl') {
       // DHL usa el endpoint público universal (mismo que web)
       body = {
@@ -578,6 +605,57 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               ? L('Cotiza por metros cúbicos. Ideal para volúmenes mixtos.','Quote by cubic meters. Ideal for mixed volumes.','按立方米报价，适合混合货物。')
               : L('Contenedor completo de 40 pies (~66 m³). Cotiza por contenedor.','Full 40-ft container (~66 m³). Quote per container.','40尺整箱(约66m³)，按集装箱报价。')}
           </Text>
+
+          {/* Ruta y estado de entrega: el precio del contenedor se arma con el
+              flete del mes de ESA ruta más el tramo nacional del estado. */}
+          {maritimeMode === 'fcl_40' && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={styles.helpText}>{L('Ruta','Route','路线')}</Text>
+              <View style={styles.chipRow}>
+                {(elpOpciones?.rutas || []).map(r => (
+                  <TouchableOpacity
+                    key={r.id}
+                    disabled={!r.cotiza}
+                    style={[styles.chip, rutaId === r.id && styles.chipActive, !r.cotiza && { opacity: 0.45 }]}
+                    onPress={() => setRutaId(r.id)}
+                  >
+                    <Text style={[styles.chipText, rutaId === r.id && styles.chipTextActive]}>
+                      {r.nombre}{!r.cotiza ? L(' · sin precio',' · no price',' · 无价格') : ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.helpText, { marginTop: 10 }]}>
+                {L('Estado de entrega — el precio ya incluye llevarlo hasta ahí',
+                   'Delivery state — the price already includes delivery there',
+                   '交付州 — 价格已包含送达')}
+              </Text>
+              <View style={styles.chipRow}>
+                {(elpOpciones?.estados || [])
+                  .filter(e => e.cobertura !== 'sin_cobertura')
+                  .map(e => (
+                    <TouchableOpacity
+                      key={e.estado}
+                      style={[styles.chip, estadoEntrega === e.estado && styles.chipActive]}
+                      onPress={() => setEstadoEntrega(e.estado)}
+                    >
+                      <Text style={[styles.chipText, estadoEntrega === e.estado && styles.chipTextActive]}>
+                        {e.estado}
+                        {e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+              </View>
+              {/* Los estados sin cobertura NO se listan: ofrecer un destino al que
+                  no llegamos solo lleva al cliente a un "no se puede" al final. */}
+              <Text style={[styles.helpText, { marginTop: 6, fontStyle: 'italic' }]}>
+                {L('¿No ves tu estado? Todavía no entregamos contenedor dedicado ahí. Habla con tu asesor.',
+                   "Don't see your state? We don't deliver dedicated containers there yet. Talk to your advisor.",
+                   '没看到您的州？我们尚未在该地交付整箱，请联系顾问。')}
+              </Text>
+            </View>
+          )}
         </View>
       )}
 

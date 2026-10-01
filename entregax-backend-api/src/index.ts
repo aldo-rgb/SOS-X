@@ -8667,6 +8667,18 @@ app.put('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.ADMI
 // Precio mensual del contenedor dedicado y tarifas del tramo nacional (tarea
 // 671). Leer lo puede el mostrador —necesita saber qué se cotiza—; capturar
 // precios es de admin: de estos numeros sale lo que se le cobra al cliente.
+// Opciones del cotizador de contenedor dedicado: rutas con ELP y estados con su
+// cobertura. PÚBLICA a propósito — el cotizador de la landing no pide sesión, y
+// aquí no hay nada que no se vaya a ver en pantalla de todos modos.
+app.get('/api/public/elp/opciones', async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const { opcionesCotizadorElp } = await import('./elpTarifas');
+    res.json(await opcionesCotizadorElp());
+  } catch (e: any) {
+    console.error('[elp] opciones del cotizador:', e?.message);
+    res.status(500).json({ error: 'No se pudieron cargar las opciones' });
+  }
+});
 app.get('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetPrecios);
 app.put('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpsertPrecio);
 app.get('/api/elp/admin/tarifas-nacionales', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetTarifasNacionales);

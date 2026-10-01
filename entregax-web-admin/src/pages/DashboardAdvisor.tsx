@@ -6729,6 +6729,24 @@ export default function DashboardAdvisor() {
     setFormalQuoteDialogOpen(true);
   }, [formalQuoteClients.length, formalQuoteGexFallbackTc]);
 
+  // Contenedor dedicado: ruta y estado de entrega. El backend solo usa el
+  // precio del mes cuando le llegan los dos; sin ellos cotiza con el número
+  // suelto de siempre (tarea 671).
+  const [fqElp, setFqElp] = useState<{
+    rutas: Array<{ id: number; nombre: string; origen: string; destino: string; cotiza: boolean }>;
+    estados: Array<{ estado: string; cobertura: string; tarifa_usd: number | null }>;
+  } | null>(null);
+  const [fqRutaId, setFqRutaId] = useState<number | ''>('');
+  const [fqEstado, setFqEstado] = useState('');
+  useEffect(() => {
+    if (formalQuoteSubservicio !== 'fcl_40' || fqElp) return;
+    api.get('/public/elp/opciones').then(r => {
+      setFqElp(r.data);
+      const ok = (r.data?.rutas || []).filter((x: { cotiza: boolean }) => x.cotiza);
+      if (ok.length === 1) setFqRutaId(ok[0].id);
+    }).catch(() => setFqElp({ rutas: [], estados: [] }));
+  }, [formalQuoteSubservicio, fqElp]);
+
   const handleCalculateFormalQuote = async () => {
     setFormalQuoteCalculating(true);
     setFormalQuoteCalcResult(null);
@@ -6744,6 +6762,15 @@ export default function DashboardAdvisor() {
       if (formalQuoteAlto) body.alto = Number(formalQuoteAlto);
       if (formalQuotePeso) body.peso = Number(formalQuotePeso);
       if (formalQuoteCbm) body.cbm = Number(formalQuoteCbm);
+      if (formalQuoteSubservicio === 'fcl_40') {
+        if (!fqRutaId || !fqEstado) {
+          setSnackbar({ open: true, message: 'Elige la ruta y el estado de entrega del contenedor', severity: 'warning' });
+          setFormalQuoteCalculating(false);
+          return;
+        }
+        body.route_id = fqRutaId;
+        body.estado = fqEstado;
+      }
       const r = await api.post('/public/quote', body);
       setFormalQuoteCalcResult(r.data);
     } catch (err: any) {
@@ -9133,6 +9160,46 @@ export default function DashboardAdvisor() {
                 )}
               </Grid>
             </Grid>
+
+            {/* Contenedor dedicado: ruta y estado. El precio sale del mes de ESA
+                ruta más el tramo nacional del estado; sin los dos, el cotizador
+                devuelve el precio suelto que llevaba meses sin tocarse. */}
+            {formalQuoteSubservicio === 'fcl_40' && (
+              <Grid size={12}>
+                <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#F05A28', mt: 1 }}>
+                  Contenedor dedicado
+                </Typography>
+                <Grid container spacing={1}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Ruta</InputLabel>
+                      <Select value={fqRutaId} label="Ruta" onChange={e => setFqRutaId(Number(e.target.value))}>
+                        {(fqElp?.rutas || []).map(r => (
+                          <MenuItem key={r.id} value={r.id} disabled={!r.cotiza}>
+                            {r.nombre}{!r.cotiza && ' — sin precio del mes'}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Estado de entrega</InputLabel>
+                      <Select value={fqEstado} label="Estado de entrega" onChange={e => setFqEstado(String(e.target.value))}>
+                        {(fqElp?.estados || []).map(e2 => (
+                          <MenuItem key={e2.estado} value={e2.estado} disabled={e2.cobertura === 'sin_cobertura'}>
+                            {e2.estado}
+                            {e2.cobertura === 'incluido' && ' — incluida'}
+                            {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd} USD`}
+                            {e2.cobertura === 'sin_cobertura' && ' — sin cobertura'}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+              </Grid>
+            )}
 
             {/* Dimensiones */}
             <Grid size={12}>

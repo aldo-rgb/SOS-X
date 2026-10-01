@@ -108,6 +108,22 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [servicio, setServicio] = useState<ServicioKey>('maritimo');
   const [subservicio, setSubservicio] = useState('por_volumen');
+  // Contenedor dedicado: ruta y estado de entrega. Sin los dos, el backend
+  // cotiza con el precio suelto de siempre en vez del precio del mes (tarea 671).
+  const [elpOpc, setElpOpc] = useState<{
+    rutas: Array<{ id: number; nombre: string; cotiza: boolean }>;
+    estados: Array<{ estado: string; cobertura: string; tarifa_usd: number | null }>;
+  } | null>(null);
+  const [elpRuta, setElpRuta] = useState<number | null>(null);
+  const [elpEstado, setElpEstado] = useState('');
+  useEffect(() => {
+    if (subservicio !== 'fcl_40' || elpOpc) return;
+    api.get('/api/public/elp/opciones').then((r: any) => {
+      setElpOpc(r.data);
+      const ok = (r.data?.rutas || []).filter((x: { cotiza: boolean }) => x.cotiza);
+      if (ok.length === 1) setElpRuta(ok[0].id);
+    }).catch(() => setElpOpc({ rutas: [], estados: [] }));
+  }, [subservicio, elpOpc]);
   const [categoria, setCategoria] = useState('Generico');
   const [largo, setLargo] = useState('');
   const [ancho, setAncho] = useState('');
@@ -350,6 +366,10 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
           Alert.alert('Falta dato', 'Ingresa la cantidad de contenedores');
           return;
         }
+        if (!elpRuta || !elpEstado) {
+          Alert.alert('Falta dato', 'Elige la ruta y el estado de entrega del contenedor');
+          return;
+        }
       } else {
         const hasDims = largoN > 0 && anchoN > 0 && altoN > 0;
         const hasCbm = cbmN > 0;
@@ -375,6 +395,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       if (alto) body.alto = Number(alto);
       if (peso) body.peso = Number(peso);
       if (cbm) body.cbm = Number(cbm);
+      if (subservicio === 'fcl_40') { body.route_id = elpRuta; body.estado = elpEstado; }
       const r = await api.post('/api/public/quote', body);
       setCalcResult(r.data);
     } catch (err: any) {
@@ -731,6 +752,44 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 ))}
               </View>
+            )}
+
+            {/* Contenedor dedicado: el precio sale del mes de ESA ruta más el
+                tramo nacional del estado. Sin los dos, el cotizador devuelve el
+                precio suelto de siempre (tarea 671). */}
+            {subservicio === 'fcl_40' && (
+              <>
+                <Text style={s.sectionTitle}>Contenedor dedicado</Text>
+                <Text style={s.helperText}>Ruta</Text>
+                <View style={s.chipRowSmall}>
+                  {(elpOpc?.rutas || []).map(r => (
+                    <TouchableOpacity
+                      key={r.id}
+                      disabled={!r.cotiza}
+                      style={[s.chipSmall, elpRuta === r.id && s.chipSmallActive, !r.cotiza && { opacity: 0.45 }]}
+                      onPress={() => setElpRuta(r.id)}
+                    >
+                      <Text style={[s.chipSmallText, elpRuta === r.id && s.chipSmallTextActive]}>
+                        {r.nombre}{!r.cotiza ? ' · sin precio' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={s.helperText}>Estado de entrega — el precio ya incluye llevarlo ahí</Text>
+                <View style={s.chipRowSmall}>
+                  {(elpOpc?.estados || []).filter(e => e.cobertura !== 'sin_cobertura').map(e => (
+                    <TouchableOpacity
+                      key={e.estado}
+                      style={[s.chipSmall, elpEstado === e.estado && s.chipSmallActive]}
+                      onPress={() => setElpEstado(e.estado)}
+                    >
+                      <Text style={[s.chipSmallText, elpEstado === e.estado && s.chipSmallTextActive]}>
+                        {e.estado}{e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
             )}
 
             {/* Dimensiones */}
@@ -1403,6 +1462,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
 }
 
 const s = StyleSheet.create({
+  chipRowSmall: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   container: { flex: 1, backgroundColor: BG },
   header: {
     backgroundColor: ORANGE, paddingHorizontal: 14, paddingBottom: 12,

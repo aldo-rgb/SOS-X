@@ -260,3 +260,58 @@ export async function cotizarContenedorElp(
         },
   };
 }
+
+/**
+ * Opciones que necesita el cotizador para un contenedor dedicado: las rutas que
+ * ELP atiende y los estados a los que se entrega.
+ *
+ * Existe porque sin esto el cotizador no tenía cómo preguntar. El precio por
+ * ruta y mes ya estaba construido, pero `/api/public/quote` solo lo usa cuando
+ * le llegan `route_id` y `estado`; sin esos dos campos caía al número suelto de
+ * siempre. Juan Segura lo probó como cliente el 1-oct: "aún no me pregunta lo
+ * de los estados y me sigue dando precio viejo" (tarea 671).
+ *
+ * Cada estado viene con su cobertura ya resuelta, para que la pantalla pueda
+ * avisar ANTES de cotizar que a ese destino no llegamos, en vez de mostrar un
+ * precio y retirarlo después.
+ */
+export async function opcionesCotizadorElp(): Promise<{
+  rutas: Array<{ id: number; nombre: string; origen: string; destino: string; cotiza: boolean; motivo?: string }>;
+  estados: Array<{ estado: string; cobertura: CoberturaEstado; tarifa_usd: number | null }>;
+}> {
+  await asegurarEsquemaTarifas();
+  await sembrarEstados();
+
+  const r = await pool.query(
+    `SELECT id, name, origin, destination FROM maritime_routes
+      WHERE COALESCE(elp_enabled, false) = TRUE AND COALESCE(is_active, true) = TRUE
+      ORDER BY id`);
+
+  // Una ruta sin precio del mes NO se ofrece como cotizable. Es el caso de Long
+  // Beach: se decidió dejarla sin cotizar hasta que capturen su precio, en vez
+  // de enseñar uno viejo que ya nadie sostiene.
+  const rutas = [];
+  for (const x of r.rows) {
+    const p = await precioVigente(Number(x.id));
+    rutas.push({
+      id: Number(x.id),
+      nombre: String(x.name || ''),
+      origen: String(x.origin || ''),
+      destino: String(x.destination || ''),
+      cotiza: !!p,
+      ...(p ? {} : { motivo: 'Esta ruta todavía no tiene precio del mes capturado.' }),
+    });
+  }
+
+  const e = await pool.query(
+    `SELECT estado, cobertura, tarifa_usd FROM elp_tarifas_nacionales ORDER BY estado`);
+
+  return {
+    rutas,
+    estados: e.rows.map((x: any) => ({
+      estado: String(x.estado),
+      cobertura: String(x.cobertura) as CoberturaEstado,
+      tarifa_usd: x.tarifa_usd == null ? null : Number(x.tarifa_usd),
+    })),
+  };
+}

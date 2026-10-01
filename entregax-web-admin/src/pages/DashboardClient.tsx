@@ -53,6 +53,7 @@ import {
   BottomNavigationAction,
   Select,
   InputLabel,
+  FormHelperText,
   Autocomplete,
   FormGroup,
 } from '@mui/material';
@@ -1772,6 +1773,29 @@ export default function DashboardClient() {
   const [quoteCategoria, setQuoteCategoria] = useState('');
   const [quoteCbm, setQuoteCbm] = useState('');
   const [quoteMaritimoMode, setQuoteMaritimoMode] = useState<'volumen' | 'fcl_40'>('volumen');
+  // Contenedor dedicado: el precio depende de la RUTA (cada puerto tiene el
+  // suyo) y del ESTADO de entrega (el tramo nacional se suma aparte). Sin esos
+  // dos datos el backend no puede usar el precio del mes y cae al número viejo,
+  // que es justo lo que Juan Segura vio el 1-oct: "aún no me pregunta lo de los
+  // estados y me sigue dando precio viejo" (tarea 671).
+  const [elpOpciones, setElpOpciones] = useState<{
+    rutas: Array<{ id: number; nombre: string; origen: string; destino: string; cotiza: boolean; motivo?: string }>;
+    estados: Array<{ estado: string; cobertura: string; tarifa_usd: number | null }>;
+  } | null>(null);
+  const [quoteRutaId, setQuoteRutaId] = useState<number | ''>('');
+  const [quoteEstado, setQuoteEstado] = useState('');
+  useEffect(() => {
+    if (quoteMaritimoMode !== 'fcl_40' || elpOpciones) return;
+    api.get('/public/elp/opciones')
+      .then(r => {
+        setElpOpciones(r.data);
+        // Si solo hay una ruta cotizable, se preselecciona: preguntar algo que
+        // tiene una sola respuesta posible es trabajo para el cliente y nada más.
+        const cotizables = (r.data?.rutas || []).filter((x: { cotiza: boolean }) => x.cotiza);
+        if (cotizables.length === 1) setQuoteRutaId(cotizables[0].id);
+      })
+      .catch(() => setElpOpciones({ rutas: [], estados: [] }));
+  }, [quoteMaritimoMode, elpOpciones]);
   const [quoteAirSubservice, setQuoteAirSubservice] = useState<'tdi_aereo' | 'tdi_express'>('tdi_aereo');
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteResult, setQuoteResult] = useState<any>(null);
@@ -4950,6 +4974,14 @@ export default function DashboardClient() {
           setSnackbar({ open: true, message: 'Ingresa la cantidad de contenedores', severity: 'warning' });
           return;
         }
+        if (!quoteRutaId) {
+          setSnackbar({ open: true, message: 'Elige la ruta del contenedor', severity: 'warning' });
+          return;
+        }
+        if (!quoteEstado) {
+          setSnackbar({ open: true, message: 'Elige el estado a donde se entrega: el precio incluye el tramo nacional', severity: 'warning' });
+          return;
+        }
       } else {
         const hasDims = largo > 0 && ancho > 0 && alto > 0;
         const hasCbmManual = cbmManual > 0;
@@ -4987,6 +5019,12 @@ export default function DashboardClient() {
             : quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40'
               ? 'fcl_40'
               : undefined,
+        // Solo en contenedor dedicado. El backend usa el precio del mes de ESA
+        // ruta y le suma la tarifa del estado; sin estos dos campos se queda
+        // con el precio suelto de siempre.
+        ...(quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40'
+          ? { route_id: quoteRutaId, estado: quoteEstado }
+          : {}),
       });
       setQuoteResult(res.data);
     } catch (err: unknown) {
@@ -7648,6 +7686,55 @@ export default function DashboardClient() {
                                   <MenuItem value="volumen">📦 Por volumen (CBM)</MenuItem>
                                   <MenuItem value="fcl_40">🚢 Contenedor completo 40 pies · ~66 m³</MenuItem>
                                 </Select>
+                              </FormControl>
+                            </Grid>
+                          )}
+                          {/* Contenedor dedicado: ruta y estado de entrega.
+                              El precio se arma con el flete del mes de ESA ruta,
+                              el costo de liberación y la utilidad, más el tramo
+                              nacional del estado. Sin estos dos datos el
+                              cotizador devolvía un precio suelto que llevaba
+                              meses sin actualizarse (tarea 671). */}
+                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Ruta</InputLabel>
+                                <Select
+                                  value={quoteRutaId}
+                                  label="Ruta"
+                                  onChange={(e) => setQuoteRutaId(Number(e.target.value))}
+                                >
+                                  {(elpOpciones?.rutas || []).map(r => (
+                                    <MenuItem key={r.id} value={r.id} disabled={!r.cotiza}>
+                                      {r.nombre} · {r.origen} → {r.destino}
+                                      {!r.cotiza && ' — sin precio del mes'}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                          )}
+                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Estado de entrega</InputLabel>
+                                <Select
+                                  value={quoteEstado}
+                                  label="Estado de entrega"
+                                  onChange={(e) => setQuoteEstado(String(e.target.value))}
+                                >
+                                  {(elpOpciones?.estados || []).map(e2 => (
+                                    <MenuItem key={e2.estado} value={e2.estado} disabled={e2.cobertura === 'sin_cobertura'}>
+                                      {e2.estado}
+                                      {e2.cobertura === 'incluido' && ' — entrega incluida'}
+                                      {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd.toLocaleString('en-US')} USD`}
+                                      {e2.cobertura === 'sin_cobertura' && ' — sin cobertura'}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                <FormHelperText>
+                                  El precio del contenedor ya incluye la entrega hasta el estado que elijas.
+                                </FormHelperText>
                               </FormControl>
                             </Grid>
                           )}
