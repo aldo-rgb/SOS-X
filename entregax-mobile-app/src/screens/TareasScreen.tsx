@@ -269,7 +269,9 @@ export default function TareasScreen({ navigation, route }: Props) {
       )}
 
       <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage columns={visibleCols} myId={myId}
-        onClose={() => setOpenId(null)} onChanged={refresh} />
+        // Ver una tarea ya cuenta como cambio para la lista: marca la lectura
+        // y eso decide si sigue a la vista. Ver MisTareasScreen.
+        onClose={() => { setOpenId(null); refresh(); }} onChanged={refresh} />
 
       {/* Crear tarea */}
       <Modal visible={createOpen} animationType="slide" transparent onRequestClose={() => setCreateOpen(false)}>

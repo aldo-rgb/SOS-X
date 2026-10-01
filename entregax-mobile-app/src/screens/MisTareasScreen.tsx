@@ -342,7 +342,12 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       <CajitoFab user={user} token={token} />
 
       <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false} myId={myId}
-        onClose={() => setOpenId(null)} onChanged={load} />
+        // Al cerrar se recarga la lista, aunque no se haya cambiado nada.
+        // Abrir una tarea terminada NO la modifica, pero sí registra que la
+        // viste, y es justo eso lo que hace que desaparezca del tablero. Sin
+        // este load, la tarjeta se quedaba ahí diciendo "ábrela para quitarla"
+        // por más veces que la abrieras: la lista seguía siendo la de antes.
+        onClose={() => { setOpenId(null); load(); }} onChanged={load} />
       <CreateTaskModal visible={createOpen} token={token} myId={myId} advisorMode={isAdvisorUser}
         onClose={() => setCreateOpen(false)} onCreated={load} />
       <ScheduleTaskModal visible={schedOpen} token={token} myId={myId} advisorMode={isAdvisorUser}

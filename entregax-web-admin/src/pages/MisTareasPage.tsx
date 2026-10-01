@@ -1612,7 +1612,9 @@ export default function MisTareasPage() {
         </DialogActions>
       </Dialog>
 
-      {detailId && <TaskDetail id={detailId} onClose={() => setDetailId(null)} onChanged={load} notify={notify} />}
+      {/* Al cerrar se recarga, aunque no se haya cambiado nada: abrir una tarea
+          terminada registra que la viste, y eso es lo que la quita de la lista. */}
+      {detailId && <TaskDetail id={detailId} onClose={() => { setDetailId(null); load(); }} onChanged={load} notify={notify} />}
 
       <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ ...snack, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
         <Alert severity={snack.sev} onClose={() => setSnack({ ...snack, open: false })}>{snack.msg}</Alert>
