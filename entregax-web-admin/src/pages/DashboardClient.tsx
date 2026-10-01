@@ -923,7 +923,20 @@ export default function DashboardClient() {
     );
     if (fromChildren > 0) return fromChildren;
     const carrier = String(pkg.national_carrier || pkg.carrier || '').toLowerCase();
-    const isLocalOrFree = !carrier || carrier.includes('local') || carrier.includes('pickup') || carrier.includes('pick up') || ['bodega', 'rack', 'piso', 'tarima'].includes(carrier);
+    // Se mira la CLAVE de la paquetería, no su nombre, y ahí estaba la trampa:
+    // 'entregax_pobox' se llama "Entregax Local" y es nuestra entrega local,
+    // pero su clave no dice "local". No pasaba este filtro, así que a cada guía
+    // se le sumaban $400 de Paquete Express que nadie iba a cobrar.
+    //
+    // Le pasó a Oscar Cortez (S186): su orden pedía $1,852.08 por dos guías que
+    // valían $1,153.22, y los $698.86 de diferencia eran esos $400 por guía
+    // (TKT-2026-2955). El flete real de su envío es CERO: EntregaX Local cobra
+    // $99 por caja y es gratis desde 3, y él llevaba 3.
+    //
+    // Cualquier paquetería NUESTRA entra aquí por el prefijo, no por que
+    // alguien se acuerde de agregar la clave nueva a una lista.
+    const esPaqueteriaPropia = carrier.startsWith('entregax');
+    const isLocalOrFree = !carrier || esPaqueteriaPropia || carrier.includes('local') || carrier.includes('pickup') || carrier.includes('pick up') || ['bodega', 'rack', 'piso', 'tarima'].includes(carrier);
     // En carga aérea (china_air), la paquetería nacional (paquete express) va
     // INCLUIDA en el flete → no se cobra aparte, no aplica el fallback.
     const isAirFreightIncluded = (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX') && carrier.includes('paquete');

@@ -4319,7 +4319,14 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                     if (shipping === 0) {
                         const carrierKey = String(pkg.national_carrier || '').toLowerCase();
                         const carrierPrice = carrierPriceMap[carrierKey] || 0;
-                        const isLocalOrFree = !carrierKey || carrierKey.includes('local') || carrierKey.includes('pickup')
+                        // Se mira la CLAVE, no el nombre: 'entregax_pobox' se llama
+                        // "Entregax Local" pero su clave no dice "local", así que
+                        // caía aquí y se le ponía el precio de catálogo de una
+                        // paquetería que no es (TKT-2026-2955). Cualquier
+                        // paquetería nuestra entra por el prefijo, sin depender de
+                        // que alguien agregue la clave nueva a una lista.
+                        const isLocalOrFree = !carrierKey || carrierKey.startsWith('entregax')
+                            || carrierKey.includes('local') || carrierKey.includes('pickup')
                             || carrierKey.includes('bodega') || carrierKey.includes('rack') || carrierKey.includes('piso') || carrierKey.includes('tarima');
                         if (!isLocalOrFree && carrierPrice > 0) shipping = carrierPrice;
                     }
