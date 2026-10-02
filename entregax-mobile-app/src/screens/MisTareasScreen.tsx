@@ -102,16 +102,30 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // El endpoint ya devuelve SOLO tareas donde estás involucrado (responsable,
   // participante, o creador esperando confirmación), así que basta con no
   // recortarlas aquí.
-  // "Solo mis tareas": soy el responsable, hay comentarios sin leer, o está
-  // esperando MI confirmación porque yo la asigné. Es la misma regla que usa la
-  // web, y la razón de que los números no cuadraran entre las dos: aquí esto
-  // devolvía `true` para todo, así que el botón de la persona no filtraba nada
-  // y la matriz contaba como urgentes tareas de otros donde Aldo solo está de
-  // involucrado — 47 en la app contra 13 en la web.
+  // "Solo mis tareas": soy el responsable, hay comentarios sin leer, se cerró
+  // una donde estoy involucrado y aún no la veo, está en espera de confirmación,
+  // o me toca contestar. Tiene que ser LA MISMA regla que MisTareasPage.isMine
+  // en la web: si las dos se separan, la misma persona ve números distintos
+  // según con qué abra, y eso ya pasó —47 en la app contra 13 en la web—.
+  //
+  // A esta copia le faltaban dos renglones que la web sí tenía desde la tarea
+  // 670, y el efecto era justo lo que 670 arregló, de vuelta en el teléfono:
+  //
+  //  · cierre_sin_ver — se terminó una tarea donde estás involucrado y no la has
+  //    abierto. Sin esto se esfuma al cerrarse y nunca te enteras de en qué quedó.
+  //  · awaiting_confirmation de CUALQUIER involucrado, no solo de quien la
+  //    asignó. Es el tramo en que el trabajo ya se hizo y falta cerrar, que es
+  //    justo cuando el involucrado quiere verla.
+  //
+  // MatrixView trae su propio filtro con estas reglas, pero esta pantalla le
+  // pasa `preScoped`, así que el que manda es éste: el de allá nunca corre.
+  // Medido con Christian González (tarea 740): el backend le mandaba 11 tareas,
+  // la web le mostraba 7 y la app 3.
   const isMine = (t: TaskT) =>
     Number((t as any).assignee_id) === Number(myId)
     || Number((t as any).unread_count || 0) > 0
-    || ((t as any).status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId))
+    || (t as any).cierre_sin_ver === true
+    || (t as any).status === 'awaiting_confirmation'
     || (t as any).espera_tu_respuesta === true;
   // Buscando NO se aplica el filtro de "mías": el servidor ya definió el alcance
   // —las propias para todos, todas las del equipo para el super admin— y
