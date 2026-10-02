@@ -2719,6 +2719,28 @@ export const reportarErrorDeTicket = async (
       }
     }
 
+    // ── Servicio a Cliente va de involucrado ────────────────────────────────
+    // Esta tarea nace de un TICKET: quien le va a contestar al cliente es
+    // Servicio a Cliente, y hasta ahora no quedaba en ella. Ricardo Méndez lo
+    // pidió en la 734: "hay tareas que levanta directamente Cajito desde los
+    // ticket, pero no las puedo ver". El caso que lo destapó llevaba cuatro días
+    // resuelto en la tarea 687 y desde el ticket no había forma de llegar ahí.
+    //
+    // Va por ROL y no por una lista de nombres: hoy son Yliana Elizalde y
+    // Ricardo Méndez, y el día que alguien entre o salga del área esto sigue
+    // siendo cierto sin que nadie tenga que acordarse de volver aquí. Una lista
+    // de ids se pudre en silencio y nadie se entera hasta que falta alguien.
+    //
+    // Solo quedan involucrados —la tarea les aparece en Mis Tareas—, sin aviso
+    // aparte: el push de estas tareas es de los super admin, que son quienes las
+    // resuelven. Agregarles una notificación por cada error de ticket sería
+    // ruido del que se deja de leer.
+    const csRes = await pool.query(
+      `SELECT id FROM users
+        WHERE role = 'customer_service' AND COALESCE(is_active, true) = true AND deleted_at IS NULL`
+    ).catch(() => ({ rows: [] as any[] }));
+    involucrados.push(...csRes.rows.map((r: any) => Number(r.id)));
+
     // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');

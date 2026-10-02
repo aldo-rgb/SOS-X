@@ -1789,10 +1789,16 @@ export default function DashboardClient() {
     api.get('/public/elp/opciones')
       .then(r => {
         setElpOpciones(r.data);
-        // Si solo hay una ruta cotizable, se preselecciona: preguntar algo que
-        // tiene una sola respuesta posible es trabajo para el cliente y nada más.
-        const cotizables = (r.data?.rutas || []).filter((x: { cotiza: boolean }) => x.cotiza);
-        if (cotizables.length === 1) setQuoteRutaId(cotizables[0].id);
+        // La ruta NO se pregunta: se usa CHN-ELP-MEX, que es por donde entra el
+        // contenedor dedicado. Preguntarla era trabajo para el cliente sin nada
+        // que decidir, y si no la tocaba el cotizador se quedaba sin cotizar.
+        const rutas = (r.data?.rutas || []) as { id: number; nombre: string; cotiza: boolean }[];
+        const elp = rutas.find(x => /ELP/i.test(String(x.nombre || '')) && x.cotiza);
+        const cotizables = rutas.filter(x => x.cotiza);
+        // Si ELP no tiene precio del mes, se toma la única que sí cotice; y si
+        // hay varias y ELP no está, entonces sí hay algo que preguntar.
+        if (elp) setQuoteRutaId(elp.id);
+        else if (cotizables.length === 1) setQuoteRutaId(cotizables[0].id);
       })
       .catch(() => setElpOpciones({ rutas: [], estados: [] }));
   }, [quoteMaritimoMode, elpOpciones]);
@@ -7700,15 +7706,14 @@ export default function DashboardClient() {
                               nacional del estado. Sin estos dos datos el
                               cotizador devolvía un precio suelto que llevaba
                               meses sin actualizarse (tarea 671). */}
-                          {/* La ruta solo se PREGUNTA cuando hay más de una con
-                              precio del mes. Hoy solo cotiza CHN-ELP-MEX —Long
-                              Beach no tiene precio cargado—, así que preguntarla
-                              es pedirle al cliente que elija entre una opción.
-                              Se preselecciona sola arriba, en el efecto que carga
-                              las opciones. El día que Long Beach tenga precio,
-                              vuelven a ser dos y el selector reaparece solo. */}
-                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40'
-                            && (elpOpciones?.rutas || []).filter(r => r.cotiza).length > 1 && (
+                          {/* La ruta NO se muestra: el contenedor dedicado sale
+                              por CHN-ELP-MEX y se elige sola arriba. Solo aparece
+                              en el caso raro de que ELP se quede sin precio del
+                              mes y haya otra ruta con el cual cotizar — ahí sí
+                              hay algo que decidir y esconderlo dejaría al cliente
+                              sin poder cotizar. */}
+                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && !quoteRutaId
+                            && (elpOpciones?.rutas || []).filter(r => r.cotiza).length > 0 && (
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <FormControl fullWidth size="small">
                                 <InputLabel>Ruta</InputLabel>
@@ -7728,7 +7733,7 @@ export default function DashboardClient() {
                             </Grid>
                           )}
                           {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
-                            <Grid size={{ xs: 12, sm: (elpOpciones?.rutas || []).filter(r => r.cotiza).length > 1 ? 6 : 12 }}>
+                            <Grid size={{ xs: 12, sm: quoteRutaId ? 12 : 6 }}>
                               <FormControl fullWidth size="small">
                                 <InputLabel>Estado de entrega</InputLabel>
                                 <Select
