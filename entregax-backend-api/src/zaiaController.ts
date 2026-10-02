@@ -612,7 +612,11 @@ export const zaiaComentarTarea = async (req: Request, res: Response): Promise<an
     await ensureSchema();
     if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
     const nota = String(req.body?.nota ?? req.body?.comentario ?? '').trim();
-    if (nota.length < 2) return res.status(400).json({ error: 'Falta "nota": el texto del comentario.' });
+    // Con archivo, el texto deja de ser obligatorio: mandar una foto sola es un
+    // comentario válido, igual que en la app.
+    if (nota.length < 2 && !(req as any).file) {
+      return res.status(400).json({ error: 'Falta "nota": el texto del comentario (o manda un archivo).' });
+    }
     const a = await actor();
     if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
 
@@ -620,10 +624,24 @@ export const zaiaComentarTarea = async (req: Request, res: Response): Promise<an
     if (!t) return res.status(404).json({ error: `La tarea ${taskId} no existe.` });
     if (t.status === 'cancelled') return res.status(400).json({ error: `La tarea ${taskId} está cancelada.` });
 
+    // Responder a un comentario y mencionar personas: addComment ya los
+    // soportaba —reply_to_comment_id y un arreglo mentions— y esta ruta no los
+    // pasaba. Por eso un "@Fulano" escrito por ZAIA se quedaba en texto y no le
+    // avisaba a nadie: EntregaX NO lee la arroba del cuerpo, notifica a los ids
+    // de `mentions`. Ahora se mandan, y el aviso sale igual que desde la app.
+    const menc = await leerMenciones(req.body?.menciona ?? req.body?.menciones ?? req.body?.mentions);
+    if ('error' in menc) return res.status(menc.status).json(menc.error);
+    const respondeA = parseInt(String(req.body?.responde_a ?? req.body?.reply_to_comment_id ?? ''), 10);
+
     const { addComment } = await import('./tasksController');
     const reqFalso: any = {
       params: { id: String(taskId) },
-      body: { body: nota.slice(0, 4000) },
+      body: {
+        body: nota.slice(0, 4000),
+        mentions: menc.ids,
+        ...(Number.isFinite(respondeA) && respondeA > 0 ? { reply_to_comment_id: respondeA } : {}),
+      },
+      file: (req as any).file,
       user: { userId: a.id, role: a.role }, query: {}, headers: {},
     };
     let httpStatus = 200; let cuerpo: any = null;
@@ -641,7 +659,13 @@ export const zaiaComentarTarea = async (req: Request, res: Response): Promise<an
       ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo comentar'), ms: Date.now() - t0,
     });
     if (!ok) return res.status(httpStatus).json({ error: cuerpo?.error || 'No se pudo comentar la tarea.' });
-    res.json({ task_id: taskId, titulo: t.title, comentado: true, autor: a.nombre, mensaje: `Comentario agregado a la tarea #${taskId}.` });
+    res.json({
+      task_id: taskId, titulo: t.title, comentado: true, autor: a.nombre,
+      comentario_id: cuerpo?.comment?.id,
+      ...(menc.ids.length ? { menciona: menc.ids } : {}),
+      mensaje: `Comentario agregado a la tarea #${taskId}.`
+        + (menc.ids.length ? ` Se avisó a ${menc.ids.length} persona(s).` : ''),
+    });
   } catch (e: any) {
     console.error('[zaia] comentar-tarea:', e?.message);
     await registrar({ endpoint: 'POST /api/zaia/comentar-tarea', pregunta: String(taskId), ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
@@ -822,10 +846,23 @@ export const zaiaEditarTarea = async (req: Request, res: Response): Promise<any>
       cambios.push(v ? `vence → ${v}` : 'sin fecha de vencimiento');
     }
 
+    // Involucrados: updateTask ya los sabe cambiar —recibe involved_ids y
+    // reemplaza la lista—, esta ruta solo no los exponia. Ojo con lo que
+    // significa: es un REEMPLAZO, no un "agregar". Quien no venga en la lista
+    // deja de estar involucrado, que es exactamente como se comporta el picker
+    // del tablero. Para sumar a alguien hay que mandar la lista completa; el
+    // detalle (GET /tarea/:id) ya la devuelve en "participantes".
+    if (req.body?.involucrados !== undefined || req.body?.involved_ids !== undefined) {
+      const inv = await leerMenciones(req.body?.involucrados ?? req.body?.involved_ids);
+      if ('error' in inv) return res.status(inv.status).json(inv.error);
+      cuerpoInterno.involved_ids = inv.ids;
+      cambios.push(`involucrados → ${inv.ids.length} persona(s)`);
+    }
+
     if (cambios.length === 0) {
       return res.status(400).json({
         error: 'No mandaste nada que cambiar.',
-        campos: ['titulo', 'descripcion', 'responsable_id', 'prioridad', 'categoria', 'vence'],
+        campos: ['titulo', 'descripcion', 'responsable_id', 'prioridad', 'categoria', 'vence', 'involucrados'],
       });
     }
 
@@ -1567,5 +1604,260 @@ export const zaiaBorrarEvento = async (req: Request, res: Response): Promise<any
     console.error('[zaia] borrar evento:', e);
     await registrar({ endpoint: 'POST /api/zaia/borrar-evento', ip: ipDe(req), ok: false, error: e?.message, ms: Date.now() - t0 });
     res.status(500).json({ error: 'No se pudo borrar el evento.' });
+  }
+};
+
+// ============================================================
+// DETALLE DE TAREA: las piezas que faltaban para trabajarla completa.
+//
+// La app de ZAIA ya pinta el detalle de una tarea —prioridad, responsable,
+// checklist, conversación, archivos— porque GET /tarea/:id ya devuelve todo
+// eso. Lo que no podía era TOCARLO: faltaban las escrituras, así que la
+// pantalla enseñaba un checklist que no se podía palomear y una caja de
+// comentarios que no podía adjuntar nada.
+//
+// Nada de lo que sigue implementa lógica nueva. Cada una envuelve el MISMO
+// endpoint que usa el panel —addSubtask, toggleSubtask, deleteSubtask,
+// addComment, deleteComment, addTaskAttachment, updateTask— igual que
+// zaiaComentarTarea envuelve addComment. Los permisos, la bitácora, los avisos
+// y los eventos hacia Grupo Rino salen de ahí; si mañana cambia la regla,
+// cambia en un solo lugar.
+//
+// ⚠️ TODAS siguen actuando como ZAIA_ACTOR_ID (por omisión Aldo, super_admin).
+// Firmar como la persona que de verdad hace la acción es otra cosa y NO está
+// hecha: hasta que lo esté, un comentario de ZAIA dice "Aldo Campos" y pasa los
+// permisos con su autoridad. Es el estado que ya tenía el canal; estas rutas no
+// lo empeoran, pero tampoco lo arreglan.
+// ============================================================
+
+/** Corre un endpoint del panel con la identidad de ZAIA y devuelve su respuesta. */
+async function comoPanel(
+  fn: (req: any, res: any) => Promise<any>,
+  params: Record<string, string>,
+  body: any,
+  actorId: number,
+  actorRole: string,
+  file?: any,
+): Promise<{ status: number; cuerpo: any }> {
+  let status = 200; let cuerpo: any = null;
+  const reqFalso: any = { params, body, file, user: { userId: actorId, role: actorRole }, query: {}, headers: {} };
+  const resFalso: any = {
+    status(c: number) { status = c; return this; },
+    json(o: any) { cuerpo = o; return this; },
+  };
+  await fn(reqFalso, resFalso);
+  return { status, cuerpo };
+}
+
+/** Los ids de las personas a mencionar. Acepta ids o nombres. */
+async function leerMenciones(valor: any): Promise<{ ids: number[] } | { error: any; status: number }> {
+  if (valor === undefined || valor === null) return { ids: [] };
+  const lista = Array.isArray(valor) ? valor : [valor];
+  const ids: number[] = [];
+  for (const x of lista) {
+    const crudo = String(x ?? '').trim().replace(/^@/, '');
+    if (!crudo) continue;
+    const comoId = parseInt(crudo, 10);
+    if (Number.isFinite(comoId) && String(comoId) === crudo) { ids.push(comoId); continue; }
+    // Por inicio de palabra, igual que en Cajito: "Aldo" no debe traer a "Osvaldo".
+    const palabras = crudo.split(/\s+/).filter(Boolean).map(p => '\\m' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const r = await pool.query(
+      `SELECT id, full_name FROM users
+        WHERE COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
+          AND role NOT IN ('client', 'external_partner')
+          AND full_name ~* ALL($1::text[])
+        ORDER BY full_name LIMIT 5`, [palabras]);
+    if (r.rows.length === 0) return { error: { error: `No encontré a nadie que se llame "${crudo}".` }, status: 404 };
+    const exacto = r.rows.find((u: any) => String(u.full_name).toLowerCase() === crudo.toLowerCase());
+    if (r.rows.length > 1 && !exacto) {
+      return { error: { error: `"${crudo}" coincide con varias personas; manda el id.`, coincidencias: r.rows }, status: 400 };
+    }
+    ids.push(Number((exacto || r.rows[0]).id));
+  }
+  return { ids: Array.from(new Set(ids)) };
+}
+
+// ============================================================
+// GET /api/zaia/categorias — los tableros a los que se puede mandar una tarea.
+//
+// Sin esto, ZAIA tenía que adivinar el nombre del tablero y leerCategoria le
+// contestaba con la lista solo cuando fallaba. Pedirla de frente es más barato
+// que equivocarse a propósito para que el error la traiga.
+// ============================================================
+export const zaiaCategorias = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  try {
+    const r = await pool.query(
+      `SELECT id, name AS nombre, board_key AS clave, board_type AS tipo
+         FROM task_boards WHERE is_active = TRUE
+        ORDER BY (board_key = 'personales') DESC, name`);
+    await registrar({ endpoint: 'GET /api/zaia/categorias', ip: ipDe(req), ok: true, ms: Date.now() - t0 });
+    res.json({ categorias: r.rows, total: r.rows.length });
+  } catch (e: any) {
+    console.error('[zaia] categorias:', e?.message);
+    res.status(500).json({ error: 'No se pudieron leer las categorías.' });
+  }
+};
+
+// ============================================================
+// POST /api/zaia/agregar-subtarea — { task_id, texto }
+// POST /api/zaia/marcar-subtarea  — { subtarea_id, hecho? }  (sin "hecho", alterna)
+// POST /api/zaia/borrar-subtarea  — { subtarea_id }
+// ============================================================
+export const zaiaAgregarSubtarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const texto = String(req.body?.texto ?? req.body?.body ?? '').trim();
+    if (!texto) return res.status(400).json({ error: 'Falta "texto": lo que hay que hacer.' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const { addSubtask } = await import('./tasksController');
+    const { status, cuerpo } = await comoPanel(addSubtask, { id: String(taskId) }, { body: texto.slice(0, 500) }, a.id, a.role);
+    const ok = status < 400;
+    await registrar({ endpoint: 'POST /api/zaia/agregar-subtarea', pregunta: JSON.stringify({ task_id: taskId, texto }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo'), ms: Date.now() - t0 });
+    if (!ok) return res.status(status).json({ error: cuerpo?.error || 'No se pudo agregar la subtarea.' });
+    res.json({ task_id: taskId, subtarea_id: cuerpo?.subtask?.id, texto, mensaje: `Subtarea agregada a la tarea #${taskId}.` });
+  } catch (e: any) {
+    console.error('[zaia] agregar-subtarea:', e?.message);
+    res.status(500).json({ error: 'No se pudo agregar la subtarea.' });
+  }
+};
+
+export const zaiaMarcarSubtarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const subId = parseInt(String(req.body?.subtarea_id ?? req.body?.subtask_id ?? ''), 10);
+  try {
+    if (!Number.isFinite(subId) || subId <= 0) return res.status(400).json({ error: 'Falta "subtarea_id" (número).' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    // Sin "hecho" alterna, igual que el palomeo del tablero.
+    const body: any = {};
+    if (req.body?.hecho !== undefined) body.done = req.body.hecho === true || String(req.body.hecho) === 'true';
+    if (req.body?.evidencia_url) body.evidence_url = String(req.body.evidencia_url);
+
+    const { toggleSubtask } = await import('./tasksController');
+    const { status, cuerpo } = await comoPanel(toggleSubtask, { subId: String(subId) }, body, a.id, a.role);
+    const ok = status < 400;
+    await registrar({ endpoint: 'POST /api/zaia/marcar-subtarea', pregunta: JSON.stringify({ subtarea_id: subId, hecho: req.body?.hecho }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo'), ms: Date.now() - t0 });
+    if (!ok) return res.status(status).json({ error: cuerpo?.error || 'No se pudo marcar la subtarea.' });
+    res.json({ subtarea_id: subId, hecho: cuerpo?.subtask?.done === true, texto: cuerpo?.subtask?.body,
+      mensaje: cuerpo?.subtask?.done ? 'Subtarea palomeada.' : 'Subtarea despalomeada.' });
+  } catch (e: any) {
+    console.error('[zaia] marcar-subtarea:', e?.message);
+    res.status(500).json({ error: 'No se pudo marcar la subtarea.' });
+  }
+};
+
+export const zaiaBorrarSubtarea = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const subId = parseInt(String(req.body?.subtarea_id ?? req.body?.subtask_id ?? ''), 10);
+  try {
+    if (!Number.isFinite(subId) || subId <= 0) return res.status(400).json({ error: 'Falta "subtarea_id" (número).' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const { deleteSubtask } = await import('./tasksController');
+    const { status, cuerpo } = await comoPanel(deleteSubtask, { subId: String(subId) }, {}, a.id, a.role);
+    const ok = status < 400;
+    await registrar({ endpoint: 'POST /api/zaia/borrar-subtarea', pregunta: String(subId),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo'), ms: Date.now() - t0 });
+    if (!ok) return res.status(status).json({ error: cuerpo?.error || 'No se pudo borrar la subtarea.' });
+    res.json({ subtarea_id: subId, borrada: true, mensaje: 'Subtarea eliminada.' });
+  } catch (e: any) {
+    console.error('[zaia] borrar-subtarea:', e?.message);
+    res.status(500).json({ error: 'No se pudo borrar la subtarea.' });
+  }
+};
+
+// ============================================================
+// POST /api/zaia/borrar-comentario — { task_id, comentario_id }
+//
+// deleteComment solo deja borrar al AUTOR. Como por aquí todo se escribe con la
+// cuenta de ZAIA, en la práctica ZAIA solo puede borrar lo que ella misma
+// escribió: no puede tocar lo que puso una persona desde la app. Es el candado
+// correcto y sale gratis — no hay que agregarle nada.
+// ============================================================
+export const zaiaBorrarComentario = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  const comentarioId = parseInt(String(req.body?.comentario_id ?? req.body?.comment_id ?? ''), 10);
+  try {
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    if (!Number.isFinite(comentarioId) || comentarioId <= 0) return res.status(400).json({ error: 'Falta "comentario_id" (número).' });
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const { deleteComment } = await import('./tasksController');
+    const { status, cuerpo } = await comoPanel(deleteComment, { id: String(taskId), commentId: String(comentarioId) }, {}, a.id, a.role);
+    const ok = status < 400;
+    await registrar({ endpoint: 'POST /api/zaia/borrar-comentario', pregunta: JSON.stringify({ task_id: taskId, comentario_id: comentarioId }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo'), ms: Date.now() - t0 });
+    if (!ok) {
+      return res.status(status).json({
+        error: cuerpo?.error || 'No se pudo borrar el comentario.',
+        ...(status === 403 ? { nota: 'Solo se puede borrar un comentario propio; ése lo escribió otra persona.' } : {}),
+      });
+    }
+    res.json({ task_id: taskId, comentario_id: comentarioId, borrado: true, mensaje: 'Comentario eliminado.' });
+  } catch (e: any) {
+    console.error('[zaia] borrar-comentario:', e?.message);
+    res.status(500).json({ error: 'No se pudo borrar el comentario.' });
+  }
+};
+
+// ============================================================
+// POST /api/zaia/subir-archivo — multipart: campo "archivo" + task_id
+//
+// Va en multipart y no en base64 a propósito: base64 engorda el cuerpo un 33% y
+// con un video de varios MB eso es memoria del servidor desperdiciada. Es el
+// mismo camino que usa la app.
+//
+// El límite es 15 MB, el mismo que tiene EntregaX para todos sus adjuntos. ZAIA
+// pidió 200 MB para video; eso no es una ruta nueva, es subir el tope de toda
+// la plataforma —y con la subida en memoria, 200 MB por petición tumba el
+// servidor con dos usuarios a la vez. Si de verdad hace falta video, el camino
+// es subida directa a S3 con URL firmada, que es otra conversación.
+// ============================================================
+export const zaiaSubirArchivo = async (req: Request, res: Response): Promise<any> => {
+  if (!autorizado(req, res)) return;
+  if (!topeOk(req, res, 'consulta')) return;
+  const t0 = Date.now();
+  const taskId = parseInt(String(req.body?.task_id ?? req.body?.tarea ?? ''), 10);
+  try {
+    if (!Number.isFinite(taskId) || taskId <= 0) return res.status(400).json({ error: 'Falta "task_id" (número).' });
+    const archivo = (req as any).file;
+    if (!archivo?.buffer) {
+      return res.status(400).json({ error: 'Falta el archivo. Mándalo como multipart/form-data en el campo "archivo".' });
+    }
+    const a = await actor();
+    if (!a) return res.status(500).json({ error: 'La cuenta configurada en ZAIA_ACTOR_ID no existe.' });
+
+    const { addTaskAttachment } = await import('./tasksController');
+    const { status, cuerpo } = await comoPanel(addTaskAttachment, { id: String(taskId) }, {}, a.id, a.role, archivo);
+    const ok = status < 400;
+    await registrar({ endpoint: 'POST /api/zaia/subir-archivo',
+      pregunta: JSON.stringify({ task_id: taskId, archivo: archivo.originalname, bytes: archivo.size }),
+      ip: ipDe(req), ok, error: ok ? null : (cuerpo?.error || 'no se pudo'), ms: Date.now() - t0 });
+    if (!ok) return res.status(status).json({ error: cuerpo?.error || 'No se pudo subir el archivo.' });
+    res.json({ task_id: taskId, adjunto: cuerpo?.attachment, mensaje: `Archivo agregado a la tarea #${taskId}.` });
+  } catch (e: any) {
+    console.error('[zaia] subir-archivo:', e?.message);
+    res.status(500).json({ error: 'No se pudo subir el archivo.' });
   }
 };

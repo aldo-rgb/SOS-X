@@ -1663,11 +1663,24 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
       await logActivity(id, uid, 'moved', { to_column: Number(b.column_id) });
     }
 
-    if (sets.length === 0) return res.json({ task });
-    set('updated_at', new Date().toISOString());
-    params.push(id);
-    const r = await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
-    const updated = r.rows[0];
+    // Cambiar SOLO la lista de involucrados no toca ninguna columna de `tasks`,
+    // así que `sets` queda vacío. Con el return seco de antes, la petición se
+    // iba por aquí y los involucrados no se tocaban nunca: contestaba 200 con la
+    // tarea intacta, sin un error que delatara que no se había hecho nada.
+    //
+    // En pantalla casi no se notaba porque el picker manda también el
+    // assignee_id actual, y eso llenaba `sets`. Pero cuando la tarea NO tiene
+    // responsable, el front manda `assignee_id: undefined` —no lo manda—, así
+    // que ahí editar involucrados era un no-op silencioso. Se encontró al
+    // exponer los involucrados por la API de ZAIA, donde el campo viaja solo.
+    if (sets.length === 0 && !Array.isArray(b.involved_ids)) return res.json({ task });
+    let updated: any = task;
+    if (sets.length > 0) {
+      set('updated_at', new Date().toISOString());
+      params.push(id);
+      const r = await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+      updated = r.rows[0];
+    }
     // Participantes: en tableros NO personales, mirror del asignado (al reasignar,
     // el anterior deja de "estar involucrado"). SOLO si NO se mandan involved_ids
     // explícitos (en ese caso, la lista de involucrados es la fuente de verdad).

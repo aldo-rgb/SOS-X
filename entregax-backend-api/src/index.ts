@@ -643,7 +643,7 @@ import {
   assignClientToPackage,
   getAdvisorShipmentDetail
 } from './advisorPanelController';
-import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle, zaiaCalendario, zaiaAgendar, zaiaMoverEvento, zaiaBorrarEvento } from './zaiaController';
+import { zaiaHealth, zaiaVerify, zaiaTareas, zaiaPersonas, zaiaPreguntar, zaiaRevisarTarea, zaiaCerrarTarea, zaiaApuntarPendiente, zaiaComentarTarea, zaiaReabrirTarea, zaiaEditarTarea, zaiaTareaDetalle, zaiaTickets, zaiaTicketDetalle, zaiaCalendario, zaiaAgendar, zaiaMoverEvento, zaiaBorrarEvento, zaiaCategorias, zaiaAgregarSubtarea, zaiaMarcarSubtarea, zaiaBorrarSubtarea, zaiaBorrarComentario, zaiaSubirArchivo } from './zaiaController';
 import { zaiaAvisos, zaiaAvisoPrueba } from './zaiaAvisos';
 import { buzonVerify, buzonEscribir, buzonLeer, buzonMarcarLeidos, buzonAdminLeer, buzonAdminEscribir } from './buzonSocio';
 import {
@@ -17908,7 +17908,17 @@ app.post('/api/zaia/preguntar', zaiaPreguntar);
 app.post('/api/zaia/revisar-tarea', zaiaRevisarTarea);
 app.post('/api/zaia/cerrar-tarea', zaiaCerrarTarea);
 app.post('/api/zaia/apuntar-pendiente', zaiaApuntarPendiente);  // crea tarea; el responsable es obligatorio
-app.post('/api/zaia/comentar-tarea', zaiaComentarTarea);       // comenta sin cerrar
+app.post('/api/zaia/comentar-tarea', advisorProofUpload.single('archivo'), zaiaComentarTarea);  // comenta sin cerrar; admite adjunto, responder y @menciones
+// Lo que faltaba para trabajar una tarea completa desde la app de ZAIA. Cada
+// una envuelve el mismo endpoint del panel; ver zaiaController.
+app.get('/api/zaia/categorias', zaiaCategorias);                // tableros a los que se puede mandar una tarea
+app.post('/api/zaia/agregar-subtarea', zaiaAgregarSubtarea);
+app.post('/api/zaia/marcar-subtarea', zaiaMarcarSubtarea);      // sin "hecho" alterna
+app.post('/api/zaia/borrar-subtarea', zaiaBorrarSubtarea);
+app.post('/api/zaia/borrar-comentario', zaiaBorrarComentario);  // solo los propios: el candado es de deleteComment
+// El archivo va en multipart (campo "archivo"), no en base64: mismo camino y
+// mismo tope de 15 MB que usa la app para sus adjuntos.
+app.post('/api/zaia/subir-archivo', advisorProofUpload.single('archivo'), zaiaSubirArchivo);
 app.post('/api/zaia/reabrir-tarea', zaiaReabrirTarea);         // la regresa a pendientes, con motivo
 app.post('/api/zaia/editar-tarea', zaiaEditarTarea);            // cambia solo los campos que se mandan
 // Calendario. Lee la agenda de la cuenta de dirección y puede agendar, mover y
