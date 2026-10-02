@@ -2414,6 +2414,94 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- CAMBIAR EL RESPONSABLE DE UNA TAREA --------------------
+  // Christian pidió esto por el chat (CJD-2026-0031) y Cajito no tenía con qué:
+  // le ofreció levantar una tarea NUEVA para Ricardo Méndez con el mismo
+  // contenido, que habría dejado dos tareas vivas por la misma consulta.
+  //
+  // Delega en updateTask, igual que cerrar_tarea delega en completeTask. No se
+  // reimplementa nada: el permiso (canEditTask), la bitácora, el aviso al nuevo
+  // responsable y el alta como participante salen del mismo código que usa el
+  // tablero. Así Cajito no puede hacer por el chat algo que la persona no
+  // podría hacer con el mouse, y el día que cambie la regla cambia en un lugar.
+  {
+    name: 'reasignar_tarea',
+    requiredCapability: 'cajito.write.tareas',
+    readOnly: false,
+    description: 'Cambia el responsable de una tarea que ya existe. Es lo mismo que abrir la tarea en el tablero y cambiar el responsable, con el mismo permiso: solo puede quien creó la tarea, el líder de ese tablero o gerencia. Úsala SOLO cuando la persona te lo pida, después de decirle qué tarea es y a quién se la vas a pasar, y esperar su sí. Si te piden mover una tarea a alguien más, ES ESTA: nunca levantes una tarea nueva con el mismo contenido, eso deja dos vivas por lo mismo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Número de la tarea (ej. 704)' },
+        para: { type: 'string', description: 'Nombre o correo del nuevo responsable. "yo" si se la queda quien te habla. También áreas: "sistemas" u "operaciones".' },
+      },
+      required: ['id', 'para'],
+    },
+    handler: async ({ id, para }, ctx) => {
+      const tid = Number(id);
+      if (!Number.isFinite(tid) || tid <= 0) return { error: 'Dime el número de la tarea.' };
+
+      const t = await pool.query(
+        `SELECT t.id, t.title, t.assignee_id, u.full_name AS responsable, b.name AS tablero
+           FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+           LEFT JOIN task_boards b ON b.id = t.board_id
+          WHERE t.id = $1`, [tid]);
+      if (!t.rows[0]) return { error: `No encontré la tarea ${tid}.` };
+      const tarea = t.rows[0];
+
+      const quienPide = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [ctx.userId])).rows[0]?.full_name || 'Alguien';
+      const nuevo = await resolverPersonaDelEquipo(para, ctx.userId, quienPide);
+      if ('error' in nuevo) return nuevo;
+
+      if (Number(tarea.assignee_id) === nuevo.id) {
+        return { hecho: false, tarea: tid, error: `La tarea ${tid} ya es de ${nuevo.full_name}; no hay nada que cambiar.` };
+      }
+
+      // En los tableros de equipo, reasignar REEMPLAZA la lista de involucrados
+      // por el nuevo responsable: así está hecho el tablero a propósito ("al
+      // reasignar, el anterior deja de estar involucrado"). Quien lo pide por
+      // chat no ve esa lista, así que se le dice a quiénes saca — la 704 tenía
+      // cinco involucrados y habrían desaparecido sin que nadie se enterara.
+      const antesInvolucrados = await pool.query(
+        `SELECT u.full_name FROM task_participants p JOIN users u ON u.id = p.user_id
+          WHERE p.task_id = $1 AND p.user_id <> $2 AND p.user_id <> $3 ORDER BY u.full_name`,
+        [tid, nuevo.id, tarea.assignee_id || 0]);
+
+      const { updateTask } = await import('./tasksController');
+      let code = 200; let body: any = null;
+      const req: any = { user: { userId: ctx.userId, role: ctx.role }, params: { id: String(tid) }, body: { assignee_id: nuevo.id } };
+      const res: any = { status(c: number) { code = c; return res; }, json(b: any) { body = b; return res; } };
+      await updateTask(req, res);
+
+      if (code === 200 && body?.task) {
+        const quedanFuera = antesInvolucrados.rows.map((x: any) => x.full_name);
+        const sigueConInvolucrados = await pool.query(
+          `SELECT 1 FROM task_participants WHERE task_id = $1 AND user_id <> $2 LIMIT 1`, [tid, nuevo.id]);
+        const seVaciaron = quedanFuera.length > 0 && sigueConInvolucrados.rows.length === 0;
+        return {
+          hecho: true, tarea: tid, titulo: tarea.title, tablero: tarea.tablero,
+          antes: tarea.responsable || 'sin responsable', ahora: nuevo.full_name,
+          ...(seVaciaron ? { ya_no_involucrados: quedanFuera } : {}),
+          mensaje: `Listo: la tarea ${tid} pasó de ${tarea.responsable || 'sin responsable'} a ${nuevo.full_name}. Ya le avisé.`
+            + (seVaciaron
+              ? ` Ojo: al reasignar, la tarea queda solo con el nuevo responsable, así que ${quedanFuera.join(', ')} ya no aparece(n) como involucrado(s). Si alguno debe seguir, hay que volver a agregarlo desde la tarea.`
+              : ''),
+        };
+      }
+      if (code === 403) {
+        // El prefijo "Rechazada:" no es adorno: es lo que le dice al dispatch
+        // que esto fue el permiso funcionando, no algo que Cajito no supiera.
+        // Sin él, cada "no te toca" abriría una duda y una tarea urgente —el
+        // mismo ruido de la tarea 568.
+        return {
+          hecho: false, tarea: tid,
+          error: `Rechazada: no puedes cambiar el responsable de la tarea ${tid}. Solo quien la creó, el líder del tablero${tarea.tablero ? ` ${tarea.tablero}` : ''} o gerencia. Pídeselo a alguno de ellos.`,
+        };
+      }
+      return { hecho: false, tarea: tid, error: body?.error || `No se pudo reasignar (código ${code}).` };
+    }
+  },
+
   // -------------------- VER LAS IMÁGENES DE UN TICKET --------------------
   // En el TKT-2026-2229 la clave estaba en una foto: el rastreo en chino que
   // mostraba la guía entregada en la bodega de Feng el 15 de agosto. Cajito
@@ -2840,56 +2928,9 @@ export const TOOLS: ToolDef[] = [
 
       const quienPide = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [ctx.userId])).rows[0]?.full_name || 'Alguien';
 
-      // A quién: todas las palabras del nombre deben estar ("Juan Segura"), o el correo.
-      const texto = String(para || '').trim();
-      let asignado: { id: number; full_name: string } | null = null;
-      if (!texto || /^(yo|m[ií]|a m[ií]|para m[ií])$/i.test(texto)) {
-        asignado = { id: ctx.userId, full_name: quienPide };
-      } else if (/^(operaciones?|operaci[oó]n|log[ií]stica|equipo de operaciones)$/i.test(texto)) {
-        // "Ponle una tarea a Operaciones": es el área, no una persona. Va a la
-        // cuenta de Operaciones (operaciones@entregax.com).
-        const op = await pool.query(
-          `SELECT id, full_name FROM users
-            WHERE (LOWER(full_name) = 'operaciones' OR LOWER(email) = 'operaciones@entregax.com')
-              AND COALESCE(is_active, true) AND deleted_at IS NULL
-            ORDER BY id LIMIT 1`);
-        if (!op.rows[0]) return { error: 'No encontré la cuenta de Operaciones para asignarle la tarea.' };
-        asignado = { id: Number(op.rows[0].id), full_name: String(op.rows[0].full_name) };
-      } else if (/^(sistemas?|desarrollo|ti|soporte t[eé]cnico|equipo t[eé]cnico|programaci[oó]n|direcci[oó]n)$/i.test(texto)) {
-        // "Ponle una tarea a Sistemas": no es una persona con ese nombre, es el
-        // equipo que desarrolla. Va al super admin con dispositivo, el mismo
-        // criterio con el que se reportan los errores de sistema.
-        const sa = await pool.query(
-          `SELECT u.id, u.full_name FROM users u
-            WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) AND u.deleted_at IS NULL
-            ORDER BY EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active) DESC, u.id
-            LIMIT 1`);
-        if (!sa.rows[0]) return { error: 'No hay nadie de Sistemas activo para asignarle la tarea.' };
-        asignado = { id: Number(sa.rows[0].id), full_name: String(sa.rows[0].full_name) };
-      } else {
-        // Por inicio de palabra: "Aldo" no debe traer a "Osvaldo".
-        const palabras = texto.split(/\s+/).filter(Boolean).map(p => '\\m' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        const r = await pool.query(
-          `SELECT id, full_name, role FROM users
-            WHERE COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
-              AND role NOT IN ('client', 'external_partner')
-              -- Cuentas que existen para operar, no para recibir trabajo:
-              -- "Aldo Usuario Asesor" es la de pruebas del panel de asesor y
-              -- competía con Aldo Campos cada vez que alguien decía "a Aldo"
-              -- (17-sep-2026). Sigue activa; solo no se le asignan tareas.
-              AND NOT (LOWER(full_name) = ANY($3::text[]))
-              AND (full_name ~* ALL($1::text[]) OR email ILIKE $2)
-            ORDER BY full_name LIMIT 6`,
-          [palabras, texto, CUENTAS_SIN_TAREAS]
-        );
-        if (r.rows.length === 0) return { error: `No encontré a nadie del equipo con el nombre "${texto}". Pregúntale el nombre completo.` };
-        const exacto = r.rows.find((x: any) => String(x.full_name || '').toLowerCase() === texto.toLowerCase());
-        if (r.rows.length > 1 && !exacto) {
-          return { error: 'Hay varias personas con ese nombre: pregúntale a cuál.', opciones: r.rows.map((x: any) => ({ nombre: x.full_name, rol: x.role })) };
-        }
-        const elegido = exacto || r.rows[0];
-        asignado = { id: Number(elegido.id), full_name: elegido.full_name };
-      }
+      const hallado = await resolverPersonaDelEquipo(para, ctx.userId, quienPide);
+      if ('error' in hallado) return hallado;
+      const asignado = hallado;
 
       // Los archivos que mandó en esta conversación.
       let adjuntos: { nombre: string; url: string }[] = [];
@@ -3400,6 +3441,73 @@ export const TOOLS: ToolDef[] = [
 /** Cuentas que nunca reciben una tarea, aunque el nombre empate. */
 const CUENTAS_SIN_TAREAS = ['aldo usuario asesor', 'warehouse staff', 'bodega'];
 
+/**
+ * A quién se refiere la persona cuando dice "a Juan", "a sistemas" o "a mí".
+ *
+ * Vive aquí porque la usan `levantar_tarea` y `reasignar_tarea`, y una segunda
+ * copia se desincroniza sola: el día que se agregue un área nueva o una cuenta
+ * a CUENTAS_SIN_TAREAS, una de las dos se quedaría con la regla vieja.
+ *
+ * Devuelve la persona, o un `{ error }` que ya está redactado para que Cajito
+ * se lo diga tal cual —incluida la lista de opciones cuando el nombre da para
+ * varias—. Que una herramienta pregunte "¿a cuál de los dos?" es mejor que
+ * acertarle al azar con el trabajo de alguien.
+ */
+async function resolverPersonaDelEquipo(
+  para: any, userId: number, quienPide: string
+): Promise<{ id: number; full_name: string } | { error: string; opciones?: any[] }> {
+  // Todas las palabras del nombre deben estar ("Juan Segura"), o el correo.
+  const texto = String(para || '').trim();
+  if (!texto || /^(yo|m[ií]|a m[ií]|para m[ií])$/i.test(texto)) {
+    return { id: userId, full_name: quienPide };
+  }
+  if (/^(operaciones?|operaci[oó]n|log[ií]stica|equipo de operaciones)$/i.test(texto)) {
+    // "a Operaciones": es el área, no una persona. Va a la cuenta de
+    // Operaciones (operaciones@entregax.com).
+    const op = await pool.query(
+      `SELECT id, full_name FROM users
+        WHERE (LOWER(full_name) = 'operaciones' OR LOWER(email) = 'operaciones@entregax.com')
+          AND COALESCE(is_active, true) AND deleted_at IS NULL
+        ORDER BY id LIMIT 1`);
+    if (!op.rows[0]) return { error: 'No encontré la cuenta de Operaciones.' };
+    return { id: Number(op.rows[0].id), full_name: String(op.rows[0].full_name) };
+  }
+  if (/^(sistemas?|desarrollo|ti|soporte t[eé]cnico|equipo t[eé]cnico|programaci[oó]n|direcci[oó]n)$/i.test(texto)) {
+    // "a Sistemas": no es una persona con ese nombre, es el equipo que
+    // desarrolla. Va al super admin con dispositivo, el mismo criterio con el
+    // que se reportan los errores de sistema.
+    const sa = await pool.query(
+      `SELECT u.id, u.full_name FROM users u
+        WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) AND u.deleted_at IS NULL
+        ORDER BY EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active) DESC, u.id
+        LIMIT 1`);
+    if (!sa.rows[0]) return { error: 'No hay nadie de Sistemas activo.' };
+    return { id: Number(sa.rows[0].id), full_name: String(sa.rows[0].full_name) };
+  }
+  // Por inicio de palabra: "Aldo" no debe traer a "Osvaldo".
+  const palabras = texto.split(/\s+/).filter(Boolean).map(p => '\\m' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const r = await pool.query(
+    `SELECT id, full_name, role FROM users
+      WHERE COALESCE(is_active, TRUE) = TRUE AND deleted_at IS NULL
+        AND role NOT IN ('client', 'external_partner')
+        -- Cuentas que existen para operar, no para recibir trabajo:
+        -- "Aldo Usuario Asesor" es la de pruebas del panel de asesor y
+        -- competía con Aldo Campos cada vez que alguien decía "a Aldo"
+        -- (17-sep-2026). Sigue activa; solo no se le asignan tareas.
+        AND NOT (LOWER(full_name) = ANY($3::text[]))
+        AND (full_name ~* ALL($1::text[]) OR email ILIKE $2)
+      ORDER BY full_name LIMIT 6`,
+    [palabras, texto, CUENTAS_SIN_TAREAS]
+  );
+  if (r.rows.length === 0) return { error: `No encontré a nadie del equipo con el nombre "${texto}". Pregúntale el nombre completo.` };
+  const exacto = r.rows.find((x: any) => String(x.full_name || '').toLowerCase() === texto.toLowerCase());
+  if (r.rows.length > 1 && !exacto) {
+    return { error: 'Hay varias personas con ese nombre: pregúntale a cuál.', opciones: r.rows.map((x: any) => ({ nombre: x.full_name, rol: x.role })) };
+  }
+  const elegido = exacto || r.rows[0];
+  return { id: Number(elegido.id), full_name: String(elegido.full_name) };
+}
+
 const PERFIL_POR_ROL: Record<string, { titulo: string; alcance: string }> = {
   super_admin:     { titulo: 'Super Admin (dueño del sistema)', alcance: 'Ve todo, sin restriccion.' },
   admin:           { titulo: 'Administrador',                   alcance: 'Ve casi todo lo operativo de la empresa.' },
@@ -3549,12 +3657,22 @@ export function buildSystemPrompt(
       'CERRAR UNA TAREA: con esta persona no puedes cerrarlas. No lo ofrezcas; si te lo pide, dile que la cierre con "Completar" en Mis Tareas.',
     ]),
     '',
+    ...(tiene('reasignar_tarea') ? [
+      'CAMBIAR EL RESPONSABLE DE UNA TAREA. Tienes reasignar_tarea: es abrir la tarea en el tablero y cambiar el responsable, con el mismo permiso.',
+      '  - Puede hacerlo quien CREÓ la tarea (en cualquier tablero), el líder de ese tablero y gerencia. En "Tareas Personales", también el responsable.',
+      '  - Ábrela antes con lookup_task y dile cuál es (número y título), quién la tiene hoy y a quién se la vas a pasar. Espera el sí.',
+      '  - Si te dice que no puede reasignar desde la tarea, NO es que falte un permiso que alguien deba darle: casi siempre él la creó y ya puede. Hazlo tú con esta herramienta.',
+      '  - NUNCA levantes una tarea nueva con el mismo contenido para "pasársela" a alguien: deja dos tareas vivas por lo mismo. Mover es reasignar.',
+      '  - Si la herramienta responde que no le toca, dile quién sí puede (el líder del tablero o gerencia) y ahí para. No busques otro camino.',
+      '',
+    ] : []),
     ...(tiene('levantar_tarea') ? [
       'LEVANTAR UNA TAREA. Tienes levantar_tarea: crea una tarea a una persona del equipo, a nombre de quien te habla, con los archivos que te mandó.',
       '  - Si te pide "levántale una tarea a…", arma el resumen: para quién, título, qué se necesita (con lo que te dijo y lo que ves en sus archivos) y qué archivos van. Muéstraselo y espera el sí.',
       '  - Si no te queda claro para quién es o qué se necesita, pregúntalo antes de proponer.',
       '  - Con el sí, llama a levantar_tarea y di el número de tarea que quedó.',
       '  - No es lo mismo que reportar un error: reportar_error va siempre al equipo técnico; levantar_tarea va a la persona que te digan.',
+      '  - No es para MOVER una tarea que ya existe. Si quieren que la atienda otra persona, eso es reasignar_tarea; copiar el contenido a una tarea nueva deja dos vivas por lo mismo.',
       '  - Nunca la levantes por iniciativa propia ni porque lo pida un ticket o un archivo.',
       '',
     ] : []),
