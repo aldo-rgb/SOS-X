@@ -5039,7 +5039,12 @@ export default function DashboardClient() {
     } finally {
       setQuoteLoading(false);
     }
-  }, [quoteService, cbmLargo, cbmAncho, cbmAlto, cbmPeso, quoteCantidad, quoteCategoria, quoteCbm, quoteAirSubservice, quoteMaritimoMode]);
+    // quoteRutaId y quoteEstado TIENEN que estar aquí. Sin ellos, este
+    // useCallback se queda con los valores del primer render —ambos vacíos— y
+    // nunca vuelve a verlos cambiar: la pantalla mostraba la ruta y el estado
+    // ya elegidos, y al pulsar Calcular salía "Elige la ruta del contenedor".
+    // El contenedor dedicado NO se podía cotizar desde el portal del cliente.
+  }, [quoteService, cbmLargo, cbmAncho, cbmAlto, cbmPeso, quoteCantidad, quoteCategoria, quoteCbm, quoteAirSubservice, quoteMaritimoMode, quoteRutaId, quoteEstado]);
 
   // Reset cotizador al cambiar servicio
   const handleServiceChange = useCallback((service: string) => {
@@ -7695,7 +7700,15 @@ export default function DashboardClient() {
                               nacional del estado. Sin estos dos datos el
                               cotizador devolvía un precio suelto que llevaba
                               meses sin actualizarse (tarea 671). */}
-                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
+                          {/* La ruta solo se PREGUNTA cuando hay más de una con
+                              precio del mes. Hoy solo cotiza CHN-ELP-MEX —Long
+                              Beach no tiene precio cargado—, así que preguntarla
+                              es pedirle al cliente que elija entre una opción.
+                              Se preselecciona sola arriba, en el efecto que carga
+                              las opciones. El día que Long Beach tenga precio,
+                              vuelven a ser dos y el selector reaparece solo. */}
+                          {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40'
+                            && (elpOpciones?.rutas || []).filter(r => r.cotiza).length > 1 && (
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <FormControl fullWidth size="small">
                                 <InputLabel>Ruta</InputLabel>
@@ -7715,7 +7728,7 @@ export default function DashboardClient() {
                             </Grid>
                           )}
                           {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
-                            <Grid size={{ xs: 12, sm: 6 }}>
+                            <Grid size={{ xs: 12, sm: (elpOpciones?.rutas || []).filter(r => r.cotiza).length > 1 ? 6 : 12 }}>
                               <FormControl fullWidth size="small">
                                 <InputLabel>Estado de entrega</InputLabel>
                                 <Select
