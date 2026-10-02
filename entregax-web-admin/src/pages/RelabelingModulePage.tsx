@@ -429,6 +429,10 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     const [reprintLabel, setReprintLabel] = useState<LabelData | null>(null);
     const [reprintFrom, setReprintFrom] = useState<number>(1);
     const [reprintTo, setReprintTo] = useState<number>(1);
+    // Qué etiqueta imprime el modal de rango: la de origen (la que trae el bulto
+    // desde China/Miami) o la de ENTREGA —paquetería asignada o EntregaX local—,
+    // que es la que se pega encima para el tramo nacional. Las dos van por caja.
+    const [reprintKind, setReprintKind] = useState<'origen' | 'entrega'>('origen');
 
     // Captura de medidas/peso por caja (solo LOG marítimo) antes de generar PQTX
     type DimsBox = {
@@ -963,7 +967,75 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         }
     };
 
-    const handlePrintLocalDelivery = (opts?: { autoReset?: boolean }) => {
+    /**
+     * Las cajas que lleva una impresión de etiquetas: una página por bulto físico.
+     *
+     * Hay DOS maneras de que un envío traiga varias cajas, y las funciones de
+     * impresión sólo conocían una:
+     *
+     *  - Master con hijas (PO Box, marítimo): salen de `master.totalBoxes` y
+     *    `children`. Esto siempre funcionó.
+     *  - Embarque aéreo de China: cada bulto es su PROPIO registro en packages,
+     *    con `master_id` nulo y `box_number` en 1. Lo único que los une es el
+     *    código AIR del `child_no`, y por eso el backend los manda aparte, en
+     *    `airGroup` + `labels`. Como ni `totalBoxes` ni `children` los ven, un
+     *    embarque de 15 cajas imprimía UNA sola etiqueta de paquetería: el
+     *    operador pegaba una y las otras 14 salían del CEDIS sin nada.
+     *
+     * Las etiquetas de ORIGEN ya resolvían esto por su lado (el cuadro
+     * "Etiquetas de origen — N cajas"); las de paquetería y las de entrega local
+     * no, y ésas son las que van pegadas en el bulto que viaja. Hay embarques
+     * vivos de 145, 122 y 94 cajas, con eVISA PRE y con EntregaX Local CDMX: no
+     * es un caso de una paquetería.
+     *
+     * Las cajas aéreas se toman TAL CUAL de `labels`, nunca reconstruidas
+     * pegándole un sufijo al código base: la guía aérea usa tres dígitos
+     * (AIR...-001, no -0001) y cada caja trae su propio peso. Reconstruirlas
+     * produce guías que no existen y pone el peso de la primera en todas.
+     *
+     * REPACK es el caso contrario —N guías dentro de UNA caja física— y siempre
+     * imprime una sola etiqueta.
+     */
+    const cajasAImprimir = (rango?: { desde?: number; hasta?: number }): {
+        boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }>;
+        totalBoxes: number;
+        showBoxBadges: boolean;
+        isRepack: boolean;
+    } => {
+        const masterTn = shipment?.master.tracking || '';
+        const masterTnCompact = String(masterTn).toUpperCase();
+        const isRepack = /^US-REPACK-/i.test(masterTnCompact);
+        const aereas = (shipment?.airGroup?.boxes || 0) > 1
+            ? (shipment?.labels || []).filter(l => !l.isMaster)
+            : [];
+        const totalBoxes = aereas.length > 1 ? aereas.length : (shipment?.master.totalBoxes || 1);
+        const showBoxBadges = !isRepack && totalBoxes > 1;
+        const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
+
+        if (!isRepack && aereas.length > 1) {
+            const desde = Math.max(1, Math.min(totalBoxes, Math.floor(rango?.desde || 1)));
+            const hasta = Math.max(desde, Math.min(totalBoxes, Math.floor(rango?.hasta || totalBoxes)));
+            aereas.slice(desde - 1, hasta).forEach((l, i) => boxes.push({
+                boxNum: desde + i,
+                tn: l.tracking || masterTn,
+                tnCompact: String(l.tracking || masterTn).toUpperCase(),
+                weight: Number.isFinite(Number(l.weight)) ? Number(l.weight) : null,
+            }));
+        } else if (showBoxBadges && shipment?.children && shipment.children.length > 0) {
+            const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
+            sorted.forEach(c => boxes.push({
+                boxNum: c.boxNumber,
+                tn: c.tracking || masterTn,
+                tnCompact: String(c.tracking || masterTn).toUpperCase(),
+                weight: c.weight || null,
+            }));
+        } else {
+            boxes.push({ boxNum: 1, tn: masterTn, tnCompact: masterTnCompact, weight: shipment?.master.weight ?? null });
+        }
+        return { boxes, totalBoxes, showBoxBadges, isRepack };
+    };
+
+    const handlePrintLocalDelivery = (opts?: { autoReset?: boolean; desde?: number; hasta?: number }) => {
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
         const printWindow = window.open('', '_blank', 'width=400,height=600');
@@ -976,32 +1048,17 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
         const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
         const masterTn = shipment.master.tracking;
-        const masterTnCompact = String(masterTn || '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
-        // REPACK = una sola caja física con N guías consolidadas → 1 sola etiqueta.
-        const isRepack = /^US-REPACK-/i.test(masterTnCompact);
-        const totalBoxes = shipment.master.totalBoxes || 1;
-        const showBoxBadges = !isRepack && totalBoxes > 1;
         // EVISA Prepagado: dispersión CDMX→MTY (ver isEvisaMtyDispersion). Solo
         // cambia el branding de la etiqueta; la dirección impresa sigue siendo la
         // final del cliente.
         const evisaMode = isEvisaMtyDispersion(shipment);
         const deliveryBadge = evisaMode ? '🚚 eVISA PRE' : '📍 ENTREGA LOCAL';
 
-        // Generar una página por caja (REPACK → una sola)
-        const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
-        if (showBoxBadges && shipment.children && shipment.children.length > 0) {
-            const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
-            sorted.forEach(c => boxes.push({
-                boxNum: c.boxNumber,
-                tn: c.tracking || masterTn,
-                tnCompact: String(c.tracking || masterTn).toUpperCase(),
-                weight: c.weight || null,
-            }));
-        } else {
-            boxes.push({ boxNum: 1, tn: masterTn, tnCompact: masterTnCompact, weight: shipment.master.weight });
-        }
+        // Una página por caja (REPACK → una sola). Ver cajasAImprimir: también
+        // cubre el embarque aéreo, cuyos bultos no son hijas de un master.
+        const { boxes, totalBoxes, showBoxBadges, isRepack } = cajasAImprimir(opts);
 
         // Renderizar todas las cajas como páginas separadas
         const labelsHtml = boxes.map((box, idx) => {
@@ -1388,14 +1445,39 @@ ${body}
 
     // Abre modal para reimprimir un rango de cajas (solo cuando totalBoxes > 1)
     const openReprintModal = (label: LabelData) => {
+        setReprintKind('origen');
         setReprintLabel(label);
         setReprintFrom(1);
         setReprintTo(label.totalBoxes);
         setReprintOpen(true);
     };
 
+    // Mismo modal de rango, pero para la etiqueta de ENTREGA. El cuadro de
+    // origen ya ofrecía "rango" y "una caja"; el de paquetería no, y por eso un
+    // embarque de 15 cajas salía con una sola etiqueta de entrega pegada.
+    const abrirRangoEntrega = (desde: number, hasta: number) => {
+        const { totalBoxes } = cajasAImprimir();
+        const base = (shipment?.labels || []).find(l => !l.isMaster) || null;
+        setReprintKind('entrega');
+        setReprintLabel(base ? { ...base, boxNumber: desde, totalBoxes } : null);
+        setReprintFrom(desde);
+        setReprintTo(Math.min(hasta, totalBoxes));
+        setReprintOpen(true);
+    };
+
     const handleConfirmReprintRange = async () => {
         if (!reprintLabel) return;
+        // Etiqueta de ENTREGA (paquetería asignada o EntregaX local): no se
+        // reconstruye ningún tracking, cajasAImprimir ya resuelve qué bultos son.
+        if (reprintKind === 'entrega') {
+            const total = reprintLabel.totalBoxes;
+            const desde = Math.max(1, Math.min(total, Math.floor(reprintFrom || 1)));
+            const hasta = Math.max(desde, Math.min(total, Math.floor(reprintTo || desde)));
+            if (hasAssignedCarrier && !isEntregaxOwnDeliveryAssigned) handlePrintCarrierDelivery({ desde, hasta });
+            else handlePrintLocalDelivery({ desde, hasta });
+            setReprintOpen(false);
+            return;
+        }
         // REPACK = una sola caja física; imprime UNA etiqueta con el tracking del
         // master tal cual (sin reconstruir sufijos -NN por caja).
         if (/^US-REPACK-/i.test(String(reprintLabel.tracking || ''))) {
@@ -1451,6 +1533,11 @@ ${body}
     const isEntregaxLocalAssigned = Boolean(assignedCarrier && isEntregaxLocalCarrier(assignedCarrier.normalized));
     const isEntregaxNacionalAssigned = Boolean(assignedCarrier && isEntregaxNacionalCarrier(assignedCarrier.normalized));
     const isEntregaxOwnDeliveryAssigned = isEntregaxLocalAssigned || isEntregaxNacionalAssigned;
+    // Cuántos bultos físicos lleva este envío, para decidir si las tarjetas de
+    // entrega ofrecen rango o un solo botón. REPACK son N guías en UNA caja, así
+    // que cuenta como una (showBoxBadges ya lo resuelve).
+    const { totalBoxes: cajasTotales, showBoxBadges: variasCajas } = cajasAImprimir();
+    const cajasDelEnvio = variasCajas ? cajasTotales : 1;
     const carrierGuideTitle = assignedCarrier ? `Guía ${assignedCarrier.displayName}` : 'Guía de paquetería';
     // TDI Aéreo/Marítimo → zona metro MTY con EntregaX local: se despacha por eVISA
     // prepagado (ver isEvisaMtyDispersion). En los chips del módulo mostramos el
@@ -1550,7 +1637,7 @@ ${body}
         }
     };
 
-    const handlePrintCarrierDelivery = () => {
+    const handlePrintCarrierDelivery = (rango?: { desde?: number; hasta?: number }) => {
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
         let carrierLabel = assignedCarrier?.displayName?.toUpperCase() || 'PAQUETERÍA ASIGNADA';
@@ -1570,21 +1657,11 @@ ${body}
         const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
         const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
         const masterTn = shipment.master.tracking;
-        const masterTnCompact = String(masterTn || '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
-        // REPACK = una sola caja física que contiene N guías consolidadas.
-        // Debe imprimir UNA sola etiqueta (el master), nunca una por hija.
-        const isRepack = /^US-REPACK-/i.test(masterTnCompact);
-        const totalBoxes = shipment.master.totalBoxes || 1;
-        const showBoxBadges = !isRepack && totalBoxes > 1;
-        const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
-        if (showBoxBadges && shipment.children?.length > 0) {
-            const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
-            sorted.forEach(c => boxes.push({ boxNum: c.boxNumber, tn: c.tracking || masterTn, tnCompact: String(c.tracking || masterTn).toUpperCase(), weight: c.weight || null }));
-        } else {
-            boxes.push({ boxNum: 1, tn: masterTn, tnCompact: masterTnCompact, weight: shipment.master.weight });
-        }
+        // Una página por caja. REPACK —N guías dentro de UNA caja física— da una
+        // sola etiqueta; el embarque aéreo da una por bulto. Ver cajasAImprimir.
+        const { boxes, totalBoxes, showBoxBadges, isRepack } = cajasAImprimir(rango);
         const labelsHtml = boxes.map((box, idx) => {
             const isLast = idx === boxes.length - 1;
             return `
@@ -2590,6 +2667,31 @@ ${labelsHtml}
                                                 >
                                                     Descargar guía subida por cliente
                                                 </Button>
+                                            ) : cajasDelEnvio > 1 ? (
+                                                // Varias cajas: una etiqueta por bulto. Cada caja viaja
+                                                // sola y necesita la suya pegada. El botón grande las
+                                                // imprime todas de un clic —que es lo que ya hacía con
+                                                // master+hijas— y el chico deja elegir el rango.
+                                                <Stack spacing={1}>
+                                                    <Button
+                                                        fullWidth
+                                                        variant="contained"
+                                                        startIcon={<PrintIcon />}
+                                                        onClick={() => handlePrintCarrierDelivery()}
+                                                        sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0d47a1' } }}
+                                                    >
+                                                        Imprimir las {cajasDelEnvio} etiquetas
+                                                    </Button>
+                                                    <Button
+                                                        fullWidth
+                                                        variant="outlined"
+                                                        startIcon={<PrintOutlinedIcon />}
+                                                        onClick={() => abrirRangoEntrega(1, 1)}
+                                                        sx={{ color: '#1565C0', borderColor: '#1565C0' }}
+                                                    >
+                                                        Elegir cajas…
+                                                    </Button>
+                                                </Stack>
                                             ) : (
                                                 <Button
                                                     fullWidth
@@ -2643,15 +2745,38 @@ ${labelsHtml}
                                         📍 {shipment.master.assignedAddress.city}, CP {shipment.master.assignedAddress.zip}
                                     </Typography>
                                     <Box sx={{ flex: 1 }} />
-                                    <Button
-                                        fullWidth
-                                        variant="contained"
-                                        startIcon={<PrintIcon />}
-                                        onClick={() => handlePrintLocalDelivery()}
-                                        sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
-                                    >
-                                        {isEntregaxNacionalAssigned ? 'Imprimir Etiqueta Nacional' : 'Imprimir Etiqueta Local'}
-                                    </Button>
+                                    {cajasDelEnvio > 1 ? (
+                                        <Stack spacing={1}>
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => handlePrintLocalDelivery()}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                            >
+                                                Imprimir las {cajasDelEnvio} etiquetas
+                                            </Button>
+                                            <Button
+                                                fullWidth
+                                                variant="outlined"
+                                                startIcon={<PrintOutlinedIcon />}
+                                                onClick={() => abrirRangoEntrega(1, 1)}
+                                                sx={{ color: '#F05A28', borderColor: '#F05A28' }}
+                                            >
+                                                Elegir cajas…
+                                            </Button>
+                                        </Stack>
+                                    ) : (
+                                        <Button
+                                            fullWidth
+                                            variant="contained"
+                                            startIcon={<PrintIcon />}
+                                            onClick={() => handlePrintLocalDelivery()}
+                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                        >
+                                            {isEntregaxNacionalAssigned ? 'Imprimir Etiqueta Nacional' : 'Imprimir Etiqueta Local'}
+                                        </Button>
+                                    )}
                                 </Paper>
                             </Grid>
                         )}
@@ -2674,7 +2799,9 @@ ${labelsHtml}
             {/* Modal de reimpresión por rango de cajas */}
             <Dialog open={reprintOpen} onClose={() => setReprintOpen(false)} maxWidth="xs" fullWidth>
                 <DialogTitle sx={{ bgcolor: '#F05A28', color: 'white', fontWeight: 700 }}>
-                    🖨️ Reimprimir rango de cajas
+                    {reprintKind === 'entrega'
+                        ? `🖨️ Etiqueta de entrega — ${hasAssignedCarrier && !isEntregaxOwnDeliveryAssigned ? (assignedCarrier?.displayName || 'paquetería') : 'EntregaX'}`
+                        : '🖨️ Reimprimir rango de cajas'}
                 </DialogTitle>
                 <DialogContent sx={{ pt: 3 }}>
                     {reprintLabel && (
