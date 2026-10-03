@@ -116,6 +116,7 @@ import { Collapse } from '@mui/material';
 import api from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { imprimirDocumento } from '../utils/imprimirDocumento';
+import { guiaNacionalVisible } from '../utils/guiaNacional';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import PhoneVerificationBanner from '../components/PhoneVerificationBanner';
 import ClientTicketsPage from './ClientTicketsPage';
@@ -11719,35 +11720,42 @@ export default function DashboardClient() {
                     <Typography variant="body2" sx={{ color: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#bf360c' : '#0d47a1'), fontWeight: 700 }}>
                       🇲🇽 {selectedPackage.national_carrier || 'Guía Nacional'}
                     </Typography>
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2') }}>
-                      {selectedPackage.national_tracking}
-                    </Typography>
+                    {(() => {
+                      // El número SE MUESTRA corto y ES el enlace al rastreo: era
+                      // lo que pedía Juan en la 751 —copiar y pegar el que
+                      // enseñábamos no encontraba la guía—. Sin rastreo público
+                      // queda como texto, no como un enlace que no lleva a nada.
+                      const g = guiaNacionalVisible(selectedPackage.national_carrier, selectedPackage.national_tracking);
+                      const color = (selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2';
+                      const estilo = { fontFamily: 'monospace', fontWeight: 700, color } as const;
+                      if (!g.url) return <Typography variant="body1" sx={estilo}>{g.numero}</Typography>;
+                      return (
+                        <Typography
+                          variant="body1"
+                          component="a"
+                          href={g.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Ver el rastreo de la paquetería"
+                          sx={{ ...estilo, display: 'inline-block', textDecoration: 'underline', cursor: 'pointer' }}
+                        >
+                          {g.numero}
+                        </Typography>
+                      );
+                    })()}
                     {selectedPackage.carrier_service_request_code && (
                       <Typography variant="body2" sx={{ mt: 0.25, fontFamily: 'monospace', fontWeight: 700, color: '#6a1b9a' }}>
                         🧾 Solicitud de servicio: {selectedPackage.carrier_service_request_code}
                       </Typography>
                     )}
                     {(() => {
-                      const carrier = (selectedPackage.national_carrier || '').toLowerCase();
-                      const tn = selectedPackage.national_tracking;
-                      let url: string | null = null;
-                      if (carrier.includes('paquete express')) {
-                        url = `https://www.paquetexpress.com/rastreo?guia=${encodeURIComponent(tn)}`;
-                      } else if (carrier.includes('estafeta')) {
-                        url = `https://www.estafeta.com/Herramientas/Rastreo?wayBill=${encodeURIComponent(tn)}`;
-                      } else if (carrier.includes('fedex')) {
-                        url = `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tn)}`;
-                      } else if (carrier.includes('dhl')) {
-                        url = `https://www.dhl.com/mx-es/home/tracking.html?tracking-id=${encodeURIComponent(tn)}`;
-                      } else if (carrier.includes('ups')) {
-                        url = `https://www.ups.com/track?tracknum=${encodeURIComponent(tn)}`;
-                      }
+                      const url = guiaNacionalVisible(selectedPackage.national_carrier, selectedPackage.national_tracking).url;
                       if (!url) return null;
                       return (
                         <Button
                           variant="contained"
                           size="small"
-                          onClick={() => window.open(url!, '_blank', 'noopener')}
+                          onClick={() => window.open(url, '_blank', 'noopener')}
                           sx={{ mt: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2'), '&:hover': { bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#d65f00' : '#0d47a1') }, textTransform: 'none', fontWeight: 700 }}
                         >
                           🔎 Rastrear en {selectedPackage.national_carrier}
@@ -12290,20 +12298,13 @@ export default function DashboardClient() {
                       )}
                       {(() => {
                         if (!selectedPackage.national_tracking || !selectedPackage.national_carrier) return null;
-                        const carrier = selectedPackage.national_carrier.toLowerCase();
-                        const tn = selectedPackage.national_tracking;
-                        let url: string | null = null;
-                        if (carrier.includes('paquete express')) url = `https://www.paquetexpress.com/rastreo?guia=${encodeURIComponent(tn)}`;
-                        else if (carrier.includes('estafeta')) url = `https://www.estafeta.com/Herramientas/Rastreo?wayBill=${encodeURIComponent(tn)}`;
-                        else if (carrier.includes('fedex')) url = `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tn)}`;
-                        else if (carrier.includes('dhl')) url = `https://www.dhl.com/mx-es/home/tracking.html?tracking-id=${encodeURIComponent(tn)}`;
-                        else if (carrier.includes('ups')) url = `https://www.ups.com/track?tracknum=${encodeURIComponent(tn)}`;
+                        const url = guiaNacionalVisible(selectedPackage.national_carrier, selectedPackage.national_tracking).url;
                         if (!url) return null;
                         return (
                           <Button
                             variant="contained"
                             size="small"
-                            onClick={() => window.open(url!, '_blank', 'noopener')}
+                            onClick={() => window.open(url, '_blank', 'noopener')}
                             sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
                           >
                             🔎 Rastrear en {selectedPackage.national_carrier}
