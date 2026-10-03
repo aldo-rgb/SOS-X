@@ -3497,6 +3497,54 @@ export default function DashboardClient() {
     return true;
   };
 
+  /**
+   * El recuadro para subir la guía propia. Es UNO solo y se pinta en los dos
+   * lugares donde el cliente puede estar: con instrucciones ya asignadas y sin
+   * ellas. Antes vivía escrito dentro de la rama de "instrucciones asignadas",
+   * y por eso a una caja recién llegada no le aparecía nunca.
+   */
+  const cajaSubirGuiaPropia = (pkg: PackageTracking) => {
+    if (!puedeSubirGuiaPropia(pkg)) return null;
+    const yaSubio = String((pkg as any).national_label_source || '').toLowerCase() === 'uploaded';
+    return (
+      <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F1F8E9', border: '1px solid #C5E1A5' }}>
+        <Typography variant="caption" sx={{ color: '#33691E', fontWeight: 700, display: 'block', mb: 0.5 }}>
+          📤 ¿Tienes tu propia guía de paquetería?
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Súbela y la pegamos en tu caja. Acepta PDF o foto; si son varias
+          páginas, súbelas juntas.
+          {yaSubio && ' Ya subiste una: si subes otra, reemplaza a la anterior.'}
+        </Typography>
+        <Button
+          component="label"
+          variant="outlined"
+          size="small"
+          disabled={subiendoGuiaNacional}
+          startIcon={subiendoGuiaNacional
+            ? <CircularProgress size={14} sx={{ color: '#33691E' }} />
+            : <AttachFileIcon />}
+          sx={{ textTransform: 'none', borderColor: '#C5E1A5', color: '#33691E' }}
+        >
+          {subiendoGuiaNacional ? 'Subiendo…' : 'Subir mi guía'}
+          <input
+            type="file"
+            hidden
+            multiple
+            accept=".pdf,image/*"
+            onChange={(e) => {
+              const fs = e.target.files;
+              // Se limpia para poder reintentar con el MISMO archivo.
+              const copia = fs;
+              e.target.value = '';
+              if (copia && copia.length) subirGuiaNacionalPropia(pkg, copia);
+            }}
+          />
+        </Button>
+      </Box>
+    );
+  };
+
   const subirGuiaNacionalPropia = async (pkg: PackageTracking, files: FileList) => {
     if (!files.length) return;
     setSubiendoGuiaNacional(true);
@@ -12150,50 +12198,7 @@ export default function DashboardClient() {
                         )}
                       </Box>
 
-                      {/* ── Subir mi propia guía de paquetería ──
-                          El cliente que ya tiene contrato con su paquetería
-                          manda su guía y nosotros la pegamos en la caja, en vez
-                          de generar (y cobrarle) una nuestra. Hasta ahora solo
-                          la podía subir su asesor, lo que obligaba a mandársela
-                          por WhatsApp y esperar (tarea 718). */}
-                      {puedeSubirGuiaPropia(selectedPackage) && (
-                        <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F1F8E9', border: '1px solid #C5E1A5' }}>
-                          <Typography variant="caption" sx={{ color: '#33691E', fontWeight: 700, display: 'block', mb: 0.5 }}>
-                            📤 ¿Tienes tu propia guía de paquetería?
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                            Súbela y la pegamos en tu caja. Acepta PDF o foto; si son varias
-                            páginas, súbelas juntas.
-                            {String((selectedPackage as any).national_label_source || '').toLowerCase() === 'uploaded'
-                              && ' Ya subiste una: si subes otra, reemplaza a la anterior.'}
-                          </Typography>
-                          <Button
-                            component="label"
-                            variant="outlined"
-                            size="small"
-                            disabled={subiendoGuiaNacional}
-                            startIcon={subiendoGuiaNacional
-                              ? <CircularProgress size={14} sx={{ color: '#33691E' }} />
-                              : <AttachFileIcon />}
-                            sx={{ textTransform: 'none', borderColor: '#C5E1A5', color: '#33691E' }}
-                          >
-                            {subiendoGuiaNacional ? 'Subiendo…' : 'Subir mi guía'}
-                            <input
-                              type="file"
-                              hidden
-                              multiple
-                              accept=".pdf,image/*"
-                              onChange={(e) => {
-                                const fs = e.target.files;
-                                // Se limpia para poder reintentar con el MISMO archivo.
-                                const copia = fs;
-                                e.target.value = '';
-                                if (copia && copia.length) subirGuiaNacionalPropia(selectedPackage, copia);
-                              }}
-                            />
-                          </Button>
-                        </Box>
-                      )}
+                      {cajaSubirGuiaPropia(selectedPackage)}
                       {(() => {
                         // Resolver dirección completa desde deliveryAddresses
                         const addrId = selectedPackage.delivery_address_id || selectedPackage.assigned_address_id;
@@ -12323,6 +12328,14 @@ export default function DashboardClient() {
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                         {t('cd.detail.needsInstructions')}
                       </Typography>
+                      {/* Subir la guía propia NO depende de haber asignado
+                          instrucciones. La caja estaba anidada en la rama de
+                          "instrucciones ya asignadas", así que a una caja recién
+                          llegada no le aparecía nunca: Christian González lo
+                          probó con el cliente S20 y reportó que no salía ni
+                          antes ni durante la captura (tarea 718). Son 1,484
+                          cajas de 122 clientes en ese estado. */}
+                      {cajaSubirGuiaPropia(selectedPackage)}
                       {!hasPrintedLabel(selectedPackage) && (
                         <Button
                           variant="contained"
