@@ -775,7 +775,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={s.helperText}>Estado de entrega — los marcados con * no tienen tarifa: se cotiza el contenedor y el flete a destino queda pendiente</Text>
+                <Text style={s.helperText}>Estado de entrega — los marcados con * no tienen tarifa: se cotiza el contenedor y el flete a destino queda pendiente de confirmar</Text>
                 <View style={s.chipRowSmall}>
                   {(elpOpc?.estados || []).map(e => (
                     <TouchableOpacity

@@ -652,9 +652,9 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                   ))}
               </View>
               <Text style={[styles.helpText, { marginTop: 6, fontStyle: 'italic' }]}>
-                {L('Los estados con * todavía no tienen tarifa de entrega: te cotizamos el contenedor y tu asesor cierra el flete hasta tu ciudad.',
-                   'States marked * have no delivery rate yet: we quote the container and your advisor closes the freight to your city.',
-                   '带 * 的州尚无派送费率：我们报整箱价，顾问再与您确认到城市的运费。')}
+                {L('Los estados con * todavía no tienen tarifa de entrega: te cotizamos el contenedor. Consulta con tu asesor para más detalles.',
+                   'States marked * have no delivery rate yet: we quote the container. Check with your advisor for details.',
+                   '带 * 的州尚无派送费率：我们报整箱价。详情请咨询您的顾问。')}
               </Text>
             </View>
           )}
@@ -1161,9 +1161,9 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                 {L('⚠️ Falta la entrega hasta tu ciudad', '⚠️ Delivery to your city not included', '⚠️ 未含送达您城市的费用')}
               </Text>
               <Text style={styles.avisoNacionalTexto}>
-                {L(`Este precio cubre el contenedor hasta México, no el flete a ${String(r.estado || 'tu estado')}. Todavía no tenemos tarifa publicada para ese destino: tu asesor te la cierra y se suma a este monto.`,
-                   `This price covers the container to Mexico, not the freight to ${String(r.estado || 'your state')}. We have no published rate for that destination yet: your advisor will confirm it and it adds to this amount.`,
-                   '此价格含整箱到墨西哥，不含到您所在州的运费。该目的地暂无公布费率，顾问确认后另加。')}
+                {L(`Este precio cubre el contenedor hasta México, no el flete a ${String(r.estado || 'tu estado')}. Todavía no tenemos tarifa publicada para ese destino. Consulta con tu asesor para más detalles.`,
+                   `This price covers the container to Mexico, not the freight to ${String(r.estado || 'your state')}. We have no published rate for that destination yet. Check with your advisor for details.`,
+                   '此价格含整箱到墨西哥，不含到您所在州的运费。该目的地暂无公布费率，详情请咨询您的顾问。')}
               </Text>
             </View>
           )}

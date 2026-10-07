@@ -7807,7 +7807,7 @@ export default function DashboardClient() {
                                 </Select>
                                 <FormHelperText>
                                   {elpOpciones?.estados?.find(e2 => e2.estado === quoteEstado)?.cobertura === 'sin_cobertura'
-                                    ? 'A ese estado todavía no tenemos tarifa de entrega: te cotizamos el contenedor y tu asesor cierra el flete hasta tu ciudad.'
+                                    ? 'A ese estado todavía no tenemos tarifa de entrega: te cotizamos el contenedor. Consulta con tu asesor para más detalles.'
                                     : 'El precio del contenedor ya incluye la entrega hasta el estado que elijas.'}
                                 </FormHelperText>
                               </FormControl>
@@ -8051,7 +8051,7 @@ export default function DashboardClient() {
                               </Typography>
                               <Typography variant="body2" sx={{ color: '#7C4A03' }}>
                                 Este precio cubre el contenedor hasta México, <strong>no el flete a {String(quoteResult.estado || 'tu estado')}</strong>.
-                                Todavía no tenemos tarifa publicada para ese destino: tu asesor te la cierra y se suma a este monto.
+                                Todavía no tenemos tarifa publicada para ese destino. Consulta con tu asesor para más detalles.
                               </Typography>
                             </Box>
                           )}

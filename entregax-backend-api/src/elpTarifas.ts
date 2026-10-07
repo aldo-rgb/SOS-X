@@ -261,7 +261,7 @@ export async function cotizarContenedorElp(
     ...(sinCobertura ? {
       nacional_pendiente: true,
       aviso_nacional: 'Este precio NO incluye la entrega hasta tu ciudad. '
-        + 'Consulta con tu asesor para cerrar el flete a destino.',
+        + 'Consulta con tu asesor para más detalles.',
     } : {}),
     periodo: pactado != null ? 'tarifa pactada' : precio!.periodo,
     // Un precio pactado nunca está "desactualizado": no depende del mes.
