@@ -636,20 +636,33 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                   cuánto vale el contenedor, que es la parte que sí sabemos. Ahora
                   se puede elegir y el resultado avisa que falta el flete a su
                   ciudad (petición de Aldo, 7-oct). */}
+              {/* Los de entrega incluida van PRIMERO y en verde con palomita:
+                  son 4 de 32 y en una lista alfabética se pierden entre los 28
+                  que no tienen tarifa. */}
               <View style={styles.chipRow}>
-                {(elpOpciones?.estados || []).map(e => (
-                    <TouchableOpacity
-                      key={e.estado}
-                      style={[styles.chip, estadoEntrega === e.estado && styles.chipActive]}
-                      onPress={() => setEstadoEntrega(e.estado)}
-                    >
-                      <Text style={[styles.chipText, estadoEntrega === e.estado && styles.chipTextActive]}>
-                        {e.estado}
-                        {e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
-                        {e.cobertura === 'sin_cobertura' ? ' *' : ''}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                {[...(elpOpciones?.estados || [])]
+                  .sort((a, b) => {
+                    const peso = (c: string) => (c === 'incluido' ? 0 : c === 'con_tarifa' ? 1 : 2);
+                    const d = peso(a.cobertura) - peso(b.cobertura);
+                    return d !== 0 ? d : a.estado.localeCompare(b.estado, 'es');
+                  })
+                  .map(e => {
+                    const incluido = e.cobertura === 'incluido';
+                    const activo = estadoEntrega === e.estado;
+                    return (
+                      <TouchableOpacity
+                        key={e.estado}
+                        style={[styles.chip, incluido && !activo && styles.chipIncluido, activo && styles.chipActive]}
+                        onPress={() => setEstadoEntrega(e.estado)}
+                      >
+                        <Text style={[styles.chipText, incluido && !activo && styles.chipTextIncluido, activo && styles.chipTextActive]}>
+                          {incluido ? '✓ ' : ''}{e.estado}
+                          {e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
+                          {e.cobertura === 'sin_cobertura' ? ' *' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
               </View>
               <Text style={[styles.helpText, { marginTop: 6, fontStyle: 'italic' }]}>
                 {L('Los estados con * todavía no tienen tarifa de entrega: te cotizamos el contenedor. Consulta con tu asesor para más detalles.',
@@ -1757,6 +1770,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '600',
   },
+  chipIncluido: { backgroundColor: '#E8F5E9', borderColor: '#2E7D32', borderWidth: 2 },
+  chipTextIncluido: { color: '#1B5E20', fontWeight: '800' },
   avisoNacionalPdte: {
     marginTop: 14, paddingHorizontal: 12, paddingVertical: 10,
     borderRadius: 10, backgroundColor: '#FFF4E5', borderWidth: 2, borderColor: '#FFB74D',

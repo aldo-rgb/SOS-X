@@ -9183,22 +9183,53 @@ export default function DashboardAdvisor() {
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl size="small" fullWidth>
-                      <InputLabel>Estado de entrega</InputLabel>
-                      <Select value={fqEstado} label="Estado de entrega" onChange={e => setFqEstado(String(e.target.value))}>
-                        {/* Sin tarifa ya no bloquea: cotiza el contenedor y avisa
-                            que falta el flete a destino. Mismo criterio que el
-                            portal del cliente. */}
-                        {(fqElp?.estados || []).map(e2 => (
-                          <MenuItem key={e2.estado} value={e2.estado}>
-                            {e2.estado}
-                            {e2.cobertura === 'incluido' && ' — incluida'}
-                            {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd} USD`}
-                            {e2.cobertura === 'sin_cobertura' && ' — consulta con tu asesor'}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                    {/* Campo que filtra al escribir, con los de entrega incluida
+                        arriba y marcados. Mismo criterio que el portal del
+                        cliente: si las dos pantallas se separan, el asesor y su
+                        cliente ven cosas distintas. */}
+                    <Autocomplete
+                      size="small"
+                      options={[...(fqElp?.estados || [])].sort((a, b) => {
+                        const peso = (c: string) => (c === 'incluido' ? 0 : c === 'con_tarifa' ? 1 : 2);
+                        const d = peso(a.cobertura) - peso(b.cobertura);
+                        return d !== 0 ? d : a.estado.localeCompare(b.estado, 'es');
+                      })}
+                      groupBy={(o) => (o.cobertura === 'incluido'
+                        ? '✅ Entrega incluida en el precio'
+                        : o.cobertura === 'con_tarifa' ? 'Con costo de entrega' : 'Consulta con tu asesor')}
+                      getOptionLabel={(o) => (typeof o === 'string' ? o : o.estado)}
+                      isOptionEqualToValue={(o, v) => o.estado === v.estado}
+                      value={(fqElp?.estados || []).find(e2 => e2.estado === fqEstado) || null}
+                      onChange={(_e, v) => setFqEstado(v ? v.estado : '')}
+                      renderOption={(props, o) => {
+                        const incluido = o.cobertura === 'incluido';
+                        const { key, ...rest } = props as any;
+                        return (
+                          <Box component="li" key={key} {...rest}
+                            sx={incluido
+                              ? { bgcolor: '#E8F5E9', borderLeft: '4px solid #2E7D32', '&:hover': { bgcolor: '#D7EDD9 !important' } }
+                              : { color: '#6B7280' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                              {incluido && <CheckCircleIcon sx={{ fontSize: 18, color: '#2E7D32' }} />}
+                              <span style={{ fontWeight: incluido ? 800 : 400 }}>{o.estado}</span>
+                              {incluido && (
+                                <Chip label="ENTREGA INCLUIDA" size="small"
+                                  sx={{ ml: 'auto', height: 20, fontSize: 10, fontWeight: 900, letterSpacing: 0.4, bgcolor: '#2E7D32', color: '#fff' }} />
+                              )}
+                              {o.cobertura === 'con_tarifa' && o.tarifa_usd != null && (
+                                <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#B45309' }}>+${o.tarifa_usd} USD</span>
+                              )}
+                              {o.cobertura === 'sin_cobertura' && (
+                                <span style={{ marginLeft: 'auto', fontSize: 12, fontStyle: 'italic' }}>consulta con tu asesor</span>
+                              )}
+                            </Box>
+                          </Box>
+                        );
+                      }}
+                      renderInput={(params) => (
+                        <TextField {...params} label="Estado de entrega" placeholder="Escribe el estado…" />
+                      )}
+                    />
                   </Grid>
                 </Grid>
               </Grid>

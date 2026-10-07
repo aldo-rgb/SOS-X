@@ -53,7 +53,6 @@ import {
   BottomNavigationAction,
   Select,
   InputLabel,
-  FormHelperText,
   Autocomplete,
   FormGroup,
 } from '@mui/material';
@@ -7783,34 +7782,74 @@ export default function DashboardClient() {
                           )}
                           {quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' && (
                             <Grid size={{ xs: 12, sm: quoteRutaId ? 12 : 6 }}>
-                              <FormControl fullWidth size="small">
-                                <InputLabel>Estado de entrega</InputLabel>
-                                <Select
-                                  value={quoteEstado}
-                                  label="Estado de entrega"
-                                  onChange={(e) => setQuoteEstado(String(e.target.value))}
-                                >
-                                  {/* Un estado sin tarifa YA NO se bloquea. Decirle
-                                      "sin cobertura" y no dejarlo avanzar lo dejaba
-                                      sin número y sin saber siquiera cuánto vale el
-                                      contenedor, que es la parte que sí sabemos.
-                                      Ahora cotiza el contenedor y el resultado avisa
-                                      que falta el flete a su ciudad. */}
-                                  {(elpOpciones?.estados || []).map(e2 => (
-                                    <MenuItem key={e2.estado} value={e2.estado}>
-                                      {e2.estado}
-                                      {e2.cobertura === 'incluido' && ' — entrega incluida'}
-                                      {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd.toLocaleString('en-US')} USD`}
-                                      {e2.cobertura === 'sin_cobertura' && ' — consulta con tu asesor'}
-                                    </MenuItem>
-                                  ))}
-                                </Select>
-                                <FormHelperText>
-                                  {elpOpciones?.estados?.find(e2 => e2.estado === quoteEstado)?.cobertura === 'sin_cobertura'
-                                    ? 'A ese estado todavía no tenemos tarifa de entrega: te cotizamos el contenedor. Consulta con tu asesor para más detalles.'
-                                    : 'El precio del contenedor ya incluye la entrega hasta el estado que elijas.'}
-                                </FormHelperText>
-                              </FormControl>
+                              {/* Campo de texto que filtra al escribir, no un
+                                  desplegable de 32 renglones: con 4 estados
+                                  incluidos y 28 sin tarifa, bajar la lista entera
+                                  para encontrar el tuyo es trabajo que no tiene
+                                  por qué hacer el cliente.
+
+                                  Los que traen la entrega incluida van PRIMERO y
+                                  marcados en verde con su palomita: son los únicos
+                                  4 y en una lista alfabética se pierden entre los
+                                  otros 28. */}
+                              <Autocomplete
+                                size="small"
+                                options={[...(elpOpciones?.estados || [])].sort((a, b) => {
+                                  const peso = (c: string) => (c === 'incluido' ? 0 : c === 'con_tarifa' ? 1 : 2);
+                                  const d = peso(a.cobertura) - peso(b.cobertura);
+                                  return d !== 0 ? d : a.estado.localeCompare(b.estado, 'es');
+                                })}
+                                groupBy={(o) => (o.cobertura === 'incluido'
+                                  ? '✅ Entrega incluida en el precio'
+                                  : o.cobertura === 'con_tarifa' ? 'Con costo de entrega' : 'Consulta con tu asesor')}
+                                getOptionLabel={(o) => (typeof o === 'string' ? o : o.estado)}
+                                isOptionEqualToValue={(o, v) => o.estado === v.estado}
+                                value={(elpOpciones?.estados || []).find(e2 => e2.estado === quoteEstado) || null}
+                                onChange={(_e, v) => setQuoteEstado(v ? v.estado : '')}
+                                renderOption={(props, o) => {
+                                  const incluido = o.cobertura === 'incluido';
+                                  const { key, ...rest } = props as any;
+                                  return (
+                                    <Box
+                                      component="li"
+                                      key={key}
+                                      {...rest}
+                                      sx={incluido
+                                        ? { bgcolor: '#E8F5E9', borderLeft: '4px solid #2E7D32', '&:hover': { bgcolor: '#D7EDD9 !important' } }
+                                        : { color: '#6B7280' }}
+                                    >
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                                        {incluido && <CheckCircleIcon sx={{ fontSize: 18, color: '#2E7D32' }} />}
+                                        <span style={{ fontWeight: incluido ? 800 : 400 }}>{o.estado}</span>
+                                        {incluido && (
+                                          <Chip label="ENTREGA INCLUIDA" size="small"
+                                            sx={{ ml: 'auto', height: 20, fontSize: 10, fontWeight: 900, letterSpacing: 0.4, bgcolor: '#2E7D32', color: '#fff' }} />
+                                        )}
+                                        {o.cobertura === 'con_tarifa' && o.tarifa_usd != null && (
+                                          <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#B45309' }}>
+                                            +${o.tarifa_usd.toLocaleString('en-US')} USD
+                                          </span>
+                                        )}
+                                        {o.cobertura === 'sin_cobertura' && (
+                                          <span style={{ marginLeft: 'auto', fontSize: 12, fontStyle: 'italic' }}>consulta con tu asesor</span>
+                                        )}
+                                      </Box>
+                                    </Box>
+                                  );
+                                }}
+                                renderInput={(params) => (
+                                  <TextField
+                                    {...params}
+                                    label="Estado de entrega"
+                                    placeholder="Escribe tu estado…"
+                                    helperText={
+                                      (elpOpciones?.estados || []).find(e2 => e2.estado === quoteEstado)?.cobertura === 'sin_cobertura'
+                                        ? 'A ese estado todavía no tenemos tarifa de entrega: te cotizamos el contenedor. Consulta con tu asesor para más detalles.'
+                                        : 'El precio del contenedor ya incluye la entrega hasta el estado que elijas.'
+                                    }
+                                  />
+                                )}
+                              />
                             </Grid>
                           )}
                           {quoteService === 'maritimo' && quoteMaritimoMode === 'volumen' && (
