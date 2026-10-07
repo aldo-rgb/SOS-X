@@ -14498,6 +14498,14 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
               periodo_precio: c.periodo,
               precio_desactualizado: c.precio_desactualizado,
               desglose_contenedor: c.desglose,
+              // Destino sin tarifa: el precio es SOLO el contenedor y falta la
+              // entrega en su ciudad. Viaja junto al número, no como nota al
+              // pie, para que ninguna pantalla pueda enseñar el total sin el
+              // aviso (tarea 671 / petición de Aldo, 7-oct).
+              ...(c.nacional_pendiente ? {
+                nacional_pendiente: true,
+                aviso_nacional: c.aviso_nacional,
+              } : {}),
               precio_unitario_usd: c.total_usd.toFixed(2),
               precio_usd: totalUsd.toFixed(2),
               precio_mxn: (totalUsd * fxRate).toFixed(2),

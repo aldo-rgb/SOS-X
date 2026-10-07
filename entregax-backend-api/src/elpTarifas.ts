@@ -196,6 +196,11 @@ export type Cotizacion =
   | { cotiza: true; total_usd: number; base_usd: number; nacional_usd: number;
       cobertura: CoberturaEstado; periodo: string; precio_desactualizado: boolean;
       es_tarifa_pactada?: boolean;
+      // Destino sin tarifa cargada: el contenedor SÍ se cotiza, la entrega en
+      // su ciudad NO. total_usd es el contenedor solo, y falta sumarle el flete
+      // a destino. Quien lo muestre tiene que decirlo con todas sus letras.
+      nacional_pendiente?: boolean;
+      aviso_nacional?: string;
       desglose: Record<string, number> }
   | { cotiza: false; motivo: string };
 
@@ -235,17 +240,29 @@ export async function cotizarContenedorElp(
     return { cotiza: false, motivo: 'Todavía no hay precio publicado para esta ruta. Contacta a tu asesor.' };
   }
   const dest = await tarifaDeDestino(estado, cp);
-  if (!dest || dest.cobertura === 'sin_cobertura') {
-    return { cotiza: false, motivo: 'Requerimos revisar más detalles, contacta a tu asesor.' };
-  }
-  const nacional = dest.cobertura === 'incluido' ? 0 : dest.tarifa_usd;
+  // Destino sin tarifa: ANTES no cotizaba nada. El cliente se iba sin número y
+  // sin saber siquiera el orden de magnitud del contenedor, que es la parte que
+  // sí sabemos. Ahora se cotiza el contenedor y se marca que FALTA el flete a
+  // su ciudad, con `nacional_pendiente`.
+  //
+  // El riesgo que motivó el "no cotiza" sigue vivo y no desaparece por esto: un
+  // cliente puede exigir que se le respete lo que vio en pantalla, y ya pasó.
+  // Por eso el total NO incluye la entrega y el aviso viaja junto al precio, no
+  // como una nota al pie: quien pinte esto tiene que mostrarlo.
+  const sinCobertura = !dest || dest.cobertura === 'sin_cobertura';
+  const nacional = sinCobertura ? 0 : (dest!.cobertura === 'incluido' ? 0 : dest!.tarifa_usd);
   const base = pactado != null ? pactado : precio!.total_usd;
   return {
     cotiza: true,
     base_usd: base,
     nacional_usd: nacional,
     total_usd: +(base + nacional).toFixed(2),
-    cobertura: dest.cobertura,
+    cobertura: sinCobertura ? 'sin_cobertura' : dest!.cobertura,
+    ...(sinCobertura ? {
+      nacional_pendiente: true,
+      aviso_nacional: 'Este precio NO incluye la entrega hasta tu ciudad. '
+        + 'Consulta con tu asesor para cerrar el flete a destino.',
+    } : {}),
     periodo: pactado != null ? 'tarifa pactada' : precio!.periodo,
     // Un precio pactado nunca está "desactualizado": no depende del mes.
     precio_desactualizado: pactado != null ? false : precio!.es_del_mes_anterior,

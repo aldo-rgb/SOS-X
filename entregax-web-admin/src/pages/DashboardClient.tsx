@@ -7790,17 +7790,25 @@ export default function DashboardClient() {
                                   label="Estado de entrega"
                                   onChange={(e) => setQuoteEstado(String(e.target.value))}
                                 >
+                                  {/* Un estado sin tarifa YA NO se bloquea. Decirle
+                                      "sin cobertura" y no dejarlo avanzar lo dejaba
+                                      sin número y sin saber siquiera cuánto vale el
+                                      contenedor, que es la parte que sí sabemos.
+                                      Ahora cotiza el contenedor y el resultado avisa
+                                      que falta el flete a su ciudad. */}
                                   {(elpOpciones?.estados || []).map(e2 => (
-                                    <MenuItem key={e2.estado} value={e2.estado} disabled={e2.cobertura === 'sin_cobertura'}>
+                                    <MenuItem key={e2.estado} value={e2.estado}>
                                       {e2.estado}
                                       {e2.cobertura === 'incluido' && ' — entrega incluida'}
                                       {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd.toLocaleString('en-US')} USD`}
-                                      {e2.cobertura === 'sin_cobertura' && ' — sin cobertura'}
+                                      {e2.cobertura === 'sin_cobertura' && ' — consulta con tu asesor'}
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 <FormHelperText>
-                                  El precio del contenedor ya incluye la entrega hasta el estado que elijas.
+                                  {elpOpciones?.estados?.find(e2 => e2.estado === quoteEstado)?.cobertura === 'sin_cobertura'
+                                    ? 'A ese estado todavía no tenemos tarifa de entrega: te cotizamos el contenedor y tu asesor cierra el flete hasta tu ciudad.'
+                                    : 'El precio del contenedor ya incluye la entrega hasta el estado que elijas.'}
                                 </FormHelperText>
                               </FormControl>
                             </Grid>
@@ -8032,6 +8040,21 @@ export default function DashboardClient() {
                           <Typography variant="body2" sx={{ color: '#666', mt: 0.5 }}>
                             ≈ <strong>${Number(quoteResult.precio_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> MXN
                           </Typography>
+                          {/* Destino sin tarifa: el número de arriba es SOLO el
+                              contenedor. Va pegado al precio y no al pie, porque
+                              un cliente puede exigir que se le respete lo que vio
+                              —ya pasó— y lo que vio tiene que decir qué le falta. */}
+                          {quoteResult.nacional_pendiente && (
+                            <Box sx={{ mt: 2, px: 2, py: 1.5, borderRadius: 2, bgcolor: '#FFF4E5', border: '2px solid #FFB74D', textAlign: 'left' }}>
+                              <Typography variant="body2" sx={{ color: '#B45309', fontWeight: 800, mb: 0.5 }}>
+                                ⚠️ Falta la entrega hasta tu ciudad
+                              </Typography>
+                              <Typography variant="body2" sx={{ color: '#7C4A03' }}>
+                                Este precio cubre el contenedor hasta México, <strong>no el flete a {String(quoteResult.estado || 'tu estado')}</strong>.
+                                Todavía no tenemos tarifa publicada para ese destino: tu asesor te la cierra y se suma a este monto.
+                              </Typography>
+                            </Box>
+                          )}
                         </Box>
 
                         {/* Línea punteada estilo ticket */}

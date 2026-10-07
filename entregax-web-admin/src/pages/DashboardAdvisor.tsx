@@ -9186,12 +9186,15 @@ export default function DashboardAdvisor() {
                     <FormControl size="small" fullWidth>
                       <InputLabel>Estado de entrega</InputLabel>
                       <Select value={fqEstado} label="Estado de entrega" onChange={e => setFqEstado(String(e.target.value))}>
+                        {/* Sin tarifa ya no bloquea: cotiza el contenedor y avisa
+                            que falta el flete a destino. Mismo criterio que el
+                            portal del cliente. */}
                         {(fqElp?.estados || []).map(e2 => (
-                          <MenuItem key={e2.estado} value={e2.estado} disabled={e2.cobertura === 'sin_cobertura'}>
+                          <MenuItem key={e2.estado} value={e2.estado}>
                             {e2.estado}
                             {e2.cobertura === 'incluido' && ' — incluida'}
                             {e2.cobertura === 'con_tarifa' && e2.tarifa_usd != null && ` — +$${e2.tarifa_usd} USD`}
-                            {e2.cobertura === 'sin_cobertura' && ' — sin cobertura'}
+                            {e2.cobertura === 'sin_cobertura' && ' — consulta con tu asesor'}
                           </MenuItem>
                         ))}
                       </Select>

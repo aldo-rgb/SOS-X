@@ -775,16 +775,16 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={s.helperText}>Estado de entrega — el precio ya incluye llevarlo ahí</Text>
+                <Text style={s.helperText}>Estado de entrega — los marcados con * no tienen tarifa: se cotiza el contenedor y el flete a destino queda pendiente</Text>
                 <View style={s.chipRowSmall}>
-                  {(elpOpc?.estados || []).filter(e => e.cobertura !== 'sin_cobertura').map(e => (
+                  {(elpOpc?.estados || []).map(e => (
                     <TouchableOpacity
                       key={e.estado}
                       style={[s.chipSmall, elpEstado === e.estado && s.chipSmallActive]}
                       onPress={() => setElpEstado(e.estado)}
                     >
                       <Text style={[s.chipSmallText, elpEstado === e.estado && s.chipSmallTextActive]}>
-                        {e.estado}{e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
+                        {e.estado}{e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}{e.cobertura === 'sin_cobertura' ? ' *' : ''}
                       </Text>
                     </TouchableOpacity>
                   ))}

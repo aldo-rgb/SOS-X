@@ -631,10 +631,13 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                    'Delivery state — the price already includes delivery there',
                    '交付州 — 价格已包含送达')}
               </Text>
+              {/* TODOS los estados se listan. Antes los que no tienen tarifa se
+                  escondían, y el cliente se iba sin número y sin saber siquiera
+                  cuánto vale el contenedor, que es la parte que sí sabemos. Ahora
+                  se puede elegir y el resultado avisa que falta el flete a su
+                  ciudad (petición de Aldo, 7-oct). */}
               <View style={styles.chipRow}>
-                {(elpOpciones?.estados || [])
-                  .filter(e => e.cobertura !== 'sin_cobertura')
-                  .map(e => (
+                {(elpOpciones?.estados || []).map(e => (
                     <TouchableOpacity
                       key={e.estado}
                       style={[styles.chip, estadoEntrega === e.estado && styles.chipActive]}
@@ -643,16 +646,15 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                       <Text style={[styles.chipText, estadoEntrega === e.estado && styles.chipTextActive]}>
                         {e.estado}
                         {e.cobertura === 'con_tarifa' && e.tarifa_usd != null ? ` +$${e.tarifa_usd}` : ''}
+                        {e.cobertura === 'sin_cobertura' ? ' *' : ''}
                       </Text>
                     </TouchableOpacity>
                   ))}
               </View>
-              {/* Los estados sin cobertura NO se listan: ofrecer un destino al que
-                  no llegamos solo lleva al cliente a un "no se puede" al final. */}
               <Text style={[styles.helpText, { marginTop: 6, fontStyle: 'italic' }]}>
-                {L('¿No ves tu estado? Todavía no entregamos contenedor dedicado ahí. Habla con tu asesor.',
-                   "Don't see your state? We don't deliver dedicated containers there yet. Talk to your advisor.",
-                   '没看到您的州？我们尚未在该地交付整箱，请联系顾问。')}
+                {L('Los estados con * todavía no tienen tarifa de entrega: te cotizamos el contenedor y tu asesor cierra el flete hasta tu ciudad.',
+                   'States marked * have no delivery rate yet: we quote the container and your advisor closes the freight to your city.',
+                   '带 * 的州尚无派送费率：我们报整箱价，顾问再与您确认到城市的运费。')}
               </Text>
             </View>
           )}
@@ -1147,6 +1149,23 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             </>
           ) : (
             <Text style={styles.estCostUsd}>{formatMxn(totalMxn)}</Text>
+          )}
+
+          {/* Destino sin tarifa: el número de arriba es SOLO el contenedor.
+              Va pegado al precio, no al pie, porque un cliente puede exigir que
+              se le respete lo que vio en pantalla —ya pasó— y lo que ve tiene
+              que decir qué le falta. */}
+          {r.nacional_pendiente === true && (
+            <View style={styles.avisoNacionalPdte}>
+              <Text style={styles.avisoNacionalTitulo}>
+                {L('⚠️ Falta la entrega hasta tu ciudad', '⚠️ Delivery to your city not included', '⚠️ 未含送达您城市的费用')}
+              </Text>
+              <Text style={styles.avisoNacionalTexto}>
+                {L(`Este precio cubre el contenedor hasta México, no el flete a ${String(r.estado || 'tu estado')}. Todavía no tenemos tarifa publicada para ese destino: tu asesor te la cierra y se suma a este monto.`,
+                   `This price covers the container to Mexico, not the freight to ${String(r.estado || 'your state')}. We have no published rate for that destination yet: your advisor will confirm it and it adds to this amount.`,
+                   '此价格含整箱到墨西哥，不含到您所在州的运费。该目的地暂无公布费率，顾问确认后另加。')}
+              </Text>
+            </View>
           )}
 
           <View style={styles.dottedDivider} />
@@ -1738,6 +1757,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '600',
   },
+  avisoNacionalPdte: {
+    marginTop: 14, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: 10, backgroundColor: '#FFF4E5', borderWidth: 2, borderColor: '#FFB74D',
+  },
+  avisoNacionalTitulo: { color: '#B45309', fontWeight: '800', fontSize: 13, marginBottom: 4 },
+  avisoNacionalTexto: { color: '#7C4A03', fontSize: 12, lineHeight: 17 },
   dottedDivider: {
     borderBottomWidth: 1,
     borderStyle: 'dashed',
