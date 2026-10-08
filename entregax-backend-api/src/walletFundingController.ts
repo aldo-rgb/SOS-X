@@ -360,3 +360,120 @@ export const miReferenciaDeFondeo = async (req: any, res: Response): Promise<any
     res.status(500).json({ error: 'No se pudo obtener tu referencia de fondeo' });
   }
 };
+
+/**
+ * POST /api/admin/finance/asignar-deposito
+ * Body: { bank_entry_id, user_id, nota? }
+ *
+ * Abona a la cartera de un cliente un depósito que entró SIN referencia.
+ *
+ * Hasta hoy no había cómo. La conciliación amarra de dos maneras —por nuestra
+ * referencia, o por monto EXACTO contra una orden— y un depósito sin referencia
+ * cuyo monto no cuadra al centavo se quedaba en "sin conciliar" para siempre.
+ * Le pasó a S20 el 28-sep con dos depósitos: 36,087.00 contra una orden de
+ * 36,087.50, cincuenta centavos de diferencia. Leonardo Reyna lo pidió en las
+ * tareas 760 y 791, y yo había contestado que bastaba la conciliación normal.
+ * No bastaba.
+ *
+ * El dinero va a la CARTERA del cliente, no contra una orden. Dos razones: el
+ * depósito casi nunca coincide con una orden —si coincidiera, el conciliador
+ * por monto ya lo habría amarrado solo—, y desde la cartera el cliente paga lo
+ * que sea, con la maquinaria que ya existe y ya aplica el excedente a la deuda.
+ * Asignar directo a una orden duplicaría ese camino.
+ *
+ * Los candados, todos sobre cosas que ya pasaron antes en este sistema:
+ *  · Tiene que ser un ABONO. Asignar un cargo le regalaría saldo al cliente.
+ *  · Un movimiento se asigna UNA vez. La guarda vive en dos lados:
+ *    `acreditarFondeoCartera` es idempotente por bank_entry_id, y aquí se mira
+ *    `bank_entry_applications`. Volver a pegar el estado de cuenta no vuelve a
+ *    abonar.
+ *  · Queda escrito QUIÉN lo asignó, con nota, en las dos tablas. Mover dinero
+ *    a mano sin saber quién fue no es una opción.
+ */
+export const asignarDepositoACliente = async (req: any, res: Response): Promise<any> => {
+  const cx = await pool.connect();
+  try {
+    const bankEntryId = parseInt(String(req.body?.bank_entry_id ?? ''), 10);
+    const userId = parseInt(String(req.body?.user_id ?? ''), 10);
+    const nota = String(req.body?.nota || '').trim().slice(0, 500) || null;
+    if (!Number.isFinite(bankEntryId) || bankEntryId <= 0) return res.status(400).json({ error: 'Falta el movimiento bancario.' });
+    if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: 'Falta el cliente al que se le abona.' });
+
+    await cx.query('BEGIN');
+
+    const mv = await cx.query(
+      `SELECT id, fecha, concepto, referencia, abono, cargo, numero_cuenta
+         FROM bank_statement_entries WHERE id = $1 FOR UPDATE`, [bankEntryId]);
+    if (mv.rows.length === 0) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'No encontré ese movimiento bancario.' }); }
+    const m = mv.rows[0];
+    const monto = Number(m.abono) || 0;
+    if (!(monto > 0)) {
+      await cx.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ese movimiento es un cargo, no un depósito. Solo se pueden asignar abonos.' });
+    }
+
+    const yaAplicado = await cx.query(
+      `SELECT id, payment_reference, aplicado_por_nombre, created_at
+         FROM bank_entry_applications
+        WHERE bank_entry_id = $1 AND reversed_at IS NULL LIMIT 1`, [bankEntryId]);
+    if (yaAplicado.rows.length > 0) {
+      await cx.query('ROLLBACK');
+      const y = yaAplicado.rows[0];
+      return res.status(409).json({
+        error: 'Ese depósito ya estaba aplicado; no se puede asignar dos veces.',
+        aplicado: { referencia: y.payment_reference, por: y.aplicado_por_nombre, cuando: y.created_at },
+      });
+    }
+
+    const u = await cx.query(
+      `SELECT id, full_name, box_id FROM users
+        WHERE id = $1 AND COALESCE(is_active, true) = true AND deleted_at IS NULL`, [userId]);
+    if (u.rows.length === 0) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'No encontré a ese cliente, o su cuenta está inactiva.' }); }
+    const cliente = u.rows[0];
+
+    // La referencia de cartera del cliente, para que el abono quede con la
+    // misma etiqueta que tendría si él la hubiera puesto en la transferencia.
+    const referencia = await obtenerOCrearReferencia(cliente.id);
+
+    const actorId = Number(req.user?.userId || req.user?.id) || null;
+    const actorNombre = String(req.user?.full_name || req.user?.nombre || '').trim() || null;
+
+    const r = await acreditarFondeoCartera(cx, {
+      userId: cliente.id,
+      reference: referencia,
+      monto,
+      origen: 'manual',
+      bankEntryId,
+      actorId,
+      ...(actorNombre ? { actorNombre } : {}),
+      nota: nota || `Depósito sin referencia del ${new Date(m.fecha).toLocaleDateString('es-MX')}, asignado a mano.`,
+    });
+    if (r.duplicado) {
+      await cx.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ese depósito ya se le había abonado a un cliente.' });
+    }
+
+    // Que el movimiento deje de aparecer como "sin conciliar".
+    await cx.query(
+      `INSERT INTO bank_entry_applications
+         (bank_entry_id, payment_reference, monto_aplicado, origen, aplicado_por, aplicado_por_nombre, nota, created_at)
+       VALUES ($1, $2, $3, 'asignacion_manual', $4, $5, $6, NOW())`,
+      [bankEntryId, referencia, monto, actorId, actorNombre, nota]);
+
+    await cx.query('COMMIT');
+    res.json({
+      success: true,
+      cliente: { id: cliente.id, nombre: cliente.full_name, casillero: cliente.box_id },
+      monto, referencia,
+      nuevo_saldo: r.nuevoSaldo,
+      mensaje: `Se abonaron $${monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} a la cartera de ${cliente.full_name}`
+             + ` (${cliente.box_id}). Su saldo queda en $${r.nuevoSaldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`,
+    });
+  } catch (e: any) {
+    await cx.query('ROLLBACK').catch(() => {});
+    console.error('[fondeo] asignarDepositoACliente:', e?.message);
+    res.status(500).json({ error: e?.message || 'No se pudo asignar el depósito.' });
+  } finally {
+    cx.release();
+  }
+};

@@ -62,7 +62,7 @@ import { servirArchivoFactura } from './facturaArchivo';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
 import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
-import { miReferenciaDeFondeo, ensureFundingSchema } from './walletFundingController';
+import { miReferenciaDeFondeo, ensureFundingSchema, asignarDepositoACliente } from './walletFundingController';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { marcarSinComision, MOTIVO_SISTEMA_ANTERIOR } from './sinComision';
@@ -12142,6 +12142,11 @@ app.post('/api/admin/finance/match-by-amount', authenticateToken, requireMinLeve
 // AUTORIZAR PAGOS DESDE ESTADO DE CUENTA BANCARIO
 // Marca órdenes como pagadas y acredita excedente como saldo a favor
 // ============================================
+// Abonar a la cartera de un cliente un deposito que entro SIN referencia y que
+// por eso ningun conciliador pudo amarrar. Mismo permiso que el resto de la
+// conciliacion: lo usa Contabilidad. Ver asignarDepositoACliente.
+app.post('/api/admin/finance/asignar-deposito', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), asignarDepositoACliente);
+
 app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
