@@ -3191,12 +3191,14 @@ export const TOOLS: ToolDef[] = [
       properties: {
         folio: { type: 'string', description: 'Folio de la orden, con o sin el prefijo: "XP112535" o "112535".' },
         casillero: { type: 'string', description: 'Casillero del cliente (S####) para ver todas sus órdenes X-Pay.' },
+        asesor: { type: 'string', description: 'Nombre del asesor, para ver las órdenes X-Pay que él atiende.' },
       },
     },
-    handler: async ({ folio, casillero }) => {
+    handler: async ({ folio, casillero, asesor }) => {
       const f = String(folio || '').trim().toUpperCase().replace(/^XP/, '');
       const box = String(casillero || '').trim().toUpperCase();
-      if (!f && !box) return { error: 'Dime el folio de la orden (XP######) o el casillero del cliente.' };
+      const ase = String(asesor || '').trim();
+      if (!f && !box && !ase) return { error: 'Dime el folio de la orden (XP######), el casillero del cliente o el nombre del asesor.' };
 
       const enmascarar = (c: any) => {
         const v = String(c || '').replace(/\s+/g, '');
@@ -3208,6 +3210,13 @@ export const TOOLS: ToolDef[] = [
       const params: any[] = [];
       if (f) { params.push(`%${f}%`); where.push(`e.referencia_pago ILIKE $${params.length}`); }
       if (box) { params.push(box); where.push(`UPPER(TRIM(u.box_id)) = $${params.length}`); }
+      if (ase) {
+        // Por inicio de palabra, igual que en el resto: "Marcelo" no debe traer
+        // a quien lo lleve a media palabra.
+        const palabras = ase.split(/\s+/).filter(Boolean).map(w => '\\m' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        params.push(palabras);
+        where.push(`a.full_name ~* ALL($${params.length}::text[])`);
+      }
 
       const r = await pool.query(
         `SELECT e.referencia_pago, e.estatus_global, e.estatus_proveedor, e.estatus_factura,
@@ -3224,7 +3233,8 @@ export const TOOLS: ToolDef[] = [
           ORDER BY e.created_at DESC LIMIT 15`, params);
 
       if (r.rows.length === 0) {
-        return { ordenes: [], nota: f ? `No encontré ninguna orden X-Pay con el folio ${f}.` : `No encontré órdenes X-Pay del casillero ${box}.` };
+        const queBusque = f ? `con el folio ${f}` : box ? `del casillero ${box}` : `del asesor "${ase}"`;
+        return { ordenes: [], nota: `No encontré ninguna orden X-Pay ${queBusque}.` };
       }
       return {
         ordenes: r.rows.map((x: any) => ({

@@ -263,6 +263,14 @@ export const createPaymentRequest = async (
   };
   const requiereFactura = req.body.requiere_factura !== false;
   const proveedor = (req.body as any).proveedor_envio || null;
+  // Aquí es donde de verdad sale el dinero: una orden a un banco de EUA sin ABA
+  // la rechazan del otro lado y el cliente se queda esperando. Es el caso de la
+  // XP796198 (tarea 787). La validación del alta de proveedor no basta: hay
+  // proveedores guardados de antes sin ABA, y el formulario de la orden permite
+  // capturar los datos a mano sin pasar por el catálogo.
+  if (proveedor && faltaAbaDeBancoUsa(proveedor)) {
+    return res.status(400).json({ error: ERROR_ABA, campo: 'aba_routing' });
+  }
   const providerIdRaw = (req.body as any).provider_id;
   const providerId = providerIdRaw ? Number(providerIdRaw) : null;
 
@@ -911,6 +919,33 @@ export const listMySuppliers = async (req: Request, res: Response, opts?: { owne
   }
 };
 
+/**
+ * Un banco de Estados Unidos necesita ABA; el resto del mundo, no.
+ *
+ * Entangled pidió el ABA de la XP796198 y propuso exigirlo "siempre que sea
+ * Persona Moral". No se puede: no capturamos persona física ni moral en ningún
+ * lado. Y además no es la condición correcta — el ABA es el número de ruteo de
+ * la banca estadounidense, así que una persona FÍSICA con cuenta en EUA lo
+ * necesita y una persona MORAL en China no lo tiene.
+ *
+ * Lo que sí dice la verdad es el SWIFT: las posiciones 5 y 6 son el país.
+ * 'CHASUS33' → US. Sale de un dato que el asesor ya captura, así que no hay que
+ * preguntarle nada nuevo.
+ *
+ * Solo se exige cuando el SWIFT dice US. Sin SWIFT no se adivina: `banco_pais`
+ * es texto libre y está vacío en 24 de 54 proveedores, así que usarlo haría
+ * fallar altas legítimas.
+ */
+export function faltaAbaDeBancoUsa(b: { swift_bic?: any; aba_routing?: any }): boolean {
+  const swift = String(b?.swift_bic || '').replace(/\s+/g, '').toUpperCase();
+  if (swift.length < 6) return false;
+  if (swift.slice(4, 6) !== 'US') return false;
+  return String(b?.aba_routing || '').trim() === '';
+}
+
+const ERROR_ABA = 'Falta el ABA / Routing. El banco es de Estados Unidos (lo dice su SWIFT) '
+  + 'y sin ABA el pago se rechaza. Viene en el estado de cuenta del proveedor, son 9 dígitos.';
+
 export const createMySupplier = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
   const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
@@ -918,6 +953,7 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
     return res.status(400).json({ error: 'nombre_beneficiario, numero_cuenta y banco_nombre son requeridos' });
   }
+  if (faltaAbaDeBancoUsa(b)) return res.status(400).json({ error: ERROR_ABA, campo: 'aba_routing' });
 
   // Normalizadores
   const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
@@ -1041,6 +1077,18 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
     const owner = await pool.query(`SELECT user_id FROM entangled_suppliers WHERE id = $1`, [id]);
     if (owner.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
     if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+    // Al editar, el SWIFT y el ABA pueden venir o no: se valida contra lo que
+    // QUEDARÍA guardado, no solo contra lo que manda el formulario. Si no,
+    // cambiar el SWIFT a uno de EUA dejaría el ABA vacío sin que nadie avise.
+    if (b.swift_bic !== undefined || b.aba_routing !== undefined) {
+      const actual = await pool.query(
+        `SELECT swift_bic, aba_routing FROM entangled_suppliers WHERE id = $1`, [id]);
+      const quedaria = {
+        swift_bic: b.swift_bic !== undefined ? b.swift_bic : actual.rows[0]?.swift_bic,
+        aba_routing: b.aba_routing !== undefined ? b.aba_routing : actual.rows[0]?.aba_routing,
+      };
+      if (faltaAbaDeBancoUsa(quedaria)) return res.status(400).json({ error: ERROR_ABA, campo: 'aba_routing' });
+    }
 
     const r = await pool.query(
       `UPDATE entangled_suppliers SET
