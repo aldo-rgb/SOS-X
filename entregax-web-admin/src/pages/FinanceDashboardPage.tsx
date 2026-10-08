@@ -24,6 +24,7 @@ import {
   TextField,
   IconButton,
   Tooltip,
+  Autocomplete,
   Avatar,
   Divider,
   Select,
@@ -311,6 +312,54 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
   const [belvoSyncing, setBelvoSyncing] = useState(false);
+  // Asignar a mano un depósito que entró SIN referencia. La conciliación amarra
+  // por nuestra referencia o por monto exacto; un depósito que no trae ninguna
+  // de las dos se quedaba en la tabla para siempre y no había cómo tocarlo
+  // (tarea 710: a S20 le faltaban 50 centavos para que el monto empatara).
+  const [asignarModal, setAsignarModal] = useState<{
+    open: boolean; row: EstadoCuentaRow | null; cliente: any | null; nota: string; guardando: boolean;
+  } | null>(null);
+  const [clientesBusqueda, setClientesBusqueda] = useState<any[]>([]);
+  const [buscandoClientes, setBuscandoClientes] = useState(false);
+
+  const buscarClientes = async (texto: string) => {
+    const q = texto.trim();
+    if (q.length < 2) { setClientesBusqueda([]); return; }
+    setBuscandoClientes(true);
+    try {
+      // /admin/users excluye a los clientes (solo lista personal interno); el
+      // buscador de clientes es /admin/users/search, que además acepta casillero.
+      const res = await api.get('/admin/users/search', { params: { q } });
+      const lista = Array.isArray(res.data) ? res.data : [];
+      // Los clientes del sistema anterior vienen con id nulo (is_legacy). No se
+      // les puede abonar nada: sin usuario no hay cartera donde ponerlo, y
+      // dejarlos elegibles solo lleva a un error al confirmar.
+      setClientesBusqueda(lista.filter((c: any) => c && c.id && c.is_legacy !== true));
+    } catch { setClientesBusqueda([]); }
+    finally { setBuscandoClientes(false); }
+  };
+
+  const confirmarAsignacion = async () => {
+    const m = asignarModal;
+    if (!m?.row?.id || !m.cliente?.id) return;
+    setAsignarModal({ ...m, guardando: true });
+    try {
+      const res = await api.post('/admin/finance/asignar-deposito', {
+        bank_entry_id: m.row.id, user_id: m.cliente.id, nota: m.nota || undefined,
+      });
+      setSnackbar({ open: true, message: res.data?.mensaje || 'Depósito asignado', severity: 'success' });
+      setAsignarModal(null);
+      setClientesBusqueda([]);
+      await loadSavedBankEntries();
+    } catch (err: any) {
+      setSnackbar({
+        open: true,
+        message: err?.response?.data?.error || 'No se pudo asignar el depósito',
+        severity: 'error',
+      });
+      setAsignarModal({ ...m, guardando: false });
+    }
+  };
 
 
   // Parser BBVA
@@ -2393,6 +2442,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                         <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">CARGO</TableCell>
                         <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">ABONO</TableCell>
                         <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">SALDO</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">&nbsp;</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -2468,6 +2518,24 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" fontWeight="bold">{formatCurrency(row.saldo)}</Typography>
+                          </TableCell>
+                          {/* Solo en un ABONO que sigue libre. En un cargo no hay
+                              nada que abonar, y en uno ya conciliado asignarlo
+                              otra vez le regalaría el depósito al cliente —el
+                              backend lo rechaza, pero el botón no debe invitar. */}
+                          <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                            {!!row.abono && !!row.id && (!conc || conc.estado === 'libre') && (
+                              <Tooltip title="Abonar este depósito a la cartera de un cliente (para los que llegaron sin referencia)">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => { setClientesBusqueda([]); setAsignarModal({ open: true, row, cliente: null, nota: '', guardando: false }); }}
+                                  sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0.2 }}
+                                >
+                                  Asignar
+                                </Button>
+                              </Tooltip>
+                            )}
                           </TableCell>
                         </TableRow>
                         );
@@ -3440,6 +3508,62 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setVoucherGallery({ open: false, payment: null, vouchers: [], loading: false })}>
             Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Asignar a mano un depósito sin referencia a la cartera de un cliente.
+          Se muestra el movimiento tal como llegó del banco —concepto incluido—
+          porque muchas veces el nombre del ordenante es la única pista de quién
+          lo mandó, y quien asigna tiene que poder leerla antes de decidir. */}
+      <Dialog open={!!asignarModal?.open} onClose={() => !asignarModal?.guardando && setAsignarModal(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Abonar depósito a un cliente</DialogTitle>
+        <DialogContent>
+          {asignarModal?.row && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#F5F5F5', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">Movimiento del banco</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {asignarModal.row.fecha} · {formatCurrency(asignarModal.row.abono || 0)}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', color: 'text.secondary', mt: 0.5 }}>
+                {asignarModal.row.concepto}
+              </Typography>
+            </Box>
+          )}
+          <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+            El dinero entra a la <strong>cartera</strong> del cliente, no a una orden.
+            Desde ahí lo puede usar para pagar lo que quiera.
+          </Alert>
+          <Autocomplete
+            options={clientesBusqueda}
+            loading={buscandoClientes}
+            value={asignarModal?.cliente || null}
+            onChange={(_e, v) => asignarModal && setAsignarModal({ ...asignarModal, cliente: v })}
+            onInputChange={(_e, v, motivo) => { if (motivo === 'input') buscarClientes(v); }}
+            getOptionLabel={(o: any) => (o ? `${o.box_id || 's/casillero'} — ${o.full_name || ''}` : '')}
+            isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
+            filterOptions={(x) => x}
+            noOptionsText="Escribe el casillero o el nombre"
+            renderInput={(params) => (
+              <TextField {...params} label="Cliente" placeholder="Casillero o nombre…" size="small" sx={{ mb: 2 }} />
+            )}
+          />
+          <TextField
+            label="Nota (opcional)"
+            placeholder="Por qué se asignó a mano, o cualquier dato útil para después"
+            fullWidth multiline rows={2} size="small"
+            value={asignarModal?.nota || ''}
+            onChange={e => asignarModal && setAsignarModal({ ...asignarModal, nota: e.target.value })}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAsignarModal(null)} disabled={!!asignarModal?.guardando}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={confirmarAsignacion}
+            disabled={!asignarModal?.cliente || !!asignarModal?.guardando}
+          >
+            {asignarModal?.guardando ? 'Abonando…' : 'Abonar a su cartera'}
           </Button>
         </DialogActions>
       </Dialog>
