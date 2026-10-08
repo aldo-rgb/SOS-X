@@ -2719,27 +2719,55 @@ export const reportarErrorDeTicket = async (
       }
     }
 
-    // ── Servicio a Cliente va de involucrado ────────────────────────────────
-    // Esta tarea nace de un TICKET: quien le va a contestar al cliente es
-    // Servicio a Cliente, y hasta ahora no quedaba en ella. Ricardo Méndez lo
-    // pidió en la 734: "hay tareas que levanta directamente Cajito desde los
-    // ticket, pero no las puedo ver". El caso que lo destapó llevaba cuatro días
-    // resuelto en la tarea 687 y desde el ticket no había forma de llegar ahí.
+    // ── Quien da seguimiento al ticket va de involucrado ────────────────────
+    // Esta tarea nace de un TICKET: quien le va a contestar al cliente tiene que
+    // poder verla. Ricardo Méndez lo pidió en la 734 y la 756: "hay tareas que
+    // levanta directamente Cajito desde los ticket, pero no las puedo ver". El
+    // caso que lo destapó llevaba cuatro días resuelto en la tarea 687 y desde
+    // el ticket no había forma de llegar ahí.
     //
-    // Va por ROL y no por una lista de nombres: hoy son Yliana Elizalde y
-    // Ricardo Méndez, y el día que alguien entre o salga del área esto sigue
-    // siendo cierto sin que nadie tenga que acordarse de volver aquí. Una lista
-    // de ids se pudre en silencio y nadie se entera hasta que falta alguien.
+    // La lista vive en `system_configurations`, NO en el rol. Primero lo resolví
+    // por rol `customer_service` —parecía a prueba de rotación— y estaba mal:
+    // Ricardo pidió el 8-oct que entrara Ángel Flores, que es soporte_tecnico, y
+    // que saliera Ana Gabriela, que sí es customer_service. Quiénes siguen un
+    // ticket es una decisión de operación, no una consecuencia del rol, y cambia
+    // sin que cambie el organigrama. En la tabla se edita con un UPDATE, sin
+    // desplegar.
+    //
+    // Si la llave no existe o viene vacía se cae al rol, que es el comportamiento
+    // anterior: preferible involucrar de más que dejar la tarea invisible otra
+    // vez.
     //
     // Solo quedan involucrados —la tarea les aparece en Mis Tareas—, sin aviso
     // aparte: el push de estas tareas es de los super admin, que son quienes las
-    // resuelven. Agregarles una notificación por cada error de ticket sería
-    // ruido del que se deja de leer.
-    const csRes = await pool.query(
-      `SELECT id FROM users
-        WHERE role = 'customer_service' AND COALESCE(is_active, true) = true AND deleted_at IS NULL`
+    // resuelven. Una notificación por cada error de ticket sería ruido del que
+    // se deja de leer.
+    const seguimiento = await pool.query(
+      `SELECT config_value FROM system_configurations
+        WHERE config_key = 'ticket_task_followers' AND is_active = TRUE LIMIT 1`
     ).catch(() => ({ rows: [] as any[] }));
-    involucrados.push(...csRes.rows.map((r: any) => Number(r.id)));
+    let followers: number[] = [];
+    try {
+      const v = seguimiento.rows[0]?.config_value;
+      const parsed = typeof v === 'string' ? JSON.parse(v) : v;
+      followers = (parsed?.user_ids || []).map((x: any) => Number(x)).filter((n: number) => Number.isFinite(n) && n > 0);
+    } catch { followers = []; }
+
+    if (followers.length) {
+      // Solo los que siguen activos: una cuenta dada de baja en la lista no debe
+      // quedar colgada de cada tarea nueva.
+      const vivos = await pool.query(
+        `SELECT id FROM users WHERE id = ANY($1) AND COALESCE(is_active, true) = true AND deleted_at IS NULL`,
+        [followers]
+      ).catch(() => ({ rows: [] as any[] }));
+      involucrados.push(...vivos.rows.map((r: any) => Number(r.id)));
+    } else {
+      const csRes = await pool.query(
+        `SELECT id FROM users
+          WHERE role = 'customer_service' AND COALESCE(is_active, true) = true AND deleted_at IS NULL`
+      ).catch(() => ({ rows: [] as any[] }));
+      involucrados.push(...csRes.rows.map((r: any) => Number(r.id)));
+    }
 
     // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
