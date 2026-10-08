@@ -3165,6 +3165,84 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- TIEMPOS DE ATENCIÓN DE TICKETS --------------------
+  // Juan Segura preguntó si había un reporte de eficiencia y de tiempos de
+  // respuesta (CJD-2026-0036). Cajito contestó bien —no existía— y ofreció
+  // levantar la tarea. Pero el dato ya estaba: support_tickets guarda
+  // `first_response_at` y `resolved_at`, poblados en 999 y 991 de los 1,026
+  // tickets de los últimos 60 días. No había que medir nada nuevo, solo leerlo.
+  //
+  // Se devuelven MEDIANA y promedio juntos, a propósito. En la medición del
+  // 8-oct la primera respuesta daba 0.5 h de mediana contra 6.2 h de promedio:
+  // un puñado de tickets olvidados arrastra el promedio y haría ver mal a un
+  // equipo que contesta en minutos. La mediana dice cómo se trabaja de
+  // ordinario; la distancia entre las dos delata los abandonados. Dar solo una
+  // de las dos cuenta media historia.
+  {
+    name: 'tiempos_de_tickets',
+    requiredCapability: 'cajito.read.support',
+    readOnly: true,
+    description: 'Tiempos de atención de tickets: cuánto se tarda en dar la PRIMERA RESPUESTA y cuánto en RESOLVER, en horas, con mediana y promedio. Desglosa por departamento. Úsalo cuando pregunten por tiempos de respuesta, tiempos de resolución, SLA, eficiencia del soporte, qué área se tarda más o si los tickets se están atendiendo a tiempo. NO uses support_tickets_stats para esto: ése da conteos, no duraciones.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dias: { type: 'number', description: 'Periodo hacia atrás en días (por omisión 30). Ej. 7 para la última semana.' },
+        departamento: { type: 'string', description: 'Filtrar por nombre de departamento (opcional). Ej. "Atención a Cliente".' },
+      },
+    },
+    handler: async ({ dias, departamento }) => {
+      const d = Math.max(1, Math.min(365, Math.floor(Number(dias) || 30)));
+      const filtroDepto = String(departamento || '').trim();
+
+      // La primera respuesta se toma de first_response_at; si falta, del primer
+      // mensaje de un agente. Así un ticket viejo, anterior a que existiera la
+      // columna, tampoco se queda fuera del cálculo.
+      const base = `
+        WITH base AS (
+          SELECT t.id,
+                 COALESCE(dp.name, '(sin departamento)') AS depto,
+                 t.created_at, t.resolved_at,
+                 COALESCE(t.first_response_at,
+                   (SELECT MIN(m.created_at) FROM ticket_messages m
+                     WHERE m.ticket_id = t.id AND m.sender_type = 'agent' AND m.deleted_at IS NULL)) AS pr
+            FROM support_tickets t
+            LEFT JOIN support_departments dp ON dp.id = t.department_id
+           WHERE t.created_at >= NOW() - ($1 || ' days')::interval
+             AND ($2 = '' OR dp.name ILIKE '%' || $2 || '%')
+        )`;
+      const horas = (col: string) => `EXTRACT(EPOCH FROM (${col} - created_at))/3600`;
+
+      const g = await pool.query(`${base}
+        SELECT COUNT(*)::int AS tickets,
+               COUNT(pr)::int AS con_respuesta,
+               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('pr')}))::numeric, 1) AS mediana_primera_respuesta_h,
+               ROUND(AVG(${horas('pr')})::numeric, 1) AS promedio_primera_respuesta_h,
+               COUNT(resolved_at)::int AS resueltos,
+               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('resolved_at')}))::numeric, 1) AS mediana_resolucion_h,
+               ROUND(AVG(${horas('resolved_at')})::numeric, 1) AS promedio_resolucion_h,
+               COUNT(*) FILTER (WHERE resolved_at IS NULL)::int AS sin_resolver
+          FROM base`, [String(d), filtroDepto]);
+
+      const porDepto = await pool.query(`${base}
+        SELECT depto AS departamento, COUNT(*)::int AS tickets,
+               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('pr')}))::numeric, 1) AS mediana_primera_respuesta_h,
+               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('resolved_at')}))::numeric, 1) AS mediana_resolucion_h,
+               COUNT(*) FILTER (WHERE resolved_at IS NULL)::int AS sin_resolver
+          FROM base GROUP BY 1 ORDER BY tickets DESC`, [String(d), filtroDepto]);
+
+      const t = g.rows[0] || {};
+      return {
+        periodo_dias: d,
+        ...(filtroDepto ? { departamento: filtroDepto } : {}),
+        total: t,
+        por_departamento: porDepto.rows,
+        nota: 'Horas corridas, no horas hábiles. La MEDIANA dice cómo se atiende de ordinario; '
+            + 'si el promedio es mucho mayor, son unos pocos tickets olvidados los que lo jalan, '
+            + 'no el ritmo del equipo. Al reportar, di las dos.',
+      };
+    }
+  },
+
   // -------------------- CENTRAL DE LEADS: KPIs --------------------
   {
     name: 'leads_stats',
@@ -3723,6 +3801,7 @@ export function buildSystemPrompt(
     'El Centro de Soporte maneja "tickets" (tabla support_tickets) con mensajes (ticket_messages) y departamentos (support_departments).',
     'Estados de ticket: open_ai (la IA lo está atendiendo), escalated_human (escalado a un agente humano), waiting_client (esperando respuesta del cliente), resolved (resuelto), closed (cerrado). Cada ticket tiene folio (p.ej. TKT-2026-1708), asunto, categoría, cliente, departamento y a veces un número de guía.',
     'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
+    'Para TIEMPOS —cuánto tardamos en contestar o resolver, SLA, eficiencia del soporte, qué área se tarda más— → usa tiempos_de_tickets. support_tickets_stats da conteos, no duraciones. Al reportar di la mediana Y el promedio: si el promedio es mucho mayor, son tickets olvidados jalando la cifra, no el ritmo del equipo.',
     'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
     'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
     'IMPORTANTE: search_support_tickets devuelve solo una MUESTRA (máx 25). Para "de TODOS", totales o % por categoría/estado/departamento sobre toda la base → usa support_tickets_breakdown (conteos exactos, sin muestra). Nunca infieras totales a partir de la muestra de 25.',
