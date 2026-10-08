@@ -3165,6 +3165,91 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- ÓRDENES X-PAY --------------------
+  // Yliana preguntó "¿a quién le corresponde este número de envío?" con un folio
+  // XP en la mano (TKT-2026-3061). No había dónde verlo: el panel de consulta de
+  // pagos busca guías, no órdenes X-Pay, y Cajito no tenía ninguna herramienta
+  // que tocara esa tabla. Cada reclamo con folio XP se iba a preguntar a mano.
+  //
+  // ⚠️ NUNCA sale la marca del proveedor. El cliente y el asesor no deben ver
+  // "ENTANGLED", BTX ni TRÉBOL, y un texto que devuelve Cajito cuenta como algo
+  // que ellos ven. Por eso aquí NO se seleccionan provider_id, supplier_id,
+  // empresas_asignadas ni raw_response: no es que se filtren después, es que no
+  // se leen.
+  //
+  // La cuenta del beneficiario sale ENMASCARADA a los últimos 4 dígitos. Para
+  // enrutar un reclamo basta con saber de quién es la orden y a qué nombre se
+  // capturó; el número completo vive en el panel, y repetirlo entero en un chat
+  // lo deja escrito en la conversación para siempre.
+  {
+    name: 'buscar_orden_xpay',
+    requiredCapability: 'cajito.read.payments',
+    readOnly: true,
+    description: 'Busca una orden de X-Pay por su folio (XP######) o por casillero del cliente. Devuelve de quién es —cliente y ASESOR responsable—, monto, estatus y a qué beneficiario se capturó el pago. Úsala cuando pregunten de quién es una orden XP, a qué asesor corresponde, en qué va, o cuando un reclamo traiga un folio XP. Sin esto no hay forma de saber a quién enrutar el caso.',
+    parameters: {
+      type: 'object',
+      properties: {
+        folio: { type: 'string', description: 'Folio de la orden, con o sin el prefijo: "XP112535" o "112535".' },
+        casillero: { type: 'string', description: 'Casillero del cliente (S####) para ver todas sus órdenes X-Pay.' },
+      },
+    },
+    handler: async ({ folio, casillero }) => {
+      const f = String(folio || '').trim().toUpperCase().replace(/^XP/, '');
+      const box = String(casillero || '').trim().toUpperCase();
+      if (!f && !box) return { error: 'Dime el folio de la orden (XP######) o el casillero del cliente.' };
+
+      const enmascarar = (c: any) => {
+        const v = String(c || '').replace(/\s+/g, '');
+        if (!v) return null;
+        return v.length <= 4 ? '••••' : `••••${v.slice(-4)}`;
+      };
+
+      const where: string[] = [];
+      const params: any[] = [];
+      if (f) { params.push(`%${f}%`); where.push(`e.referencia_pago ILIKE $${params.length}`); }
+      if (box) { params.push(box); where.push(`UPPER(TRIM(u.box_id)) = $${params.length}`); }
+
+      const r = await pool.query(
+        `SELECT e.referencia_pago, e.estatus_global, e.estatus_proveedor, e.estatus_factura,
+                e.op_monto, e.op_divisa_destino, e.monto_mxn_total,
+                e.sup_nombre_beneficiario, e.op_beneficiario_nombre,
+                e.sup_numero_cuenta, e.sup_banco_nombre,
+                e.created_at, e.payment_deadline_at, e.proveedor_pagado_at,
+                u.box_id AS casillero, u.full_name AS cliente,
+                a.full_name AS asesor, a.email AS asesor_email
+           FROM entangled_payment_requests e
+           LEFT JOIN users u ON u.id = e.user_id
+           LEFT JOIN users a ON a.id = e.advisor_id
+          WHERE ${where.join(' OR ')}
+          ORDER BY e.created_at DESC LIMIT 15`, params);
+
+      if (r.rows.length === 0) {
+        return { ordenes: [], nota: f ? `No encontré ninguna orden X-Pay con el folio ${f}.` : `No encontré órdenes X-Pay del casillero ${box}.` };
+      }
+      return {
+        ordenes: r.rows.map((x: any) => ({
+          folio: x.referencia_pago,
+          estatus: x.estatus_global,
+          estatus_proveedor: x.estatus_proveedor,
+          estatus_factura: x.estatus_factura,
+          cliente: x.cliente, casillero: x.casillero,
+          asesor: x.asesor || 'sin asesor asignado',
+          asesor_correo: x.asesor_email || null,
+          monto: x.op_monto, divisa: x.op_divisa_destino,
+          monto_mxn: x.monto_mxn_total,
+          beneficiario: x.sup_nombre_beneficiario || x.op_beneficiario_nombre || null,
+          cuenta: enmascarar(x.sup_numero_cuenta),
+          banco: x.sup_banco_nombre || null,
+          creada: x.created_at,
+          vence: x.payment_deadline_at,
+          pagada_al_proveedor: x.proveedor_pagado_at,
+        })),
+        nota: 'La cuenta va enmascarada a propósito; el número completo está en el panel de X-Pay. '
+            + 'Para enrutar un reclamo, lo que importa es el ASESOR responsable.',
+      };
+    }
+  },
+
   // -------------------- TIEMPOS DE ATENCIÓN DE TICKETS --------------------
   // Juan Segura preguntó si había un reporte de eficiencia y de tiempos de
   // respuesta (CJD-2026-0036). Cajito contestó bien —no existía— y ofreció
@@ -3801,6 +3886,7 @@ export function buildSystemPrompt(
     'El Centro de Soporte maneja "tickets" (tabla support_tickets) con mensajes (ticket_messages) y departamentos (support_departments).',
     'Estados de ticket: open_ai (la IA lo está atendiendo), escalated_human (escalado a un agente humano), waiting_client (esperando respuesta del cliente), resolved (resuelto), closed (cerrado). Cada ticket tiene folio (p.ej. TKT-2026-1708), asunto, categoría, cliente, departamento y a veces un número de guía.',
     'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
+    'Si traen un folio XP###### o preguntan de quién es una orden de X-Pay, a qué asesor corresponde o en qué va → usa buscar_orden_xpay. También acepta el casillero. NUNCA nombres al proveedor que procesa X-Pay: el cliente y el asesor no lo conocen y no deben leerlo de ti.',
     'Para TIEMPOS —cuánto tardamos en contestar o resolver, SLA, eficiencia del soporte, qué área se tarda más— → usa tiempos_de_tickets. support_tickets_stats da conteos, no duraciones. Al reportar di la mediana Y el promedio: si el promedio es mucho mayor, son tickets olvidados jalando la cifra, no el ritmo del equipo.',
     'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
     'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
