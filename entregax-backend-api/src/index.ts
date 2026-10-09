@@ -6653,6 +6653,7 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
     await pool.query(
       `UPDATE packages
        SET client_paid = TRUE,
+           client_paid_at = COALESCE(client_paid_at, NOW()),
            payment_status = 'paid',
            saldo_pendiente = 0,
            monto_pagado = COALESCE(NULLIF(monto_pagado, 0), NULLIF(pobox_service_cost, 0), NULLIF(assigned_cost_mxn, 0), NULLIF(air_sale_price, 0), 1),
@@ -17465,6 +17466,9 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       if (hasPago) {
         updates.push(`costing_paid = TRUE`);
         updates.push(`client_paid = TRUE`);
+        // Sin esta fecha la guia que sincroniza Angel entra como "pagada" sin
+        // cuando, y queda fuera de cualquier medicion de pago contra salida.
+        updates.push(`client_paid_at = COALESCE(client_paid_at, NOW())`);
         updates.push(`payment_status = 'paid'`);
         syncedFields.push('pago');
       }

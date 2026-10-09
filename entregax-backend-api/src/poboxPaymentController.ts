@@ -1453,7 +1453,12 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
                 await client.query(`
                     UPDATE packages SET
                         payment_status = 'paid', monto_pagado = assigned_cost_mxn,
-                        saldo_pendiente = 0, client_paid = TRUE
+                        saldo_pendiente = 0, client_paid = TRUE,
+                        -- COALESCE y no NOW() a secas: si ya traia fecha, manda la
+                        -- primera. Sin este sello la guia queda "pagada" sin cuando,
+                        -- y el reporte de demoras de PO Box no la puede medir
+                        -- (CJD-2026-0033: 641 de 2,417 guias sin fecha de pago).
+                        client_paid_at = COALESCE(client_paid_at, NOW())
                     WHERE id = $1 OR master_id = $1
                 `, [pkgId]);
             }
@@ -2641,7 +2646,8 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     payment_status = 'paid',
                     monto_pagado = COALESCE(assigned_cost_mxn, 0),
                     saldo_pendiente = 0,
-                    client_paid = TRUE
+                    client_paid = TRUE,
+                    client_paid_at = COALESCE(client_paid_at, NOW())
                  WHERE id = ANY($1) OR master_id = ANY($1)`,
                 [packageIds]
             );
@@ -2890,7 +2896,8 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
                         payment_status='paid',
                         monto_pagado = COALESCE(assigned_cost_mxn, 0),
                         saldo_pendiente = 0,
-                        client_paid = TRUE
+                        client_paid = TRUE,
+                        client_paid_at = COALESCE(client_paid_at, NOW())
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
                     [packageIds]
                 );
@@ -3156,7 +3163,8 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                         payment_status='paid',
                         monto_pagado = COALESCE(assigned_cost_mxn, 0),
                         saldo_pendiente = 0,
-                        client_paid = TRUE
+                        client_paid = TRUE,
+                        client_paid_at = COALESCE(client_paid_at, NOW())
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
                     [packageIds]
                 );

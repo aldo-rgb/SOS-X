@@ -271,7 +271,8 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
           await client.query(
             `UPDATE packages
                 SET payment_status = 'paid', client_paid = TRUE,
-                    monto_pagado = COALESCE(assigned_cost_mxn, 0), saldo_pendiente = 0
+                    monto_pagado = COALESCE(assigned_cost_mxn, 0), saldo_pendiente = 0,
+                    client_paid_at = COALESCE(client_paid_at, NOW())
               WHERE id = ANY($1) OR master_id = ANY($1)`, [ids]);
         }
       }
