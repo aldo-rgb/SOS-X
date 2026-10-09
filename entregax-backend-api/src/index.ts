@@ -13339,38 +13339,48 @@ app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name:
 
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
 // Vehículos - Admin
-app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicles);
-app.get('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicleDetail);
+// El contador VE la flotilla, no la opera. Las rutas de lectura admiten
+// `accountant` además del nivel de mostrador; las de alta, edición, asignar
+// chofer y resolver alertas se quedan como estaban.
+//
+// Hacía falta porque `accountant` es nivel 55 y mostrador es 60, así que
+// requireMinLevel lo dejaba fuera: Leonardo Reyna entraba a la pantalla y no
+// veía ni una unidad (tarea 763). Es el mismo choque de la tarea 374 con los
+// comprobantes, y la intención ya estaba escrita del otro lado —
+// resolveFleetBranchScope incluye a `accountant` en ALL_FLEET_ROLES para que vea
+// TODAS las sucursales—; lo único que faltaba era dejarlo pasar por la puerta.
+app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVehicles);
+app.get('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVehicleDetail);
 app.post('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createVehicle);
 app.put('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateVehicle);
 app.delete('/api/admin/fleet/vehicles/:id', authenticateToken, requireRole('super_admin'), deleteVehicleHandler);
 app.post('/api/admin/fleet/vehicles/:id/assign-driver', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignDriver);
 
 // Documentos de vehículos
-app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicleDocuments);
+app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVehicleDocuments);
 app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createDocument);
 app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateDocument);
 app.delete('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteDocument);
 
 // Mantenimiento
-app.get('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaintenanceHistory);
+app.get('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getMaintenanceHistory);
 app.post('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaintenance);
 
 // Inspecciones diarias
-app.get('/api/admin/fleet/inspections', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInspections);
+app.get('/api/admin/fleet/inspections', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getInspections);
 app.put('/api/admin/fleet/inspections/:id/review', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), reviewInspection);
 
 // Alertas
-app.get('/api/admin/fleet/alerts', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFleetAlerts);
+app.get('/api/admin/fleet/alerts', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getFleetAlerts);
 app.put('/api/admin/fleet/alerts/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveAlert);
 
 // Dashboard y reportes
-app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFleetDashboard);
-app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAvailableDrivers);
+app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getFleetDashboard);
+app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getAvailableDrivers);
 
 // Proxy de archivos S3 (evita CORS al armar el .zip de descarga en el navegador).
 // Restringido por rol dentro del handler (admin / super_admin / director).
-app.get('/api/admin/fleet/file-proxy', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), proxyVehicleFile);
+app.get('/api/admin/fleet/file-proxy', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), proxyVehicleFile);
 
 // Rutas para choferes (mobile app)
 app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);
