@@ -1755,11 +1755,28 @@ export const TOOLS: ToolDef[] = [
       // Cargos extra y descuentos aplicados a esas guias.
       const trks = cajas.map((x: any) => x.tracking_internal).filter(Boolean);
       let ajustes: any[] = [];
+      let descuentos: any[] = [];
       if (trks.length > 0) {
         const a = await pool.query(
           `SELECT guia_tracking, tipo, monto, moneda, concepto, activo, estado_validacion
              FROM guias_ajustes_financieros WHERE guia_tracking = ANY($1::text[])`, [trks]);
         ajustes = a.rows;
+
+        // Un descuento vive en DOS tablas y antes solo se leia una. Los
+        // reintegros y las bonificaciones que pide servicio a cliente entran a
+        // descuentos_pendientes, no a guias_ajustes_financieros, asi que con
+        // uno autorizado ahi Cajito seguia contestando "no hay ajustes ni
+        // descuentos registrados en esta orden" (CJD-2026-0035, la pregunta de
+        // Juan Segura sobre como ver los descuentos de una orden). Se trae el
+        // estado tal cual: solicitado, aprobado o rechazado no son lo mismo.
+        const dsc = await pool.query(
+          `SELECT guia_tracking, servicio, monto, moneda, concepto, estado,
+                  solicitado_nombre, aprobado_nombre, motivo_rechazo,
+                  TO_CHAR(fecha_solicitud AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS solicitado_el,
+                  TO_CHAR(fecha_resolucion AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS resuelto_el
+             FROM descuentos_pendientes WHERE guia_tracking = ANY($1::text[])
+            ORDER BY fecha_solicitud DESC`, [trks]);
+        descuentos = dsc.rows;
       }
 
       const fleteTotal = cajas
@@ -1779,6 +1796,11 @@ export const TOOLS: ToolDef[] = [
         },
         cajas,
         ajustes,
+        descuentos_solicitados: descuentos,
+        ...(ajustes.length === 0 && descuentos.length === 0 ? {
+          nota_descuentos: 'Sin ajustes ni descuentos en ninguna de las dos tablas, así que la orden no los tiene. '
+            + 'Ya puedes afirmarlo.',
+        } : {}),
         // Señal directa para el caso mas comun: se cobro flete aunque la guia
         // nacional la haya puesto el cliente.
         resumen_flete: {
@@ -3564,7 +3586,7 @@ export const TOOLS: ToolDef[] = [
     name: 'tiempos_de_tickets',
     requiredCapability: 'cajito.read.support',
     readOnly: true,
-    description: 'Tiempos de atención de tickets: cuánto se tarda en dar la PRIMERA RESPUESTA y cuánto en RESOLVER, en horas, con mediana y promedio. Desglosa por departamento. Úsalo cuando pregunten por tiempos de respuesta, tiempos de resolución, SLA, eficiencia del soporte, qué área se tarda más o si los tickets se están atendiendo a tiempo. NO uses support_tickets_stats para esto: ése da conteos, no duraciones.',
+    description: 'EL reporte de eficiencia del soporte: cuánto se tarda en dar la PRIMERA RESPUESTA y cuánto en RESOLVER un ticket, en HORAS HÁBILES, con mediana y promedio, desglosado por departamento Y POR PERSONA. Úsalo cuando pregunten por tiempos de respuesta o resolución, SLA, eficiencia del soporte, si existe un reporte que mida cómo se resuelven los tickets, quién se tarda más o si los tickets se atienden a tiempo. NO uses support_tickets_stats para esto: ése da conteos, no duraciones.',
     parameters: {
       type: 'object',
       properties: {
@@ -3579,38 +3601,76 @@ export const TOOLS: ToolDef[] = [
       // La primera respuesta se toma de first_response_at; si falta, del primer
       // mensaje de un agente. Así un ticket viejo, anterior a que existiera la
       // columna, tampoco se queda fuera del cálculo.
+      //
+      // Los que resolvió Cajito solo quedan fuera de los tiempos humanos y se
+      // cuentan aparte: de 33 en 90 días, 14 traían agente asignado, así que
+      // mezclarlos premiaba a la persona por un ticket que no trabajó. Es el
+      // mismo criterio del tablero de soporte, que excluye resolved_by_ai de
+      // sus "resueltos".
       const base = `
         WITH base AS (
           SELECT t.id,
                  COALESCE(dp.name, '(sin departamento)') AS depto,
+                 COALESCE(ag.full_name, '(sin asignar)') AS agente,
+                 COALESCE(t.resolved_by_ai, FALSE) AS la_resolvio_cajito,
                  t.created_at, t.resolved_at,
                  COALESCE(t.first_response_at,
                    (SELECT MIN(m.created_at) FROM ticket_messages m
                      WHERE m.ticket_id = t.id AND m.sender_type = 'agent' AND m.deleted_at IS NULL)) AS pr
             FROM support_tickets t
             LEFT JOIN support_departments dp ON dp.id = t.department_id
+            LEFT JOIN users ag ON ag.id = COALESCE(t.assigned_agent_id, t.assigned_to)
            WHERE t.created_at >= NOW() - ($1 || ' days')::interval
              AND ($2 = '' OR dp.name ILIKE '%' || $2 || '%')
+        ), humanos AS (
+          SELECT * FROM base WHERE NOT la_resolvio_cajito
         )`;
-      const horas = (col: string) => `EXTRACT(EPOCH FROM (${col} - created_at))/3600`;
+      // HORAS HÁBILES, con la misma función que usa el tablero de soporte
+      // (business_minutes: lunes a viernes, 10:30–18:30 hora de México). Esta
+      // tool nacía midiendo horas corridas y la diferencia no es un detalle: en
+      // 90 días la mediana de resolución daba 21.7 h corridas contra 6.2 h
+      // hábiles, y el promedio 62.9 contra 15.7. Un ticket que entra el viernes
+      // a las 6 de la tarde no lleva 60 horas de desatención. Si Cajito
+      // contestara en horas corridas y el panel en hábiles, el mismo ticket
+      // tendría dos cifras distintas y ninguna de las dos se creería.
+      const habil = (col: string) => `business_minutes(created_at, ${col})/60`;
+      const corrida = (col: string) => `EXTRACT(EPOCH FROM (${col} - created_at))/3600`;
+      const med = (expr: string) => `ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${expr}))::numeric, 1)`;
 
       const g = await pool.query(`${base}
         SELECT COUNT(*)::int AS tickets,
                COUNT(pr)::int AS con_respuesta,
-               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('pr')}))::numeric, 1) AS mediana_primera_respuesta_h,
-               ROUND(AVG(${horas('pr')})::numeric, 1) AS promedio_primera_respuesta_h,
+               ${med(habil('pr'))} AS mediana_primera_respuesta_h,
+               ROUND(AVG(${habil('pr')})::numeric, 1) AS promedio_primera_respuesta_h,
                COUNT(resolved_at)::int AS resueltos,
-               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('resolved_at')}))::numeric, 1) AS mediana_resolucion_h,
-               ROUND(AVG(${horas('resolved_at')})::numeric, 1) AS promedio_resolucion_h,
+               ${med(habil('resolved_at'))} AS mediana_resolucion_h,
+               ROUND(AVG(${habil('resolved_at')})::numeric, 1) AS promedio_resolucion_h,
+               ${med(corrida('resolved_at'))} AS mediana_resolucion_horas_corridas,
                COUNT(*) FILTER (WHERE resolved_at IS NULL)::int AS sin_resolver
-          FROM base`, [String(d), filtroDepto]);
+          FROM humanos`, [String(d), filtroDepto]);
 
       const porDepto = await pool.query(`${base}
         SELECT depto AS departamento, COUNT(*)::int AS tickets,
-               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('pr')}))::numeric, 1) AS mediana_primera_respuesta_h,
-               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${horas('resolved_at')}))::numeric, 1) AS mediana_resolucion_h,
+               ${med(habil('pr'))} AS mediana_primera_respuesta_h,
+               ${med(habil('resolved_at'))} AS mediana_resolucion_h,
                COUNT(*) FILTER (WHERE resolved_at IS NULL)::int AS sin_resolver
-          FROM base GROUP BY 1 ORDER BY tickets DESC`, [String(d), filtroDepto]);
+          FROM humanos GROUP BY 1 ORDER BY tickets DESC`, [String(d), filtroDepto]);
+
+      // Por persona: es la pregunta que de verdad hace quien pide un reporte de
+      // eficiencia (CJD-2026-0035, Juan Segura). El desglose por departamento
+      // no la contesta cuando un área la atiende una sola persona.
+      const porAgente = await pool.query(`${base}
+        SELECT agente, COUNT(*)::int AS tickets,
+               COUNT(resolved_at)::int AS resueltos,
+               ${med(habil('pr'))} AS mediana_primera_respuesta_h,
+               ${med(habil('resolved_at'))} AS mediana_resolucion_h,
+               ROUND(AVG(${habil('resolved_at')})::numeric, 1) AS promedio_resolucion_h,
+               COUNT(*) FILTER (WHERE resolved_at IS NULL)::int AS sin_resolver
+          FROM humanos GROUP BY 1 ORDER BY tickets DESC`, [String(d), filtroDepto]);
+
+      const ia = await pool.query(`${base}
+        SELECT COUNT(*)::int AS resueltos_por_cajito FROM base WHERE la_resolvio_cajito`,
+        [String(d), filtroDepto]);
 
       const t = g.rows[0] || {};
       return {
@@ -3618,9 +3678,20 @@ export const TOOLS: ToolDef[] = [
         ...(filtroDepto ? { departamento: filtroDepto } : {}),
         total: t,
         por_departamento: porDepto.rows,
-        nota: 'Horas corridas, no horas hábiles. La MEDIANA dice cómo se atiende de ordinario; '
-            + 'si el promedio es mucho mayor, son unos pocos tickets olvidados los que lo jalan, '
-            + 'no el ritmo del equipo. Al reportar, di las dos.',
+        por_persona: porAgente.rows,
+        resueltos_por_cajito: ia.rows[0]?.resueltos_por_cajito ?? 0,
+        notas: [
+          'Las horas son HÁBILES: lunes a viernes de 10:30 a 18:30, hora de México, igual que el tablero '
+          + 'de soporte. Así un ticket que entra el viernes en la tarde no acumula el fin de semana. '
+          + 'Se incluye mediana_resolucion_horas_corridas por si preguntan cuánto esperó el cliente en '
+          + 'tiempo real; di cuál de las dos estás usando.',
+          'La MEDIANA dice cómo se atiende de ordinario; si el promedio es mucho mayor, son unos pocos '
+          + 'tickets olvidados los que lo jalan, no el ritmo del equipo. Al reportar, di las dos.',
+          'Los tickets que resolvió Cajito van aparte, en resueltos_por_cajito, y no cuentan en los '
+          + 'tiempos de las personas.',
+          'Comparar personas por mediana es justo; por número de tickets no, porque no reciben la misma '
+          + 'carga. Si vas a señalar a alguien, di cuántos tickets llevó.',
+        ],
       };
     }
   },
@@ -4184,7 +4255,7 @@ export function buildSystemPrompt(
     'Estados de ticket: open_ai (la IA lo está atendiendo), escalated_human (escalado a un agente humano), waiting_client (esperando respuesta del cliente), resolved (resuelto), closed (cerrado). Cada ticket tiene folio (p.ej. TKT-2026-1708), asunto, categoría, cliente, departamento y a veces un número de guía.',
     'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
     'Si traen un folio XP###### o preguntan de quién es una orden de X-Pay, a qué asesor corresponde o en qué va → usa buscar_orden_xpay. También acepta el casillero. NUNCA nombres al proveedor que procesa X-Pay: el cliente y el asesor no lo conocen y no deben leerlo de ti.',
-    'Para TIEMPOS —cuánto tardamos en contestar o resolver, SLA, eficiencia del soporte, qué área se tarda más— → usa tiempos_de_tickets. support_tickets_stats da conteos, no duraciones. Al reportar di la mediana Y el promedio: si el promedio es mucho mayor, son tickets olvidados jalando la cifra, no el ritmo del equipo.',
+    'Para TIEMPOS —cuánto tardamos en contestar o resolver, SLA, eficiencia del soporte, qué área o quién se tarda más, o si existe un reporte que mida cómo se resuelven los tickets— → usa tiempos_de_tickets. ESE es el reporte: trae mediana y promedio en horas hábiles, por departamento y por persona. support_tickets_stats da conteos, no duraciones. Al reportar di la mediana Y el promedio: si el promedio es mucho mayor, son tickets olvidados jalando la cifra, no el ritmo del equipo.',
     'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
     'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
     'IMPORTANTE: search_support_tickets devuelve solo una MUESTRA (máx 25). Para "de TODOS", totales o % por categoría/estado/departamento sobre toda la base → usa support_tickets_breakdown (conteos exactos, sin muestra). Nunca infieras totales a partir de la muestra de 25.',
