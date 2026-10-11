@@ -132,26 +132,62 @@ export const markMastersPaidIfChildrenPaid = async (packageIds: number[]): Promi
 
 // Verificar si alguno de los paquetes ya está en una orden de pago pendiente
 const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string; tracking?: string }[] }> => {
-    // 1) Auto-cancelar órdenes pendientes "huérfanas" (>30 min sin completarse) del usuario.
-    //    Esto evita que un intento abandonado bloquee nuevos pagos de los mismos paquetes.
+    // 1) Auto-cancelar órdenes pendientes "huérfanas" (>30 min sin completarse)
+    //    que estorban para ESTA compra. El propósito siempre fue que un intento
+    //    abandonado no bloqueara el pago DE LOS MISMOS PAQUETES, pero la
+    //    consulta no lo decía: cancelaba TODA orden pendiente del usuario,
+    //    compartiera cajas o no.
+    //
+    //    TKT-2026-3076 (tarea 796). Joaquín González (S3128) lleva desde el
+    //    28-sep intentando pagar las mismas 27 cajas: generó la referencia tres
+    //    veces y las tres murieron. 5 de sus órdenes canceladas no compartían
+    //    NI UNA caja con ninguna orden posterior — se mataron solas porque creó
+    //    otra cosa media hora después. Es literalmente lo que reportó: "la
+    //    referencia anterior está vencida" y "se me desaparecen las órdenes".
+    //
+    //    Y el daño no se queda en la molestia: el cliente transfiere citando la
+    //    referencia, y cuando el depósito llega la orden ya no existe. Hay 11
+    //    depósitos de 5 clientes por $72,620.23 en el banco, por el monto
+    //    exacto de su orden, que nadie pudo aplicar por esto. Por eso tampoco
+    //    se cancela una orden a la que YA le llegó el dinero.
     try {
-        await pool.query(`
-            UPDATE pobox_payments
+        const canceladas = await pool.query(`
+            UPDATE pobox_payments pp
             SET status = 'cancelled'
-            WHERE user_id = $1
-              AND status IN ('pending', 'pending_payment')
-              AND created_at < NOW() - INTERVAL '30 minutes'
-        `, [userId]);
-        // Sync advisor_payment_orders linked to these now-cancelled pobox_payments
-        await pool.query(`
-            UPDATE advisor_payment_orders apo
-            SET status = 'cancelado', updated_at = NOW()
-            FROM pobox_payments pp
-            WHERE apo.pobox_payment_id = pp.id
-              AND pp.user_id = $1
-              AND pp.status = 'cancelled'
-              AND apo.status NOT IN ('cancelado', 'pagado')
-        `, [userId]);
+            WHERE pp.user_id = $1
+              AND pp.status IN ('pending', 'pending_payment')
+              AND pp.created_at < NOW() - INTERVAL '30 minutes'
+              -- Solo las que de verdad estorban: las que comparten alguna caja
+              -- con la orden que se está creando.
+              AND EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements_text(COALESCE(pp.package_ids, '[]'::jsonb)) AS pid
+                     WHERE pid ~ '^[0-9]+$' AND pid::int = ANY($2::int[])
+                  )
+              -- Nunca una cuya referencia ya aparezca en un abono del banco: ese
+              -- dinero ya se transfirió contra ella y matarla lo deja huérfano.
+              AND NOT EXISTS (
+                    SELECT 1 FROM bank_statement_entries b
+                     WHERE COALESCE(pp.payment_reference, '') <> ''
+                       AND COALESCE(b.abono, 0) > 0
+                       AND (b.concepto ILIKE '%' || pp.payment_reference || '%'
+                            OR b.referencia ILIKE '%' || pp.payment_reference || '%')
+                  )
+            RETURNING pp.id
+        `, [userId, packageIds]);
+
+        // Sincronizar SOLO las órdenes del asesor de las que acabamos de
+        // cancelar. Antes se sincronizaba contra cualquier pobox_payment
+        // cancelado del usuario, incluidas las de hace meses.
+        const ids = canceladas.rows.map((r: any) => Number(r.id)).filter(Boolean);
+        if (ids.length > 0) {
+            await pool.query(`
+                UPDATE advisor_payment_orders
+                SET status = 'cancelado', updated_at = NOW()
+                WHERE pobox_payment_id = ANY($1::int[])
+                  AND status NOT IN ('cancelado', 'pagado')
+            `, [ids]);
+        }
     } catch (cleanupErr) {
         console.warn('⚠️ No se pudieron limpiar órdenes pendientes antiguas:', cleanupErr);
     }
