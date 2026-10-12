@@ -644,11 +644,21 @@ export default function SupportBoardPage() {
   }, [token, deptFilter, searchQuery]);
 
   const handleArchiveTicket = async (ticketId: number, unarchive = false) => {
-    await fetch(`${API_URL}/admin/support/ticket/${ticketId}/archive`, {
+    const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/archive`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ unarchive }),
     });
+    // Esta respuesta no se leía. El backend ahora se niega a archivar un ticket
+    // con un mensaje del cliente sin contestar (tarea 765), y sin esto el botón
+    // simplemente no haría nada: la tarjeta se quedaría ahí sin una sola
+    // palabra de por qué.
+    if (!res.ok) {
+      let msg = 'No se pudo archivar el ticket.';
+      try { msg = (await res.json())?.message || msg; } catch { /* sin cuerpo */ }
+      setReportSnack({ msg, sev: 'warning' });
+      return;
+    }
     await Promise.all([loadTickets(), loadArchivedTickets()]);
   };
 
@@ -1051,7 +1061,7 @@ export default function SupportBoardPage() {
     } catch { setReportSnack({ msg: 'Error de red al reportar', sev: 'error' }); }
     finally { setReporting(false); }
   };
-  const [reportSnack, setReportSnack] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
+  const [reportSnack, setReportSnack] = useState<{ msg: string; sev: 'success' | 'error' | 'warning' } | null>(null);
   const handleReportError = async () => {
     if (!selectedTicket) return;
     setReporting(true);

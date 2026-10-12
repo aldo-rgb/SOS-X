@@ -1842,6 +1842,38 @@ export const archiveTicket = async (req: Request, res: Response): Promise<any> =
   try {
     const { id } = req.params;
     const { unarchive } = req.body;
+
+    // Archivar es la limpieza normal del tablero —1,806 de 2,045 tickets están
+    // archivados—, y por eso archivar uno al que el cliente le escribió de
+    // último lo entierra: no vuelve a salir en ninguna columna y nadie se
+    // entera de lo que pidió.
+    //
+    // Tarea 765. Yliana: "hay varios mensajes en tickets archivados". Son 76
+    // tickets cerrados y archivados cuyo último mensaje es del cliente y
+    // quedó sin respuesta, el más reciente del 29-sep. Ojo con el diagnóstico:
+    // esto NO es el reabrir automático fallando. Ese se arregló el 25-ago y
+    // funciona —los 12 casos de "el cliente escribió después de archivar" son
+    // todos anteriores a esa fecha—. Aquí el mensaje llegó ANTES y se archivó
+    // encima, así que ningún reabrir podía dispararse.
+    //
+    // No se bloquea para regañar a nadie: se bloquea porque el único momento
+    // en que alguien puede ver ese mensaje es justo antes de taparlo.
+    if (!unarchive) {
+      const ultimo = await pool.query(
+        `SELECT sender_type FROM ticket_messages
+          WHERE ticket_id = $1 AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 1`,
+        [id]
+      );
+      if (ultimo.rows[0]?.sender_type === 'client') {
+        return res.status(409).json({
+          error: 'mensaje_del_cliente_sin_contestar',
+          message: 'El último mensaje de este ticket es del cliente y nadie le ha respondido. '
+                 + 'Contéstale y después archívalo, o si ya no requiere respuesta, deja una nota en el hilo.',
+        });
+      }
+    }
+
     await pool.query(
       `UPDATE support_tickets SET archived_at = ${unarchive ? 'NULL' : 'NOW()'}, updated_at = NOW() WHERE id = $1`,
       [id]
@@ -1877,7 +1909,18 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
           ) as needs_human,
           COUNT(*) FILTER (WHERE status = 'waiting_client' AND archived_at IS NULL) as waiting_client,
           -- Resueltos y Nuevos hoy EXCLUYEN los atendidos/resueltos por la IA (Cajito).
-          COUNT(*) FILTER (WHERE status = 'resolved' AND resolved_by_ai IS NOT TRUE) as resolved,
+          --
+          -- Este contador es el número que se pinta ARRIBA de la columna
+          -- "Resueltos" del tablero, así que tiene que contar lo mismo que la
+          -- columna: lo no archivado. Era el único contador de esta consulta
+          -- sin el filtro, y contaba toda la historia: decía 1,970 junto a una
+          -- columna de 217 (tarea 765, lo que Yliana reportó como
+          -- "discrepancia en el número total").
+          --
+          -- today_new y today_resolved SÍ siguen contando archivados, y está
+          -- bien: esos miden cuánto entró y cuánto se resolvió en 24 h, y un
+          -- ticket que se atiende y se archiva el mismo día cuenta igual.
+          COUNT(*) FILTER (WHERE status = 'resolved' AND resolved_by_ai IS NOT TRUE AND archived_at IS NULL) as resolved,
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours' AND resolved_by_ai IS NOT TRUE) as today_new,
           COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours' AND resolved_by_ai IS NOT TRUE) as today_resolved,
           COUNT(*) FILTER (WHERE creator_type = 'employee' AND status != 'resolved' AND archived_at IS NULL) as employee_open,
