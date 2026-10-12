@@ -156,7 +156,34 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
             SET status = 'cancelled'
             WHERE pp.user_id = $1
               AND pp.status IN ('pending', 'pending_payment')
-              AND pp.created_at < NOW() - INTERVAL '30 minutes'
+              -- La ventana depende de si el cliente puede terminar SIN SALIR
+              -- del sistema. Con tarjeta o PayPal se paga en la misma sesión y
+              -- media hora sobra. Con transferencia o efectivo hay que ir al
+              -- banco o a un mostrador, y media hora no alcanza ni de cerca:
+              -- de 533 comprobantes de esos métodos, 256 —el 48%— llegaron
+              -- DESPUÉS de los 30 minutos, con p95 de 41.6 h en transferencia
+              -- y 91 h en efectivo. Pasando de 48 h solo quedan 38.
+              --
+              -- TKT-2026-3081 (tarea 802), el asesor de S3128 con las palabras
+              -- exactas del problema: "en los casos que demoran 2 días o más en
+              -- subir comprobante, la orden desaparece de su panel y requieren
+              -- volver a generar orden, y por consecuencia se genera
+              -- discrepancia en la referencia del comprobante y la de la orden".
+              -- El candado de traslape de la tarea 796 no cubría esto: cuando
+              -- vuelve a generar la orden de LAS MISMAS cajas, sí hay traslape
+              -- y la vieja moría igual. De sus 63 canceladas, ese candado salvó
+              -- 5; estas 72 horas son para las otras.
+              --
+              -- Lo que pasa ahora si insiste antes de las 72 h no es que se le
+              -- borre nada: el chequeo de duplicados le responde con la
+              -- referencia que ya tiene ("Cancela o paga esa orden primero"),
+              -- que es justo la que le dio a su banco. Y si de verdad la quiere
+              -- tirar, el botón de cancelar sigue ahí.
+              AND pp.created_at < NOW() - (CASE
+                    WHEN COALESCE(pp.payment_method, '') IN ('paypal', 'openpay_card', 'card', 'wallet')
+                      THEN INTERVAL '30 minutes'
+                    ELSE INTERVAL '72 hours'
+                  END)
               -- Solo las que de verdad estorban: las que comparten alguna caja
               -- con la orden que se está creando.
               AND EXISTS (
