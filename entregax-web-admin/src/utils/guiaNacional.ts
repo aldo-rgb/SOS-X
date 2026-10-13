@@ -59,11 +59,36 @@ export const guiaNacionalVisible = (
   const n = normalizarPaqueteria(paqueteria);
   const q = encodeURIComponent(numero);
 
-  // El .com redirige al .com.mx; se usa el destino final para no gastar un salto.
-  if (esPaqueteExpress(paqueteria)) return { numero, url: `https://www.paquetexpress.com.mx/rastreo?guia=${q}` };
+  // Paquete Express pide la guía en la RUTA, no como parámetro. Con
+  // `?guia=...` el sitio abre, pero con el buscador vacío: es un Nuxt con
+  // rutas por archivo, así que /rastreo/:guia es la que trae el dato y
+  // /rastreo?guia= cae en el índice y lo ignora. Juan lo probó en su navegador
+  // y reportó las dos (tarea 751); con curl no se distingue, porque el
+  // servidor devuelve el mismo HTML —196,006 bytes— para las dos.
+  if (esPaqueteExpress(paqueteria)) return { numero, url: `https://www.paquetexpress.com.mx/rastreo/${q}` };
   if (n.includes('estafeta')) return { numero, url: `https://www.estafeta.com/Herramientas/Rastreo?wayBill=${q}` };
   if (n.includes('fedex')) return { numero, url: `https://www.fedex.com/fedextrack/?trknbr=${q}` };
   if (n.includes('dhl')) return { numero, url: `https://www.dhl.com/mx-es/home/tracking.html?tracking-id=${q}` };
   if (n.includes('ups')) return { numero, url: `https://www.ups.com/track?tracknum=${q}` };
   return { numero, url: null };
+};
+
+/**
+ * El nombre de la paquetería como se le enseña a una persona.
+ *
+ * En la base el mismo transportista viene escrito de cuatro formas —
+ * "PAQUETE EXPRESS" (1,555 guías), "paquete_express" (824), "Paquete Express"
+ * (210) y "pqtx_cod" (35)— y el botón de rastreo las pintaba tal cual, así que
+ * a 824 clientes les decía "Rastrear en paquete_express".
+ */
+export const nombreDePaqueteria = (paqueteria: unknown): string => {
+  const n = normalizarPaqueteria(paqueteria);
+  if (!n) return 'la paquetería';
+  if (esPaqueteExpress(paqueteria)) return 'Paquete Express';
+  if (n.includes('estafeta')) return 'Estafeta';
+  if (n.includes('fedex')) return 'FedEx';
+  if (n.includes('dhl')) return 'DHL';
+  if (n.includes('ups')) return 'UPS';
+  // Lo demás se capitaliza palabra por palabra: "entrega local" → "Entrega Local".
+  return n.replace(/\b[a-záéíóúñ]/g, (c) => c.toUpperCase());
 };

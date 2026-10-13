@@ -115,7 +115,7 @@ import { Collapse } from '@mui/material';
 import api from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { imprimirDocumento } from '../utils/imprimirDocumento';
-import { guiaNacionalVisible } from '../utils/guiaNacional';
+import { guiaNacionalVisible, nombreDePaqueteria } from '../utils/guiaNacional';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import PhoneVerificationBanner from '../components/PhoneVerificationBanner';
 import ClientTicketsPage from './ClientTicketsPage';
@@ -11831,24 +11831,20 @@ export default function DashboardClient() {
                       🇲🇽 {selectedPackage.national_carrier || 'Guía Nacional'}
                     </Typography>
                     {(() => {
-                      // El número SE MUESTRA corto y ES el enlace al rastreo: era
-                      // lo que pedía Juan en la 751 —copiar y pegar el que
-                      // enseñábamos no encontraba la guía—. Sin rastreo público
-                      // queda como texto, no como un enlace que no lleva a nada.
+                      // El número va como TEXTO, no como enlace. Se muestra
+                      // corto —sin el 001001 de caja—, que era lo que pedía Juan:
+                      // copiar y pegar el que enseñábamos no encontraba la guía.
+                      //
+                      // Enlace ya no: abajo está el botón "Rastrear en Paquete
+                      // Express" apuntando al mismo lado. El número subrayado y
+                      // el botón competían por el mismo clic y apretaban el
+                      // bloque, que es lo que Juan reportó después ("veo muy
+                      // apretada la info"). El número es para copiarlo; el
+                      // botón, para abrirlo.
                       const g = guiaNacionalVisible(selectedPackage.national_carrier, selectedPackage.national_tracking);
                       const color = (selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2';
-                      const estilo = { fontFamily: 'monospace', fontWeight: 700, color } as const;
-                      if (!g.url) return <Typography variant="body1" sx={estilo}>{g.numero}</Typography>;
                       return (
-                        <Typography
-                          variant="body1"
-                          component="a"
-                          href={g.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Ver el rastreo de la paquetería"
-                          sx={{ ...estilo, display: 'inline-block', textDecoration: 'underline', cursor: 'pointer' }}
-                        >
+                        <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color, userSelect: 'all' }}>
                           {g.numero}
                         </Typography>
                       );
@@ -11868,7 +11864,7 @@ export default function DashboardClient() {
                           onClick={() => window.open(url, '_blank', 'noopener')}
                           sx={{ mt: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2'), '&:hover': { bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#d65f00' : '#0d47a1') }, textTransform: 'none', fontWeight: 700 }}
                         >
-                          🔎 Rastrear en {selectedPackage.national_carrier}
+                          🔎 Rastrear en {nombreDePaqueteria(selectedPackage.national_carrier)}
                         </Button>
                       );
                     })()}
@@ -12345,12 +12341,17 @@ export default function DashboardClient() {
                       </Box>
                       {selectedPackage.national_carrier && (
                         <Typography variant="body2" sx={{ mb: 0.5 }}>
-                          <strong>Paquetería:</strong> {selectedPackage.national_carrier}
+                          <strong>Paquetería:</strong> {nombreDePaqueteria(selectedPackage.national_carrier)}
                         </Typography>
                       )}
+                      {/* Esta vista —la del paquete ya entregado— seguía
+                          enseñando el número COMPLETO, con el 001001 de caja
+                          pegado: justo lo que Juan reportó que no se puede
+                          copiar y pegar para buscar la guía. Se arregló solo en
+                          la otra tarjeta (tarea 751). */}
                       {selectedPackage.national_tracking && (
-                        <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace', color: '#1565C0', fontWeight: 'bold' }}>
-                          🏷️ Guía: {selectedPackage.national_tracking}
+                        <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace', color: '#1565C0', fontWeight: 'bold', userSelect: 'all' }}>
+                          🏷️ Guía: {guiaNacionalVisible(selectedPackage.national_carrier, selectedPackage.national_tracking).numero}
                         </Typography>
                       )}
                       {selectedPackage.carrier_service_request_code && (
@@ -12374,7 +12375,7 @@ export default function DashboardClient() {
                             onClick={() => window.open(url, '_blank', 'noopener')}
                             sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
                           >
-                            🔎 Rastrear en {selectedPackage.national_carrier}
+                            🔎 Rastrear en {nombreDePaqueteria(selectedPackage.national_carrier)}
                           </Button>
                         );
                       })()}
