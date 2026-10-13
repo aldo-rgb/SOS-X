@@ -47,6 +47,9 @@ interface AdvisorBoardRow {
   // De lo pendiente, lo retenido hasta que el cliente pague, y lo que sí se
   // puede liquidar hoy. Ese último es el número que enseña el ledger.
   ownCreditHold?: number;
+  // Retenido TOTAL (propio + override de sus subasesores). El backend ya lo
+  // manda; faltaba declararlo, y sin él "por cobrar" salía inflado.
+  creditHold?: number;
   ownCobrable?: number;
   ownPaid: number;
   overrideTotal: number;
@@ -176,22 +179,36 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
   const top3 = filtered.slice().sort(metricSort).slice(0, 3).map(r => r.advisorId);
   const trophyRankById = new Map<number, number>(top3.map((id, i) => [id, i]));
 
-  // Los totales suman SOLO la comisión propia de cada quien.
+  // Los totales suman la comisión propia de cada quien MÁS el override que gana
+  // cada líder.
   //
-  // `pendingCommission` de un líder ya trae dentro lo de sus subasesores, y esos
-  // subasesores aparecen además con su propio renglón: sumar el campo completo
-  // contaba ese dinero dos veces e inflaba el reporte. Con los datos del 27-ago
-  // decía $77,190.53 cuando lo que sale de caja son $63,921.36.
+  // Aquí antes se sumaba solo lo propio, con el argumento de que el override ya
+  // venía contado en el renglón de cada subasesor. No es así, y es justo lo que
+  // reportó Dirección (tarea 780): "no se están generando comisiones para líder,
+  // porfa que aparezcan en la suma".
   //
-  // El líder sí recibe todo junto —él lo dispersa— pero eso es una entrega, no
-  // dinero adicional: va por renglón, no en el gran total.
-  const totalPending = displayRows.reduce((s, r) => s + r.ownPending, 0);
-  const totalPaid = displayRows.reduce((s, r) => s + r.ownPaid, 0);
+  // El bote de una guía de subasesor se parte en DOS MITADES DISJUNTAS:
+  // commission_amount_mxn es la del sub y leader_override_amount la del líder.
+  // Se verificó en las 788 filas con override: las dos suman exactamente
+  // base × porcentaje, y en NINGUNA el sub trae el bote completo. El override no
+  // es dinero del sub pasando por el líder; es la otra mitad.
+  //
+  // Y sí sale de caja: los cortes de pago (commission_cut_lines, 95 cortes)
+  // repartieron $360,368.77 de propia y $65,019.31 de override. En un corte
+  // concreto, las mismas 59 guías de Hugo Hernandez pagaron $12,199.84 a él y
+  // $12,199.84 a Christian Gonzalez, en dos renglones distintos. Si fuera el
+  // mismo dinero, Hugo se llevaría el bote entero y Christian nada.
+  //
+  // Dejarlo fuera escondía $120,440.04 —$47,958.63 por pagar y $72,481.41 ya
+  // pagados— de un tablero que lee Dirección.
+  const totalPending = displayRows.reduce((s, r) => s + r.ownPending + r.overridePending, 0);
+  const totalPaid = displayRows.reduce((s, r) => s + r.ownPaid + r.overridePaid, 0);
   const totalCommission = totalPending + totalPaid;
   // Lo retenido hasta que el cliente pague. Se separa para que "por pagar" no
   // se lea como dinero disponible: el ledger, que es donde se paga, solo
-  // ofrece la parte cobrable.
-  const totalCreditHold = displayRows.reduce((s, r) => s + (r.ownCreditHold || 0), 0);
+  // ofrece la parte cobrable. Tiene que incluir el override retenido, o
+  // "por cobrar" prometería dinero que todavía no se puede liquidar.
+  const totalCreditHold = displayRows.reduce((s, r) => s + (r.creditHold ?? r.ownCreditHold ?? 0), 0);
   const totalCobrable = totalPending - totalCreditHold;
   const activeAdvisors = displayRows.length;
 
@@ -250,10 +267,10 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
       { key: 'name',     label: 'Asesor',   w: 46, align: 'left' as const },
       { key: 'leader',   label: 'Líder',    w: 30, align: 'left' as const },
       { key: 'own',      label: 'Propia',   w: 26, align: 'right' as const },
-      // "Subs" se leía como comisión extra del líder. Es la de sus subasesores,
-      // que él recibe para entregársela: dinero que ya está contado abajo, en el
-      // renglón de cada sub.
-      { key: 'override', label: 'A dispersar', w: 24, align: 'right' as const },
+      // Lo que el líder GANA por las guías de sus subasesores: su mitad del
+      // bote, no dinero del sub de paso. Se llamó "A dispersar" mientras se
+      // creyó lo segundo (tarea 780).
+      { key: 'override', label: 'Override', w: 24, align: 'right' as const },
       { key: 'pay',      label: `Entrega (${payLabel.toLowerCase()})`, w: 28, align: 'right' as const },
       { key: 'count',    label: 'Guías',    w: 10, align: 'right' as const },
     ];
@@ -318,9 +335,9 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
 
     // Fila de totales.
     //
-    // La columna "Entrega" NO se totaliza: sumarla contaría dos veces lo de cada
-    // subasesor —una en el renglón del líder y otra en el suyo—. El dinero que
-    // sale de caja es la suma de la columna Propia, y esa es la que lleva total.
+    // La columna "Entrega" SÍ se totaliza, y su total es lo que de verdad sale
+    // de caja: propia + override. Antes decía "(ya contado)" porque se creía que
+    // el override era dinero del subasesor pasando por el líder (tarea 780).
     if (y > pageH - 14) { doc.addPage(); y = 16; }
     const sumOwn = displayRows.reduce((s, r) => s + (status === 'paid' ? r.ownPaid : r.ownPending), 0);
     const sumOv = displayRows.reduce((s, r) => s + (status === 'paid' ? r.overridePaid : r.overridePending), 0);
@@ -334,11 +351,7 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
     xt += cols[3].w;
     doc.text(money(sumOv), xt + cols[4].w - 2, y + 5.5, { align: 'right' });
     xt += cols[4].w;
-    doc.setFontSize(7);
-    doc.setTextColor(120, 120, 120);
-    doc.text('(ya contado)', xt + cols[5].w - 2, y + 5.5, { align: 'right' });
-    doc.setFontSize(8);
-    doc.setTextColor(240, 90, 40);
+    doc.text(money(sumOwn + sumOv), xt + cols[5].w - 2, y + 5.5, { align: 'right' });
     y += 12;
 
     // Nota al pie: sin esto, la primera pregunta de quien lo lee es por qué la
@@ -349,10 +362,10 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
       doc.setFontSize(7.5);
       doc.setTextColor(110, 110, 110);
       doc.text(
-        'Entrega = comisión propia + la de sus subasesores, que el líder recibe para dispersar. Esa parte ya está',
+        'Entrega = comisión propia + override. En una guía de subasesor la comisión se parte en dos mitades: una',
         mL, y);
       doc.text(
-        `contada en el renglón de cada subasesor, por eso el total de caja es ${money(sumOwn)} y no incluye la entrega.`,
+        `para el sub y otra para su líder. No es el mismo dinero, por eso el total de caja es ${money(sumOwn + sumOv)}.`,
         mL, y + 4);
     }
 
@@ -644,9 +657,9 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
                 </Typography>
                 {/* El monto grande incluye lo que todavía no es cobrable. Decirlo
                     aquí evita que alguien lo tome como el cheque a firmar. */}
-                {status !== 'paid' && (r.ownCreditHold || 0) > 0 && (
+                {status !== 'paid' && (r.creditHold ?? r.ownCreditHold ?? 0) > 0 && (
                   <Typography variant="caption" sx={{ display: 'block', color: '#546E7A', mb: 1 }}>
-                    incluye {fmt(r.ownCreditHold || 0)} en crédito, aún no cobrable
+                    incluye {fmt(r.creditHold ?? r.ownCreditHold ?? 0)} en crédito, aún no cobrable
                   </Typography>
                 )}
 
@@ -664,13 +677,15 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
                     {/* Lo retenido hasta que el cliente pague su envío. Iba
                         sumado dentro de "Propia" y por eso este panel no
                         cuadraba con el ledger, que sí lo separa. */}
-                    {status !== 'paid' && (r.ownCreditHold || 0) > 0 && (
-                      <Tooltip title="Comisión ya generada, pero el cliente todavía no paga su envío. No se puede liquidar hasta entonces.">
-                        <Chip size="small" label={`${es ? 'En crédito' : 'On credit'}: ${fmt(r.ownCreditHold || 0)}`}
+                    {status !== 'paid' && (r.creditHold ?? r.ownCreditHold ?? 0) > 0 && (
+                      <Tooltip title="Comisión ya generada, pero el cliente todavía no paga su envío. No se puede liquidar hasta entonces. Incluye la parte retenida del override.">
+                        <Chip size="small" label={`${es ? 'En crédito' : 'On credit'}: ${fmt(r.creditHold ?? r.ownCreditHold ?? 0)}`}
                           sx={{ bgcolor: '#ECEFF1', color: '#546E7A', fontWeight: 700 }} />
                       </Tooltip>
                     )}
-                    <Chip size="small" label={`${es ? 'A dispersar' : 'To disperse'}: ${fmt(ovMetric)}`}
+                    {/* Lo que el líder GANA por las guías de sus subasesores, no
+                        lo que les entrega: es su mitad del bote (tarea 780). */}
+                    <Chip size="small" label={`${es ? 'Override' : 'Override'}: ${fmt(ovMetric)}`}
                       sx={{ bgcolor: '#EDE7F6', color: '#5e35b1', fontWeight: 700 }} />
                   </Box>
                 )}
