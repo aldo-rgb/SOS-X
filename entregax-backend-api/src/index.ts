@@ -14664,9 +14664,46 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
         // categoría que llegue se ignora a propósito.
         const tariffType = 'G';
         const isExpress = subservicio === 'tdi_express';
+
+        // TARIFA START UP: precio PLANO por tramo de peso, hasta 15 kg. Va
+        // primero porque manda sobre el precio por kilo.
+        //
+        // Este cotizador nunca la consultaba. El de la app autenticada
+        // (quoteAirChina) sí, y el cobro real tambien (tdiExpressController),
+        // asi que el mismo envio se cotizaba por un camino y se facturaba por
+        // otro. TKT-2026-3107 (tarea 809): Oscar cotizó 9.4 kg y le salieron
+        // $155.10 USD cuando el tramo de 5.01–10 kg vale $250. El 155.10 sale
+        // exacto de 9.4 × $16.50, que era el costo de la ruta ($8.50) más el
+        // margen genérico ($8) de esa mañana.
+        //
+        // El tramo se busca con el peso REAL y el precio es por PIEZA, igual
+        // que en el cobro: ahi la consulta es `p.weight >= t.min_weight` sobre
+        // cada guia. Si se usara el peso cobrable, la cotizacion no empataria
+        // con la factura, que es justo el problema que se esta arreglando.
+        const rutaStartUp = await pool.query(
+          isExpress
+            ? `SELECT id FROM air_routes WHERE is_active = true AND code = 'TDI-EXPRES' LIMIT 1`
+            : `SELECT id FROM air_routes WHERE is_active = true AND code <> 'TDI-EXPRES' ORDER BY id ASC LIMIT 1`
+        );
+        const rutaStartUpId = rutaStartUp.rows[0]?.id ?? null;
+        let startUpUsd = 0;
+        if (rutaStartUpId && pesoReal > 0 && pesoReal <= 15) {
+          const su = await pool.query(
+            `SELECT price_usd FROM air_startup_tiers
+              WHERE route_id = $1 AND is_active = true
+                AND $2 >= min_weight AND $2 <= max_weight
+              LIMIT 1`,
+            [rutaStartUpId, pesoReal]
+          ).catch(() => ({ rows: [] as any[] }));
+          startUpUsd = parseFloat(su.rows[0]?.price_usd || '0') || 0;
+        }
+
         const markupByType: Record<string, number> = { L: 9, G: 8, F: 7 };
         let precioPorKg = 0;
-        if (tariffType in markupByType) {
+        if (startUpUsd > 0) {
+          // El por-kilo que se enseña es informativo: lo que se cobra es el plano.
+          precioPorKg = +(startUpUsd / pesoReal).toFixed(2);
+        } else if (tariffType in markupByType) {
           const routeRes = await pool.query(
             isExpress
               ? `SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code = 'TDI-EXPRES' LIMIT 1`
@@ -14737,7 +14774,9 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
             });
           }
         }
-        const precioUsd = pesoCobrable * precioPorKg;
+        // Con START UP el precio es plano por pieza, así que se multiplica por
+        // la cantidad de cajas, no por los kilos.
+        const precioUsd = startUpUsd > 0 ? startUpUsd * cantidad : pesoCobrable * precioPorKg;
 
         resultado = {
           ...resultado,
@@ -14746,8 +14785,10 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
           peso_volumetrico: pesoVol.toFixed(2),
           peso_cobrable: pesoCobrable.toFixed(2),
           cantidad,
-          // El cotizador solo ofrece Genérico, así que la etiqueta es fija.
-          categoria: 'Genérico',
+          // El cotizador solo ofrece Genérico, salvo cuando el peso cae en un
+          // tramo START UP: ahí la categoría es esa y conviene que se vea.
+          categoria: startUpUsd > 0 ? 'START UP' : 'Genérico',
+          ...(startUpUsd > 0 ? { startup_precio_usd: startUpUsd.toFixed(2) } : {}),
           precio_por_kg: precioPorKg,
           precio_usd: precioUsd.toFixed(2),
           precio_mxn: (precioUsd * fxRate).toFixed(2),
