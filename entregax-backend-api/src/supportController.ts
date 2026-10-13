@@ -1872,6 +1872,26 @@ export const archiveTicket = async (req: Request, res: Response): Promise<any> =
                  + 'Contéstale y después archívalo, o si ya no requiere respuesta, deja una nota en el hilo.',
         });
       }
+
+      // Tarea 795. Ricardo: "que todos los tickets que responda la IA se
+      // transfieran al embudo de los tickets de IA, para poderlos revisar y que
+      // no se archiven de manera automática".
+      //
+      // Automático no era: de los 33 que cerró Cajito, 31 se archivaron a mano y
+      // en lote —78 tickets en el mismo minuto el 9-sep— barridos junto con todo
+      // lo demás. El resultado es el mismo que describe: desaparecen antes de
+      // que alguien compruebe si la respuesta estuvo bien. Aquí se detienen
+      // hasta que alguien los marque revisados.
+      const ia = await pool.query(
+        `SELECT COALESCE(resolved_by_ai, false) AS la_cerro_la_ia, ai_reviewed_at
+           FROM support_tickets WHERE id = $1`, [id]);
+      if (ia.rows[0]?.la_cerro_la_ia && !ia.rows[0]?.ai_reviewed_at) {
+        return res.status(409).json({
+          error: 'respuesta_de_la_ia_sin_revisar',
+          message: 'Este ticket lo cerró el Asesor Virtual y nadie ha revisado su respuesta. '
+                 + 'Ábrelo, comprueba que quedó bien resuelto y márcalo como revisado; después se puede archivar.',
+        });
+      }
     }
 
     await pool.query(
@@ -1882,6 +1902,49 @@ export const archiveTicket = async (req: Request, res: Response): Promise<any> =
   } catch (error) {
     console.error('Error archivando ticket:', error);
     res.status(500).json({ error: 'Error al archivar ticket' });
+  }
+};
+
+/**
+ * PATCH /api/admin/support/ticket/:id/ai-review
+ * Marca como revisada la respuesta con la que Cajito cerró un ticket.
+ *
+ * Es el otro lado del candado de archiveTicket: mientras no exista esta marca,
+ * el ticket se queda en el embudo del Asesor Virtual y no se puede archivar
+ * (tarea 795). Se guarda QUIÉN revisó, no solo que se revisó: sin eso "ya está
+ * revisado" no le sirve a nadie para preguntar.
+ *
+ * `unreview` deshace la marca, por si alguien la puso de más.
+ */
+export const marcarRevisionIA = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureColumnasTicket();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ error: 'ID inválido' });
+    const deshacer = req.body?.unreview === true;
+    const actor = Number((req as any).user?.userId || (req as any).user?.id) || null;
+
+    const t = await pool.query(
+      `SELECT ticket_folio, COALESCE(resolved_by_ai, false) AS la_cerro_la_ia
+         FROM support_tickets WHERE id = $1`, [id]);
+    if (t.rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+    if (!t.rows[0].la_cerro_la_ia) {
+      return res.status(400).json({ error: 'Ese ticket no lo cerró el Asesor Virtual, no hay nada que revisar.' });
+    }
+
+    const r = await pool.query(
+      `UPDATE support_tickets
+          SET ai_reviewed_at = ${deshacer ? 'NULL' : 'NOW()'},
+              ai_reviewed_by = ${deshacer ? 'NULL' : '$2'},
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING ticket_folio, ai_reviewed_at, ai_reviewed_by`,
+      deshacer ? [id] : [id, actor]
+    );
+    res.json({ success: true, ticket: r.rows[0] });
+  } catch (err: any) {
+    console.error('[support] marcarRevisionIA:', err?.message);
+    res.status(500).json({ error: err?.message || 'No se pudo marcar la revisión' });
   }
 };
 
@@ -2265,7 +2328,10 @@ export const ensureColumnasTicket = async (): Promise<void> => {
         ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP,
         ADD COLUMN IF NOT EXISTS ticket_status VARCHAR(20) DEFAULT 'nuevo',
         ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP,
-        ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER`);
+        ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER,
+        -- Quién revisó, y cuándo, un ticket que cerró Cajito (tarea 795).
+        ADD COLUMN IF NOT EXISTS ai_reviewed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS ai_reviewed_by INTEGER`);
       _colsTicketListas = true;
     } catch (e: any) {
       console.warn('[support] ensureColumnasTicket:', e?.message);

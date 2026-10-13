@@ -772,6 +772,7 @@ import {
   reactivateTicket,
   assignTicket,
   archiveTicket,
+  marcarRevisionIA,
   uploadSupportImages,
   uploadAdminReplyFiles,
   aiEnhanceMessage,
@@ -8222,6 +8223,9 @@ app.put('/api/admin/support/ticket/:id/reactivate', authenticateToken, requireMi
 // Admin: Asignar ticket a agente
 app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), assignTicket);
 app.patch('/api/admin/support/ticket/:id/archive', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), archiveTicket);
+// Revisar la respuesta con la que Cajito cerró un ticket. Mismo nivel que
+// archivar: quien puede enterrarlo es quien debe poder revisarlo (tarea 795).
+app.patch('/api/admin/support/ticket/:id/ai-review', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), marcarRevisionIA);
 
 // Departamentos: listar (autenticado, cualquier rol)
 app.get('/api/support/departments', authenticateToken, getDepartments);

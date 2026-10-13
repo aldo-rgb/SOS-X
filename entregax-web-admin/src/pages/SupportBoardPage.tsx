@@ -66,6 +66,7 @@ import {
   WhatsApp as WhatsAppIcon,
   Archive as ArchiveIcon,
   MarkChatUnread as MarkChatUnreadIcon,
+  CheckCircle as CheckCircleIcon,
   Unarchive as UnarchiveIcon,
   Lock as LockIcon,
   OpenInFull as OpenInFullIcon,
@@ -132,6 +133,9 @@ interface SupportTicket {
   category: string;
   subject: string;
   status: 'open_ai' | 'waiting_client' | 'escalated_human' | 'resolved';
+  // Lo cerró Cajito, y cuándo lo revisó una persona (tarea 795).
+  resolved_by_ai?: boolean;
+  ai_reviewed_at?: string | null;
   priority: string;
   error_reported?: boolean;
   error_task_id?: number | null;
@@ -1149,12 +1153,41 @@ export default function SupportBoardPage() {
       return aO - bO;
     });
 
+  /** Lo cerró Cajito y nadie ha comprobado todavía si quedó bien resuelto. */
+  const esperaRevisionIA = (t: SupportTicket) =>
+    t.status === 'resolved' && t.resolved_by_ai === true && !t.ai_reviewed_at;
+
   const getTicketsByStatus = (status: string) => {
     // Sin filtro local por texto: el backend ya devolvió solo lo que coincide,
     // y volver a filtrar aquí descartaría los tickets cuya coincidencia está en
     // el cuerpo o en un mensaje — que es justo lo que no se carga en la lista.
-    const filtered = tickets.filter((t) => t.status === status);
+    //
+    // Un ticket que cerró Cajito NO cae en "Resueltos" hasta que alguien revise
+    // su respuesta: se queda en la columna del Asesor Virtual, que es su embudo
+    // (tarea 795). En "Resueltos" se mezclaba con los que cerró una persona y
+    // nadie volvía a mirarlo; de los 33 que ha cerrado, 31 acabaron archivados
+    // en los barridos del tablero sin que nadie comprobara la respuesta.
+    const filtered = tickets.filter((t) => {
+      if (esperaRevisionIA(t)) return status === 'open_ai';
+      return t.status === status;
+    });
     return sortWithOverdueFirst(filtered);
+  };
+
+  const marcarRevisado = async (ticketId: number) => {
+    const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/ai-review`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      let msg = 'No se pudo marcar como revisado.';
+      try { msg = (await res.json())?.error || msg; } catch { /* sin cuerpo */ }
+      setReportSnack({ msg, sev: 'warning' });
+      return;
+    }
+    setReportSnack({ msg: 'Respuesta revisada. El ticket pasa a Resueltos y ya se puede archivar.', sev: 'success' });
+    await loadTickets();
   };
 
   const formatTimeAgo = (dateStr: string) => {
@@ -1515,6 +1548,7 @@ export default function SupportBoardPage() {
                     isUrgent={urgent}
                     isResolved={status === 'resolved'}
                     onArchive={handleArchiveTicket}
+                    onReviewAI={marcarRevisado}
                   />
                 ))}
               </Paper>
@@ -2655,6 +2689,7 @@ function TicketCard({
   formatTime,
   isArchived = false,
   onArchive,
+  onReviewAI,
 }: {
   ticket: SupportTicket;
   onClick: () => void;
@@ -2663,6 +2698,7 @@ function TicketCard({
   isResolved?: boolean;
   isArchived?: boolean;
   onArchive?: (id: number, unarchive: boolean) => void;
+  onReviewAI?: (id: number) => void;
 }) {
   const visual = getTicketVisual(ticket, isArchived);
   const tStatus = ticket.ticket_status || 'nuevo';
@@ -2689,6 +2725,20 @@ function TicketCard({
             <Typography variant="caption" color="text.secondary" fontWeight={600}>
               {ticket.ticket_folio}
             </Typography>
+            {/* Lo cerró Cajito y nadie ha comprobado la respuesta. Se marca en
+                la tarjeta porque, revuelto en una columna, no se distinguía de
+                lo que cerró una persona (tarea 795). */}
+            {onReviewAI && ticket.resolved_by_ai && !ticket.ai_reviewed_at && (
+              <Tooltip title="Lo resolvió el Asesor Virtual. Revisa la respuesta y márcala; hasta entonces no se puede archivar.">
+                <Box sx={{
+                  display: 'flex', alignItems: 'center', gap: 0.3,
+                  bgcolor: '#2196F3', color: '#fff', borderRadius: 10,
+                  px: 0.7, height: 17, fontSize: 10.5, fontWeight: 800, lineHeight: 1,
+                }}>
+                  🤖 sin revisar
+                </Box>
+              </Tooltip>
+            )}
             {/* Lo que antes obligaba a entrar ticket por ticket. */}
             {(ticket.sin_responder || 0) > 0 && (
               <Tooltip title={`${ticket.sin_responder} mensaje(s) del cliente sin responder`}>
@@ -2705,6 +2755,17 @@ function TicketCard({
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="caption" color="text.secondary">{formatTime(ticket.updated_at)}</Typography>
+            {onReviewAI && ticket.resolved_by_ai && !ticket.ai_reviewed_at && (
+              <Tooltip title="Marcar la respuesta del Asesor Virtual como revisada">
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); onReviewAI(ticket.id); }}
+                  sx={{ p: 0.25, color: '#2196F3' }}
+                >
+                  <CheckCircleIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             {onArchive && (
               <Tooltip title={isArchived ? 'Desarchivar' : 'Archivar'}>
                 <IconButton
