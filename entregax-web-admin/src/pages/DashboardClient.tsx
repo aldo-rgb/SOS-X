@@ -11826,9 +11826,15 @@ export default function DashboardClient() {
                 )}
                 {/* Guía nacional (última milla MX) */}
                 {selectedPackage.national_tracking && (
-                  <Box sx={{ mt: 1, p: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#fff3e0' : '#E3F2FD'), borderRadius: 1, border: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? `1px solid ${ORANGE}` : '1px solid #1976d2') }}>
+                  // En columna a propósito. El número tenía `display:
+                  // inline-block` y un Button de MUI es `inline-flex`: los dos
+                  // son de línea, así que compartían renglón y el `mt` del
+                  // botón lo encimaba sobre la guía. Es lo que se ve en la
+                  // captura de Juan y lo que él llamó "muy apretada la info"
+                  // (tarea 751).
+                  <Box sx={{ mt: 1, p: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.75, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#fff3e0' : '#E3F2FD'), borderRadius: 1, border: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? `1px solid ${ORANGE}` : '1px solid #1976d2') }}>
                     <Typography variant="body2" sx={{ color: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#bf360c' : '#0d47a1'), fontWeight: 700 }}>
-                      🇲🇽 {selectedPackage.national_carrier || 'Guía Nacional'}
+                      🇲🇽 {selectedPackage.national_carrier ? nombreDePaqueteria(selectedPackage.national_carrier) : 'Guía Nacional'}
                     </Typography>
                     {(() => {
                       // El número va como TEXTO, no como enlace. Se muestra
@@ -11862,7 +11868,7 @@ export default function DashboardClient() {
                           variant="contained"
                           size="small"
                           onClick={() => window.open(url, '_blank', 'noopener')}
-                          sx={{ mt: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2'), '&:hover': { bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#d65f00' : '#0d47a1') }, textTransform: 'none', fontWeight: 700 }}
+                          sx={{ bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2'), '&:hover': { bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#d65f00' : '#0d47a1') }, textTransform: 'none', fontWeight: 700 }}
                         >
                           🔎 Rastrear en {nombreDePaqueteria(selectedPackage.national_carrier)}
                         </Button>
