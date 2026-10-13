@@ -1133,14 +1133,21 @@ export default function AirPricingPage() {
             )}
 
             {/* ========== STARTUP TIERS SECTION ========== */}
-            {routes.filter(r => r.is_active).slice(0, 1).map(route => (
+            {/* Un panel POR RUTA. Antes el `.slice(0, 1)` dejaba solo la primera
+                ruta activa —AIFA— así que los tramos Start Up de TDI-EXPRES
+                existían en la base, los usaba el cotizador Y el cobro, y nadie
+                los podía ver ni editar desde aquí. Hoy no se nota porque los dos
+                juegos traen los mismos $150/$250/$350, pero en cuanto alguien
+                edite esta pantalla solo cambiaría AIFA y los de express se
+                quedarían con el precio viejo, en silencio (tarea 809). */}
+            {routes.filter(r => r.is_active).map(route => (
                 <Paper key={`startup-${route.id}`} sx={{ mb: 3, p: 2.5, borderRadius: 2, border: '2px solid #FF6F00' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <RocketIcon sx={{ color: '#FF6F00', fontSize: 28 }} />
                             <Box>
                                 <Typography variant="h6" fontWeight="bold" color="#FF6F00">
-                                    TDI Start Up
+                                    Start Up — {route.code}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                     Tarifa plana por rango de peso (≤15 kg). Incluye flete internacional + aduanas + entrega a puerta. Aplica automáticamente antes que Logo/Genérico.
