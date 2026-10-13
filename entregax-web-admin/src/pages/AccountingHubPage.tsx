@@ -2898,6 +2898,53 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
     from: '', to: '', type: '', match: '', search: '',
   });
 
+  // Asignar a mano un depósito que entró SIN referencia.
+  //
+  // El botón ya existía en Cobranza, sobre la tabla del estado de cuenta. Pero
+  // Contabilidad no trabaja ahí: trabaja en ESTA pantalla, que es la vista en
+  // vivo del banco. Leonardo mandó la captura de su monitor con el depósito de
+  // $36,087 marcado "Pendiente" y la pregunta de por qué no le salía el botón
+  // (tarea 760). No le salía porque estaba en la otra tabla. Son el mismo
+  // movimiento con dos ids distintos, y el backend ya acepta cualquiera de los
+  // dos.
+  const [asignar, setAsignar] = useState<{ mov: any; cliente: any | null; nota: string; guardando: boolean } | null>(null);
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [buscandoClientes, setBuscandoClientes] = useState(false);
+
+  const buscarClientes = async (texto: string) => {
+    const q = texto.trim();
+    if (q.length < 2) { setClientes([]); return; }
+    setBuscandoClientes(true);
+    try {
+      // /admin/users deja fuera a los clientes; el buscador que sí los trae
+      // —y acepta casillero— es /admin/users/search. Los del sistema anterior
+      // vienen con id nulo y no tienen cartera, así que no son elegibles.
+      const r = await api.get('/admin/users/search', { params: { q } });
+      const lista = Array.isArray(r.data) ? r.data : [];
+      setClientes(lista.filter((c: any) => c && c.id && c.is_legacy !== true));
+    } catch { setClientes([]); }
+    finally { setBuscandoClientes(false); }
+  };
+
+  const confirmarAsignacion = async () => {
+    const a = asignar;
+    if (!a?.mov?.id || !a.cliente?.id) return;
+    setAsignar({ ...a, guardando: true });
+    try {
+      const r = await api.post('/admin/finance/asignar-deposito', {
+        syncfy_transaction_id: a.mov.id, user_id: a.cliente.id, nota: a.nota || undefined,
+      });
+      setError(null);
+      setNotice(r.data?.mensaje || 'Depósito abonado a la cartera del cliente.');
+      setAsignar(null);
+      setClientes([]);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'No se pudo asignar el depósito');
+      setAsignar({ ...a, guardando: false });
+    }
+  };
+
   const handleDeleteCred = async (credId: number) => {
     if (!confirm('¿Desconectar este banco? Se eliminarán las credenciales en Syncfy.')) return;
     try {
@@ -3122,7 +3169,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           <Table size="small">
             <TableHead sx={{ bgcolor: BLACK }}>
               <TableRow>
-                {['Fecha', 'Descripción', 'Referencia', 'Tipo', 'Monto', 'Conciliación', 'Match'].map(h => (
+                {['Fecha', 'Descripción', 'Referencia', 'Tipo', 'Monto', 'Conciliación', 'Match', ''].map(h => (
                   <TableCell key={h} sx={{ color: 'white', fontWeight: 700 }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -3153,12 +3200,79 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                       </Box>
                     ) : '—'}
                   </TableCell>
+                  {/* Solo en un INGRESO que sigue sin conciliar. En un egreso no
+                      hay nada que abonar, y en uno ya conciliado volver a
+                      asignarlo le regalaría el depósito al cliente —el backend
+                      lo rechaza, pero el botón no debe invitar a intentarlo. */}
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                    {m.type === 'INFLOW' && m.match_status !== 'matched' && (
+                      <Tooltip title="Abonar este depósito a la cartera de un cliente (para los que llegaron sin referencia)">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => { setClientes([]); setAsignar({ mov: m, cliente: null, nota: '', guardando: false }); }}
+                          sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0.2 }}
+                        >
+                          Asignar
+                        </Button>
+                      </Tooltip>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </Paper>
       )}
+
+      {/* ===== Abonar un depósito sin referencia a la cartera de un cliente ===== */}
+      <Dialog open={!!asignar} onClose={() => !asignar?.guardando && setAsignar(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Abonar depósito a un cliente</DialogTitle>
+        <DialogContent>
+          {asignar?.mov && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#F5F5F5', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">Movimiento del banco</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {fmtDate(asignar.mov.value_date)} · {fmt(parseFloat(asignar.mov.amount))}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', color: 'text.secondary', mt: 0.5 }}>
+                {asignar.mov.description || asignar.mov.reference || ''}
+              </Typography>
+            </Box>
+          )}
+          <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+            El dinero entra a la <strong>cartera</strong> del cliente, no a una orden.
+            Desde ahí lo puede usar para pagar lo que quiera.
+          </Alert>
+          <Autocomplete
+            options={clientes}
+            loading={buscandoClientes}
+            value={asignar?.cliente || null}
+            onChange={(_e, v) => asignar && setAsignar({ ...asignar, cliente: v })}
+            onInputChange={(_e, v, motivo) => { if (motivo === 'input') buscarClientes(v); }}
+            getOptionLabel={(o: any) => (o ? `${o.box_id || 's/casillero'} — ${o.full_name || ''}` : '')}
+            isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
+            filterOptions={(x) => x}
+            noOptionsText="Escribe el casillero o el nombre"
+            renderInput={(params) => (
+              <TextField {...params} label="Cliente" placeholder="Casillero o nombre…" size="small" sx={{ mb: 2 }} />
+            )}
+          />
+          <TextField
+            label="Nota (opcional)"
+            placeholder="Por qué se asignó a mano, o cualquier dato útil para después"
+            fullWidth multiline rows={2} size="small"
+            value={asignar?.nota || ''}
+            onChange={e => asignar && setAsignar({ ...asignar, nota: e.target.value })}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAsignar(null)} disabled={!!asignar?.guardando}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmarAsignacion} disabled={!asignar?.cliente || !!asignar?.guardando}>
+            {asignar?.guardando ? 'Abonando…' : 'Abonar a su cartera'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ===== Modal Syncfy: Conexión Bancaria (re-autenticar / gestionar) ===== */}
       <Dialog open={syncfyModalOpen} onClose={() => setSyncfyModalOpen(false)} maxWidth="sm" fullWidth

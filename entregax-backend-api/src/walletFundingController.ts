@@ -393,9 +393,33 @@ export const miReferenciaDeFondeo = async (req: any, res: Response): Promise<any
 export const asignarDepositoACliente = async (req: any, res: Response): Promise<any> => {
   const cx = await pool.connect();
   try {
-    const bankEntryId = parseInt(String(req.body?.bank_entry_id ?? ''), 10);
+    let bankEntryId = parseInt(String(req.body?.bank_entry_id ?? ''), 10);
+    const syncfyTxId = parseInt(String(req.body?.syncfy_transaction_id ?? ''), 10);
     const userId = parseInt(String(req.body?.user_id ?? ''), 10);
     const nota = String(req.body?.nota || '').trim().slice(0, 500) || null;
+
+    // El mismo depósito se ve en DOS pantallas distintas y cada una lo llama por
+    // un id diferente: Cobranza lista bank_statement_entries y el Hub Contable
+    // lista syncfy_transactions, que es la vista en vivo del banco. El botón
+    // nació solo en la primera, y Leonardo —que trabaja en la segunda— reportó
+    // que no le aparecía (tarea 760). Aquí se acepta cualquiera de los dos ids
+    // y se resuelve al movimiento del estado de cuenta, que es donde vive la
+    // aplicación.
+    if ((!Number.isFinite(bankEntryId) || bankEntryId <= 0) && Number.isFinite(syncfyTxId) && syncfyTxId > 0) {
+      const eq = await pool.query(
+        `SELECT id FROM bank_statement_entries WHERE syncfy_transaction_id = $1 LIMIT 1`, [syncfyTxId]);
+      if (eq.rows.length === 0) {
+        // Los movimientos anteriores al 25-ago-2026 nunca se bajaron al estado
+        // de cuenta (3,298 de 4,017). Sin fila ahí no hay a qué amarrar la
+        // aplicación, y conviene decirlo en vez de fallar con un 404 seco.
+        return res.status(409).json({
+          error: 'Ese movimiento todavía no está en el estado de cuenta, así que no se puede asignar desde aquí. '
+               + 'Sincroniza el banco o cárgalo en Cobranza y vuelve a intentarlo.',
+        });
+      }
+      bankEntryId = Number(eq.rows[0].id);
+    }
+
     if (!Number.isFinite(bankEntryId) || bankEntryId <= 0) return res.status(400).json({ error: 'Falta el movimiento bancario.' });
     if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: 'Falta el cliente al que se le abona.' });
 
