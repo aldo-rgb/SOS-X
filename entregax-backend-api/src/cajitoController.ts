@@ -4132,7 +4132,14 @@ export function buildSystemPrompt(
     // ni saldos, ni comisiones, ni facturación, ni márgenes, ni "en general".
     // Es el caso del gerente de ventas (Aldo, 17-sep-2026).
     ...(!hasCap(caps, 'cajito.read.payments') && !hasCap(caps, 'cajito.read.invoices') && !hasCap(caps, 'cajito.read.financial_kpis')
-      ? ['A esta persona NO le corresponde información financiera: nada de saldos, cobranza, comisiones, facturación, costos ni márgenes, ni siquiera aproximado o "en general". Si lo pide, dile que eso lo ve Dirección o Contabilidad y ofrécele lo que sí puedes darle.']
+      ? ['A esta persona NO le corresponde información financiera: nada de saldos, cobranza, comisiones, facturación, costos ni márgenes, ni siquiera aproximado o "en general". Si lo pide, dile que eso lo ve Dirección o Contabilidad y ofrécele lo que sí puedes darle.',
+         // CJD-2026-0039: Christian pidió el estatus de la orden PP-1190238B y
+         // Cajito contestó "no tengo una herramienta para buscar por ese tipo de
+         // folio". La herramienta existe —lookup_payment_order— y lo que faltaba
+         // era el permiso. Decir "no existe" manda a la gente a pedir algo que
+         // ya está hecho, y además levanta una duda y una tarea por nada.
+         'Una ORDEN DE PAGO —folio RO-, PP-, UW- o CEX-— es información financiera, aunque te la pidan como "estatus de la cotización". No la consultes ni la deduzcas.',
+         'Y dilo con la verdad: NO digas que no existe la herramienta. La herramienta existe; lo que no tienes con esta persona es el permiso. Di que esa información no le corresponde y que la pida a Dirección o Contabilidad, o que la vea en su panel.']
       : []),
     `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
     'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
