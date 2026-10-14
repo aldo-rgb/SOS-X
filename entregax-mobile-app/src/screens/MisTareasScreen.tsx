@@ -123,6 +123,13 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // la web le mostraba 7 y la app 3.
   const isMine = (t: TaskT) =>
     Number((t as any).assignee_id) === Number(myId)
+  // Y una tarea que YO levanté, aunque se la haya asignado a alguien más.
+  // Sin esto, quien pide algo lo ve desaparecer en el acto: Christian creó las
+  // tareas 818 y 819 a las 22:18:24, se las asignó a Aldo, y SEIS SEGUNDOS
+  // después preguntó por qué no las veía (CJD-2026-0041). El backend sí se las
+  // devolvía; este filtro las escondía. Es la tercera vez con la misma persona
+  // y la misma sensación de "se me desapareció" (tareas 670 y 740).
+    || Number((t as any).created_by) === Number(myId)
     || Number((t as any).unread_count || 0) > 0
     || (t as any).cierre_sin_ver === true
     || (t as any).status === 'awaiting_confirmation'

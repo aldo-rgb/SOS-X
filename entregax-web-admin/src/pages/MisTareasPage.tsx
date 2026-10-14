@@ -865,6 +865,13 @@ export default function MisTareasPage() {
   // espera de MI confirmación (yo la asigné). En global se muestran todas las
   // que /tasks/mine devuelve (donde estoy involucrado).
   const isMine = (t: Task) => Number(t.assignee_id) === MY_ID
+  // Y una tarea que YO levanté, aunque se la haya asignado a alguien más.
+  // Sin esto, quien pide algo lo ve desaparecer en el acto: Christian creó las
+  // tareas 818 y 819 a las 22:18:24, se las asignó a Aldo, y SEIS SEGUNDOS
+  // después preguntó por qué no las veía (CJD-2026-0041). El backend sí se las
+  // devolvía; este filtro las escondía. Es la tercera vez con la misma persona
+  // y la misma sensación de "se me desapareció" (tareas 670 y 740).
+    || Number((t as any).created_by) === MY_ID
     || (t.unread_count || 0) > 0
     // Se terminó una tarea donde estoy involucrado y aún no la abro: se queda a
     // la vista hasta que la vea. Antes se esfumaba al cerrarse (tarea 670).
