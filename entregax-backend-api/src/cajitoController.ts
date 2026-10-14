@@ -543,7 +543,7 @@ export const TOOLS: ToolDef[] = [
     name: 'lookup_package',
     requiredCapability: 'cajito.read.packages',
     readOnly: true,
-    description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, CN-…, o tracking del transportista). Las guías aéreas de China (AIR…-001) también, que es como las escribe el asesor. Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96": para ver lo que tiene un casillero usa paquetes_de_casillero, y para sus datos de contacto search_clients.',
+    description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, CN-…, o tracking del transportista). También las guías DHL, por su JJD largo o por el número corto de 10 dígitos que ve el cliente. Las guías aéreas de China (AIR…-001) también, que es como las escribe el asesor. Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96": para ver lo que tiene un casillero usa paquetes_de_casillero, y para sus datos de contacto search_clients.',
     parameters: {
       type: 'object',
       properties: {
@@ -623,6 +623,48 @@ export const TOOLS: ToolDef[] = [
         [variantes, prefijo]
       );
       if (!r.rows.length) {
+        // Antes de darla por inexistente: las guías DHL NO viven en `packages`,
+        // viven en `dhl_shipments`. Esta tool solo miraba `packages`, así que a
+        // una guía DHL contestaba que no existe.
+        //
+        // CJD-2026-0038 (tarea 814). Christian pegó una lista de guías DHL y
+        // Cajito le dijo que no las encontraba "con ninguno de los dos
+        // formatos", y hasta se dio cuenta solo: "mis herramientas no están
+        // indexando estos trackings de DHL". Tenía razón. Las tres que se
+        // pudieron rastrear SÍ estaban en dhl_shipments y CERO en packages.
+        //
+        // Se busca por los dos números que usa DHL: el JJD largo de origen
+        // (inbound_tracking) y el corto de 10 dígitos que ve el cliente
+        // (secondary_tracking), que es el que se pega en los tickets.
+        const dhl = await pool.query(
+          `SELECT d.id, d.inbound_tracking, d.secondary_tracking, d.box_id, d.status,
+                  d.weight_kg, d.product_type, d.description,
+                  d.national_carrier, d.national_tracking,
+                  COALESCE(d.national_cost_mxn, 0) AS flete_nacional,
+                  d.import_cost_usd, d.import_tax_mxn, d.total_cost_mxn,
+                  (d.paid_at IS NOT NULL) AS pagada,
+                  TO_CHAR(d.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS recibida,
+                  TO_CHAR(d.delivered_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS entregada,
+                  u.full_name AS client_name, u.email AS client_email
+             FROM dhl_shipments d
+             LEFT JOIN users u ON u.id = d.user_id
+            WHERE d.secondary_tracking = ANY($1::text[])
+               OR d.inbound_tracking = ANY($1::text[])
+            ORDER BY d.created_at DESC LIMIT 5`,
+          [variantes]
+        ).catch(() => ({ rows: [] as any[] }));
+
+        if (dhl.rows.length) {
+          return {
+            found: true,
+            servicio: 'DHL',
+            guias_dhl: dhl.rows,
+            nota: 'Son guías DHL: viven en otra tabla que las de PO Box y aéreo, por eso traen '
+                + 'dos números (el JJD largo de origen y el corto que ve el cliente). '
+                + 'El estado "received_mty" significa que está en CEDIS MTY, todavía sin entregar.',
+          };
+        }
+
         // Que una guía no esté capturada no quiere decir que nadie sepa de
         // ella: muchas veces YA hay un ticket abierto pidiendo justamente eso.
         // Ricardo pegó VR958579472YP y la respuesta fue "no sé", cuando la
