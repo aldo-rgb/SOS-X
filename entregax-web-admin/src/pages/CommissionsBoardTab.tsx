@@ -551,7 +551,12 @@ export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
                 </Box>
                 <Fila etq="Propia (cobrable)" val={cobrable} nota="Su comisión, con el envío ya pagado por el cliente" />
                 {enCredito > 0 && <Fila etq="+ En crédito" val={enCredito} nota="Su comisión, pero el cliente aún no paga su envío" />}
-                {hasSubs && <Fila etq="+ A dispersar" val={ovMetric} nota={`Comisión de sus ${r.subCount} subasesor(es); él la recibe y la reparte`} />}
+                {/* El desglose del tooltip se quedó con la premisa vieja: decía
+                    "a dispersar… él la recibe y la reparte", como si fuera
+                    dinero del subasesor pasando por el líder. Es su MITAD del
+                    bote, y el sub ya cobró la suya en su propio renglón
+                    (tarea 780). */}
+                {hasSubs && <Fila etq="+ Override" val={ovMetric} nota={`Lo que gana por las guías de sus ${r.subCount} subasesor(es): su mitad de la comisión`} />}
                 <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.3)', mt: 0.5, pt: 0.5 }}>
                   <Fila etq={hasSubs ? '= Entrega total' : '= Por pagar'} val={metric(r)} fuerte
                     nota={`Lo que se le entrega por el periodo ${periodo}`} />
