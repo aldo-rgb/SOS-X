@@ -4074,9 +4074,22 @@ export default function DashboardAdvisor() {
   // igual una orden que el cliente todavía no paga que una donde ya pagó y
   // estamos nosotros parados sin autorizar su comprobante. Con
   // comprobantes_en_revision se distingue (tarea 472).
+  // Una orden CERRADA manda sobre el aviso del comprobante. El aviso pisaba
+  // cualquier estado, así que una orden cancelada que todavía tenía un
+  // comprobante en revisión se le pintaba al asesor como "Comprobante en
+  // revisión" y no como cancelada.
+  //
+  // Tarea 817: Christian reportó que PP-1190238B "nunca se canceló" y que por
+  // eso se pudo volver a cotizar la misma guía. La orden SÍ estaba cancelada en
+  // la base desde el momento en que se generó la segunda; lo que nunca se lo
+  // dijo fue esta pantalla. El aviso es transitorio —en cuanto el comprobante se
+  // aprueba o se rechaza, desaparece— y por eso hoy ya se ve bien, pero mientras
+  // dura manda al asesor en la dirección contraria.
+  const OP_CERRADAS = ['cancelado', 'cancelled', 'expired', 'pagado', 'paid', 'completed'];
   const etiquetaOP = (o: any): { label: string; color: 'default'|'warning'|'success'|'error'|'info' } => {
-    const base = STATUS_OP[String(o?.status || '')] || { label: String(o?.status || '—'), color: 'default' as const };
-    if (Number(o?.comprobantes_en_revision) > 0) {
+    const estado = String(o?.status || '');
+    const base = STATUS_OP[estado] || { label: estado || '—', color: 'default' as const };
+    if (Number(o?.comprobantes_en_revision) > 0 && !OP_CERRADAS.includes(estado)) {
       return { label: 'Comprobante en revisión', color: 'warning' };
     }
     return base;
@@ -4087,6 +4100,9 @@ export default function DashboardAdvisor() {
     en_proceso:         { label: 'En proceso',   color: 'info'    },
     pagado:             { label: 'Pagado',       color: 'success' },
     cancelado:          { label: 'Cancelado',    color: 'error'   },
+    // El valor real de pobox_payments es en inglés; sin esta línea una orden
+    // cancelada caía al respaldo y mostraba "cancelled" en gris (tarea 817).
+    cancelled:          { label: 'Cancelado',    color: 'error'   },
     pending:            { label: 'Pendiente',    color: 'warning' },
     pending_payment:    { label: 'Pendiente',    color: 'warning' },
     vouchers_submitted: { label: 'Comprobante',  color: 'info'    },
