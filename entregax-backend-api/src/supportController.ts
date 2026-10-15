@@ -1007,6 +1007,14 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
           avisarAsesorTicketNuevo(Number(currentTicketId), ticketFolio, Number(userId), subject || message)
             .catch(() => {});
         }
+        // 🐛 Error del Sistema de alguien de la lista: la tarea se levanta sola,
+        //    sin esperar a que servicio a cliente lo lea y apriete "Reportar
+        //    error". Va después del mensaje (la tarea se arma con él) y en
+        //    segundo plano: quien reporta no tiene por qué esperar a que se
+        //    copien los adjuntos.
+        autoescalarSiEsErrorDeSistema(Number(currentTicketId), Number(userId), String(category || ''))
+          .catch(() => {});
+
         const duplicado = userId
           ? await ticketRecienteDelCliente(Number(userId), Number(currentTicketId))
           : null;
@@ -2941,6 +2949,67 @@ export const reportarErrorDeTicket = async (
     return { error: 'Error al reportar el error', status: 500 };
   }
 };
+
+/**
+ * Gente cuyo "Error del Sistema" se escala SOLO, sin que nadie apriete nada.
+ *
+ * Por qué una lista y no todos: en 90 días entraron 140 tickets de categoría
+ * systemError y apenas 56 terminaron siendo un error de verdad. Escalarlos
+ * todos convertiría el tablero en ruido —casi tres de cada cinco serían falsas
+ * alarmas— y lo que se quiere es lo contrario: que lo de quien casi nunca
+ * reporta se vea el mismo día. Román levantó 3 en esos 90 días.
+ *
+ * La lista vive en `system_configurations`, como la de `ticket_task_followers`
+ * y por la misma razón: quién entra es una decisión de operación, cambia sin
+ * que cambie el organigrama, y en la tabla se edita con un UPDATE sin
+ * desplegar. Si la llave no existe se usa el default de abajo.
+ */
+const AUTOESCALAR_SYSTEMERROR_DEFAULT = [70]; // Roman (CEDIS) — pedido por Aldo, 15-oct-2026
+
+async function quienesAutoescalan(): Promise<number[]> {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations
+        WHERE config_key = 'systemerror_autoescalate_user_ids' AND is_active = TRUE LIMIT 1`);
+    if (!r.rows[0]) return AUTOESCALAR_SYSTEMERROR_DEFAULT;
+    const v = r.rows[0].config_value;
+    const parsed = typeof v === 'string' ? JSON.parse(v) : v;
+    const ids = (parsed?.user_ids || []).map((x: any) => Number(x)).filter((n: number) => Number.isFinite(n) && n > 0);
+    // Una llave presente pero vacía es una decisión: "ya nadie". Se respeta.
+    return ids;
+  } catch { return AUTOESCALAR_SYSTEMERROR_DEFAULT; }
+}
+
+/**
+ * Convierte en tarea, al instante, el "Error del Sistema" de quien está en esa
+ * lista. Pasa por `reportarErrorDeTicket` a propósito y no por un camino
+ * propio: así la tarea sale IDÉNTICA a la que levanta servicio a cliente
+ * —mismo tablero, mismo responsable, mismos involucrados, los adjuntos
+ * copiados y el ticket en espera— y no hay una segunda versión que mantener.
+ *
+ * El `uid` es el de quien reportó: es quien lo vio y a quien hay que
+ * preguntarle. Queda de participante y la tarea le aparece en su lista.
+ *
+ * No lanza nunca. Esto corre después de contestarle a quien levantó el ticket,
+ * y que falle el escalamiento no puede tumbar la creación del ticket.
+ */
+export async function autoescalarSiEsErrorDeSistema(
+  ticketId: number, userId: number, category: string
+): Promise<void> {
+  try {
+    if (String(category) !== 'systemError') return;
+    const lista = await quienesAutoescalan();
+    if (!lista.includes(Number(userId))) return;
+    const r = await reportarErrorDeTicket(Number(ticketId), Number(userId));
+    if (r?.ok) {
+      console.log(`🐛 [AUTO] Ticket ${ticketId} de user ${userId} escalado solo → tarea #${r.task_id}${r.already ? ' (ya existía)' : ''}`);
+    } else {
+      console.warn(`[AUTO] no se pudo escalar el ticket ${ticketId}: ${r?.error}`);
+    }
+  } catch (e: any) {
+    console.error('[support] autoescalarSiEsErrorDeSistema:', e?.message);
+  }
+}
 
 // ============================================================
 // Cierre por silencio del cliente.

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import VideosAdjuntos from '../components/VideosAdjuntos';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -406,6 +407,12 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                   <Text style={styles.attachAddText}>PDF</Text>
                 </TouchableOpacity>
               </View>
+              {/* El video no se puede adjuntar aquí: se sube DIRECTO a S3 con una
+                  URL firmada que se pide por ticket, y el ticket todavía no
+                  existe. Se dice dónde está en vez de dejar buscando el botón. */}
+              <Text style={styles.videoHint}>
+                🎥 ¿Vas a mandar un video? Crea el ticket y ábrelo: abajo del hilo está la sección de videos.
+              </Text>
               {newAttachments.length > 0 && (
                 <View style={{ marginBottom: 18, gap: 8 }}>
                   {newAttachments.map((f, i) => {
@@ -552,6 +559,15 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                       </View>
                     );
                   })
+                )}
+                {/* Videos del ticket. Esta pantalla es la que abre el personal
+                    de CEDIS desde su panel, y era la única que no los tenía: la
+                    sección existía solo en el tablero de soporte, así que Román
+                    veía nada más "Fotos" y "PDF" y los videos de una caja rota
+                    seguían saliendo por WhatsApp. Van colgados del ticket, no de
+                    un mensaje, igual que en SupportTicketsScreen. */}
+                {!!selectedTicket && !!token && (
+                  <VideosAdjuntos scope="ticket" refId={selectedTicket.id} token={token} />
                 )}
               </ScrollView>
             )}
@@ -776,6 +792,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3EE',
   },
   attachAddText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
+  videoHint: { color: '#6D28D9', fontSize: 12, lineHeight: 17, marginBottom: 14 },
   attachChip: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e0e0',
