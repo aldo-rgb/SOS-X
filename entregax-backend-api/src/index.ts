@@ -1025,6 +1025,7 @@ import {
   getMyAccess as cajitoGetMyAccess,
   clientLookup as cajitoClientLookup,
   ticketLookup as cajitoTicketLookup,
+  xpayLookup as cajitoXpayLookup,
   listKnowledge as cajitoListKnowledge,
   createKnowledge as cajitoCreateKnowledge,
   updateKnowledge as cajitoUpdateKnowledge,
@@ -18068,6 +18069,9 @@ app.post('/api/admin/videos/purgar', authenticateToken, requireRole('super_admin
 });
 app.get('/api/cajito/client-lookup', authenticateToken, cajitoClientLookup);
 app.get('/api/cajito/ticket-lookup', authenticateToken, cajitoTicketLookup);
+// Rastrear una orden de X-Pay (XP######) desde la pestaña "Rastrear". Exige la
+// misma capacidad que la herramienta del chat: ver abajo en xpayLookup.
+app.get('/api/cajito/xpay-lookup', authenticateToken, cajitoXpayLookup);
 app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
 // Base de conocimiento curada (solo super_admin edita)
 app.get('/api/cajito/knowledge', authenticateToken, requireRole('super_admin'), cajitoListKnowledge);

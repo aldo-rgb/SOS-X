@@ -6125,6 +6125,97 @@ export const ticketLookup = async (req: AuthRequest, res: Response): Promise<voi
 };
 
 // ============================================================
+// GET /api/cajito/xpay-lookup?q=<XP######>
+//
+// La pestaña "Rastrear" sabía de clientes, guías, contenedores y tickets, pero
+// NO de X-Pay: escribir XP784135 caía en "No se encontró cliente, guía ni
+// contenedor con esa búsqueda", que además de inútil es falso —la orden existe—
+// y manda a buscar el error donde no está. Yliana y Andrés lo reportaron el
+// 15-oct en la tarea 830 y los dos entendieron que Cajito estaba roto.
+//
+// Pide la MISMA capacidad que la herramienta del chat (`cajito.read.payments`).
+// Si no la pidiera, esta pestaña sería una puerta trasera para ver información
+// financiera sin permiso, y el permiso dejaría de significar algo.
+//
+// La cuenta sale enmascarada a los últimos 4, igual que en el chat: para
+// enrutar un reclamo basta saber de quién es la orden; el número completo vive
+// en el panel de X-Pay.
+// ============================================================
+export const xpayLookup = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const q = String((req.query.q ?? req.query.query ?? '') as string).trim();
+    if (!q || q.length < 3) { res.status(400).json({ error: 'query muy corto (mín 3)' }); return; }
+
+    const reqRole = String((req.user as any)?.role || '').toLowerCase();
+    const reqUserId = Number((req.user as any)?.userId || (req.user as any)?.id || 0);
+
+    const caps = await getUserCapabilities(reqUserId, reqRole);
+    if (!hasCap(caps, 'cajito.read.payments')) {
+      // Se dice cuál es el permiso que falta, no "no existe". Esa confusión
+      // costó la tarea 815 completa.
+      res.status(403).json({
+        success: false,
+        error: 'Una orden de X-Pay es información financiera y tu usuario no tiene ese permiso en Cajito. Pídeselo a un Super Admin.',
+      });
+      return;
+    }
+
+    const folio = q.toUpperCase().replace(/^XP[-\s]?/, '').replace(/\D/g, '');
+    const r = await pool.query(
+      `SELECT e.referencia_pago, e.estatus_global, e.estatus_proveedor, e.estatus_factura,
+              e.op_monto, e.op_divisa_destino, e.monto_mxn_total,
+              e.sup_nombre_beneficiario, e.op_beneficiario_nombre,
+              e.sup_numero_cuenta, e.sup_banco_nombre,
+              e.created_at, e.payment_deadline_at, e.proveedor_pagado_at,
+              e.advisor_id, u.box_id AS casillero, u.full_name AS cliente,
+              a.full_name AS asesor, a.email AS asesor_email
+         FROM entangled_payment_requests e
+         LEFT JOIN users u ON u.id = e.user_id
+         LEFT JOIN users a ON a.id = e.advisor_id
+        WHERE UPPER(TRIM(e.referencia_pago)) = UPPER(TRIM($1))
+           OR e.referencia_pago ILIKE '%' || $2 || '%'
+        ORDER BY (UPPER(TRIM(e.referencia_pago)) = UPPER(TRIM($1))) DESC, e.created_at DESC
+        LIMIT 1`,
+      [q, folio]
+    );
+
+    const o = r.rows[0];
+    if (!o) { res.status(404).json({ success: false, error: 'No se encontró una orden X-Pay con ese folio' }); return; }
+
+    // Un asesor solo ve las suyas, igual que con los tickets.
+    if (['advisor', 'sub_advisor'].includes(reqRole) && Number(o.advisor_id) !== reqUserId) {
+      res.status(404).json({ success: false, error: 'No se encontró una orden X-Pay con ese folio' });
+      return;
+    }
+
+    const cuenta = String(o.sup_numero_cuenta || '').replace(/\s+/g, '');
+    res.json({
+      success: true,
+      orden: {
+        folio: o.referencia_pago,
+        estatus: o.estatus_global,
+        estatus_proveedor: o.estatus_proveedor,
+        estatus_factura: o.estatus_factura,
+        cliente: o.cliente, casillero: o.casillero,
+        asesor: o.asesor || 'sin asesor asignado',
+        asesor_correo: o.asesor_email || null,
+        monto: o.op_monto, divisa: o.op_divisa_destino,
+        monto_mxn: o.monto_mxn_total,
+        beneficiario: o.sup_nombre_beneficiario || o.op_beneficiario_nombre || null,
+        cuenta: cuenta ? (cuenta.length <= 4 ? '••••' : `••••${cuenta.slice(-4)}`) : null,
+        banco: o.sup_banco_nombre || null,
+        creada: o.created_at,
+        vence: o.payment_deadline_at,
+        pagada_al_proveedor: o.proveedor_pagado_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[cajito/xpay-lookup] error:', err);
+    res.status(500).json({ error: err?.message || 'Error en lookup de X-Pay' });
+  }
+};
+
+// ============================================================
 // BASE DE CONOCIMIENTO (curada, solo super_admin) — CRUD
 // ============================================================
 export const listKnowledge = async (req: AuthRequest, res: Response): Promise<void> => {

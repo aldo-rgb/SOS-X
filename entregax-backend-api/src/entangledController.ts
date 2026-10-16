@@ -962,6 +962,20 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   const nombreIn = normNombre(b.nombre_beneficiario);
   const nombreChinoIn = normNombre(b.nombre_chino);
 
+  // Lo que se GUARDA, que no es lo mismo que lo que se compara: se recortan los
+  // espacios y tabuladores de los extremos y se colapsan los de en medio, pero
+  // se respetan las mayusculas y minusculas tal como las capturaron.
+  //
+  // Hasta ahora los normalizadores de arriba solo servian para buscar
+  // duplicados y al INSERT entraba el texto crudo. De 93 ordenes, 5 quedaron
+  // con el nombre del beneficiario sin recortar y 3 con la cuenta sucia: una
+  // trae seis tabuladores al final y otra un espacio al inicio —" Pacific
+  // Press Co." es la de XP784135, la de la tarea 830, donde reportaron que "el
+  // nombre o la cuenta esta mal"—. En una transferencia internacional el
+  // nombre tiene que coincidir con el registro del banco; mandarlo con basura
+  // invisible es pedir un rechazo que nadie va a saber explicar.
+  const limpiar = (v: any) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t || null; };
+
   try {
     // 1. Buscar si ya existe la cuenta en CUALQUIER usuario
     const existing = await pool.query(
@@ -1050,13 +1064,13 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
       ) RETURNING *`,
       [
         userId,
-        b.nombre_beneficiario, b.nombre_chino || null, b.direccion_beneficiario || null, b.pais_beneficiario || null,
-        b.numero_cuenta, b.iban || null,
-        b.banco_nombre, b.banco_direccion || null, b.banco_pais || null,
-        b.swift_bic || null, b.aba_routing || null,
-        b.banco_intermediario_nombre || null, b.banco_intermediario_swift || null, b.banco_intermediario_direccion || null,
-        b.divisa_default || null, b.motivo_default || null, b.foto_url || null,
-        b.alias || null, b.is_favorite, b.notes || null,
+        limpiar(b.nombre_beneficiario), limpiar(b.nombre_chino), limpiar(b.direccion_beneficiario), limpiar(b.pais_beneficiario),
+        normCuenta(b.numero_cuenta), normCuenta(b.iban) || null,
+        limpiar(b.banco_nombre), limpiar(b.banco_direccion), limpiar(b.banco_pais),
+        normCuenta(b.swift_bic) || null, normCuenta(b.aba_routing) || null,
+        limpiar(b.banco_intermediario_nombre), normCuenta(b.banco_intermediario_swift) || null, limpiar(b.banco_intermediario_direccion),
+        limpiar(b.divisa_default), limpiar(b.motivo_default), b.foto_url || null,
+        limpiar(b.alias), b.is_favorite, b.notes || null,
       ]
     );
     return res.status(201).json(r.rows[0]);
@@ -1073,6 +1087,11 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
 
   const b = req.body || {};
+  // Misma limpieza que en el alta. Un campo que NO viene en el body tiene que
+  // seguir llegando como null, porque varios columnas se protegen con COALESCE
+  // y convertirlo en cadena vacia los borraria.
+  const limpio = (v: any) => { if (v === undefined || v === null) return null; const t = String(v).replace(/\s+/g, ' ').trim(); return t || null; };
+  const cuenta = (v: any) => { if (v === undefined || v === null) return null; const t = String(v).replace(/\s+/g, '').toUpperCase(); return t || null; };
   try {
     const owner = await pool.query(`SELECT user_id FROM entangled_suppliers WHERE id = $1`, [id]);
     if (owner.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
@@ -1117,13 +1136,13 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
        RETURNING *`,
       [
         id,
-        b.nombre_beneficiario, b.nombre_chino || null, b.direccion_beneficiario || null, b.pais_beneficiario || null,
-        b.numero_cuenta, b.iban || null,
-        b.banco_nombre, b.banco_direccion || null, b.banco_pais || null,
-        b.swift_bic || null, b.aba_routing || null,
-        b.banco_intermediario_nombre || null, b.banco_intermediario_swift || null, b.banco_intermediario_direccion || null,
-        b.divisa_default || null, b.motivo_default || null, b.foto_url || null,
-        b.alias || null, b.is_favorite, b.notes || null,
+        limpio(b.nombre_beneficiario), limpio(b.nombre_chino), limpio(b.direccion_beneficiario), limpio(b.pais_beneficiario),
+        cuenta(b.numero_cuenta), cuenta(b.iban),
+        limpio(b.banco_nombre), limpio(b.banco_direccion), limpio(b.banco_pais),
+        cuenta(b.swift_bic), cuenta(b.aba_routing),
+        limpio(b.banco_intermediario_nombre), cuenta(b.banco_intermediario_swift), limpio(b.banco_intermediario_direccion),
+        limpio(b.divisa_default), limpio(b.motivo_default), b.foto_url || null,
+        limpio(b.alias), b.is_favorite, b.notes || null,
       ]
     );
     return res.json(r.rows[0]);

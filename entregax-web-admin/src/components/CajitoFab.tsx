@@ -182,6 +182,56 @@ interface MovementEvent {
 }
 
 // Tarjeta de resultado de un ticket de soporte (rastreo por folio TKT-…)
+// Ficha de una orden de X-Pay en la pestaña "Rastrear". La cuenta del
+// beneficiario llega ya enmascarada del backend; no se arma aqui.
+function XpayLookupResult({ data }: { data: any }) {
+  const estados: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
+    completado: { label: 'Completado', color: 'success' },
+    cancelado: { label: 'Cancelado', color: 'error' },
+    en_proceso: { label: 'En proceso', color: 'info' },
+    solicitada: { label: 'Solicitada', color: 'warning' },
+    esperando_comprobante: { label: 'Esperando comprobante', color: 'warning' },
+    error_envio: { label: 'Error de envío', color: 'error' },
+  };
+  const st = estados[String(data.estatus || '').toLowerCase()] || { label: data.estatus || '—', color: 'default' as const };
+  const fmt = (d: any) => { if (!d) return '—'; try { return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return String(d); } };
+  const money = (v: any, cur?: string) => v == null ? '—' : `${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
+
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+      <Box sx={{ px: 1.5, py: 1, bgcolor: 'rgba(240,90,40,0.06)', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontSize: 16 }}>💸</Typography>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: 0.3 }}>ORDEN X-PAY</Typography>
+          <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{data.folio}</Typography>
+        </Box>
+        <Chip size="small" label={st.label} color={st.color} variant={st.color === 'success' ? 'filled' : 'outlined'} />
+      </Box>
+      <Box sx={{ p: 1.5 }}>
+        <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>{money(data.monto, data.divisa)}</Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.75 }}>
+          {data.cliente && <Chip size="small" variant="outlined" label={data.casillero ? `${data.cliente} · ${data.casillero}` : data.cliente} />}
+          {data.asesor && <Chip size="small" variant="outlined" label={`Asesor: ${data.asesor}`} sx={{ fontWeight: 700, color: '#F05A28', borderColor: '#F05A28' }} />}
+          {data.estatus_factura && <Chip size="small" variant="outlined" label={`Factura: ${data.estatus_factura}`} />}
+          {data.estatus_proveedor && <Chip size="small" variant="outlined" label={`Pago: ${data.estatus_proveedor}`} />}
+        </Box>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block' }}>Beneficiario</Typography>
+        <Typography variant="body2" sx={{ mb: 0.25 }}>{String(data.beneficiario || '—').trim()}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          {[data.banco, data.cuenta].filter(Boolean).join(' · ') || '—'}
+        </Typography>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Creada: {fmt(data.creada)}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Pagada al beneficiario: {fmt(data.pagada_al_proveedor)}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, fontStyle: 'italic' }}>
+          La cuenta va enmascarada; el número completo está en el panel de X-Pay.
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
 function TicketLookupResult({ data }: { data: any }) {
   const statusMap: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
     resolved: { label: 'Resuelto', color: 'success' },
@@ -1383,6 +1433,7 @@ export default function CajitoFab() {
   const [trackResult, setTrackResult] = useState<PackageData | null>(null);
   const [clientResult, setClientResult] = useState<PackageData | null>(null);
   const [ticketResult, setTicketResult] = useState<any | null>(null);
+  const [xpayResult, setXpayResult] = useState<any | null>(null);
   const [trackError, setTrackError] = useState('');
   const [contenedorResult, setContenedorResult] = useState<any | null>(null);
   const [lastTracked, setLastTracked] = useState('');
@@ -1713,7 +1764,30 @@ export default function CajitoFab() {
     setContenedorResult(null);
     setClientResult(null);
     setTicketResult(null);
+    setXpayResult(null);
     setLastTracked(raw);
+
+    // Orden de X-Pay: XP784135 → ficha de la orden.
+    //
+    // Va ANTES de la heuristica de abajo a proposito: "XP784135" es letras
+    // seguidas de digitos, o sea que pasaba por casillero, caia en el 404 de
+    // cliente, luego en el de guia y en el de contenedor, y terminaba diciendo
+    // "No se encontro cliente, guia ni contenedor" — un mensaje falso, porque
+    // la orden si existe. Yliana y Andres lo leyeron como que Cajito estaba
+    // roto (tarea 830).
+    const isXpay = /^XP[-\s]?\d{4,}$/i.test(raw);
+    if (isXpay) {
+      try {
+        const res = await api.get('/cajito/xpay-lookup', { params: { q: raw } });
+        if (res.data?.success && res.data.orden) setXpayResult(res.data.orden);
+        else setTrackError('No se encontró una orden X-Pay con ese folio');
+      } catch (e: any) {
+        setTrackError(e.response?.data?.error || 'No se encontró una orden X-Pay con ese folio');
+      } finally {
+        setTrackLoading(false);
+      }
+      return;
+    }
 
     // Ticket de soporte: TKT-2026-1234 → ficha del ticket.
     const isTicket = /^TKT[-\s]?\d/i.test(raw);
@@ -2160,12 +2234,25 @@ export default function CajitoFab() {
                     <Typography variant="caption" color="text.secondary">Buscado: {lastTracked}</Typography>
                   </Box>
                 )}
-                {!trackResult && !clientResult && !ticketResult && !contenedorResult && !trackError && !trackLoading && (
+                {!trackResult && !clientResult && !ticketResult && !contenedorResult && !xpayResult && !trackError && !trackLoading && (
                   <Box sx={{ textAlign: 'center', pt: 4, color: 'text.secondary' }}>
                     <SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
-                    <Typography variant="body2">Busca por guía, cliente o ticket</Typography>
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Ej: US-1234..., TDX-001, S2907, ETX-1228, TKT-2026-1396, correo@…</Typography>
+                    <Typography variant="body2">Busca por guía, cliente, ticket u orden X-Pay</Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Ej: US-1234..., TDX-001, S2907, ETX-1228, TKT-2026-1396, XP784135, correo@…</Typography>
                   </Box>
+                )}
+                {xpayResult && (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.75 }}>
+                      <Box
+                        onClick={handleTrack}
+                        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, border: `1px solid ${CAJITO_RING}`, color: CAJITO_RING, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        🔄 Actualizar
+                      </Box>
+                    </Box>
+                    <XpayLookupResult data={xpayResult} />
+                  </>
                 )}
                 {ticketResult && (
                   <>
