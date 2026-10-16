@@ -2157,7 +2157,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                 u.full_name AS user_name, u.email AS user_email,
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
-                a.is_ocurre AS addr_is_ocurre, a.id AS addr_id
+                a.is_ocurre AS addr_is_ocurre, a.id AS addr_id,
+                a.ocurre_branch_zip, a.ocurre_branch_code
            FROM dhl_shipments ds
            LEFT JOIN users u ON ds.user_id = u.id
            LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -2177,6 +2178,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
                 a.is_ocurre AS addr_is_ocurre, a.id AS addr_id,
+                a.ocurre_branch_zip, a.ocurre_branch_code,
                 p.national_delivery_zip
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
@@ -2405,10 +2407,35 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     );
     if (esOcurrePorTexto) pkg.addr_is_ocurre = true;
 
+    // ── La sucursal que PIDIÓ el cliente manda sobre la más cercana ──────────
+    //
+    // Paquete Express no tiene campo para nombrar una sucursal: decide cuál es
+    // a partir del CP de destino. Asi que pedir "sucursal 03" se traduce en una
+    // sola cosa: mandar el CP DE ESA SUCURSAL, no el del cliente.
+    //
+    // Antes esto no existia y el sistema siempre resolvia la sucursal MAS
+    // CERCANA al domicilio. Zulema (S3245) pidio la 03 —escrito en el campo de
+    // referencia, donde ningun codigo lo leia— y sus dos cajas salieron a la
+    // MTY02 (tarea 835). De 56 guias ocurre generadas, ninguna habia usado una
+    // sucursal distinta de la que sale del CP del cliente: la peticion del
+    // cliente se ignoraba siempre, en silencio.
+    const sucursalPedida = String(pkg.ocurre_branch_zip || '').trim();
+    if (!ocurreZipClean && pkg.addr_is_ocurre === true && /^\d{5}$/.test(sucursalPedida)) {
+      effectiveZip = sucursalPedida;
+      ocurreBranchCity = null;
+      if (pkg.national_delivery_zip !== sucursalPedida) {
+        try {
+          await pool.query(`UPDATE ${persistTable} SET national_delivery_zip = $1, updated_at = NOW() WHERE id = $2`, [sucursalPedida, pkg.id]);
+          pkg.national_delivery_zip = sucursalPedida;
+        } catch { /* no crítico */ }
+      }
+      console.log(`[PQTX-GEN] Ocurre a la sucursal PEDIDA ${pkg.ocurre_branch_code || ''} (CP ${sucursalPedida}), no a la más cercana al cliente (CP ${pkg.zip_code}).`);
+    }
+
     // Dirección marcada como OCURRE (toggle is_ocurre) sin CP de sucursal aún:
     // resolver la sucursal PQTX más cercana al cliente y usar su CP (mismo
     // mecanismo que el ocurre manual). Así la guía sale a sucursal, no a domicilio.
-    if (!ocurreZipClean && !pkg.national_delivery_zip && pkg.addr_is_ocurre === true && pkg.zip_code) {
+    if (!ocurreZipClean && !/^\d{5}$/.test(sucursalPedida) && !pkg.national_delivery_zip && pkg.addr_is_ocurre === true && pkg.zip_code) {
       try {
         const quotePieces = [{ weight: Number(pkg.weight) || 1, length: Number(pkg.pkg_length) || 30, width: Number(pkg.pkg_width) || 30, height: Number(pkg.pkg_height) || 30 }];
         const branch = await findNearestOcurreBranch(originZipSucursal, String(pkg.zip_code), quotePieces);

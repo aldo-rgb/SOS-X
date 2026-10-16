@@ -20,6 +20,14 @@ import { AuthRequest } from './authController';
 //      generar etiqueta de paquetería nacional.
 //   3. Devuelve un summary para loggear (cuántos quedaron huérfanos).
 // ============================================================================
+// La sucursal Ocurre que pidio el cliente. Lo unico que Paquete Express
+// entiende es un CP: el codigo (MTY03, CUU01) es para que una persona sepa de
+// cual se habla, y el CP es lo que de verdad decide a donde llega la caja.
+const limpiarSucursal = (codigo: any, cp: any) => ({
+  code: String(codigo ?? '').trim().toUpperCase().slice(0, 12) || null,
+  zip: /^\d{5}$/.test(String(cp ?? '').trim()) ? String(cp).trim() : null,
+});
+
 export const cascadeReassignPackagesBeforeDelete = async (
     addressId: number | string
 ): Promise<{ reassignedChildren: number; orphanedMasters: number }> => {
@@ -598,7 +606,8 @@ export const getMyAddresses = async (req: Request, res: Response): Promise<void>
             // y se lo vuelve a preguntar al asignar instrucciones (tarea 683).
             `SELECT id, alias, recipient_name as contact_name, street, exterior_number, interior_number,
                     neighborhood as colony, city, state, zip_code, phone, reference, reception_hours,
-                    is_default, default_for_service, carrier_config, is_ocurre, created_at
+                    is_default, default_for_service, carrier_config, is_ocurre,
+                    ocurre_branch_code, ocurre_branch_zip, created_at
              FROM addresses
              WHERE user_id = $1 AND (internal_only IS NULL OR internal_only = FALSE)
              ORDER BY is_default DESC, created_at DESC`,
@@ -625,7 +634,8 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, country, phone, reference, reception_hours, is_ocurre
+            colony, city, state, zip_code, country, phone, reference, reception_hours, is_ocurre,
+            ocurre_branch_code, ocurre_branch_zip
         } = req.body;
 
         if (!contact_name || !street || !exterior_number || !colony || !city || !state || !zip_code) {
@@ -658,14 +668,17 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
         const result = await pool.query(
             `INSERT INTO addresses
              (user_id, alias, recipient_name, street, exterior_number, interior_number,
-              neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service, is_ocurre)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+              neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service, is_ocurre,
+              ocurre_branch_code, ocurre_branch_zip)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
              RETURNING *`,
             [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
              colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null,
              // Si el cliente escribió "ocurre" en la dirección, el interruptor se
              // enciende solo: nadie lo prendía y la guía salía a domicilio.
-             is_ocurre === true || pideOcurre(reference, street)]
+             is_ocurre === true || pideOcurre(reference, street),
+             limpiarSucursal(ocurre_branch_code, ocurre_branch_zip).code,
+             limpiarSucursal(ocurre_branch_code, ocurre_branch_zip).zip]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
@@ -694,7 +707,8 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, phone, reference, reception_hours, default_for_service, is_ocurre
+            colony, city, state, zip_code, phone, reference, reception_hours, default_for_service, is_ocurre,
+            ocurre_branch_code, ocurre_branch_zip
         } = req.body;
 
         // Si asigna como default para un servicio, quitar ese default de otras direcciones
@@ -721,14 +735,18 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
                  reference = COALESCE($11, reference),
                  reception_hours = COALESCE($12, reception_hours),
                  default_for_service = $13,
-                 is_ocurre = COALESCE($16, is_ocurre)
+                 is_ocurre = COALESCE($16, is_ocurre),
+                 ocurre_branch_code = COALESCE($17, ocurre_branch_code),
+                 ocurre_branch_zip = COALESCE($18, ocurre_branch_zip)
              WHERE id = $14 AND user_id = $15
              RETURNING *`,
             [alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code,
              phone, reference, reception_hours, default_for_service, addressId, userId,
              // Mismo criterio al editar: si el texto lo pide, se enciende. Un
              // false explícito del usuario sí manda y no se le contradice.
-             typeof is_ocurre === 'boolean' ? is_ocurre : (pideOcurre(reference, street) ? true : null)]
+             typeof is_ocurre === 'boolean' ? is_ocurre : (pideOcurre(reference, street) ? true : null),
+             limpiarSucursal(ocurre_branch_code, ocurre_branch_zip).code,
+             limpiarSucursal(ocurre_branch_code, ocurre_branch_zip).zip]
         );
 
         if (result.rows.length === 0) {
@@ -1112,7 +1130,11 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         );
         if (clientCheck.rows.length === 0) { res.status(403).json({ error: 'Cliente no encontrado' }); return; }
 
-        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault, phone, reference, receptionHours, notes, isOcurre, is_ocurre } = req.body;
+        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault, phone, reference, receptionHours, notes, isOcurre, is_ocurre,
+                ocurreBranchCode, ocurre_branch_code, ocurreBranchZip, ocurre_branch_zip } = req.body;
+        // La sucursal pedida: web manda camelCase y la app snake_case, igual que
+        // el resto de los campos de aqui.
+        const sucursal = limpiarSucursal(ocurreBranchCode ?? ocurre_branch_code, ocurreBranchZip ?? ocurre_branch_zip);
         // Ocurre (recolección en sucursal). El alta del ASESOR no lo aceptaba, así
         // que toda dirección que él capturaba nacía como entrega a domicilio: al
         // generar la guía, paqueteExpressController sustituye calle/colonia/ciudad
@@ -1131,9 +1153,9 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
         const result = await pool.query(
-            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id, is_ocurre)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId, ocurre]
+            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id, is_ocurre, ocurre_branch_code, ocurre_branch_zip)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId, ocurre, sucursal.code, sucursal.zip]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
     } catch (error: any) {

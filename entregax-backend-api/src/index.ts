@@ -18223,6 +18223,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS default_for_service TEXT`),
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS carrier_config JSONB`),
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS internal_only BOOLEAN DEFAULT FALSE`),
+    // Sucursal Ocurre que PIDIO el cliente. Paquete Express no acepta el nombre
+    // de una sucursal: la deduce del CP de destino, asi que lo que hay que
+    // guardar —y mandar— es el CP de esa sucursal. El codigo (MTY03, CUU01) es
+    // para que una persona sepa de cual se habla. Antes esto vivia como texto
+    // libre en `reference` y ningun codigo lo leia (tarea 835).
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS ocurre_branch_code TEXT`),
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS ocurre_branch_zip TEXT`),
   ]).catch(() => {});
 
   // Columna fuente en exchange_rate_config (idempotente)

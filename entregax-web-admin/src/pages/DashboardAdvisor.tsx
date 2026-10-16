@@ -884,7 +884,7 @@ export default function DashboardAdvisor() {
   const [newAddrOpen, setNewAddrOpen] = useState(false);
   const [newAddrSaving, setNewAddrSaving] = useState(false);
   const [newAddrZipLoading, setNewAddrZipLoading] = useState(false);
-  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', reference: '', receptionHours: '', isOcurre: false };
+  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', reference: '', receptionHours: '', isOcurre: false, ocurreBranchCode: '', ocurreBranchZip: '' };
   const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
   // Team tab
@@ -8891,6 +8891,37 @@ export default function DashboardAdvisor() {
                 </Box>
               }
             />
+            {/* La sucursal que pidió el cliente. Paquete Express NO acepta el
+                nombre de una sucursal: la deduce del C.P. de destino, así que el
+                C.P. de la sucursal es lo único que de verdad decide a dónde
+                llega la caja. Sin esto el sistema mandaba siempre a la sucursal
+                más cercana al domicilio, y la que el cliente pedía se quedaba
+                escrita en "Referencias", donde nada la leía (tarea 835). */}
+            {!!newAddrForm.isOcurre && (
+              <>
+                <TextField
+                  label="Clave de sucursal"
+                  size="small"
+                  placeholder="Ej. MTY03"
+                  value={newAddrForm.ocurreBranchCode}
+                  onChange={e => setNewAddrForm(p => ({ ...p, ocurreBranchCode: e.target.value.toUpperCase() }))}
+                  helperText="Solo para identificarla"
+                />
+                <TextField
+                  label="C.P. de la sucursal"
+                  size="small"
+                  placeholder="5 dígitos"
+                  value={newAddrForm.ocurreBranchZip}
+                  onChange={e => setNewAddrForm(p => ({ ...p, ocurreBranchZip: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                  error={!!newAddrForm.ocurreBranchZip && newAddrForm.ocurreBranchZip.length !== 5}
+                  helperText={
+                    newAddrForm.ocurreBranchZip && newAddrForm.ocurreBranchZip.length !== 5
+                      ? 'Deben ser 5 dígitos'
+                      : 'Si lo dejas vacío, se usa la sucursal más cercana al domicilio'
+                  }
+                />
+              </>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 1.5 }}>
