@@ -204,6 +204,10 @@ interface TicketMessage {
 
 interface SupportStats {
   ai_handling: number;
+  /** Todo lo que Cajito ha cerrado, archivado o no. */
+  ai_resolved?: number;
+  /** De eso, lo que nadie ha comprobado todavía. */
+  ai_unreviewed?: number;
   needs_human: number;
   waiting_client: number;
   resolved: number;
@@ -468,6 +472,8 @@ export default function SupportBoardPage() {
 
   // Archivados
   const [archivedTickets, setArchivedTickets] = useState<SupportTicket[]>([]);
+  /** Deja en pantalla solo la columna de lo que resolvió Cajito. */
+  const [soloIA, setSoloIA] = useState(false);
   const [archivedModalOpen, setArchivedModalOpen] = useState(false);
   const [archivedSearch, setArchivedSearch] = useState('');
 
@@ -1298,9 +1304,32 @@ export default function SupportBoardPage() {
             <Typography variant="h5" fontWeight="bold" color={ORANGE}>{stats.needs_human}</Typography>
             <Typography variant="caption" color="text.secondary">Requieren atención</Typography>
           </Paper>
-          <Paper sx={{ p: 1.5, flex: '1 1 120px', textAlign: 'center', bgcolor: '#E3F2FD' }}>
-            <Typography variant="h5" fontWeight="bold">{stats.ai_handling}</Typography>
-            <Typography variant="caption" color="text.secondary">Con IA</Typography>
+          {/* Antes decía "Con IA" y contaba solo las conversaciones VIVAS con
+              Cajito. Marcaba 0 siempre, porque contesta y cierra en segundos:
+              nunca hay una viva cuando alguien mira el tablero. Se leía como
+              que la IA no había hecho nada, y lleva 32 cerrados. Ahora muestra
+              lo que cerró, y al tocarla lleva a la columna donde están. */}
+          <Paper
+            onClick={() => setSoloIA(v => !v)}
+            sx={{
+              p: 1.5, flex: '1 1 120px', textAlign: 'center', bgcolor: '#E3F2FD', cursor: 'pointer',
+              outline: soloIA ? '2px solid #1976D2' : 'none',
+              '&:hover': { bgcolor: '#D6E9FB' },
+            }}
+            title="Ver los tickets que resolvió Cajito"
+          >
+            <Typography variant="h5" fontWeight="bold" color="#1976D2">{stats.ai_resolved ?? 0}</Typography>
+            <Typography variant="caption" color="text.secondary">Resueltos por Cajito</Typography>
+            {!!stats.ai_unreviewed && (
+              <Typography variant="caption" sx={{ display: 'block', color: '#B26A00', fontWeight: 700 }}>
+                {stats.ai_unreviewed} sin revisar
+              </Typography>
+            )}
+            {!!stats.ai_handling && (
+              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                {stats.ai_handling} atendiendo ahora
+              </Typography>
+            )}
           </Paper>
           <Paper sx={{ p: 1.5, flex: '1 1 120px', textAlign: 'center', bgcolor: '#FFF8E1' }}>
             <Typography variant="h5" fontWeight="bold">{stats.waiting_client}</Typography>
@@ -1478,7 +1507,10 @@ export default function SupportBoardPage() {
       {/* Kanban */}
       {vista === 'kanban' && (
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'auto', minHeight: 0 }}>
-        {deptFilter === 'all' ? (
+        {/* Con la tarjeta "Resueltos por Cajito" encendida se esconden las demás
+            columnas: lo que se quiere en ese momento es revisar lo que cerró la
+            IA, no buscarlo entre nueve departamentos. */}
+        {soloIA ? null : deptFilter === 'all' ? (
           // Vista por departamento: una columna por cada departamento visible
           departments.filter(d => canSeeDept(d.name)).map((dept) => {
             // El backend ya devolvió solo lo que coincide (busca en cuerpo y
@@ -1556,7 +1588,67 @@ export default function SupportBoardPage() {
           })
         )}
 
-        {/* Columna Archivados — siempre al final */}
+        {/* Columna "Resueltos por Cajito" — todo lo que cerró la IA, archivado
+            o no, en un solo lugar. Hasta ahora estaba repartido: uno vivo en la
+            columna del Asesor Virtual y 31 enterrados en Archivados, donde
+            nadie los vuelve a abrir. Aldo lo pidió el 15-oct después de ver la
+            tarjeta "Con IA" en 0.
+
+            La lista se arma de lo que ya está cargado —activos + archivados—,
+            sin pedirle nada más al servidor. */}
+        {(() => {
+          const resueltosIA = [...tickets, ...archivedTickets]
+            .filter(t => t.resolved_by_ai === true)
+            .filter(t => {
+              if (!searchQuery) return true;
+              const q = searchQuery.toLowerCase();
+              return t.ticket_folio.toLowerCase().includes(q)
+                || t.full_name?.toLowerCase().includes(q)
+                || t.subject?.toLowerCase().includes(q);
+            })
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          const sinRevisar = resueltosIA.filter(esperaRevisionIA).length;
+          return (
+            <Paper sx={{ flex: '0 0 280px', p: 2, bgcolor: '#F2F7FD', overflow: 'auto', borderRadius: 2, borderTop: '4px solid #1976D2' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <AIIcon sx={{ fontSize: 18, color: '#1976D2' }} />
+                <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1, color: '#15497A' }}>
+                  Resueltos por Cajito
+                </Typography>
+                <Box sx={{ bgcolor: '#D6E9FB', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 600, lineHeight: '18px', color: '#15497A' }}>
+                  {resueltosIA.length}
+                </Box>
+              </Box>
+              {sinRevisar > 0 && (
+                <Typography variant="caption" sx={{ display: 'block', mb: 1, color: '#B26A00', fontWeight: 700 }}>
+                  ⚠️ {sinRevisar} sin que nadie compruebe la respuesta
+                </Typography>
+              )}
+              {resueltosIA.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
+                  {searchQuery ? 'Sin resultados' : 'Cajito no ha cerrado ninguno'}
+                </Typography>
+              ) : (
+                resueltosIA.slice(0, 100).map((ticket) => (
+                  <TicketCard
+                    key={`ia-${ticket.id}`}
+                    ticket={ticket}
+                    onClick={() => handleOpenTicket(ticket)}
+                    formatTime={formatTimeAgo}
+                    isArchived={!!ticket.archived_at}
+                    onArchive={handleArchiveTicket}
+                    onReviewAI={marcarRevisado}
+                  />
+                ))
+              )}
+            </Paper>
+          );
+        })()}
+
+        {/* Columna Archivados — siempre al final, salvo cuando se está viendo
+            solo lo de Cajito: 31 de sus 32 tickets están archivados y saldrían
+            dos veces, lado a lado. */}
+        {!soloIA && (
         <Paper sx={{ flex: '0 0 280px', p: 2, bgcolor: '#F5F5F5', overflow: 'auto', borderRadius: 2, borderTop: '4px solid #9E9E9E', opacity: 0.92 }}>
           <Box
             onClick={() => { setArchivedSearch(''); setArchivedModalOpen(true); }}
@@ -1618,6 +1710,7 @@ export default function SupportBoardPage() {
             );
           })()}
         </Paper>
+        )}
       </Box>
       )}
 

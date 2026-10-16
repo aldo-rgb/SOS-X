@@ -1967,6 +1967,17 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'open_ai' AND archived_at IS NULL) as ai_handling,
+          -- Lo que Cajito ha CERRADO, que no es lo mismo que lo que trae en la
+          -- mano. "Con IA" contaba solo las conversaciones vivas —status
+          -- open_ai— y marcaba 0 porque Cajito contesta y cierra en segundos:
+          -- nunca hay una viva cuando alguien mira el tablero. Desde fuera se
+          -- leia como "la IA no ha hecho nada", y lleva 32 tickets cerrados.
+          --
+          -- Sin archivar a proposito: los 31 que ya se archivaron tambien
+          -- cuentan, porque la pregunta es cuanto ha resuelto la IA en total,
+          -- no cuanto queda en el tablero.
+          COUNT(*) FILTER (WHERE resolved_by_ai IS TRUE) as ai_resolved,
+          COUNT(*) FILTER (WHERE resolved_by_ai IS TRUE AND ai_reviewed_at IS NULL) as ai_unreviewed,
           -- "Requieren atención" = los tickets ROJOS del tablero: sin resolver,
           -- no finalizados, no archivados y con MÁS DE 3 DÍAS HÁBILES sin resolver
           -- (L-V; sábado y domingo NO cuentan). Mismo criterio que las columnas.
