@@ -1772,8 +1772,18 @@ export const TOOLS: ToolDef[] = [
       const o = await pool.query(
         `SELECT p.id, p.payment_reference, p.status, p.amount, p.currency, p.payment_method,
                 COALESCE(p.credit_settled,false) AS credito_liquidado, p.paid_at, p.created_at,
-                p.package_ids, p.concepto, u.box_id, u.full_name AS cliente
-           FROM pobox_payments p LEFT JOIN users u ON u.id = p.user_id
+                p.package_ids, p.concepto, u.box_id, u.full_name AS cliente,
+                -- El asesor es la primera pregunta despues de ver una orden:
+                -- Christian consulto RO-13430D37 y lo siguiente que escribio
+                -- fue "de que asesor es?" (CJD-2026-0044). El dato estaba en el
+                -- cliente de esta misma consulta y no venia, asi que Cajito
+                -- tenia que ir a otra herramienta por el. Es el mismo arreglo
+                -- que ya se le hizo a search_clients en la CJD-2026-0026.
+                COALESCE(a.full_name, 'sin asesor asignado') AS asesor,
+                a.email AS asesor_email
+           FROM pobox_payments p
+           LEFT JOIN users u ON u.id = p.user_id
+           LEFT JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
           WHERE UPPER(p.payment_reference) = $1 LIMIT 1`, [ref]);
       if (o.rows.length === 0) return { encontrada: false, mensaje: `No existe ninguna orden con la referencia ${ref}.` };
       const ord = o.rows[0];
@@ -1835,6 +1845,7 @@ export const TOOLS: ToolDef[] = [
           metodo_pago: ord.payment_method, credito_liquidado: ord.credito_liquidado,
           pagada_el: ord.paid_at, creada_el: ord.created_at,
           cliente: ord.cliente, casillero: ord.box_id, concepto: ord.concepto,
+          asesor: ord.asesor, asesor_correo: ord.asesor_email || null,
         },
         cajas,
         ajustes,
@@ -4141,6 +4152,13 @@ export function buildSystemPrompt(
          'Una ORDEN DE PAGO —folio RO-, PP-, UW- o CEX-— es información financiera, aunque te la pidan como "estatus de la cotización". No la consultes ni la deduzcas.',
          'Y dilo con la verdad: NO digas que no existe la herramienta. La herramienta existe; lo que no tienes con esta persona es el permiso. Di que esa información no le corresponde y que la pida a Dirección o Contabilidad, o que la vea en su panel.']
       : []),
+    // Christian consulto una orden y pregunto "de que asesor es?". Cajito
+    // contesto "el casillero S3780 no me aparecio en search_clients" — y nunca
+    // llamo a search_clients: el mensaje quedo guardado SIN tool_name. El
+    // casillero existe, esta activo y su asesor es Andres Campos. Un resultado
+    // negativo inventado es peor que no contestar: Christian dio por hecho que
+    // el cliente no estaba en el sistema y se levanto la duda CJD-2026-0044.
+    'NUNCA digas que una herramienta no encontró algo si no la llamaste. Si no la has llamado, llámala; si no quieres o no puedes, di que no lo consultaste, no que salió vacío. Un "no aparece" inventado manda a buscar un problema que no existe.',
     `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
     'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
     '',
