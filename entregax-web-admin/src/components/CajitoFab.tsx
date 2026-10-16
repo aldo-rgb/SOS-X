@@ -43,6 +43,7 @@ import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
 import SendIcon from '@mui/icons-material/Send';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import TableChartIcon from '@mui/icons-material/TableChart';
 import BuildIcon from '@mui/icons-material/Build';
 import SearchIcon from '@mui/icons-material/Search';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -1697,8 +1698,14 @@ export default function CajitoFab() {
     lista.slice(0, Math.max(libres, 0)).forEach((f) => {
       const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
       const esImagen = f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name);
-      if (!esPdf && !esImagen) { setAvisoAdjunto(`"${f.name}": solo fotos, capturas o PDF.`); return; }
-      const maxMb = esPdf ? 10 : 15;
+      // Hoja de calculo o CSV: el backend la lee y le pasa los renglones a
+      // Cajito como texto. Antes se rechazaba aqui mismo y la unica forma de
+      // que leyera un listado era adjuntarlo a una tarea (CJD-2026-0045).
+      const esTabla = /\.(xlsx|xlsm|xls|csv)$/i.test(f.name);
+      if (!esPdf && !esImagen && !esTabla) {
+        setAvisoAdjunto(`"${f.name}": solo fotos, capturas, PDF o Excel/CSV.`); return;
+      }
+      const maxMb = esPdf || esTabla ? 10 : 15;
       if (f.size > maxMb * 1024 * 1024) { setAvisoAdjunto(`"${f.name}" pesa más de ${maxMb} MB.`); return; }
       if (acumuladoMb + f.size / 1048576 > LIMITE_MB_TOTAL) {
         setAvisoAdjunto(`Entre todos pasan de ${LIMITE_MB_TOTAL} MB: "${f.name}" ya no cupo.`);
@@ -1709,7 +1716,9 @@ export default function CajitoFab() {
       lector.onload = () => {
         const dataUrl = String(lector.result || '');
         const nombre = f.name || (esPdf ? 'documento.pdf' : 'captura.png');
-        const mime = esPdf ? 'application/pdf' : (f.type || 'image/heic');
+        const mime = esPdf ? 'application/pdf'
+          : esTabla ? (f.type || 'application/vnd.ms-excel')
+          : (f.type || 'image/heic');
         setAdjuntos((prev) => (prev.length >= LIMITE_ADJUNTOS ? prev : [...prev, { nombre, mime, dataUrl }]));
       };
       lector.readAsDataURL(f);
@@ -2108,7 +2117,11 @@ export default function CajitoFab() {
                 <Box sx={{ borderTop: '1px solid #FFE0B2', px: 1, pt: 0.75, bgcolor: 'white', display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
                   {adjuntos.map((a, j) => (
                     <Box key={j} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, pl: 1, pr: 0.25, py: 0.25, borderRadius: 10, fontSize: 12, bgcolor: '#FFF3E0', maxWidth: 220 }}>
-                      {a.mime === 'application/pdf' ? <PictureAsPdfIcon sx={{ fontSize: 14, color: '#C62828' }} /> : <AttachFileIcon sx={{ fontSize: 14 }} />}
+                      {a.mime === 'application/pdf'
+                        ? <PictureAsPdfIcon sx={{ fontSize: 14, color: '#C62828' }} />
+                        : /\.(xlsx|xlsm|xls|csv)$/i.test(a.nombre)
+                          ? <TableChartIcon sx={{ fontSize: 14, color: '#2E7D32' }} />
+                          : <AttachFileIcon sx={{ fontSize: 14 }} />}
                       <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</Box>
                       <IconButton size="small" aria-label={`Quitar ${a.nombre}`} sx={{ p: 0.25 }}
                         onClick={() => setAdjuntos((prev) => prev.filter((_, k) => k !== j))}>
@@ -2120,9 +2133,9 @@ export default function CajitoFab() {
                 </Box>
               )}
               <Box sx={{ borderTop: adjuntos.length > 0 || avisoAdjunto ? 'none' : '1px solid #FFE0B2', p: 1, display: 'flex', gap: 1, alignItems: 'flex-end', bgcolor: 'white' }}>
-                <input ref={archivoRef} type="file" hidden multiple accept="image/*,.heic,.heif,application/pdf"
+                <input ref={archivoRef} type="file" hidden multiple accept="image/*,.heic,.heif,application/pdf,.xlsx,.xlsm,.xls,.csv"
                   onChange={(e) => { agregarArchivos(e.target.files); e.target.value = ''; }} />
-                <Tooltip title="Adjuntar foto, captura o PDF">
+                <Tooltip title="Adjuntar foto, captura, PDF o Excel/CSV">
                   <span>
                     <IconButton aria-label="Adjuntar archivo" onClick={() => archivoRef.current?.click()}
                       disabled={thinking || adjuntos.length >= LIMITE_ADJUNTOS}>
