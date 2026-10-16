@@ -153,6 +153,32 @@ export function periodoPorDefecto(hoy = new Date()): { from: string; to: string 
   return { from: iso(viernes), to: iso(jueves) };
 }
 
+/**
+ * La fecha con la que un corte decide si una comision le toca.
+ *
+ * NO es la fecha de la guia. Una comision no se puede pagar hasta que el
+ * cliente pago; si pago en octubre una guia de agosto, esa comision es
+ * cobrable en OCTUBRE, no en agosto, y el corte de octubre es el que debe
+ * recogerla.
+ *
+ * Medirlo por `created_at` partia el sistema en dos: el corte del 16-oct se
+ * cerro con periodo 20-ago → 15-oct para alcanzar lo viejo, mientras que el
+ * Ledger —donde se prepara el pago— estaba filtrado a la semana. El corte
+ * registro 58 guias de override para Christian Gonzalez y el pago salio con 8:
+ * $10,461.90 de diferencia, marcados como pagados sin pagarse (tarea 840).
+ *
+ * No era un descuido: de 922 comisiones cobrables hoy, SOLO 14 son de la
+ * ultima semana. 760 son de hace mas de un mes y se volvieron cobrables
+ * despues. Un corte semanal medido por fecha de guia siempre iba a pagar de
+ * menos.
+ *
+ * Las dos columnas son `timestamp without time zone` guardando UTC, asi que
+ * las dos se convierten declarando UTC primero. Saltarse ese paso recorre la
+ * fecha un dia.
+ */
+const FECHA_COBRABLE =
+  `(COALESCE(ac.client_paid_at, ac.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
+
 const rangoValido = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 
 /** Calcula el corte del periodo: una línea por asesor, con su detalle. */
@@ -166,7 +192,7 @@ async function calcularCorte(from: string, to: string) {
        FROM advisor_commissions ac
        LEFT JOIN users cu ON cu.id = ac.client_id
       WHERE ${ELEGIBLE}
-        AND (ac.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date BETWEEN $1::date AND $2::date
+        AND ${FECHA_COBRABLE} BETWEEN $1::date AND $2::date
       ORDER BY ac.advisor_name, ac.created_at`,
     [from, to]
   );

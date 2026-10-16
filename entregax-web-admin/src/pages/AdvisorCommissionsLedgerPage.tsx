@@ -93,6 +93,7 @@ interface OverrideGanado {
     tracking: string | null;
     clientName: string | null;
     createdAt: string;
+    clientPaidAt: string | null;
     status: string;
     awaitingClientPayment: boolean;
     commissionAmount: number;
@@ -277,7 +278,7 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
       : records;
     if (filas.length === 0) return;
     const cols = [
-      'Fecha', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Guía master', 'Cliente', 'Casillero',
+      'Fecha de la guía', 'Cobrable desde', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Guía master', 'Cliente', 'Casillero',
       'Orden de pago', 'Monto cobrado', '% comisión', 'Comisión', 'Override que genera a su líder',
       'Estatus', 'Pagada el',
     ];
@@ -289,7 +290,8 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
     // se escapan para que un nombre con coma no rompa la columna.
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lineas = filas.map(r => [
-      formatDate(r.createdAt), r.advisorName, r.leaderName || '',
+      formatDate(r.createdAt), r.clientPaidAt ? formatDate(r.clientPaidAt) : formatDate(r.createdAt),
+      r.advisorName, r.leaderName || '',
       serviceLabels[r.serviceType] || r.serviceType || '', r.tracking || '', r.masterTracking || '',
       r.clientName || '', r.clientBox || '', r.paymentOrder || '',
       r.paymentAmount, r.commissionRate, r.commissionAmount, r.leaderOverrideAmount,
@@ -300,7 +302,7 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
     // "Comisión" y el monto bajo "Override", que fue justo lo que hizo pensar
     // que el override valía 13,809. Ahora cada cosa cae en su columna.
     const total = filas.reduce((a, r) => a + r.commissionAmount, 0);
-    lineas.push(fila([...Array(10).fill(''), 'TOTAL COMISIONES PROPIAS', r2(total), '', '', '']));
+    lineas.push(fila([...Array(11).fill(''), 'TOTAL COMISIONES PROPIAS', r2(total), '', '', '']));
 
     // 💰 El override del asesor NO puede salir de estas filas: aquí el override
     // es el que cada comisión genera para el líder de quien la hizo, y para un
@@ -319,22 +321,23 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
       lineas.push(fila([`OVERRIDE QUE ${nombre.toUpperCase()} GANA COMO LÍDER DE SUS SUBASESORES`]));
       lineas.push(fila(['(No son comisiones suyas ni aparecen en la lista de arriba: son de sus subasesores. Se le pagan igual.)']));
       lineas.push(fila([
-        'Fecha', 'Subasesor', 'Servicio', 'Tracking', 'Cliente',
+        'Fecha de la guía', 'Cobrable desde', 'Subasesor', 'Servicio', 'Tracking', 'Cliente',
         'Comisión del subasesor', '% override', 'Override a pagar', 'Estatus',
       ]));
       ov.detalle.forEach(d => {
         lineas.push(fila([
-          formatDate(d.createdAt), d.subAdvisorName,
+          formatDate(d.createdAt), d.clientPaidAt ? formatDate(d.clientPaidAt) : formatDate(d.createdAt),
+          d.subAdvisorName,
           serviceLabels[d.serviceType] || d.serviceType || '',
           d.tracking || '', d.clientName || '',
           r2(d.commissionAmount), d.overridePct, r2(d.overrideAmount),
           d.awaitingClientPayment ? 'Esperando pago del cliente' : (d.status === 'paid' ? 'Pagada' : 'Pendiente'),
         ]));
       });
-      lineas.push(fila([...Array(6).fill(''), 'TOTAL OVERRIDE', r2(ov.pendingTotal), '']));
+      lineas.push(fila([...Array(7).fill(''), 'TOTAL OVERRIDE', r2(ov.pendingTotal), '']));
       totalAPagar = total + ov.pendingTotal;
       lineas.push('');
-      lineas.push(fila([...Array(10).fill(''), 'TOTAL A PAGAR (comisiones + override)', r2(totalAPagar), '', '', '']));
+      lineas.push(fila([...Array(11).fill(''), 'TOTAL A PAGAR (comisiones + override)', r2(totalAPagar), '', '', '']));
     }
     // El BOM es lo que hace que Excel respete los acentos.
     const csv = '\uFEFF' + [cols.map(esc).join(';'), ...lineas].join('\r\n');
@@ -535,10 +538,10 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
             <TextField size="small" label="Tracking" placeholder="Ej. US-9122945797" value={filterTracking}
               onChange={e => { setFilterTracking(e.target.value); setPage(0); }}
               sx={{ width: 170 }} />
-            <TextField size="small" label="Desde" type="date" value={filterFrom}
+            <TextField size="small" label="Cobrable desde" type="date" value={filterFrom}
               onChange={e => { setFilterFrom(e.target.value); setPage(0); }}
               slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 150 }} />
-            <TextField size="small" label="Hasta" type="date" value={filterTo}
+            <TextField size="small" label="Cobrable hasta" type="date" value={filterTo}
               onChange={e => { setFilterTo(e.target.value); setPage(0); }}
               slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 150 }} />
             <Button size="small" onClick={() => { setFilterAdvisor(''); setFilterService(''); setFilterStatus(''); setFilterFrom(''); setFilterTo(''); setFilterClientBox(''); setFilterTracking(''); setPage(0); }}>

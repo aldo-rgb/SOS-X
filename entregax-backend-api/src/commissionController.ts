@@ -599,12 +599,24 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             conditions.push(`ac.status = $${paramIdx++}`);
             params.push(status);
         }
+        // El rango se mide sobre la fecha en que la comisión se volvió
+        // COBRABLE, no sobre la fecha de la guía: una guía de agosto cuyo
+        // cliente pagó en octubre se cobra en octubre. Medirlo por created_at
+        // dejaba esta pantalla viendo una cosa y el corte otra —el corte 145
+        // registró 58 guías de override y el pago salió con 8, $10,461.90 de
+        // diferencia (tarea 840)—. Es el MISMO criterio que usa calcularCorte
+        // en commissionCuts.ts; si uno cambia, el otro tiene que cambiar.
+        //
+        // Las dos columnas son `timestamp without time zone` guardando UTC, así
+        // que se declara UTC antes de convertir. Saltárselo recorre un día.
+        const FECHA_COBRABLE =
+            `(COALESCE(ac.client_paid_at, ac.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
         if (from_date) {
-            conditions.push(`ac.created_at >= $${paramIdx++}`);
+            conditions.push(`${FECHA_COBRABLE} >= $${paramIdx++}::date`);
             params.push(from_date);
         }
         if (to_date) {
-            conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
+            conditions.push(`${FECHA_COBRABLE} <= $${paramIdx++}::date`);
             params.push(to_date);
         }
         if (client_box) {
@@ -787,7 +799,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             const ovRes = await pool.query(`
                 SELECT
                     ac.id, ac.advisor_name, ac.service_type, ac.tracking,
-                    ac.client_name, ac.created_at, ac.status,
+                    ac.client_name, ac.created_at, ac.client_paid_at, ac.status,
                     ac.commission_amount_mxn, ac.leader_override_pct,
                     ac.leader_override_amount,
                     COALESCE(ac.awaiting_client_payment, FALSE) AS awaiting_client_payment
@@ -811,6 +823,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                     tracking: r.tracking,
                     clientName: r.client_name,
                     createdAt: r.created_at,
+                    clientPaidAt: r.client_paid_at,
                     status: r.status,
                     awaitingClientPayment: r.awaiting_client_payment === true,
                     commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
@@ -923,12 +936,19 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         const params: any[] = [];
         let paramIdx = 1;
 
+        // Mismo criterio que el Ledger y que el corte: el rango se mide sobre
+        // cuándo la comisión se volvió COBRABLE, no sobre la fecha de la guía.
+        // Este tablero le pasa sus propias fechas al Ledger cuando se hace clic
+        // en un asesor, así que si midieran distinto los dos números dejarían de
+        // cuadrar justo al profundizar (tarea 840).
+        const FECHA_COBRABLE =
+            `(COALESCE(ac.client_paid_at, ac.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
         if (from_date) {
-            rowConds.push(`ac.created_at >= $${paramIdx++}`);
+            rowConds.push(`${FECHA_COBRABLE} >= $${paramIdx++}::date`);
             params.push(from_date);
         }
         if (to_date) {
-            rowConds.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
+            rowConds.push(`${FECHA_COBRABLE} <= $${paramIdx++}::date`);
             params.push(to_date);
         }
         if (service_type) {
