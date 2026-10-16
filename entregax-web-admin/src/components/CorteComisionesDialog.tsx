@@ -205,33 +205,6 @@ export default function CorteComisionesDialog({ open, onClose, onDone }: {
         )}
       </DialogContent>
 
-      {/* Antes de confirmar: el override, en letra grande y sin tener que
-          desplegar a nadie.
-
-          El desglose por subasesor ya existía, pero colapsado dentro de la
-          fila de cada líder. En el corte 145 nadie lo abrió: el corte marcó
-          como pagadas 58 guías de override para Christian Gonzalez y el pago
-          salió con 8, $10,461.90 de diferencia (tarea 840). Un dato que hay
-          que ir a buscar es un dato que no se mira. */}
-      {confirmando && lineas.some(l => l.override > 0) && (
-        <Box sx={{ mx: 2, mb: 1, p: 1.5, border: '1px solid #B39DDB', borderRadius: 1.5, bgcolor: '#F6F2FC' }}>
-          <Typography fontWeight={800} fontSize={13} sx={{ color: '#4527A0', mb: 0.5 }}>
-            Ojo: este corte también paga override de subasesores
-          </Typography>
-          {lineas.filter(l => l.override > 0).map(l => (
-            <Typography key={`ov-${l.advisorId}`} fontSize={12.5} color="text.secondary">
-              · <b>{l.advisorName}</b> cobra <b>{mx(l.override)}</b> por{' '}
-              {l.subs.reduce((n, x) => n + x.guias, 0)} guías de{' '}
-              {l.subs.map(x => x.name).join(', ') || 'sus subasesores'}
-            </Typography>
-          ))}
-          <Typography fontSize={11.5} color="text.disabled" sx={{ mt: 0.5 }}>
-            No son guías suyas: son de sus subasesores y se le pagan igual. Si el reporte con el que
-            vas a pagar no las trae, se van a marcar como pagadas sin pagarse.
-          </Typography>
-        </Box>
-      )}
-
       <DialogActions sx={{ p: 2, gap: 1 }}>
         <Button onClick={onClose} disabled={guardando}>Cancelar</Button>
         <Box sx={{ flex: 1 }} />
