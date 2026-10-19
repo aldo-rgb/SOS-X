@@ -13390,7 +13390,54 @@ app.get('/api/admin/fleet/file-proxy', authenticateToken, requireMinLevelOrRoles
 
 // Rutas para choferes (mobile app)
 app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);
-app.post('/api/fleet/inspection', authenticateToken, submitDailyInspection);
+// Las fotos de la inspeccion viajan como archivos y se suben a S3 aqui.
+//
+// Antes el cuerpo era JSON y las "URLs" que mandaba la app eran rutas del
+// propio telefono (file:///data/user/0/com.entregax.mobile/cache/...). Se
+// guardaban tal cual: las 331 inspecciones de la historia tienen una ruta local
+// que no se puede abrir desde ningun lado, y el checklist existe justamente por
+// la evidencia (tarea 845).
+//
+// Sigue aceptando JSON para no romper a quien todavia no actualice la app: en
+// ese caso simplemente no hay fotos, que es lo mismo que habia.
+const fleetInspectionUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024, files: 7 },
+}).fields([
+  { name: 'odometer_photo', maxCount: 1 },
+  { name: 'front_photo', maxCount: 1 },
+  { name: 'back_photo', maxCount: 1 },
+  { name: 'left_photo', maxCount: 1 },
+  { name: 'right_photo', maxCount: 1 },
+  { name: 'cabin_photo', maxCount: 1 },
+  { name: 'damage_photo', maxCount: 1 },
+]);
+
+const subirFotosDeInspeccion = async (req: any, _res: any, next: any) => {
+  try {
+    const files = (req.files || {}) as Record<string, Express.Multer.File[] | undefined>;
+    const userId = req.user?.userId ?? req.user?.id ?? 'anon';
+    const subidas: Record<string, string> = {};
+    for (const campo of ['odometer_photo', 'front_photo', 'back_photo', 'left_photo', 'right_photo', 'cabin_photo', 'damage_photo']) {
+      const f = files[campo]?.[0];
+      if (!f) continue;
+      const ext = (f.originalname?.split('.').pop() || 'jpg').replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
+      const key = `fleet/inspecciones/${userId}/${Date.now()}-${campo}.${ext}`;
+      const { uploadToS3 } = await import('./s3Service');
+      subidas[campo] = await uploadToS3(f.buffer, key, f.mimetype || 'image/jpeg');
+    }
+    req.fotosInspeccion = subidas;
+    next();
+  } catch (err) {
+    // Que falle S3 no puede impedir registrar la inspeccion: el chofer esta
+    // parado junto a la unidad y necesita arrancar su ruta.
+    console.error('[fleet] no se pudieron subir las fotos de la inspeccion:', err);
+    req.fotosInspeccion = {};
+    next();
+  }
+};
+
+app.post('/api/fleet/inspection', authenticateToken, fleetInspectionUpload, subirFotosDeInspeccion, submitDailyInspection);
 app.get('/api/fleet/inspection/today', authenticateToken, checkTodayInspection);
 
 // 📊 Stats para rol Monitoreo: contenedores marítimos en estado "liberado"

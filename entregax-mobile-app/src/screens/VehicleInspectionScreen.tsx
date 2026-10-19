@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import api from '../services/api';
+import api, { API_URL } from '../services/api';
 
 interface Vehicle {
   id: number;
@@ -268,24 +268,59 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      // En producción, primero subirías las fotos a un servidor
-      // y luego enviarías las URLs
-      await api.post('/api/fleet/inspection', {
-        vehicle_id: inspectionData.vehicle_id,
-        inspection_type: isReturn ? 'check_out' : 'check_in',
-        reported_mileage: parseInt(inspectionData.reported_mileage),
-        odometer_photo_url: inspectionData.odometer_photo_url,
-        front_photo_url: inspectionData.front_photo_url,
-        back_photo_url: inspectionData.back_photo_url,
-        left_photo_url: inspectionData.left_photo_url,
-        right_photo_url: inspectionData.right_photo_url,
-        cabin_photo_url: inspectionData.cabin_photo_url,
-        is_cabin_clean: inspectionData.is_cabin_clean,
-        has_new_damage: inspectionData.has_new_damage,
-        damage_notes: inspectionData.damage_notes,
-      }, {
+      // Las fotos VIAJAN, no sus rutas.
+      //
+      // Antes se mandaba el campo tal cual, y lo que tenía era la ruta del
+      // archivo dentro del propio teléfono
+      // (file:///data/user/0/com.entregax.mobile/cache/ImagePicker/…). Eso se
+      // guardaba en la base y desde el panel no se podía abrir ninguna: las 331
+      // inspecciones de la historia tienen ahí una ruta muerta, y el checklist
+      // existe justamente por la evidencia (tarea 845).
+      //
+      // Los nombres de los campos son los que espera el backend. Antes los
+      // costados se mandaban como left_photo_url/right_photo_url y allá se leía
+      // left_side_photo_url/right_side_photo_url, así que esas dos columnas
+      // quedaron en null en el 100% de los registros.
+      const form = new FormData();
+      form.append('vehicle_id', String(inspectionData.vehicle_id));
+      form.append('inspection_type', isReturn ? 'check_out' : 'check_in');
+      form.append('reported_mileage', String(parseInt(inspectionData.reported_mileage)));
+      form.append('is_cabin_clean', String(inspectionData.is_cabin_clean));
+      form.append('has_new_damage', String(inspectionData.has_new_damage));
+      form.append('damage_notes', inspectionData.damage_notes || '');
+
+      const fotos: Array<[string, string]> = [
+        ['odometer_photo', inspectionData.odometer_photo_url],
+        ['front_photo', inspectionData.front_photo_url],
+        ['back_photo', inspectionData.back_photo_url],
+        ['left_photo', inspectionData.left_photo_url],
+        ['right_photo', inspectionData.right_photo_url],
+        ['cabin_photo', inspectionData.cabin_photo_url],
+        ['damage_photo', (inspectionData as any).damage_photo_url || ''],
+      ];
+      for (const [campo, uri] of fotos) {
+        if (!uri) continue;
+        const ext = (uri.split('.').pop() || 'jpg').split('?')[0].toLowerCase();
+        form.append(campo, {
+          uri,
+          name: `${campo}.${ext === 'png' ? 'png' : 'jpg'}`,
+          type: ext === 'png' ? 'image/png' : 'image/jpeg',
+        } as any);
+      }
+
+      // fetch directo y no api.post: ese cliente hace JSON.stringify del cuerpo
+      // y fuerza Content-Type application/json, asi que un FormData saldria
+      // vacio. Es el mismo camino que usan las demas pantallas que suben
+      // archivos. Sin Content-Type a mano: lo pone fetch con su boundary.
+      const resp = await fetch(`${API_URL}/api/fleet/inspection`, {
+        method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: form as any,
       });
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({} as any));
+        throw { response: { data: d, status: resp.status } };
+      }
 
       Alert.alert(
         '✅ Inspección Completada',

@@ -776,13 +776,56 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Sesión no válida' });
     }
     const {
-      vehicle_id, inspection_type, reported_mileage, odometer_photo_url,
-      front_photo_url, back_photo_url, left_side_photo_url, right_side_photo_url,
-      cabin_photo_url, is_cabin_clean, has_new_damage, damage_notes, damage_photo_url,
-      fuel_level, tire_condition, lights_working, brakes_working
+      vehicle_id, inspection_type, damage_notes,
+      fuel_level, tire_condition
     } = req.body;
+
+    // Con multipart TODO llega como texto, y "false" es un string con valor
+    // verdadero: `"false" !== false` es true. Sin normalizar, una cabina sucia
+    // o unos frenos malos se guardarian como buenos y la alerta nunca saltaria.
+    const aBool = (v: any, siFalta: boolean) => {
+      if (v === undefined || v === null || v === '') return siFalta;
+      if (typeof v === 'boolean') return v;
+      return !['false', '0', 'no', 'off'].includes(String(v).trim().toLowerCase());
+    };
+    const reported_mileage = Number(req.body.reported_mileage);
+    const is_cabin_clean = aBool(req.body.is_cabin_clean, true);
+    const has_new_damage = aBool(req.body.has_new_damage, false);
+    const lights_working = aBool(req.body.lights_working, true);
+    const brakes_working = aBool(req.body.brakes_working, true);
+
+    // ── De donde sale cada foto ───────────────────────────────────────────
+    //
+    // 1. La que acaba de subir a S3 el middleware (lo normal desde ahora).
+    // 2. Si no, la que venga en el cuerpo, SIEMPRE QUE sea una URL de verdad.
+    //
+    // Ese segundo filtro es el arreglo: la app mandaba la ruta del archivo en
+    // el propio telefono —file:///data/user/0/com.entregax.mobile/cache/...— y
+    // se guardaba tal cual. Las 331 inspecciones de la historia tienen ahi una
+    // ruta que no abre nadie (tarea 845). Una ruta local no es evidencia: es
+    // basura que ademas hace creer que la foto existe.
+    //
+    // Y se aceptan los DOS nombres de los costados. La app mandaba
+    // left_photo_url / right_photo_url y aqui se leia left_side_photo_url /
+    // right_side_photo_url: esas dos columnas estan en null en el 100% de los
+    // registros. El chofer tomaba las fotos y no llegaban nunca.
+    const subidas = (req as any).fotosInspeccion || {};
+    const urlDeVerdad = (v: any) => {
+      const t = String(v ?? '').trim();
+      return /^https?:\/\//i.test(t) ? t : null;
+    };
+    const foto = (campo: string, ...enElCuerpo: any[]) =>
+      subidas[campo] || enElCuerpo.map(urlDeVerdad).find(Boolean) || null;
+
+    const odometer_photo_url  = foto('odometer_photo', req.body.odometer_photo_url);
+    const front_photo_url     = foto('front_photo', req.body.front_photo_url);
+    const back_photo_url      = foto('back_photo', req.body.back_photo_url);
+    const left_side_photo_url = foto('left_photo', req.body.left_side_photo_url, req.body.left_photo_url);
+    const right_side_photo_url= foto('right_photo', req.body.right_side_photo_url, req.body.right_photo_url);
+    const cabin_photo_url     = foto('cabin_photo', req.body.cabin_photo_url);
+    const damage_photo_url    = foto('damage_photo', req.body.damage_photo_url);
     
-    if (!vehicle_id || !reported_mileage) {
+    if (!vehicle_id || !Number.isFinite(reported_mileage) || reported_mileage <= 0) {
       return res.status(400).json({ error: 'Vehículo y kilometraje son requeridos' });
     }
 
@@ -850,8 +893,8 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     `, [
       vehicle_id, userId, inspection_type || 'check_in', reported_mileage, odometer_photo_url,
       front_photo_url, back_photo_url, left_side_photo_url, right_side_photo_url,
-      cabin_photo_url, is_cabin_clean !== false, has_new_damage || false, damage_notes, damage_photo_url,
-      fuel_level, tire_condition || 'good', lights_working !== false, brakes_working !== false,
+      cabin_photo_url, is_cabin_clean, has_new_damage, damage_notes, damage_photo_url,
+      fuel_level, tire_condition || 'good', lights_working, brakes_working,
       flagged ? 'flagged' : 'pending'
     ]);
     
