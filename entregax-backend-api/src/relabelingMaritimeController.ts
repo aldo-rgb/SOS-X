@@ -203,7 +203,7 @@ export async function generatePqtxForMaritimeOrder(req: Request, res: Response):
     }
 
     const orderRes = await pool.query(
-      `SELECT mo.*, u.full_name AS user_name, u.email AS user_email,
+      `SELECT mo.*, u.full_name AS user_name, u.email AS user_email, u.phone AS user_phone,
               a.recipient_name, a.street, a.exterior_number, a.interior_number,
               a.neighborhood, a.city, a.state, a.zip_code, a.phone
          FROM maritime_orders mo
@@ -297,6 +297,7 @@ export async function generatePqtxForMaritimeOrder(req: Request, res: Response):
       addr,
       userName: order.user_name,
       userEmail: order.user_email,
+      userPhone: (order as any).user_phone ?? null,
       token,
       createdBy: userId,
       childIds: [],

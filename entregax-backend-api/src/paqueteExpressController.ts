@@ -1727,6 +1727,8 @@ export async function generateOnePqtxGuide(params: {
   addr: PqtxAddrCtx;
   userName: string | null;
   userEmail: string | null;
+  /** Telefono del cliente. Respaldo cuando la direccion no trae ninguno. */
+  userPhone?: string | null;
   token: string;
   createdBy: number | null;
   // IDs de hijas para persistir el mismo national_tracking en todas
@@ -1867,27 +1869,31 @@ export async function generateOnePqtxGuide(params: {
     return { state: stateVal, city: cityVal, neighborhood: neighVal };
   })();
 
-  // PQTX espera UN item con qunt = N (número de bultos) para guías multipieza,
-  // donde `weight` representa el peso POR PIEZA. PQTX multiplica internamente
-  // weight × qunt para obtener el peso total cobrable. Por eso enviamos el
-  // peso promedio por caja, NO la suma total.
-  // Ejemplo: 4 cajas de 20 kg → weight="20.00", qunt="4" → total cobrable = 80 kg ✓
-  const perPieceWeight = totalWeight / totalPieces;
-  const avgL = piecesArr.reduce((s, p) => s + (Number(p.pkgLength) || 0), 0) / totalPieces || 30;
-  const avgW = piecesArr.reduce((s, p) => s + (Number(p.pkgWidth) || 0), 0) / totalPieces || 30;
-  const avgH = piecesArr.reduce((s, p) => s + (Number(p.pkgHeight) || 0), 0) / totalPieces || 30;
-  const firstDesc = piecesArr.find((p) => p.description)?.description || 'PAQUETE';
-
-  const radSrvcItemDTOList = [{
+  // Una entrada POR CAJA, con el peso y las medidas de esa caja.
+  //
+  // Antes iba UNA sola entrada con el PROMEDIO y qunt = N. El peso total salia
+  // bien —promedio x N = total— pero la tarifa no, porque Paquete Express cobra
+  // por PESO VOLUMETRICO y lo calcula pieza por pieza, quedandose con el mayor
+  // entre el real y el volumetrico de CADA una. Promediar borra ese maximo.
+  //
+  // La guia 211254655250 (CN-wUCI, 6 cajas, tarea 848) salio declarada en
+  // 173.40 kg. Sus cajas reales, cobradas una por una, dan 195.63: la de
+  // 72x54x52 pesa 30.20 pero vuelve 40.44 volumetricos, y la de 72x53x52 pesa
+  // 27.70 y vuelve 39.69. Son 22 kg que Paquete Express encuentra al pesar en
+  // su centro, y por eso rechazan la guia o la recobran.
+  //
+  // El promedio tambien aplanaba las medidas: seis cajas distintas viajaban
+  // como seis cajas iguales de 62x44x46.
+  const radSrvcItemDTOList = piecesArr.map((pz) => ({
     srvcId: 'PACKETS',
     productIdSAT: '01010101',
-    weight: String(perPieceWeight.toFixed(2)),
-    volL: String(Math.round(avgL)),
-    volW: String(Math.round(avgW)),
-    volH: String(Math.round(avgH)),
-    cont: firstDesc,
-    qunt: String(totalPieces),
-  }];
+    weight: String((Number(pz.weight) || 1).toFixed(2)),
+    volL: String(Math.round(Number(pz.pkgLength) || 30)),
+    volW: String(Math.round(Number(pz.pkgWidth) || 30)),
+    volH: String(Math.round(Number(pz.pkgHeight) || 30)),
+    cont: pz.description || 'PAQUETE',
+    qunt: '1',
+  }));
 
   const commentSuffix = totalPieces > 1 ? ` (${totalPieces} cajas)` : '';
 
@@ -1912,7 +1918,13 @@ export async function generateOnePqtxGuide(params: {
   // El nombre y contacto siguen siendo el cliente para que el mostrador de
   // la sucursal sepa a quién entregar cuando pregunte por su casillero.
   const destClntName = nombreParaPqtx(params.addr.recipient_name || params.userName).toUpperCase();
-  const destPhone = (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000';
+  // El telefono de la DIRECCION y, si no tiene, el del CLIENTE. 88 de 643
+  // direcciones estan sin telefono y 34 guias ya salieron rotuladas
+  // "TEL: 0000000000" —la de la tarea 848 entre ellas— aunque el cliente si
+  // tuviera numero en su ficha. Sin telefono el repartidor no puede avisar que
+  // llego, y ese dato estaba a un JOIN de distancia.
+  const telCrudo = String(params.addr.phone || '').trim() || String(params.userPhone || '').trim();
+  const destPhone = telCrudo.replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000';
   const destComt = isOcurre
     ? `OCURRE - ${destClntName} recoge en sucursal · ${params.trackingInternal}${commentSuffix}`
     : `Paquete ${params.trackingInternal}${commentSuffix}`;
@@ -2158,7 +2170,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
                 a.is_ocurre AS addr_is_ocurre, a.id AS addr_id,
-                a.ocurre_branch_zip, a.ocurre_branch_code
+                a.ocurre_branch_zip, a.ocurre_branch_code,
+                u.phone AS user_phone
            FROM dhl_shipments ds
            LEFT JOIN users u ON ds.user_id = u.id
            LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -2179,6 +2192,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
                 a.is_ocurre AS addr_is_ocurre, a.id AS addr_id,
                 a.ocurre_branch_zip, a.ocurre_branch_code,
+                u.phone AS user_phone,
                 p.national_delivery_zip
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
@@ -2530,6 +2544,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       addr,
       userName: pkg.user_name,
       userEmail: pkg.user_email,
+      userPhone: pkg.user_phone,
       token,
       createdBy: userId,
       childIds,
