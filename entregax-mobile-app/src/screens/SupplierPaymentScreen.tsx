@@ -1318,6 +1318,23 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       const needsBankAddress = !/alipay|wechat|paypal|wise/i.test(benefBankName);
       if (!benefName || !benefAccount || !benefBankName || (needsBankAddress && !benefBankAddress)) return 'Completa beneficiario, cuenta y banco';
       if (divisa === 'RMB' && !benefNameZh) return 'Para RMB se requiere nombre en chino';
+      // ── ABA de banco de Estados Unidos ───────────────────────────────────
+      // Las posiciones 5 y 6 del SWIFT son el país: 'CHASUS33' → US. Si el
+      // banco es de allá, el ABA es obligatorio, son 9 dígitos exactos y trae
+      // dígito verificador (pesos 3,7,1; la suma debe ser múltiplo de 10).
+      //
+      // Antes no se validaba nada aquí y se podía avanzar con lo que fuera:
+      // dos proveedores quedaron guardados con "0108" y "08100003". El pago
+      // rebota en el banco días después y nadie sabe por qué (tarea 866).
+      const swift = benefSwift.replace(/\s+/g, '').toUpperCase();
+      if (swift.length >= 6 && swift.slice(4, 6) === 'US') {
+        const aba = benefAba.replace(/\D/g, '');
+        if (!aba) return 'El banco es de Estados Unidos: falta el ABA / Routing. Son 9 dígitos y vienen en el estado de cuenta del proveedor.';
+        if (aba.length !== 9) return `El ABA / Routing debe tener exactamente 9 dígitos y capturaste ${aba.length}.`;
+        const pesos = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+        const suma = pesos.reduce((acc, p, i) => acc + Number(aba[i]) * p, 0);
+        if (suma % 10 !== 0) return 'El ABA / Routing no es válido: tiene 9 dígitos pero no pasa la verificación del banco. Revísalo con el proveedor, lo más común es un dígito cambiado.';
+      }
       return null;
     }
     if (step === 3 && requiereFactura && (!rfc || !razon || !cp || !email)) {

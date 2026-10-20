@@ -72,6 +72,22 @@ export default function EntangledSupplierForm({
   const isRMB = value.divisa_default === 'RMB';
   const set = (patch: Partial<SupplierFormData>) => onChange({ ...value, ...patch });
 
+  // ¿El banco es de Estados Unidos? Lo dicen las posiciones 5 y 6 del SWIFT
+  // ('CHASUS33' → US). No se pregunta aparte porque es un dato que ya se
+  // captura, y `banco_pais` es texto libre y está vacío en casi la mitad.
+  const swiftLimpio = String(value.swift_bic || '').replace(/\s+/g, '').toUpperCase();
+  const bancoEsDeUsa = swiftLimpio.length >= 6 && swiftLimpio.slice(4, 6) === 'US';
+  const problemaAba = (() => {
+    if (!bancoEsDeUsa) return '';
+    const d = String(value.aba_routing || '').replace(/\D/g, '');
+    if (!d) return 'Falta el ABA: el banco es de Estados Unidos y sin él el pago se rechaza. Son 9 dígitos.';
+    if (d.length !== 9) return `Deben ser 9 dígitos exactos; llevas ${d.length}.`;
+    const pesos = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+    const suma = pesos.reduce((acc, pe, i) => acc + Number(d[i]) * pe, 0);
+    if (suma % 10 !== 0) return 'No pasa la verificación del banco. Lo más común es un dígito cambiado.';
+    return '';
+  })();
+
   const C = lightTheme ? {
     inputBg: '#ffffff',
     border: '#e3e6ea',
@@ -237,12 +253,21 @@ export default function EntangledSupplierForm({
           />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
+          {/* El ABA se valida aquí mismo y no al guardar: son 9 dígitos exactos
+              con dígito verificador (pesos 3,7,1, la suma múltiplo de 10), que
+              es lo que comprueba el banco al recibir la transferencia. Antes
+              solo se limitaba el largo a 9 sin exigirlo, y se guardaron
+              proveedores con "0108" y "08100003"; el pago rebota días después
+              y nadie sabe por qué (tarea 866). */}
           <TextField
             fullWidth
             label={t('entangled.suppliers.aba', 'ABA Routing (USA)')}
             value={value.aba_routing}
             onChange={(e) => set({ aba_routing: e.target.value.replace(/\D/g, '') })}
             inputProps={{ maxLength: 9 }}
+            required={bancoEsDeUsa}
+            error={!!problemaAba}
+            helperText={problemaAba || (bancoEsDeUsa ? 'Obligatorio: el banco es de Estados Unidos' : undefined)}
             sx={textFieldSx}
           />
         </Grid>

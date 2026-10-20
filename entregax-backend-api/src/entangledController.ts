@@ -943,6 +943,47 @@ export function faltaAbaDeBancoUsa(b: { swift_bic?: any; aba_routing?: any }): b
   return String(b?.aba_routing || '').trim() === '';
 }
 
+/**
+ * El ABA no es "nueve numeros cualesquiera": trae digito verificador.
+ *
+ * La suma ponderada de los 9 digitos con los pesos 3,7,1 repetidos tiene que
+ * ser multiplo de 10. Es el mismo algoritmo que usa cualquier banco de EUA al
+ * recibir una transferencia, y es lo que permite cachar un digito mal tecleado
+ * aqui en vez de enterarse cuando el pago rebota.
+ *
+ * Antes solo se exigia que NO estuviera vacio. Con eso pasaron
+ * "0108" (4 digitos) y "08100003" (8) a produccion (tarea 866).
+ */
+export function abaValido(raw: any): boolean {
+  const d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length !== 9) return false;
+  const pesos = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+  let suma = 0;
+  for (let i = 0; i < 9; i++) suma += Number(d[i]) * pesos[i]!;
+  return suma % 10 === 0;
+}
+
+/**
+ * Que le pasa al ABA de este proveedor, si es que le pasa algo.
+ * Devuelve el motivo en palabras, o null si esta bien.
+ */
+export function revisarAbaDeBancoUsa(b: { swift_bic?: any; aba_routing?: any }): string | null {
+  const swift = String(b?.swift_bic || '').replace(/\s+/g, '').toUpperCase();
+  if (swift.length < 6 || swift.slice(4, 6) !== 'US') return null; // no es banco de EUA
+  const raw = String(b?.aba_routing ?? '').trim();
+  if (!raw) return ERROR_ABA;
+  const d = raw.replace(/\D/g, '');
+  if (d.length !== 9) {
+    return `El ABA / Routing debe tener exactamente 9 dígitos y capturaste ${d.length}. `
+      + 'Viene en el estado de cuenta del proveedor, junto al número de cuenta.';
+  }
+  if (!abaValido(d)) {
+    return 'El ABA / Routing no es válido: tiene 9 dígitos pero no pasa la verificación del banco. '
+      + 'Revísalo con el proveedor, lo más común es un dígito cambiado.';
+  }
+  return null;
+}
+
 const ERROR_ABA = 'Falta el ABA / Routing. El banco es de Estados Unidos (lo dice su SWIFT) '
   + 'y sin ABA el pago se rechaza. Viene en el estado de cuenta del proveedor, son 9 dígitos.';
 
@@ -953,7 +994,8 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
     return res.status(400).json({ error: 'nombre_beneficiario, numero_cuenta y banco_nombre son requeridos' });
   }
-  if (faltaAbaDeBancoUsa(b)) return res.status(400).json({ error: ERROR_ABA, campo: 'aba_routing' });
+  const problemaAba = revisarAbaDeBancoUsa(b);
+  if (problemaAba) return res.status(400).json({ error: problemaAba, campo: 'aba_routing' });
 
   // Normalizadores
   const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
@@ -1106,7 +1148,8 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
         swift_bic: b.swift_bic !== undefined ? b.swift_bic : actual.rows[0]?.swift_bic,
         aba_routing: b.aba_routing !== undefined ? b.aba_routing : actual.rows[0]?.aba_routing,
       };
-      if (faltaAbaDeBancoUsa(quedaria)) return res.status(400).json({ error: ERROR_ABA, campo: 'aba_routing' });
+      const problema = revisarAbaDeBancoUsa(quedaria);
+      if (problema) return res.status(400).json({ error: problema, campo: 'aba_routing' });
     }
 
     const r = await pool.query(
