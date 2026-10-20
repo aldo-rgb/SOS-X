@@ -780,6 +780,9 @@ export default function DashboardAdvisor() {
   const [instrPriceEstimate, setInstrPriceEstimate] = useState<{
     price: number; perBox: number; boxes: number; days: string;
     type?: 'domicilio' | 'ocurre'; usedZip?: string; nearestBranch?: boolean;
+    /** El C.P. del CLIENTE. Sin él, el aviso solo enseñaba el de la sucursal
+     *  sustituta y parecía que el sistema tenía mal la dirección (tarea 858). */
+    originalZip?: string;
     branch?: any; noCoverage?: boolean; available?: boolean;
   } | null>(null);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
@@ -2184,6 +2187,7 @@ export default function DashboardAdvisor() {
             days: res.data.estimatedDays || '2-4 días hábiles',
             type: res.data.type, available: true,
             usedZip: res.data.usedZip, nearestBranch: res.data.nearestBranch,
+            originalZip: res.data.originalZip,
             branch: res.data.branch,
           });
         }
@@ -8427,9 +8431,20 @@ export default function DashboardAdvisor() {
                             <Typography variant="body2" fontWeight={700} sx={{ color: '#1565C0' }}>
                               Entrega en sucursal Ocurre — C.P. {instrPriceEstimate.usedZip}
                             </Typography>
+                            {/* Los DOS códigos postales, con nombre y apellido.
+                                Antes solo salía el de la sucursal sustituta, y
+                                desde fuera parecía que el sistema había leído
+                                mal la dirección del cliente: Oscar reportó
+                                exactamente eso —"me pone 77580 cuando el real
+                                es 77560"— y el 77580 nunca fue del cliente, era
+                                la sucursal (tarea 858). */}
                             {instrPriceEstimate.nearestBranch && (
                               <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600, display: 'block' }}>
-                                ⚠️ Sin cobertura domicilio. Se usará la sucursal más cercana (CP {instrPriceEstimate.usedZip}).
+                                ⚠️ Paquete Express no entrega a domicilio en el C.P.{' '}
+                                {instrPriceEstimate.originalZip || 'del cliente'} del cliente. La sucursal más
+                                cercana está en el C.P. {instrPriceEstimate.usedZip}
+                                {instrPriceEstimate.branch?.branch ? ` — sucursal ${instrPriceEstimate.branch.branch}` : ''}.
+                                El cliente tendría que recogerlo ahí.
                               </Typography>
                             )}
                             {instrPriceEstimate.branch?.name && (
