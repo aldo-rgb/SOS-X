@@ -1428,7 +1428,21 @@ export default function SupportBoardPage() {
 
       {/* Vista de lista: una tabla con columnas ordenables. */}
       {vista === 'lista' && (() => {
-        const visibles = tickets.filter(t => canSeeDept(t.department_name || ''));
+        // La tarjeta "Resueltos por Cajito" también manda en esta vista.
+        //
+        // Antes sólo filtraba el Tablero: quien la tocaba desde la Lista veía
+        // la tarjeta encenderse y la tabla no cambiaba nada. Ricardo lo reportó
+        // tal cual —"aparece el botón pero al darle clic no me despliega nada"—
+        // y tenía razón: no desplegaba nada (tarea 795).
+        //
+        // Van también los archivados porque ahí está casi todo: de los 32 que
+        // ha cerrado Cajito, 31 están archivados. Filtrar sólo los activos
+        // habría dejado la tabla con un renglón, que es otra forma de no
+        // mostrar nada.
+        const universo = soloIA ? [...tickets, ...archivedTickets] : tickets;
+        const visibles = universo
+          .filter(t => !soloIA || t.resolved_by_ai === true)
+          .filter(t => canSeeDept(t.department_name || ''));
         const val = (t: SupportTicket): string | number => {
           switch (ordenCol) {
             case 'folio': return t.ticket_folio || '';
