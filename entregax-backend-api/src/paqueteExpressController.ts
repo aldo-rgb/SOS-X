@@ -109,9 +109,46 @@ const extractStreetNumber = (s: string | null | undefined): string => {
   const m = String(s || '').match(/\d+[A-Za-z]?/);
   return m ? m[0] : '';
 };
+const MAX_DRNR = 15;
+
+/**
+ * El numero exterior que va impreso en la guia.
+ *
+ * Si CABE, va completo. Antes se extraia el primer numero con
+ * /\d+[A-Za-z]?/ —digitos y, a lo mucho, UNA letra pegada— y todo lo demas
+ * se perdia. Como la letra tiene que ir sin espacio, "185 A" salia "185":
+ * exactamente lo que reporto Roman (tarea 854).
+ *
+ * Y no era solo una letra. Sobre los datos reales, 50 direcciones perdian
+ * informacion y 105 guias ya salieron asi:
+ *
+ *   "Mz. 1, Lt. 10"  → "1"     el domicilio es el lote 10
+ *   "Lote D2"        → "2"
+ *   "951-Pb"         → "951"   sin la planta baja
+ *   "Torre A piso 1" → "1"
+ *
+ * El repartidor no encuentra "Mz 1" cuando la casa es "Mz 1, Lt 10". El campo
+ * admite 15 caracteres: mientras quepa, se manda lo que la persona escribio.
+ * Solo cuando no cabe se recurre a extraer el numero, que es mejor que cortar
+ * la cadena a la mitad.
+ */
 const buildDrnr = (extRaw: string | null | undefined, intrRaw: string | null | undefined): string => {
-  const ext = String(extRaw || '').trim();
-  const intr = String(intrRaw || '').trim();
+  // "SN", "S/N", "NA", "N/A", "-" son formas de escribir "no tiene". Si se
+  // toman al pie de la letra, la guia acaba rotulada "419 INT NA", que no le
+  // sirve a nadie.
+  const sinDato = (x: string) => ['', 'SN', 'S/N', 'NA', 'N/A', 'NINGUNO', 'NINGUNA', '-', '.']
+    .includes(x.toUpperCase().replace(/\s+/g, ''));
+  const limpio = (v: any) => { const t = String(v || '').trim(); return sinDato(t) ? '' : t; };
+  const ext = limpio(extRaw);
+  const intr = limpio(intrRaw);
+  const cabe = (x: string) => x.length > 0 && x.length <= MAX_DRNR;
+
+  const juntos = ext && intr ? `${ext} INT ${intr}` : '';
+  if (cabe(juntos)) return juntos.toUpperCase();
+  if (!intr && cabe(ext)) return ext.toUpperCase();
+  if (!ext && cabe(intr)) return intr.toUpperCase();
+
+  // No cabe completo: se cae al numero, que es lo minimo util.
   const en = extractStreetNumber(ext);
   const inn = extractStreetNumber(intr);
   let v: string;
@@ -119,7 +156,7 @@ const buildDrnr = (extRaw: string | null | undefined, intrRaw: string | null | u
   else if (en) v = en;
   else if (inn) v = inn;                 // exterior sin dígitos → usar el número interior
   else v = ext || intr || 'S/N';         // sin dígitos en ninguno → texto tal cual (se recorta abajo)
-  v = v.toUpperCase().trim().slice(0, 15).trim();
+  v = v.toUpperCase().trim().slice(0, MAX_DRNR).trim();
   return v || 'S/N';
 };
 const capDrnr = (raw: string | null | undefined): string => {
