@@ -1297,6 +1297,52 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setSubmitting(false);
   };
 
+  /**
+   * ── El pais del banco, cruzado ─────────────────────────────────────────────
+   *
+   * No bloquea: avisa. Un desacuerdo puede ser legitimo —un banco con sucursal
+   * en otro pais— asi que marcarlo como error cerraria altas buenas. En la web
+   * se muestra igual, en ambar, y por las mismas razones.
+   *
+   * Aqui hay dos testigos, no tres: la app no captura el pais del banco por
+   * separado. Son los que importaban. El alta que motivo esto —el proveedor
+   * #65— traia SWIFT MRMDUS33, que dice Estados Unidos, y direccion "Queen's
+   * Road Central, Hong Kong". La direccion fue lo UNICO que lo delato (tarea
+   * 866).
+   *
+   * En la direccion no se buscan codigos de dos letras: "Anaheim, CA" no es
+   * Canada y "Lomas de Santa Fe" no es Alemania. Y se busca la coincidencia
+   * mas larga primero, para que "Hong Kong (China)" no salga como China.
+   */
+  const avisoPaisBanco = ((): string => {
+    const norm = (v: any) => String(v || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const PAISES: Record<string, string[]> = {
+      US: ['ESTADOS UNIDOS DE AMERICA', 'ESTADOS UNIDOS', 'UNITED STATES', 'EEUU', 'EUA', 'USA'],
+      MX: ['ESTADOS UNIDOS MEXICANOS', 'MEXICO'], CN: ['REPUBLICA POPULAR CHINA', 'CHINA MAINLAND', 'CHINA'],
+      HK: ['HONG KONG', 'HONGKONG'], SG: ['SINGAPUR', 'SINGAPORE'], JP: ['JAPON', 'JAPAN'],
+      KR: ['COREA DEL SUR', 'COREA', 'KOREA'], TW: ['TAIWAN'], DE: ['ALEMANIA', 'GERMANY'],
+      ES: ['ESPANA', 'SPAIN'], CA: ['CANADA'], VN: ['VIETNAM'], IN: ['INDIA'],
+      GB: ['REINO UNIDO', 'UNITED KINGDOM', 'INGLATERRA', 'ENGLAND'],
+    };
+    const NOMBRES: Record<string, string> = { US: 'Estados Unidos', MX: 'México', CN: 'China', HK: 'Hong Kong',
+      SG: 'Singapur', JP: 'Japón', KR: 'Corea', TW: 'Taiwán', DE: 'Alemania', ES: 'España', CA: 'Canadá',
+      VN: 'Vietnam', IN: 'India', GB: 'Reino Unido' };
+    const cand = Object.entries(PAISES)
+      .flatMap(([iso, ns]) => ns.map(x => ({ iso, n: norm(x).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() })))
+      .sort((x, y) => y.n.length - x.n.length);
+    const t = ` ${norm(benefBankAddress).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;
+    const pDir = cand.find(c => c.n.length > 3 && t.includes(c.n))?.iso || null;
+    const sw = norm(benefSwift).replace(/\s+/g, '');
+    // Solo cuenta si esas dos letras son un pais conocido: un SWIFT inventado
+    // deja basura ahi ('OCBCHXXX' -> "HX") y el aviso diria "el SWIFT dice HX",
+    // que no le sirve a nadie.
+    const cod = sw.length >= 6 ? sw.slice(4, 6) : '';
+    const pSwift = NOMBRES[cod] ? cod : null;
+    if (!pSwift || !pDir || pSwift === pDir) return '';
+    return `Revisa el país del banco: el SWIFT dice ${NOMBRES[pSwift]} y la dirección dice ${NOMBRES[pDir]}. `
+      + 'Los dos deberían coincidir.';
+  })();
+
   const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
     if (step === 0) {
       // El step 0 solo confirma la selección de servicio (requiereFactura ya
@@ -2777,6 +2823,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   Debe ser el routing para WIRE. Muchos bancos tienen otro distinto para ACH — si se captura ése, el pago se devuelve.
                 </Text>
 
+                {!!avisoPaisBanco && (
+                  <View style={styles.avisoPais}>
+                    <Ionicons name="warning-outline" size={16} color="#8A4B00" />
+                    <Text style={styles.avisoPaisTexto}>{avisoPaisBanco}</Text>
+                  </View>
+                )}
+
                 <Text style={styles.label}>{t('xpay.aliasOptional', 'Alias (opcional)')}</Text>
                 <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
 
@@ -3886,6 +3939,9 @@ const styles = StyleSheet.create({
   // Wizard form
   label: { fontSize: 12, color: TEXT_DIM, marginBottom: 6, marginTop: 10, letterSpacing: 0.5 },
   ayudaCampo: { fontSize: 11, color: TEXT_MUTED, marginTop: 5, lineHeight: 15 },
+  avisoPais: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 10,
+    padding: 10, borderRadius: 8, backgroundColor: '#FFF4E5', borderWidth: 1, borderColor: '#FFB74D' },
+  avisoPaisTexto: { flex: 1, fontSize: 11, lineHeight: 15, color: '#8A4B00', fontWeight: '600' },
   input: {
     borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12,
     fontSize: 14, backgroundColor: SURFACE_2, color: TEXT, marginBottom: 0,
