@@ -16,6 +16,7 @@ export interface SupplierFormData {
   direccion_beneficiario: string;
   pais_beneficiario: string;
   numero_cuenta: string;
+  clabe: string;
   iban: string;
   banco_nombre: string;
   banco_direccion: string;
@@ -35,6 +36,7 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
   direccion_beneficiario: '',
   pais_beneficiario: '',
   numero_cuenta: '',
+  clabe: '',
   iban: '',
   banco_nombre: '',
   banco_direccion: '',
@@ -77,6 +79,62 @@ export default function EntangledSupplierForm({
   // captura, y `banco_pais` es texto libre y está vacío en casi la mitad.
   const swiftLimpio = String(value.swift_bic || '').replace(/\s+/g, '').toUpperCase();
   const bancoEsDeUsa = swiftLimpio.length >= 6 && swiftLimpio.slice(4, 6) === 'US';
+  const pagaEnPesos = String(value.divisa_default || '').toUpperCase() === 'MXN';
+  const problemaClabe = (() => {
+    if (!pagaEnPesos) return '';
+    const d = String(value.clabe || '').replace(/\D/g, '');
+    if (!d) return 'Falta la CLABE: sin ella no se puede hacer el SPEI.';
+    if (d.length !== 18) return `Deben ser 18 dígitos; llevas ${d.length}.`;
+    // Dígito verificador de la CLABE: pesos 3,7,1 sobre los primeros 17.
+    const pesos = [3, 7, 1];
+    let suma = 0;
+    for (let i = 0; i < 17; i++) suma += (Number(d[i]) * pesos[i % 3]!) % 10;
+    if (((10 - (suma % 10)) % 10) !== Number(d[17])) return 'La CLABE no pasa su dígito verificador. Revísala con el proveedor.';
+    return '';
+  })();
+
+  // Los tres testigos del país del banco. Si no coinciden, se marca.
+  const avisoPais = (() => {
+    const norm = (v: any) => String(v || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const PAISES: Record<string, string[]> = {
+      US: ['ESTADOS UNIDOS DE AMERICA', 'ESTADOS UNIDOS', 'UNITED STATES', 'EEUU', 'EE UU', 'EUA', 'USA', 'US'],
+      MX: ['ESTADOS UNIDOS MEXICANOS', 'MEXICO', 'MX'], CN: ['REPUBLICA POPULAR CHINA', 'CHINA MAINLAND', 'CHINA', 'CN'],
+      HK: ['HONG KONG', 'HONGKONG', 'HK'], SG: ['SINGAPUR', 'SINGAPORE', 'SG'], JP: ['JAPON', 'JAPAN', 'JP'],
+      KR: ['COREA DEL SUR', 'COREA', 'KOREA', 'KR'], TW: ['TAIWAN', 'TW'], DE: ['ALEMANIA', 'GERMANY', 'DE'],
+      ES: ['ESPANA', 'SPAIN', 'ES'], CA: ['CANADA', 'CA'], VN: ['VIETNAM', 'VN'], IN: ['INDIA', 'IN'],
+      GB: ['REINO UNIDO', 'UNITED KINGDOM', 'INGLATERRA', 'ENGLAND', 'GB', 'UK'],
+    };
+    const NOMBRES: Record<string, string> = { US: 'Estados Unidos', MX: 'México', CN: 'China', HK: 'Hong Kong', SG: 'Singapur', JP: 'Japón', KR: 'Corea', TW: 'Taiwán', DE: 'Alemania', ES: 'España', CA: 'Canadá', VN: 'Vietnam', IN: 'India', GB: 'Reino Unido' };
+    const cand = Object.entries(PAISES)
+      .flatMap(([iso, ns]) => ns.map(n => ({ iso, n: norm(n).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() })))
+      .sort((a, b) => b.n.length - a.n.length);
+    // En la dirección NUNCA se buscan códigos de dos letras: "Anaheim, CA" no
+    // es Canadá y "Lomas de Santa Fe" no es Alemania.
+    const dePais = (txt: any, codigos: boolean) => {
+      const t = ` ${norm(txt).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;
+      for (const { iso, n } of cand) {
+        if (n.length <= 3) { if (codigos && t.includes(` ${n} `)) return iso; }
+        else if (t.includes(n)) return iso;
+      }
+      return null;
+    };
+    const sw = norm(value.swift_bic).replace(/\s+/g, '');
+    // Solo cuenta si esas dos letras son un país conocido: un SWIFT inventado
+    // deja basura ahí ('OCBCHXXX' → "HX") y el aviso saldría diciendo "el
+    // SWIFT dice HX", que no le sirve a nadie.
+    const codigoSwift = sw.length >= 6 ? sw.slice(4, 6) : '';
+    const pSwift = NOMBRES[codigoSwift] ? codigoSwift : null;
+    const pDecl = dePais(value.banco_pais, true);
+    const pDir = dePais(value.banco_direccion, false);
+    const vistos = [pSwift, pDecl, pDir].filter(Boolean) as string[];
+    if (new Set(vistos).size <= 1) return '';
+    const partes: string[] = [];
+    if (pDecl) partes.push(`el país dice ${NOMBRES[pDecl] || pDecl}`);
+    if (pSwift) partes.push(`el SWIFT dice ${NOMBRES[pSwift] || pSwift}`);
+    if (pDir) partes.push(`la dirección dice ${NOMBRES[pDir] || pDir}`);
+    return `Revisa el país del banco: ${partes.join(', ')}. Los tres deberían coincidir.`;
+  })();
+
   const problemaAba = (() => {
     if (!bancoEsDeUsa) return '';
     const d = String(value.aba_routing || '').replace(/\D/g, '');
@@ -198,7 +256,7 @@ export default function EntangledSupplierForm({
         {t('entangled.suppliers.account', 'Cuenta bancaria')}
       </Typography>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12 }}>
+        <Grid size={{ xs: 12, md: pagaEnPesos ? 6 : 12 }}>
           <TextField
             fullWidth
             label={t('entangled.suppliers.accountNumber', 'Número de cuenta')}
@@ -208,6 +266,25 @@ export default function EntangledSupplierForm({
             sx={textFieldSx}
           />
         </Grid>
+        {/* Un SPEI se hace con cuenta Y CLABE: son dos números distintos del
+            mismo contrato y quien paga necesita los dos. Solo se pide cuando el
+            pago va en pesos (tarea 866). */}
+        {pagaEnPesos && (
+          <Grid size={{ xs: 12, md: 6 }}>
+            <TextField
+              fullWidth
+              label="CLABE (para SPEI)"
+              value={value.clabe}
+              onChange={(e) => set({ clabe: e.target.value.replace(/\D/g, '') })}
+              inputProps={{ maxLength: 18 }}
+              placeholder="18 dígitos"
+              required
+              error={!!problemaClabe}
+              helperText={problemaClabe || 'Es distinta del número de cuenta; sin ella no se puede hacer el SPEI'}
+              sx={textFieldSx}
+            />
+          </Grid>
+        )}
       </Grid>
 
       <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: C.textPrimary }}>
@@ -239,6 +316,11 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.bankAddress', 'Dirección del banco')}
             value={value.banco_direccion}
             onChange={(e) => set({ banco_direccion: e.target.value })}
+            required
+            error={!String(value.banco_direccion || '').trim()}
+            helperText={!String(value.banco_direccion || '').trim()
+              ? 'Obligatoria: es el dato que permite detectar un país mal capturado'
+              : undefined}
             sx={textFieldSx}
           />
         </Grid>
@@ -261,16 +343,33 @@ export default function EntangledSupplierForm({
               y nadie sabe por qué (tarea 866). */}
           <TextField
             fullWidth
-            label={t('entangled.suppliers.aba', 'ABA Routing (USA)')}
+            label={t('entangled.suppliers.aba', 'ABA / Routing WIRE (USD)')}
             value={value.aba_routing}
             onChange={(e) => set({ aba_routing: e.target.value.replace(/\D/g, '') })}
             inputProps={{ maxLength: 9 }}
+            placeholder="9 dígitos"
             required={bancoEsDeUsa}
             error={!!problemaAba}
-            helperText={problemaAba || (bancoEsDeUsa ? 'Obligatorio: el banco es de Estados Unidos' : undefined)}
+            helperText={problemaAba
+              || 'Debe ser el routing para WIRE. Muchos bancos tienen otro distinto para ACH — si se captura ése, el pago se devuelve.'}
             sx={textFieldSx}
           />
         </Grid>
+        {/* El país del banco, cruzado por tres lados: lo que se declaró, lo que
+            dice el SWIFT y lo que dice la dirección. Llegó un alta con SWIFT
+            MRMDUS33 (Estados Unidos) y dirección "Queen's Road Central, Hong
+            Kong": el país correcto era Hong Kong y la dirección era el único
+            dato que lo decía (tarea 866). */}
+        {!!avisoPais && (
+          <Grid size={{ xs: 12 }}>
+            <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: '#FFF4E5', border: '1px solid #FFB74D', display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <Typography sx={{ fontSize: 16, lineHeight: 1.2 }}>⚠️</Typography>
+              <Typography variant="caption" sx={{ color: '#8A4B00', fontWeight: 600 }}>
+                {avisoPais}
+              </Typography>
+            </Box>
+          </Grid>
+        )}
       </Grid>
 
       <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: C.textPrimary }}>

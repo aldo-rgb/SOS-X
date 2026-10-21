@@ -944,6 +944,122 @@ export function faltaAbaDeBancoUsa(b: { swift_bic?: any; aba_routing?: any }): b
 }
 
 /**
+ * ── El pais del banco, cruzado por tres lados ───────────────────────────────
+ *
+ * Llegan altas donde el pais declarado y el SWIFT dicen un pais y la direccion
+ * del banco dice otro. El caso que lo destapo (tarea 866):
+ *
+ *     pais declarado : (vacio)
+ *     SWIFT          : MRMDUS33  → US
+ *     banco          : The Hongkong and Shanghai Banking Corporation Limited
+ *     direccion      : No. 1 Queen's Road Central, Hong Kong
+ *
+ * El pais correcto era Hong Kong y la direccion era el unico dato que lo
+ * decia. Por eso sirve de tercer testigo: es el mas dificil de equivocar,
+ * porque nadie escribe "Queen's Road Central, Hong Kong" por accidente.
+ *
+ * Dos decisiones que salieron de probar contra los 65 proveedores reales:
+ *
+ *  · En la DIRECCION no se buscan codigos de dos letras. "Anaheim, CA 92807"
+ *    se leia como Canada y "Lomas de Santa Fe" como Alemania (el "de").
+ *  · Tampoco ciudades. Un proveedor tiene el nombre de su empresa en el campo
+ *    de direccion; "Guangzhou" lo marcaba como chino, que es otro problema
+ *    distinto y marcarlo ahi solo confunde.
+ *
+ * Con eso, de 65 proveedores marca UNO: el que de verdad esta mal.
+ */
+const PAISES_CONOCIDOS: Record<string, string[]> = {
+  US: ['ESTADOS UNIDOS DE AMERICA', 'ESTADOS UNIDOS', 'UNITED STATES', 'EEUU', 'EE UU', 'EUA', 'USA', 'US'],
+  MX: ['ESTADOS UNIDOS MEXICANOS', 'MEXICO', 'MX'],
+  CN: ['REPUBLICA POPULAR CHINA', 'CHINA MAINLAND', 'CHINA', 'CN'],
+  HK: ['HONG KONG', 'HONGKONG', 'HK'],
+  SG: ['SINGAPUR', 'SINGAPORE', 'SG'],
+  JP: ['JAPON', 'JAPAN', 'JP'],
+  KR: ['COREA DEL SUR', 'COREA', 'KOREA', 'KR'],
+  TW: ['TAIWAN', 'TW'],
+  DE: ['ALEMANIA', 'GERMANY', 'DE'],
+  ES: ['ESPANA', 'SPAIN', 'ES'],
+  CA: ['CANADA', 'CA'],
+  VN: ['VIETNAM', 'VN'],
+  IN: ['INDIA', 'IN'],
+  GB: ['REINO UNIDO', 'UNITED KINGDOM', 'INGLATERRA', 'ENGLAND', 'GB', 'UK'],
+};
+const NOMBRE_PAIS: Record<string, string> = {
+  US: 'Estados Unidos', MX: 'México', CN: 'China', HK: 'Hong Kong', SG: 'Singapur',
+  JP: 'Japón', KR: 'Corea', TW: 'Taiwán', DE: 'Alemania', ES: 'España', CA: 'Canadá',
+  VN: 'Vietnam', IN: 'India', GB: 'Reino Unido',
+};
+const sinAcentos = (v: any) => String(v || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+// De la coincidencia MAS LARGA a la mas corta: "Hong Kong (China)" es HK, no CN.
+const CANDIDATOS_PAIS = Object.entries(PAISES_CONOCIDOS)
+  .flatMap(([iso, nombres]) => nombres.map(n => ({ iso, n: sinAcentos(n).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() })))
+  .sort((a, b) => b.n.length - a.n.length);
+
+export function paisDeTexto(txt: any, permitirCodigos = true): string | null {
+  const t = ` ${sinAcentos(txt).replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;
+  for (const { iso, n } of CANDIDATOS_PAIS) {
+    if (n.length <= 3) { if (permitirCodigos && t.includes(` ${n} `)) return iso; }
+    else if (t.includes(n)) return iso;
+  }
+  return null;
+}
+
+// Codigos ISO de pais que existen. Hace falta porque un SWIFT inventado deja
+// basura en esas dos posiciones: 'OCBCHXXX' da "HX", que no es ningun pais, y
+// sin esta lista el aviso salia diciendo "el SWIFT dice HX".
+const ISO_PAIS = new Set(['AD','AE','AF','AG','AL','AM','AO','AR','AT','AU','AW','AZ','BA','BB','BD','BE','BF','BG','BH','BI','BJ','BM','BN','BO','BR','BS','BT','BW','BY','BZ','CA','CD','CF','CG','CH','CI','CL','CM','CN','CO','CR','CU','CV','CY','CZ','DE','DJ','DK','DM','DO','DZ','EC','EE','EG','ER','ES','ET','FI','FJ','FR','GA','GB','GD','GE','GH','GI','GM','GN','GQ','GR','GT','GW','GY','HK','HN','HR','HT','HU','ID','IE','IL','IN','IQ','IR','IS','IT','JM','JO','JP','KE','KG','KH','KM','KN','KP','KR','KW','KY','KZ','LA','LB','LC','LI','LK','LR','LS','LT','LU','LV','LY','MA','MC','MD','ME','MG','MH','MK','ML','MM','MN','MO','MR','MT','MU','MV','MW','MX','MY','MZ','NA','NE','NG','NI','NL','NO','NP','NZ','OM','PA','PE','PG','PH','PK','PL','PR','PT','PY','QA','RO','RS','RU','RW','SA','SB','SC','SD','SE','SG','SI','SK','SL','SM','SN','SO','SR','SV','SY','SZ','TD','TG','TH','TJ','TM','TN','TO','TR','TT','TW','TZ','UA','UG','US','UY','UZ','VA','VC','VE','VN','VU','WS','YE','ZA','ZM','ZW']);
+
+/** El pais que declara el SWIFT (posiciones 5 y 6), si es un ISO de verdad. */
+export function paisDelSwift(swift: any): string | null {
+  const v = sinAcentos(swift).replace(/\s+/g, '');
+  if (v.length < 6) return null;
+  const c = v.slice(4, 6);
+  return ISO_PAIS.has(c) ? c : null;
+}
+
+/** ¿El SWIFT trae en sus posiciones 5 y 6 algo que no es un país? */
+export function swiftConPaisInvalido(swift: any): string | null {
+  const v = sinAcentos(swift).replace(/\s+/g, '');
+  if (v.length < 6) return null;
+  const c = v.slice(4, 6);
+  if (ISO_PAIS.has(c)) return null;
+  return `El SWIFT "${v}" no parece válido: sus posiciones 5 y 6 deberían ser el país y dicen "${c}". Confírmalo con el proveedor.`;
+}
+
+/**
+ * ¿El pais declarado, el del SWIFT y el de la direccion dicen lo mismo?
+ * Devuelve el aviso en palabras, o null si no hay conflicto.
+ */
+export function revisarPaisDelBanco(b: { banco_pais?: any; swift_bic?: any; banco_direccion?: any }): string | null {
+  const pSwift = paisDelSwift(b?.swift_bic);
+  const pDecl = paisDeTexto(b?.banco_pais, true);
+  const pDir = paisDeTexto(b?.banco_direccion, false);   // en direccion, nunca codigos
+  const nombre = (iso: string | null) => (iso ? (NOMBRE_PAIS[iso] || iso) : null);
+  const vistos = [pSwift, pDecl, pDir].filter(Boolean) as string[];
+  if (new Set(vistos).size <= 1) return null;
+  const partes: string[] = [];
+  if (pDecl) partes.push(`el país dice ${nombre(pDecl)}`);
+  if (pSwift) partes.push(`el SWIFT dice ${nombre(pSwift)}`);
+  if (pDir) partes.push(`la dirección del banco dice ${nombre(pDir)}`);
+  return `Revisa el país del banco: ${partes.join(', ')}. `
+    + 'Los tres deberían coincidir; si no, el pago se va por la ruta equivocada.';
+}
+
+/**
+ * La CLABE de un SPEI: 18 digitos con digito verificador (pesos 3,7,1).
+ * Es un numero distinto del numero de cuenta, aunque salgan del mismo
+ * contrato, y quien paga necesita los dos.
+ */
+export function clabeValida(raw: any): boolean {
+  const d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length !== 18) return false;
+  const pesos = [3, 7, 1];
+  let suma = 0;
+  for (let i = 0; i < 17; i++) suma += (Number(d[i]) * pesos[i % 3]!) % 10;
+  return ((10 - (suma % 10)) % 10) === Number(d[17]);
+}
+
+/**
  * El ABA no es "nueve numeros cualesquiera": trae digito verificador.
  *
  * La suma ponderada de los 9 digitos con los pesos 3,7,1 repetidos tiene que
@@ -996,6 +1112,14 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   }
   const problemaAba = revisarAbaDeBancoUsa(b);
   if (problemaAba) return res.status(400).json({ error: problemaAba, campo: 'aba_routing' });
+  // La direccion del banco es obligatoria: es el tercer dato que permite
+  // cachar un pais mal capturado (tarea 866).
+  if (!String(b.banco_direccion || '').trim()) {
+    return res.status(400).json({ error: 'Falta la dirección del banco. Es obligatoria: es el dato que permite detectar un país mal capturado.', campo: 'banco_direccion' });
+  }
+  if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
+    return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
+  }
 
   // Normalizadores
   const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
@@ -1094,7 +1218,7 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
         swift_bic, aba_routing,
         banco_intermediario_nombre, banco_intermediario_swift, banco_intermediario_direccion,
         divisa_default, motivo_default, foto_url,
-        alias, is_favorite, notes
+        alias, is_favorite, notes, clabe
       ) VALUES (
         $1, $2, $3, $4, $5,
         $6, $7,
@@ -1102,7 +1226,7 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
         $11, $12,
         $13, $14, $15,
         $16, $17, $18,
-        $19, COALESCE($20, FALSE), $21
+        $19, COALESCE($20, FALSE), $21, $22
       ) RETURNING *`,
       [
         userId,
@@ -1113,6 +1237,7 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
         limpiar(b.banco_intermediario_nombre), normCuenta(b.banco_intermediario_swift) || null, limpiar(b.banco_intermediario_direccion),
         limpiar(b.divisa_default), limpiar(b.motivo_default), b.foto_url || null,
         limpiar(b.alias), b.is_favorite, b.notes || null,
+        normCuenta(b.clabe) || null,
       ]
     );
     return res.status(201).json(r.rows[0]);
@@ -1151,6 +1276,9 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
       const problema = revisarAbaDeBancoUsa(quedaria);
       if (problema) return res.status(400).json({ error: problema, campo: 'aba_routing' });
     }
+    if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
+      return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
+    }
 
     const r = await pool.query(
       `UPDATE entangled_suppliers SET
@@ -1174,6 +1302,7 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
         alias = $19,
         is_favorite = COALESCE($20, is_favorite),
         notes = $21,
+        clabe = COALESCE($22, clabe),
         updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -1186,6 +1315,7 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
         limpio(b.banco_intermediario_nombre), cuenta(b.banco_intermediario_swift), limpio(b.banco_intermediario_direccion),
         limpio(b.divisa_default), limpio(b.motivo_default), b.foto_url || null,
         limpio(b.alias), b.is_favorite, b.notes || null,
+        cuenta(b.clabe),
       ]
     );
     return res.json(r.rows[0]);

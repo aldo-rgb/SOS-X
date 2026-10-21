@@ -18277,6 +18277,10 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     // libre en `reference` y ningun codigo lo leia (tarea 835).
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS ocurre_branch_code TEXT`),
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS ocurre_branch_zip TEXT`),
+    // CLABE del proveedor de X-Pay. Un SPEI se hace con cuenta Y CLABE: son
+    // dos numeros distintos del mismo contrato y quien paga necesita los dos.
+    // Hasta hoy solo habia "numero de cuenta" (tarea 866).
+    pool.query(`ALTER TABLE entangled_suppliers ADD COLUMN IF NOT EXISTS clabe TEXT`),
   ]).catch(() => {});
 
   // Columna fuente en exchange_rate_config (idempotente)

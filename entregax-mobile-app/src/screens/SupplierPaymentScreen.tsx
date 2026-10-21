@@ -261,6 +261,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [benefBankAddress, setBenefBankAddress] = useState('');
   const [benefSwift, setBenefSwift] = useState('');
   const [benefAba, setBenefAba] = useState('');
+  const [benefClabe, setBenefClabe] = useState('');
   const [benefAlias, setBenefAlias] = useState('');
 
   // Sin `name` ni `code`: el endpoint público ya no los devuelve.
@@ -704,6 +705,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefBankAddress(s.banco_direccion || '');
         setBenefSwift(s.swift_bic || '');
         setBenefAba(s.aba_routing || '');
+        setBenefClabe(s.clabe || '');
         setBenefAlias(s.alias || '');
         // ⚠️ NO se pisa la divisa con s.divisa_default. La divisa se elige en el
         // step 1 (Monto) y el proveedor en el step 2, así que hacerlo aquí
@@ -1127,7 +1129,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 nombre_chino: benefNameZh, direccion_beneficiario: benefAddress,
                 numero_cuenta: benefAccount, iban: benefIban, banco_nombre: benefBankName,
                 banco_direccion: benefBankAddress, swift_bic: benefSwift,
-                aba_routing: benefAba, divisa_default: divisa,
+                aba_routing: benefAba, clabe: benefClabe || null, divisa_default: divisa,
               }),
             }
           );
@@ -1326,6 +1328,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       // Antes no se validaba nada aquí y se podía avanzar con lo que fuera:
       // dos proveedores quedaron guardados con "0108" y "08100003". El pago
       // rebota en el banco días después y nadie sabe por qué (tarea 866).
+      // ── CLABE para pagos en pesos ────────────────────────────────────────
+      // 18 digitos con digito verificador (pesos 3,7,1 sobre los primeros 17).
+      if (divisa === 'MXN') {
+        const c = benefClabe.replace(/\D/g, '');
+        if (!c) return 'El pago va en pesos: falta la CLABE. Son 18 dígitos y es distinta del número de cuenta.';
+        if (c.length !== 18) return `La CLABE debe tener 18 dígitos y capturaste ${c.length}.`;
+        const pc = [3, 7, 1];
+        let sc = 0;
+        for (let i = 0; i < 17; i++) sc += (Number(c[i]) * pc[i % 3]!) % 10;
+        if (((10 - (sc % 10)) % 10) !== Number(c[17])) return 'La CLABE no pasa su dígito verificador. Revísala con el proveedor.';
+      }
       const swift = benefSwift.replace(/\s+/g, '').toUpperCase();
       if (swift.length >= 6 && swift.slice(4, 6) === 'US') {
         const aba = benefAba.replace(/\D/g, '');
@@ -2683,6 +2696,24 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.accountNumber', 'Número de cuenta')} *</Text>
                 <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
 
+                {/* Un SPEI se hace con cuenta Y CLABE: son dos números
+                    distintos del mismo contrato y quien paga necesita los dos.
+                    Solo se pide cuando el pago va en pesos (tarea 866). */}
+                {divisa === 'MXN' && (
+                  <>
+                    <Text style={styles.label}>CLABE (para SPEI) *</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={benefClabe}
+                      onChangeText={(v) => setBenefClabe(v.replace(/\D/g, '').slice(0, 18))}
+                      keyboardType="numeric"
+                      placeholder="18 dígitos"
+                      placeholderTextColor={TEXT_MUTED}
+                    />
+                    <Text style={styles.ayudaCampo}>Es distinta del número de cuenta; sin ella no se puede hacer el SPEI.</Text>
+                  </>
+                )}
+
                 <Text style={styles.label}>{t('xpay.bankName', 'Banco')} *</Text>
                 <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
@@ -2696,8 +2727,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.swift', 'SWIFT/BIC')}</Text>
                 <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
 
-                <Text style={styles.label}>{t('xpay.aba', 'ABA/Routing')}</Text>
-                <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" />
+                <Text style={styles.label}>{t('xpay.aba', 'ABA / Routing WIRE (USD)')}</Text>
+                <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" placeholder="9 dígitos" placeholderTextColor={TEXT_MUTED} />
+                {/* La etiqueta sola no alcanza: "WIRE" dice cuál pedir, pero
+                    esta línea es la que evita el error, porque el asesor no
+                    suele saber que existen dos routings — pide "el routing" y
+                    le mandan el de ACH, con el que el pago se devuelve. */}
+                <Text style={styles.ayudaCampo}>
+                  Debe ser el routing para WIRE. Muchos bancos tienen otro distinto para ACH — si se captura ése, el pago se devuelve.
+                </Text>
 
                 <Text style={styles.label}>{t('xpay.aliasOptional', 'Alias (opcional)')}</Text>
                 <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
@@ -3807,6 +3845,7 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   // Wizard form
   label: { fontSize: 12, color: TEXT_DIM, marginBottom: 6, marginTop: 10, letterSpacing: 0.5 },
+  ayudaCampo: { fontSize: 11, color: TEXT_MUTED, marginTop: 5, lineHeight: 15 },
   input: {
     borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12,
     fontSize: 14, backgroundColor: SURFACE_2, color: TEXT, marginBottom: 0,
