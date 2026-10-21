@@ -414,6 +414,40 @@ const NOMBRE_SERVICIO_CREDITO: Record<string, string> = {
   tdi_express: 'TDI Express',
 };
 
+/**
+ * Quien esta viendo la pantalla (tarea 794).
+ *
+ * El chat de tickets decidia el lado y el color por `sender_type`, asi que los
+ * mensajes del asesor y los del agente caian los dos a la derecha, en naranja
+ * y sin nombre: no habia forma de saber quien dijo que. Lo que decide el lado
+ * es de quien es el mensaje comparado con quien lo lee, no el tipo de
+ * remitente. Y quedan tres lados, no dos: lo mio, el cliente y el equipo.
+ */
+const miIdDeUsuario = (): number => {
+  try { return Number(JSON.parse(localStorage.getItem('user') || '{}')?.id) || 0; } catch { return 0; }
+};
+
+/** Como se pinta un mensaje de ticket: lado, color y de quien es. */
+const ladoDelMensaje = (msg: any) => {
+  const yo = miIdDeUsuario();
+  const propio = !!yo && Number(msg?.sender_id) === yo;
+  const esCliente = msg?.sender_type === 'client' || msg?.sender_type === 'user';
+  const esIA = msg?.sender_type === 'ai';
+  const esEquipo = !propio && !esCliente && !esIA;
+  return {
+    propio, esCliente, esEquipo,
+    quien: propio ? 'Tú' : esCliente ? 'Cliente' : esIA ? 'Orlando (IA)' : (msg?.sender_name || 'Soporte'),
+    sx: {
+      alignSelf: propio ? 'flex-end' : 'flex-start',
+      maxWidth: '80%',
+      bgcolor: propio ? '#F05A28' : esEquipo ? '#E8F1FB' : '#f5f5f5',
+      color: propio ? '#fff' : '#111',
+      ...(esEquipo ? { borderLeft: '3px solid #1565C0' } : {}),
+      borderRadius: 2, px: 1.5, py: 1,
+    } as any,
+  };
+};
+
 export default function DashboardAdvisor() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -6540,13 +6574,14 @@ export default function DashboardAdvisor() {
                       }
                       if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
                       return (
-                      <Box key={msg.id} sx={{
-                        alignSelf: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'flex-end' : 'flex-start',
-                        maxWidth: '80%',
-                        bgcolor: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#F05A28' : '#f5f5f5',
-                        color: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#fff' : '#111',
-                        borderRadius: 2, px: 1.5, py: 1,
-                      }}>
+                      <Box key={msg.id} sx={ladoDelMensaje(msg).sx}>
+                        <Typography variant="caption" sx={{
+                          display: 'block', fontWeight: 700, mb: 0.25,
+                          color: ladoDelMensaje(msg).propio ? 'rgba(255,255,255,0.85)'
+                            : ladoDelMensaje(msg).esEquipo ? '#1565C0' : 'text.secondary',
+                        }}>
+                          {ladoDelMensaje(msg).quien}
+                        </Typography>
                         {msg.message && (
                           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
                         )}
@@ -8992,13 +9027,14 @@ export default function DashboardAdvisor() {
                   }
                   if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
                   return (
-                  <Box key={msg.id} sx={{
-                    alignSelf: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'flex-end' : 'flex-start',
-                    maxWidth: '80%',
-                    bgcolor: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#F05A28' : '#f5f5f5',
-                    color: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#fff' : '#111',
-                    borderRadius: 2, px: 1.5, py: 1,
-                  }}>
+                  <Box key={msg.id} sx={ladoDelMensaje(msg).sx}>
+                    <Typography variant="caption" sx={{
+                      display: 'block', fontWeight: 700, mb: 0.25,
+                      color: ladoDelMensaje(msg).propio ? 'rgba(255,255,255,0.85)'
+                        : ladoDelMensaje(msg).esEquipo ? '#1565C0' : 'text.secondary',
+                    }}>
+                      {ladoDelMensaje(msg).quien}
+                    </Typography>
                     {msg.message && (
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
                     )}

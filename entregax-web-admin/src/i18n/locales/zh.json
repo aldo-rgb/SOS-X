@@ -92,7 +92,7 @@
       "bankAddress": "银行地址",
       "bankCountry": "银行所在国",
       "swift": "SWIFT / BIC",
-      "aba": "ABA（美国）",
+      "aba": "ABA / Routing WIRE",
       "intermediary": "中转银行（可选）",
       "intermediaryName": "中转银行名称",
       "intermediarySwift": "中转银行 SWIFT",

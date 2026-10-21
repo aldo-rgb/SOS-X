@@ -49,6 +49,9 @@ interface TicketMessage {
   id: number;
   sender_type: string;
   sender_id?: number | null;
+  /** Nombre de quien escribio. Lo manda el backend; sin el, todo decia "Agente". */
+  sender_name?: string | null;
+  sender_role?: string | null;
   message: string;
   attachment_url: string | null;
   attachments?: string[] | string | null;
@@ -309,7 +312,10 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     if (!urls.length && msg.attachment_url) urls = [msg.attachment_url];
     setCitando({
       id: msg.id,
-      autor: msg.sender_type === 'user' || msg.sender_type === 'client' ? 'Cliente' : (msg.sender_type === 'ai' ? 'Orlando (IA)' : 'Agente'),
+      autor: (!!user?.id && Number(msg.sender_id) === Number(user.id)) ? 'Tú'
+        : (msg.sender_type === 'user' || msg.sender_type === 'client') ? 'Cliente'
+        : msg.sender_type === 'ai' ? 'Orlando (IA)'
+        : (msg.sender_name || 'Soporte'),
       texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
       url: urls[0] || null,
     });
@@ -487,8 +493,27 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   };
 
   const renderMessageBubble = (msg: TicketMessage) => {
-    const isUser = msg.sender_type === 'user';
+    /**
+     * Quien habla, de verdad (tarea 794).
+     *
+     * Antes el lado y el color los decidia `sender_type === 'user'`, o sea el
+     * CLIENTE. Para el asesor eso significaba que sus propios mensajes salian
+     * del lado del agente, con el mismo color y rotulados "Agente" igual que
+     * las respuestas que recibia: no habia forma de saber quien dijo que.
+     *
+     * Lo que decide el lado es de quien es el mensaje comparado con quien esta
+     * viendo la pantalla, no el tipo de remitente. Y quedan tres lados
+     * distintos, no dos: lo mio, el cliente y el resto del equipo.
+     */
+    const propio = !!user?.id && Number(msg.sender_id) === Number(user.id);
+    const esCliente = msg.sender_type === 'user' || msg.sender_type === 'client';
     const isAI = msg.sender_type === 'ai';
+    const esEquipo = !propio && !esCliente && !isAI;
+    const quienHabla = propio ? 'Tú'
+      : esCliente ? 'Cliente'
+      : isAI ? 'Orlando (IA)'
+      : (msg.sender_name || 'Soporte');
+    const iconoHabla = propio ? 'person-circle' : esCliente ? 'person' : isAI ? 'sparkles' : 'headset';
 
     let attachUrls: string[] = [];
     if (Array.isArray(msg.attachments)) attachUrls = msg.attachments as string[];
@@ -502,28 +527,28 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
         key={msg.id}
         style={[
           styles.messageBubble,
-          isUser ? styles.userBubble : styles.systemBubble,
+          propio ? styles.userBubble : esEquipo ? styles.teamBubble : styles.systemBubble,
         ]}
       >
         <View style={styles.messageHeader}>
           <Ionicons
-            name={isUser ? 'person' : isAI ? 'sparkles' : 'headset'}
+            name={iconoHabla as any}
             size={14}
-            color={isUser ? '#fff' : '#666'}
+            color={propio ? '#fff' : esEquipo ? '#1565C0' : '#666'}
           />
-          <Text style={[styles.senderLabel, isUser && { color: '#fff' }]}>
-            {isUser ? 'Cliente' : isAI ? 'Orlando (IA)' : 'Agente'}
+          <Text style={[styles.senderLabel, propio && { color: '#fff' }, esEquipo && { color: '#1565C0' }]}>
+            {quienHabla}
           </Text>
-          <Text style={[styles.messageTime, isUser && { color: 'rgba(255,255,255,0.7)' }]}>
+          <Text style={[styles.messageTime, propio && { color: 'rgba(255,255,255,0.7)' }]}>
             {formatTime(msg.created_at)}
           </Text>
         </View>
         {/* Lo que se está citando */}
         {!!msg.reply && (
-          <View style={[styles.citaBloque, isUser && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+          <View style={[styles.citaBloque, propio && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.citaAutor, isUser && { color: '#fff' }]}>{msg.reply.autor}</Text>
-              <Text style={[styles.citaTexto, isUser && { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={1}>
+              <Text style={[styles.citaAutor, propio && { color: '#fff' }]}>{msg.reply.autor}</Text>
+              <Text style={[styles.citaTexto, propio && { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={1}>
                 {msg.reply.texto || (msg.reply.url ? '📷 Foto' : '—')}
               </Text>
             </View>
@@ -531,7 +556,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
           </View>
         )}
         {!!msg.message?.trim() && (
-          <Text style={[styles.messageText, isUser && { color: '#fff' }]}>
+          <Text style={[styles.messageText, propio && { color: '#fff' }]}>
             {String(msg.message).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
           </Text>
         )}
@@ -545,15 +570,15 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
                 return (
                   <TouchableOpacity
                     key={i}
-                    style={[styles.attachFileBtn, isUser && { backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.4)' }]}
+                    style={[styles.attachFileBtn, propio && { backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.4)' }]}
                     onPress={() => Linking.openURL(url)}
                   >
                     <Ionicons
                       name={isPdf ? 'document-text' : 'document-attach'}
                       size={18}
-                      color={isUser ? '#fff' : (isPdf ? '#c62828' : '#2E7D32')}
+                      color={propio ? '#fff' : (isPdf ? '#c62828' : '#2E7D32')}
                     />
-                    <Text style={[styles.attachFileText, isUser && { color: '#fff' }]}>
+                    <Text style={[styles.attachFileText, propio && { color: '#fff' }]}>
                       {isPdf ? 'Ver PDF' : 'Ver Excel'}
                     </Text>
                   </TouchableOpacity>
@@ -569,7 +594,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
         )}
         <TouchableOpacity onPress={() => citar(msg)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{ alignSelf: 'flex-end', marginTop: 4 }}>
-          <Text style={[styles.accionMsg, isUser && { color: '#fff' }]}>Responder</Text>
+          <Text style={[styles.accionMsg, propio && { color: '#fff' }]}>Responder</Text>
         </TouchableOpacity>
       </View>
     );
@@ -1343,6 +1368,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 4,
+  },
+  // El resto del equipo: del lado del cliente pero claramente distinto, para
+  // que no se confunda con el (tarea 794).
+  teamBubble: {
+    backgroundColor: '#E8F1FB',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: '#1565C0',
   },
   messageHeader: {
     flexDirection: 'row',

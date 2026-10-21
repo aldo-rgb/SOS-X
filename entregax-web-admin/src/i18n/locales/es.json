@@ -128,7 +128,7 @@
       "bankAddress": "Dirección del banco",
       "bankCountry": "País del banco",
       "swift": "SWIFT / BIC",
-      "aba": "ABA / Routing (USA)",
+      "aba": "ABA / Routing WIRE",
       "intermediary": "Banco intermediario (opcional)",
       "intermediaryName": "Nombre del banco intermediario",
       "intermediarySwift": "SWIFT del banco intermediario",

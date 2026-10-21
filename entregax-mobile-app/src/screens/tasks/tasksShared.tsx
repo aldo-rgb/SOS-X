@@ -2021,7 +2021,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                         ) : (
                           <TouchableOpacity style={styles.fileChip} onPress={() => openAttachment(c.url)}>
                             <Text style={{ fontSize: 22 }}>{fileEmoji(c.file_name)}</Text>
-                            <Text style={styles.fileChipTxt} numberOfLines={2}>{c.file_name}</Text>
+                            <Text selectable style={styles.fileChipTxt} numberOfLines={2}>{c.file_name}</Text>
                             <Text style={styles.fileChipOpen}>Abrir</Text>
                           </TouchableOpacity>
                         )
@@ -2045,7 +2045,13 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           </View>
                         </View>
                       ) : (
-                        <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
+                        /* selectable: en React Native el texto NO se puede
+                           seleccionar si no se pide. El titulo y la descripcion
+                           ya lo traian y la conversacion no, que es donde esta
+                           lo que uno quiere copiar —un folio, un RFC, una guia,
+                           una direccion— y habia que transcribirlo a mano
+                           (tarea 872). */
+                        <Text selectable style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
                       )}
                       {/* Un comentario puede traer archivo (asi llegan los de
                           Grupo Rino). Sin esto decia "Adjunto un archivo" y no

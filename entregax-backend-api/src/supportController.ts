@@ -59,6 +59,66 @@ const wrapMulter = (req: Request, res: Response, next: Function) => {
   });
 };
 
+
+/* ───────────────────────────────────────────────────────────────────────────
+ *  Titulos de tareas nacidas de un ticket
+ *
+ *  Todas salian iguales salvo el folio: "Error localizado TKT-2026-3251",
+ *  "Error localizado TKT-2026-3227"... Con cuatro en la lista no habia forma
+ *  de saber cual era cual sin abrirlas una por una, y al volver habia que
+ *  repetirlo (tarea 873).
+ *
+ *  Lo que distingue de verdad es QUIEN lo reporto y DE QUE va. El nombre
+ *  siempre esta. El texto no: `subject` se guarda recortado a 50 caracteres y
+ *  arranca con plantilla y saludo —"[21 de octubre 11:33]", "Datos de
+ *  incidencia:", "Buenas tardes"— que es justo lo que no distingue. Asi que se
+ *  limpia eso, y si lo que queda no alcanza para decir algo se usa la
+ *  categoria, que siempre dice algo.
+ *  ─────────────────────────────────────────────────────────────────────────── */
+
+const CATEGORIA_EN_PALABRAS: Record<string, string> = {
+  systemError: 'error del sistema', invoicing: 'facturación', accounting: 'cobranza',
+  billing: 'facturación', tracking: 'rastreo', delivery: 'entrega', shipping: 'envío',
+  complaint: 'inconformidad', other: 'consulta general',
+};
+
+// Saludos y arranques que ocupan el espacio util sin aportar nada.
+const SALUDO_AL_INICIO =
+  /^\s*(buen[oa]s?\s+(tardes|d[ií]as?|noches)|buen\s+d[ií]a|hola|qu[eé]\s+tal|saludos|disculp[ae]n?|por\s+favor|me\s+podr[ií]an?)[\s,.!:;¿?-]*/i;
+
+/** El trozo del texto del ticket que de verdad dice algo. */
+export function trozoUtilDelTicket(subject: any): string {
+  const crudo = String(subject || '');
+  const veniaCortado = /\.\.\.\s*$/.test(crudo);
+  let t = crudo.replace(/[\r\n]+/g, ' ')
+    .replace(/^\s*\[[^\]]{0,60}\]\s*/, '')              // [21 de octubre de 2026 1:01 p.m.]
+    .replace(/^\s*📋?\s*Datos de incidencia:?\s*/i, '')   // plantilla del formulario
+    .replace(/•[^•]*?:\s*/g, ' ')                         // • Número de cliente:
+    .replace(/\s*\.\.\.\s*$/, '');
+  for (let i = 0; i < 3; i++) t = t.replace(SALUDO_AL_INICIO, '');
+  t = t.replace(/^(el|la|los|las|de|del|que|y|a|en)\s+/i, '').replace(/\s+/g, ' ').trim();
+  // Guardado a 50 caracteres, la ultima palabra suele venir partida
+  // ("en el siste"): se tira en vez de dejarla a medias.
+  if (veniaCortado) t = t.replace(/\s+\S+$/, '');
+  return t.trim();
+}
+
+/** `<base> · <quien lo reporto> · <de que va>`. */
+export function tituloDeTareaDeTicket(
+  base: string,
+  opts: { subject?: any; category?: any; reportante?: any },
+  maxTrozo = 42,
+): string {
+  const quien = String(opts.reportante || '').trim().split(/\s+/).slice(0, 2).join(' ');
+  let trozo = trozoUtilDelTicket(opts.subject);
+  const letras = trozo.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').length;
+  if (letras < 14 || trozo.split(/\s+/).length < 3) {
+    trozo = CATEGORIA_EN_PALABRAS[String(opts.category)] || 'consulta';
+  }
+  if (trozo.length > maxTrozo) trozo = trozo.slice(0, maxTrozo).replace(/\s+\S*$/, '') + '…';
+  return [base, quien || null, trozo].filter(Boolean).join(' · ');
+}
+
 export const uploadSupportImages = wrapMulter;
 export const uploadAdminReplyFiles = wrapMulter;
 
@@ -1487,10 +1547,17 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
               q.sender_type AS cita_lado,
               CASE WHEN q.deleted_at IS NOT NULL THEN $2::text ELSE q.message END AS cita_texto,
               q.attachments AS cita_adjuntos,
-              qu.full_name AS cita_autor
+              qu.full_name AS cita_autor,
+              -- Quien escribio el mensaje. Faltaba, y por eso la app siempre
+              -- rotulaba "Agente" aunque ya tenia el campo (tarea 794). Un
+              -- mensaje de agente sin usuario es del equipo, no de una
+              -- persona: se firma "Soporte", igual que en la vista de admin.
+              COALESCE(su.full_name, CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+              su.role      AS sender_role
        FROM ticket_messages tm
        LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
        LEFT JOIN users qu ON qu.id = q.sender_id
+       LEFT JOIN users su ON su.id = tm.sender_id
        WHERE tm.ticket_id = $1
          AND COALESCE(tm.is_internal, FALSE) = FALSE
        ORDER BY tm.created_at ASC`,
@@ -1532,7 +1599,8 @@ export const getAdminTicketMessages = async (req: Request, res: Response): Promi
               q.sender_type AS cita_lado,
               CASE WHEN q.deleted_at IS NOT NULL THEN $2::text ELSE q.message END AS cita_texto,
               q.attachments AS cita_adjuntos,
-              qu.full_name AS cita_autor
+              qu.full_name AS cita_autor,
+              u.role       AS sender_role
        FROM ticket_messages tm
        LEFT JOIN users u ON u.id = tm.sender_id
        LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
@@ -1787,7 +1855,11 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
              (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message,
-             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled') AS error_reported,
+             -- LIKE y no igualdad: el titulo lleva ademas quien reporto y de
+             -- que va el ticket (tarea 873), asi que comparar el titulo
+             -- completo dejaria de encontrar la tarea y el ticket volveria a
+             -- decir que nadie reporto el error.
+             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled') AS error_reported,
              -- QUÉ tarea, no solo que existe. Saber que "ya se reportó" sin el
              -- número deja a quien atiende sin forma de llegar a la respuesta:
              -- el ticket no deja levantar otra tarea y tampoco dice dónde está
@@ -1795,10 +1867,10 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              -- TKT-2026-2879, cuya tarea (la 687) llevaba cuatro días resuelta
              -- (tarea 734).
              (SELECT tk.id FROM tasks tk
-               WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled'
+               WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled'
                ORDER BY tk.id LIMIT 1) AS error_task_id,
              (SELECT tk.status FROM tasks tk
-               WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled'
+               WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled'
                ORDER BY tk.id LIMIT 1) AS error_task_status,
              -- Mensajes del cliente POSTERIORES a la última respuesta. Es lo que
              -- de verdad necesita ver quien atiende la bandeja: no "yo no lo he
@@ -2245,9 +2317,12 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
                       ORDER BY sort_order LIMIT 1),
                     column_id
                   )
-            WHERE title = $1
+            WHERE title LIKE $1 || '%'
               AND status <> 'completed'
               AND status <> 'cancelled'`,
+          // Por el FOLIO, no por el titulo completo: el titulo ahora lleva
+          // ademas quien reporto y de que va (tarea 873). Comparando todo,
+          // esto habria dejado de cerrar la tarea sin que nada avisara.
           [`Error localizado ${folio}`]
         );
       } catch (e: any) {
@@ -2778,10 +2853,16 @@ export const reportarErrorDeTicket = async (
     if (tRes.rows.length === 0) return { error: 'Ticket no encontrado', status: 404 };
     const ticket = tRes.rows[0];
     const folio = ticket.ticket_folio || `#${ticketId}`;
-    const title = `Error localizado ${folio}`;
+    // El duplicado se busca por el FOLIO, no por el titulo completo: el titulo
+    // ahora lleva ademas quien reporto y de que va, y comparar todo eso haria
+    // que un cambio en el texto del ticket creara una segunda tarea.
+    const base = `Error localizado ${folio}`;
+    const title = tituloDeTareaDeTicket(base, {
+      subject: ticket.subject, category: ticket.category, reportante: ticket.client_name,
+    });
 
     // Evitar duplicados: si ya hay una tarea para este ticket, devolverla.
-    const existing = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+    const existing = await pool.query(`SELECT id FROM tasks WHERE title LIKE $1 || '%' AND status <> 'cancelled' LIMIT 1`, [base]);
     if (existing.rows.length > 0) {
       return { ok: true, task_id: existing.rows[0].id, already: true, message: 'Ya existe una tarea para este error.' };
     }
@@ -3060,7 +3141,7 @@ export const cerrarTicketsSinRespuesta = async (dias = 7): Promise<{ cerrados: n
           -- la tarea quede terminada o cancelada.
           AND NOT EXISTS (
                 SELECT 1 FROM tasks tk
-                 WHERE tk.title = 'Error localizado ' || t.ticket_folio
+                 WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%'
                    AND tk.status NOT IN ('completed', 'cancelled'))`,
       [String(dias)]
     );
@@ -3116,15 +3197,16 @@ export const escalarADireccion = async (ticketId: number, uid: number, role: str
     return { error: 'Solo Servicio a Cliente, Soporte o administración pueden escalar un ticket.', status: 403 };
   }
   const tRes = await pool.query(
-    `SELECT t.id, t.ticket_folio, t.subject, t.metadata->'cajito' AS cajito,
+    `SELECT t.id, t.ticket_folio, t.subject, t.category, t.metadata->'cajito' AS cajito,
             u.full_name AS cliente, u.box_id
        FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId]);
   const t = tRes.rows[0];
   if (!t) return { error: 'Ticket no encontrado', status: 404 };
   const folio = t.ticket_folio || `#${ticketId}`;
-  const title = `Consulta a Juan Carlos ${folio}`;
+  const base = `Consulta a Juan Carlos ${folio}`;
+  const title = tituloDeTareaDeTicket(base, { subject: t.subject, category: t.category, reportante: t.cliente });
 
-  const ya = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+  const ya = await pool.query(`SELECT id FROM tasks WHERE title LIKE $1 || '%' AND status <> 'cancelled' LIMIT 1`, [base]);
   if (ya.rows.length) return { ok: true, task_id: ya.rows[0].id, already: true };
 
   const primerMsg = (await pool.query(
@@ -4174,7 +4256,7 @@ export const escalarInconformidadTicket = async (req: Request, res: Response): P
     if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
 
     const t = (await pool.query(
-      `SELECT t.id, t.ticket_folio, t.subject, t.created_at, u.full_name AS cliente, u.box_id
+      `SELECT t.id, t.ticket_folio, t.subject, t.category, t.created_at, u.full_name AS cliente, u.box_id
          FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId])).rows[0];
     if (!t) return res.status(404).json({ error: 'Ticket no encontrado' });
     const folio = t.ticket_folio || `#${ticketId}`;
@@ -4196,10 +4278,11 @@ export const escalarInconformidadTicket = async (req: Request, res: Response): P
         dias_sin_respuesta: diasSinRespuesta,
       });
     }
-    const title = `Ticket de servicio con inconformidad reportado ${folio}`;
+    const base = `Ticket de servicio con inconformidad reportado ${folio}`;
+    const title = tituloDeTareaDeTicket(base, { subject: t.subject, category: t.category, reportante: t.cliente });
 
     const ya = await pool.query(
-      `SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+      `SELECT id FROM tasks WHERE title LIKE $1 || '%' AND status <> 'cancelled' LIMIT 1`, [base]);
     if (ya.rowCount) {
       return res.json({ ok: true, task_id: ya.rows[0].id, already: true, message: 'Este ticket ya se había escalado.' });
     }

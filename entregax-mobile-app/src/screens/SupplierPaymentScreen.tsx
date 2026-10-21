@@ -2814,7 +2814,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.swift', 'SWIFT/BIC')}</Text>
                 <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
 
-                <Text style={styles.label}>{t('xpay.aba', 'ABA / Routing WIRE (USD)')}</Text>
+                <Text style={styles.label}>{t('xpay.aba', 'ABA / Routing WIRE')}</Text>
                 <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" placeholder="9 dígitos" placeholderTextColor={TEXT_MUTED} />
                 {/* La etiqueta sola no alcanza: "WIRE" dice cuál pedir, pero
                     esta línea es la que evita el error, porque el asesor no

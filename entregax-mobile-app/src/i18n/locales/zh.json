@@ -62,7 +62,7 @@
     "bankName": "银行 *",
     "bankAddress": "银行地址",
     "swift": "SWIFT / BIC",
-    "aba": "ABA / Routing (USD)",
+    "aba": "ABA / Routing WIRE",
     "aliasOptional": "别名（可选，便于复用）",
     "saveSupplierFuture": "保存此供应商以便将来使用",
     "amountSection": "发送金额",

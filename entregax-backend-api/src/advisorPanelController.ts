@@ -1863,10 +1863,15 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
       SELECT tm.id, tm.sender_type, tm.sender_id, tm.message, tm.attachment_url, tm.attachments,
              tm.created_at, tm.edited_at, tm.deleted_at, tm.reply_to_id,
              q.sender_type AS cita_lado, q.message AS cita_texto, q.attachments AS cita_adjuntos,
-             qu.full_name AS cita_autor
+             qu.full_name AS cita_autor,
+             -- Quien escribio el mensaje. Faltaba, y por eso el asesor veia
+             -- "Agente" tanto en lo suyo como en lo del agente (tarea 794).
+             COALESCE(su.full_name, CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+             su.role      AS sender_role
       FROM ticket_messages tm
       LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
       LEFT JOIN users qu ON qu.id = q.sender_id
+      LEFT JOIN users su ON su.id = tm.sender_id
       WHERE tm.ticket_id = $1
       ORDER BY tm.created_at ASC
     `, [ticketId]);

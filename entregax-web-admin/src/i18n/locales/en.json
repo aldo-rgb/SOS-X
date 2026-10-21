@@ -92,7 +92,7 @@
       "bankAddress": "Bank address",
       "bankCountry": "Bank country",
       "swift": "SWIFT / BIC",
-      "aba": "ABA / Routing (USA)",
+      "aba": "ABA / Routing WIRE",
       "intermediary": "Intermediary bank (optional)",
       "intermediaryName": "Intermediary bank name",
       "intermediarySwift": "Intermediary SWIFT",

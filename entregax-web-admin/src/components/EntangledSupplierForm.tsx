@@ -391,7 +391,7 @@ export default function EntangledSupplierForm({
               y nadie sabe por qué (tarea 866). */}
           <TextField
             fullWidth
-            label={t('entangled.suppliers.aba', 'ABA / Routing WIRE (USD)')}
+            label={t('entangled.suppliers.aba', 'ABA / Routing WIRE')}
             value={value.aba_routing}
             onChange={(e) => set({ aba_routing: e.target.value.replace(/\D/g, '') })}
             inputProps={{ maxLength: 9 }}

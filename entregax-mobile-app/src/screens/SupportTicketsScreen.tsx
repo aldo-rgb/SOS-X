@@ -354,7 +354,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     if (!urls.length && msg.attachment_url) urls = [msg.attachment_url];
     setCitando({
       id: msg.id,
-      autor: (msg.sender_type === 'client' ? 'Cliente' : (msg.sender_name || 'Agente')),
+      autor: (msg.sender_type === 'client' ? 'Cliente'
+        : (!!miUserId && Number(msg.sender_id) === miUserId) ? 'Tú'
+        : (msg.sender_name || 'Soporte')),
       texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
       url: urls[0] || null,
     });
@@ -574,6 +576,12 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const renderMessage = (msg: TicketMessage) => {
     const isAgent = msg.sender_type === 'agent' || msg.sender_type === 'admin' || msg.sender_type === 'staff';
     const isInternal = !!msg.is_internal;
+    // Lo mio frente a lo de otro companero del equipo. Los dos van del lado del
+    // equipo, pero con el mismo color eran indistinguibles: mas de una vez se
+    // contesto creyendo que lo habia escrito alguien mas (tarea 794). El
+    // nombre ya lo manda el backend, antes siempre decia "Agente".
+    const esMio = !!miUserId && Number(msg.sender_id) === miUserId;
+    const esOtroDelEquipo = isAgent && !esMio;
     // Parsear adjuntos
     let attachUrls: string[] = [];
     if (Array.isArray(msg.attachments)) attachUrls = msg.attachments as string[];
@@ -582,7 +590,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     }
     if (attachUrls.length === 0 && msg.attachment_url) attachUrls = [msg.attachment_url];
 
-    const bubbleBg = isInternal ? '#FFF8E1' : isAgent ? BLUE : '#fff';
+    const bubbleBg = isInternal ? '#FFF8E1' : esMio && isAgent ? BLUE : esOtroDelEquipo ? '#5C8FC9' : '#fff';
     const textColor = isInternal ? '#333' : isAgent ? '#fff' : '#111';
     const senderColor = isInternal ? '#F57F17' : isAgent ? '#ffffffcc' : '#00000099';
 
@@ -596,7 +604,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         ]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
             <Text style={[styles.msgSender, { color: senderColor }]}>
-              {isAgent ? (msg.sender_name || 'Agente') : 'Cliente'}
+              {esMio && isAgent ? 'Tú' : isAgent ? (msg.sender_name || 'Soporte') : 'Cliente'}
             </Text>
             {isInternal && (
               <View style={styles.internalBadge}>
