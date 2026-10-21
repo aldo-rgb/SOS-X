@@ -287,6 +287,43 @@ const _upsertConstancia = async (userId: number, req: Request, res: Response): P
       [userId, fileUrl, file.originalname || 'constancia', isoDate(issuedAt), isoDate(validUntil)]
     );
 
+    // 7) Y ADEMAS, a su razon social: el documento se rutea solo.
+    //
+    // Esta es la carga de siempre, la que no pregunta a que razon social va.
+    // Antes dejaba la constancia en un solo renglon por cliente y la ultima
+    // pisaba a la anterior (tarea 879). Ahora se le lee el RFC impreso y, si
+    // corresponde a una de las razones sociales del cliente, se guarda tambien
+    // ahi. No hace falta preguntar nada ni cambiar la pantalla: el dato de a
+    // quien pertenece viene dentro del archivo.
+    //
+    // Si el RFC no se puede leer, o no es de ninguna de sus razones sociales,
+    // no se toca nada: queda el comportamiento viejo y la orden saldra sin
+    // constancia antes que con la equivocada.
+    try {
+      const { rfcs } = await leerPdf(file);
+      if (rfcs.length) {
+        await ensureConstanciaRazonSocial();
+        const enc = await pool.query(
+          `UPDATE client_fiscal_profiles
+              SET constancia_url = $1, constancia_filename = $2, constancia_subida_at = NOW(),
+                  constancia_issued_at = $3, constancia_valid_until = $4
+            WHERE user_id = $5 AND UPPER(REGEXP_REPLACE(COALESCE(rfc,''), '[^A-Za-z0-9]', '', 'g')) = ANY($6::text[])
+            RETURNING id, razon_social, rfc`,
+          [fileUrl, file.originalname || 'constancia', isoDate(issuedAt), isoDate(validUntil), userId, rfcs]
+        );
+        if (enc.rows.length) {
+          console.log(`[CSF] la constancia del cliente ${userId} se ruteo sola a `
+            + enc.rows.map((r: any) => `${r.razon_social} (${r.rfc})`).join(', ')
+            + ` — RFC leido dentro del PDF`);
+        } else {
+          console.warn(`[CSF] el PDF del cliente ${userId} dice RFC ${rfcs.join('/')} y ninguna de sus `
+            + 'razones sociales coincide: no se asigno a ninguna.');
+        }
+      }
+    } catch (e: any) {
+      console.warn('[CSF] no se pudo rutear por RFC:', e?.message);
+    }
+
     return res.json({
       ok: true,
       file_url: fileUrl,
@@ -347,4 +384,296 @@ const _readConstanciaStatus = async (userId: number, res: Response): Promise<any
     console.error('[CSF] _readConstanciaStatus error:', err);
     return res.status(500).json({ error: 'Error al consultar constancia', details: err?.message });
   }
+};
+
+/* ───────────────────────────────────────────────────────────────────────────
+ *  La constancia POR RAZON SOCIAL
+ *
+ *  Todo lo de arriba guarda UNA constancia por cliente, en
+ *  user_saved_documents, con una fila por (user_id, document_type). Eso fue el
+ *  defecto de la tarea 879: un cliente que factura a siete razones sociales
+ *  solo podia tener una constancia guardada y cada carga pisaba la anterior.
+ *  La orden XP992718 (THE HAIR DIAGRAM) salio con la constancia de EUROPARTES
+ *  y la factura se emitio mal.
+ *
+ *  Lo de aqui abajo la guarda por RAZON SOCIAL, en client_fiscal_profiles, que
+ *  si esta separada por RFC. Y valida el CONTENIDO: lee el RFC impreso dentro
+ *  del PDF y exige que sea el de la razon social a la que se esta subiendo.
+ *
+ *  Esa validacion la pidio el proveedor y la distincion es suya: separar el
+ *  almacen por RFC asegura DE DONDE sale el archivo, no QUE DICE. Si alguien
+ *  sube el PDF de una empresa dentro del perfil de otra, la separacion no lo
+ *  ve. Leer el documento si.
+ *  ─────────────────────────────────────────────────────────────────────────── */
+
+/** Columnas de la constancia en client_fiscal_profiles. Idempotente. */
+let _colsRazonSocial = false;
+export const ensureConstanciaRazonSocial = async (): Promise<void> => {
+  if (_colsRazonSocial) return;
+  try {
+    await pool.query(`
+      ALTER TABLE client_fiscal_profiles
+        ADD COLUMN IF NOT EXISTS constancia_url TEXT,
+        ADD COLUMN IF NOT EXISTS constancia_filename TEXT,
+        ADD COLUMN IF NOT EXISTS constancia_subida_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS constancia_issued_at DATE,
+        ADD COLUMN IF NOT EXISTS constancia_valid_until DATE
+    `);
+    _colsRazonSocial = true;
+  } catch (e) {
+    console.warn('[CSF/RS] no se pudieron asegurar columnas:', (e as any)?.message);
+  }
+};
+
+/**
+ * Los RFC que trae impresos un texto de constancia.
+ *
+ * Un RFC es 3 letras (moral) o 4 (fisica), 6 digitos de fecha y 3 de
+ * homoclave. El PDF del SAT trae el del contribuyente, y a veces mas de una
+ * coincidencia porque el patron tambien pega en cadenas del QR o del sello.
+ * Por eso se devuelven todos y el que decide es quien compara: basta con que
+ * el RFC del perfil este ENTRE ellos.
+ */
+export const rfcsDeTexto = (texto: string): string[] => {
+  if (!texto) return [];
+  const t = stripAccents(texto).toUpperCase();
+  const encontrados = t.match(/\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b/g) || [];
+  return [...new Set(encontrados)];
+};
+
+/** Lee el texto de un PDF una sola vez y devuelve fecha de emision + RFCs. */
+const leerPdf = async (file: UploadedFile): Promise<{ texto: string; emision: Date | null; rfcs: string[] }> => {
+  const mime = String(file.mimetype || '').toLowerCase();
+  if (!mime.includes('pdf')) return { texto: '', emision: null, rfcs: [] };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfParse = require('pdf-parse') as (b: Buffer) => Promise<{ text: string }>;
+    const texto = (await pdfParse(file.buffer)).text || '';
+    return { texto, emision: extractIssueDateFromText(texto), rfcs: rfcsDeTexto(texto) };
+  } catch (e) {
+    console.warn('[CSF/RS] pdf-parse fallo:', (e as any)?.message);
+    return { texto: '', emision: null, rfcs: [] };
+  }
+};
+
+const normRfc = (v: any) => String(v || '').toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '');
+
+/** El estado de la constancia de una razon social, con su vigencia. */
+const estadoDeConstancia = (row: any) => {
+  const hoyMs = (() => { const n = new Date(); return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()); })();
+  const vence = row.constancia_valid_until ? new Date(`${isoDate(new Date(row.constancia_valid_until))}T00:00:00.000Z`) : null;
+  return {
+    tiene: !!row.constancia_url,
+    constancia_url: row.constancia_url || null,
+    constancia_filename: row.constancia_filename || null,
+    constancia_subida_at: row.constancia_subida_at || null,
+    issued_at: row.constancia_issued_at ? isoDate(new Date(row.constancia_issued_at)) : null,
+    valid_until: row.constancia_valid_until ? isoDate(new Date(row.constancia_valid_until)) : null,
+    vigente: !!(vence && vence.getTime() >= hoyMs),
+    dias_para_vencer: vence ? Math.ceil((vence.getTime() - hoyMs) / 86400000) : null,
+  };
+};
+
+/** Las razones sociales de un cliente, cada una con su constancia. */
+export const listarRazonesSocialesConConstancia = async (userId: number) => {
+  await ensureConstanciaRazonSocial();
+  const r = await pool.query(
+    `SELECT id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default,
+            constancia_url, constancia_filename, constancia_subida_at,
+            constancia_issued_at, constancia_valid_until
+       FROM client_fiscal_profiles
+      WHERE user_id = $1 AND COALESCE(activo, TRUE) = TRUE
+      ORDER BY is_default DESC, id DESC`,
+    [userId]
+  );
+  const { signS3UrlIfNeeded } = await import('./s3Service');
+  return Promise.all(r.rows.map(async (row: any) => {
+    const est = estadoDeConstancia(row);
+    if (est.constancia_url) {
+      est.constancia_url = (await signS3UrlIfNeeded(est.constancia_url, 7 * 24 * 60 * 60)) || est.constancia_url;
+    }
+    return {
+      id: row.id, razon_social: row.razon_social, rfc: row.rfc,
+      codigo_postal: row.codigo_postal, regimen_fiscal: row.regimen_fiscal,
+      uso_cfdi: row.uso_cfdi, is_default: row.is_default,
+      constancia: est,
+    };
+  }));
+};
+
+/**
+ * El guardado. Rechaza si el RFC del documento no es el de la razon social.
+ *
+ * Cuando el PDF no se puede leer —una foto, un escaneo sin texto— no se
+ * inventa: se guarda y se avisa que no se pudo comprobar. Bloquear ahi dejaria
+ * fuera cargas legitimas, y el punto es que el archivo correcto llegue a su
+ * razon social, no que no llegue ninguno.
+ */
+const _guardarConstanciaDePerfil = async (
+  userId: number, profileId: number, req: Request, res: Response,
+): Promise<any> => {
+  try {
+    await ensureConstanciaRazonSocial();
+
+    const perfil = await pool.query(
+      `SELECT id, razon_social, rfc FROM client_fiscal_profiles WHERE id = $1 AND user_id = $2`,
+      [profileId, userId]
+    );
+    if (perfil.rows.length === 0) {
+      return res.status(404).json({ error: 'Esa razón social no es de este cliente' });
+    }
+    const rfcPerfil = normRfc(perfil.rows[0].rfc);
+    const razonPerfil = String(perfil.rows[0].razon_social || '').trim();
+
+    const file: UploadedFile | undefined = (req as any).file;
+    if (!file?.buffer?.length) return res.status(400).json({ error: 'No se recibió archivo' });
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (!mime.includes('pdf') && !mime.startsWith('image/')) {
+      return res.status(400).json({ error: 'Formato no soportado. Sube PDF, JPG o PNG.' });
+    }
+
+    const { emision, rfcs } = await leerPdf(file);
+
+    // ── La validacion del contenido ──────────────────────────────────────────
+    // Si el documento dice de quien es y no es de esta razon social, no se
+    // guarda. Este es el caso que ninguna separacion por RFC puede ver: el
+    // archivo viene del lugar correcto y dice otra cosa.
+    if (rfcs.length > 0 && !rfcs.includes(rfcPerfil)) {
+      return res.status(400).json({
+        error: 'rfc_no_coincide',
+        message: `Esta constancia no es de ${razonPerfil}. El documento está a nombre del RFC `
+          + `${rfcs[0]} y esta razón social es ${rfcPerfil}. Sube la constancia que corresponde, `
+          + 'o cárgala en la razón social correcta.',
+        rfc_del_documento: rfcs[0],
+        rfc_de_la_razon_social: rfcPerfil,
+      });
+    }
+    const comprobado = rfcs.includes(rfcPerfil);
+
+    // ── Vigencia ─────────────────────────────────────────────────────────────
+    let emitida = emision;
+    if (!emitida) {
+      const manual = String((req as any).body?.issued_at || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(manual)) {
+        const p = new Date(`${manual}T00:00:00.000Z`);
+        if (!isNaN(p.getTime())) emitida = p;
+      }
+    }
+    if (!emitida) {
+      return res.status(422).json({
+        error: 'no_issue_date',
+        message: 'No pudimos leer la fecha de emisión del documento. Indícala manualmente.',
+        needs_manual_date: true,
+      });
+    }
+    const n = new Date();
+    const hoy = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+    if (emitida.getTime() > hoy.getTime()) {
+      return res.status(400).json({ error: 'future_date', message: 'La fecha de emisión no puede ser futura.' });
+    }
+    if (hoy.getTime() - emitida.getTime() > MAX_AGE_MS) {
+      return res.status(400).json({
+        error: 'expired',
+        message: `Esa constancia tiene más de ${MONTHS_VALID} meses. Descarga una más reciente del portal del SAT.`,
+        issued_at: isoDate(emitida),
+      });
+    }
+    const vigenteHasta = addMonths(emitida, MONTHS_VALID);
+
+    // ── Guardar ──────────────────────────────────────────────────────────────
+    // La clave lleva el id del perfil: asi dos razones sociales del mismo
+    // cliente nunca comparten ruta y un archivo no puede pisar al otro, que es
+    // exactamente lo que paso en la tabla vieja.
+    const ext = (file.originalname?.split('.').pop() || 'pdf').toLowerCase();
+    const key = `fiscal/constancias/${userId}/rs${profileId}-${Date.now()}.${ext}`;
+    const { uploadToS3, isS3Configured } = await import('./s3Service');
+    const url = isS3Configured()
+      ? await uploadToS3(file.buffer, key, file.mimetype || 'application/pdf')
+      : `data:${file.mimetype || 'application/pdf'};base64,${file.buffer.toString('base64')}`;
+
+    await pool.query(
+      `UPDATE client_fiscal_profiles
+          SET constancia_url = $1, constancia_filename = $2, constancia_subida_at = NOW(),
+              constancia_issued_at = $3, constancia_valid_until = $4
+        WHERE id = $5 AND user_id = $6`,
+      [url, file.originalname || 'constancia', isoDate(emitida), isoDate(vigenteHasta), profileId, userId]
+    );
+
+    console.log(`[CSF/RS] constancia de ${razonPerfil} (${rfcPerfil}) guardada para el cliente ${userId}`
+      + ` — RFC del documento ${comprobado ? 'comprobado' : 'no legible'}`);
+
+    return res.json({
+      ok: true,
+      profile_id: profileId,
+      razon_social: razonPerfil,
+      rfc: rfcPerfil,
+      rfc_comprobado: comprobado,
+      aviso: comprobado ? null
+        : 'No pudimos leer el RFC dentro del documento, así que no lo comprobamos. Revisa que sea el correcto.',
+      issued_at: isoDate(emitida),
+      valid_until: isoDate(vigenteHasta),
+    });
+  } catch (err: any) {
+    console.error('[CSF/RS] _guardarConstanciaDePerfil:', err);
+    return res.status(500).json({ error: 'Error al subir la constancia', details: err?.message });
+  }
+};
+
+/* ── CLIENTE: sus propias razones sociales ─────────────────────────────────── */
+
+/** GET /api/fiscal/razones-sociales */
+export const listarMisRazonesSociales = async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    return res.json({ profiles: await listarRazonesSocialesConConstancia(userId) });
+  } catch (e: any) {
+    console.error('[CSF/RS] listarMisRazonesSociales:', e);
+    return res.status(500).json({ error: 'Error al listar razones sociales' });
+  }
+};
+
+/** POST /api/fiscal/razones-sociales/:profileId/constancia */
+export const subirMiConstanciaDeRazonSocial = async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const profileId = Number(req.params.profileId);
+  if (!profileId) return res.status(400).json({ error: 'profileId inválido' });
+  return _guardarConstanciaDePerfil(userId, profileId, req, res);
+};
+
+/* ── ASESOR Y STAFF: en nombre de un cliente ───────────────────────────────── */
+
+const ROLES_ELEVADOS = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 'accountant', 'counter_staff'];
+
+/** ¿Puede este usuario tocar los datos fiscales de ese cliente? */
+const puedeGestionar = async (req: Request, clientId: number): Promise<boolean> => {
+  const uid = (req as any).user?.userId;
+  if (!uid) return false;
+  if (uid === clientId) return true;
+  const role = String((req as any).user?.role || '').toLowerCase();
+  if (ROLES_ELEVADOS.includes(role)) return true;
+  return advisorScopeOwnsClient(uid, clientId);
+};
+
+/** GET /api/advisor/clients/:clientId/razones-sociales */
+export const listarRazonesSocialesDeCliente = async (req: Request, res: Response): Promise<any> => {
+  const clientId = Number(req.params.clientId);
+  if (!clientId) return res.status(400).json({ error: 'clientId inválido' });
+  if (!(await puedeGestionar(req, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+  try {
+    return res.json({ profiles: await listarRazonesSocialesConConstancia(clientId) });
+  } catch (e: any) {
+    console.error('[CSF/RS] listarRazonesSocialesDeCliente:', e);
+    return res.status(500).json({ error: 'Error al listar razones sociales' });
+  }
+};
+
+/** POST /api/advisor/clients/:clientId/razones-sociales/:profileId/constancia */
+export const subirConstanciaDeRazonSocialDeCliente = async (req: Request, res: Response): Promise<any> => {
+  const clientId = Number(req.params.clientId);
+  const profileId = Number(req.params.profileId);
+  if (!clientId || !profileId) return res.status(400).json({ error: 'Parámetros inválidos' });
+  if (!(await puedeGestionar(req, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+  return _guardarConstanciaDePerfil(clientId, profileId, req, res);
 };

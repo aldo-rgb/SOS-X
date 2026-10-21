@@ -17,6 +17,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import CloseIcon from '@mui/icons-material/Close';
 import api from '../services/api';
 import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
+import ConstanciasPorRazonSocial from './ConstanciasPorRazonSocial';
 
 const ORANGE = '#F05A28';
 
@@ -312,6 +313,16 @@ export const CsfPanel: React.FC<Props> = ({ mode, clientUserId, title, compact, 
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Una constancia por cada razon social a la que factura el cliente.
+          Va colgado aqui a proposito: este panel lo montan el tablero del
+          cliente, el del asesor y el flujo de X-Pay, asi que la regla queda
+          en los tres sin escribirla tres veces. Si el cliente factura a una
+          sola razon social no pinta nada (tarea 879). */}
+      <ConstanciasPorRazonSocial
+        clientUserId={mode === 'for-client' ? clientUserId : undefined}
+        onChange={() => { void load(); }}
+      />
     </>
   );
 };

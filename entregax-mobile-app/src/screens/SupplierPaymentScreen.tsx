@@ -15,6 +15,7 @@ import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from 're
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../services/api';
+import ConstanciasPorRazonSocial from '../components/ConstanciasPorRazonSocial';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 // Card has margin:12 on each side + padding:16 on each side = 56px total horizontal
@@ -2924,6 +2925,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     </Text>
                   </View>
                 )}
+
+                {/* Una constancia por cada razon social a la que se factura.
+                    El bloque de arriba guarda UNA sola por cliente y por eso
+                    se pisaban entre si: la orden XP992718 salio con la
+                    constancia de otra empresa (tarea 879).
+
+                    Sirve a los dos roles sin duplicar nada: sin clientId son
+                    las del cliente logueado, y en modo asesor las del cliente
+                    que atiende. Si solo factura a una razon social, no pinta. */}
+                <ConstanciasPorRazonSocial
+                  token={token}
+                  clientId={isAdvisorMode ? advisorClientId : undefined}
+                />
 
                 {rfc && razon && !editingFiscalData ? (
                   <View style={styles.infoCardSuccess}>

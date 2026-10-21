@@ -179,6 +179,10 @@ import {
   getConstanciaStatus as csfStatusHandler,
   uploadConstanciaForClient as csfUploadForClientHandler,
   getClientConstanciaStatus as csfClientStatusHandler,
+  listarMisRazonesSociales,
+  subirMiConstanciaDeRazonSocial,
+  listarRazonesSocialesDeCliente,
+  subirConstanciaDeRazonSocialDeCliente,
 } from './fiscalConstanciaController';
 import {
   createPaymentOrder,
@@ -4946,6 +4950,17 @@ app.get('/api/fiscal/constancia', authenticateToken, csfStatusHandler);
 // Asesor sube en nombre de un cliente que tiene asignado
 app.post('/api/advisor/clients/:clientId/constancia', authenticateToken, csfUpload.single('constancia'), csfUploadForClientHandler);
 app.get('/api/advisor/clients/:clientId/constancia', authenticateToken, csfClientStatusHandler);
+
+// ── La constancia POR RAZON SOCIAL (tarea 879) ──────────────────────────────
+// Las cuatro rutas de arriba guardan UNA constancia por cliente. Un cliente
+// que factura a varias razones sociales necesita una por cada una, y la orden
+// tiene que salir con la de SU razon social. Estas son las mismas dos
+// operaciones —ver y subir— en los dos roles: el cliente para si mismo y el
+// asesor o el staff en nombre de un cliente. Web y app nativa consumen estas.
+app.get('/api/fiscal/razones-sociales', authenticateToken, listarMisRazonesSociales);
+app.post('/api/fiscal/razones-sociales/:profileId/constancia', authenticateToken, csfUpload.single('constancia'), subirMiConstanciaDeRazonSocial);
+app.get('/api/advisor/clients/:clientId/razones-sociales', authenticateToken, listarRazonesSocialesDeCliente);
+app.post('/api/advisor/clients/:clientId/razones-sociales/:profileId/constancia', authenticateToken, csfUpload.single('constancia'), subirConstanciaDeRazonSocialDeCliente);
 
 // 📋 Paquetes PO Box sin cliente asignado (con días en bodega) - DEBE IR ANTES DE /:id
 app.get('/api/packages/unassigned', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getUnassignedPackages);

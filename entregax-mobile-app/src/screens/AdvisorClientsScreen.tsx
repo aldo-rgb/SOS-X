@@ -13,6 +13,7 @@ import { Text, Avatar, Chip, ActivityIndicator } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
+import ConstanciasPorRazonSocial from '../components/ConstanciasPorRazonSocial';
 
 const ORANGE = '#F05A28';
 const PURPLE = '#7B1FA2';
@@ -855,7 +856,20 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               </View>
             )}
 
-            <Text style={{ fontWeight: '700', marginBottom: 8 }}>
+            {/* Una constancia por cada razon social a la que factura el
+                cliente. El panel de arriba guarda UNA sola por cliente y por
+                eso se pisaban entre si (tarea 879). Si el cliente factura a
+                una sola razon social, esto no pinta nada. */}
+            {csfClient && (
+              <ConstanciasPorRazonSocial
+                token={token}
+                clientId={csfClient.id}
+                oscuro={false}
+                onChange={() => { if (csfClient) void loadCsf(csfClient.id); }}
+              />
+            )}
+
+            <Text style={{ fontWeight: '700', marginBottom: 8, marginTop: 12 }}>
               {csfStatus?.exists ? 'Actualizar / Reemplazar constancia' : 'Subir constancia'}
             </Text>
 
