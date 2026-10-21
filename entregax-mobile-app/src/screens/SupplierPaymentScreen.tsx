@@ -1348,6 +1348,46 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         const suma = pesos.reduce((acc, p, i) => acc + Number(aba[i]) * p, 0);
         if (suma % 10 !== 0) return 'El ABA / Routing no es válido: tiene 9 dígitos pero no pasa la verificación del banco. Revísalo con el proveedor, lo más común es un dígito cambiado.';
       }
+      // ── El nombre del banco contra las 4 letras del SWIFT ────────────────
+      // Las primeras cuatro letras de un SWIFT son la institución: HSBC, CHAS,
+      // WFBI. Si el banco capturado no corresponde a esas letras, uno de los
+      // dos está mal. Va del NOMBRE al código, no al revés: al revés haría
+      // falta conocer el código equivocado —que es justo el dato en duda— y el
+      // caso que lo motiva no se detectaría. Ése fue el proveedor #65, banco
+      // "The Hongkong and Shanghai Banking Corporation Limited" con SWIFT
+      // MRMDUS33 (tarea 866); ahí la dirección fue lo único que avisó.
+      //
+      // La tabla son los bancos que de verdad se usan, no un directorio BIC.
+      // Un banco que no esté en ella no se opina: callar es mejor que marcar
+      // de más y bloquear un alta legítima.
+      if (swift.length >= 8 && benefBankName.trim()) {
+        const TABLA: Array<[RegExp, string[], string]> = [
+          [/hsbc|hongkong and shanghai banking|hong kong and shanghai banking/i, ['HSBC', 'HBUK', 'HBAP'], 'HSBC'],
+          [/wells\s*fargo/i, ['WFBI'], 'Wells Fargo'],
+          [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
+          [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
+          [/citibank|citi\b/i, ['CITI'], 'Citibank'],
+          [/ocbc/i, ['OCBC'], 'OCBC'],
+          [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
+          [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
+          [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],
+          [/qilu/i, ['JNSH'], 'Qilu Bank'],
+          [/china construction/i, ['PCBC'], 'China Construction Bank'],
+          [/pudong/i, ['SPDB'], 'Shanghai Pudong Development'],
+          [/1st source|first source/i, ['SRCE'], '1st Source Bank'],
+          [/ping an/i, ['SZDB', 'SZPB'], 'Ping An Bank'],
+          [/texas capital/i, ['TXCB'], 'Texas Capital Bank'],
+          [/internacional.*xiamen|xiamen international/i, ['IBXH', 'XIBI'], 'Banco Internacional de Xiamen'],
+          [/banamex|banco nacional de mexico/i, ['BNMX'], 'Banamex'],
+          [/bbva/i, ['BCMR', 'BBVA'], 'BBVA'],
+          [/santander/i, ['BMSX', 'BSCH'], 'Santander'],
+          [/banorte/i, ['MENO'], 'Banorte'],
+        ];
+        const hit = TABLA.find(([re]) => re.test(benefBankName));
+        if (hit && !hit[1].includes(swift.slice(0, 4))) {
+          return `El banco dice ${hit[2]}, pero el SWIFT empieza en "${swift.slice(0, 4)}" y debería empezar en ${hit[1].join(' o ')}. Confirma con el proveedor cuál de los dos está mal.`;
+        }
+      }
       return null;
     }
     if (step === 3 && requiereFactura && (!rfc || !razon || !cp || !email)) {

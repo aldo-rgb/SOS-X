@@ -138,6 +138,47 @@ export default function EntangledSupplierForm({
     return `Revisa el país del banco: ${partes.join(', ')}. Los tres deberían coincidir.`;
   })();
 
+  /* Las primeras cuatro letras de un SWIFT son la institución: HSBC, CHAS,
+     WFBI. Si el banco capturado no corresponde a esas letras, uno de los dos
+     está mal. Va del NOMBRE al código y no al revés: al revés haría falta
+     conocer el código equivocado —que es justo el dato en duda— y el caso que
+     lo motiva no se detectaría (proveedor #65: banco "The Hongkong and
+     Shanghai Banking Corporation Limited" con SWIFT MRMDUS33, tarea 866).
+     Un banco que no esté en la tabla no se opina. */
+  const problemaBanco = (() => {
+    const sw = String(value.swift_bic || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (sw.length < 8) return '';
+    const nombre = String(value.banco_nombre || '').trim();
+    if (!nombre) return '';
+    const TABLA: Array<[RegExp, string[], string]> = [
+      [/hsbc|hongkong and shanghai banking|hong kong and shanghai banking/i, ['HSBC', 'HBUK', 'HBAP'], 'HSBC'],
+      [/wells\s*fargo/i, ['WFBI'], 'Wells Fargo'],
+      [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
+      [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
+      [/citibank|citi\b/i, ['CITI'], 'Citibank'],
+      [/ocbc/i, ['OCBC'], 'OCBC'],
+      [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
+      [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
+      [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],
+      [/qilu/i, ['JNSH'], 'Qilu Bank'],
+      [/china construction/i, ['PCBC'], 'China Construction Bank'],
+      [/pudong/i, ['SPDB'], 'Shanghai Pudong Development'],
+      [/1st source|first source/i, ['SRCE'], '1st Source Bank'],
+      [/ping an/i, ['SZDB', 'SZPB'], 'Ping An Bank'],
+      [/texas capital/i, ['TXCB'], 'Texas Capital Bank'],
+      [/internacional.*xiamen|xiamen international/i, ['IBXH', 'XIBI'], 'Banco Internacional de Xiamen'],
+      [/banamex|banco nacional de mexico/i, ['BNMX'], 'Banamex'],
+      [/bbva/i, ['BCMR', 'BBVA'], 'BBVA'],
+      [/santander/i, ['BMSX', 'BSCH'], 'Santander'],
+      [/banorte/i, ['MENO'], 'Banorte'],
+    ];
+    const hit = TABLA.find(([re]) => re.test(nombre));
+    if (!hit) return '';
+    const bic4 = sw.slice(0, 4);
+    if (hit[1].includes(bic4)) return '';
+    return `El banco dice ${hit[2]}, pero el SWIFT empieza en "${bic4}" y debería empezar en ${hit[1].join(' o ')}. Confirma cuál de los dos está mal.`;
+  })();
+
   const problemaAba = (() => {
     if (!bancoEsDeUsa) return '';
     const d = String(value.aba_routing || '').replace(/\D/g, '');
@@ -336,6 +377,8 @@ export default function EntangledSupplierForm({
             value={value.swift_bic}
             onChange={(e) => set({ swift_bic: e.target.value.trim().toUpperCase() })}
             inputProps={{ maxLength: 11 }}
+            error={!!problemaBanco}
+            helperText={problemaBanco || undefined}
             sx={textFieldSx}
           />
         </Grid>

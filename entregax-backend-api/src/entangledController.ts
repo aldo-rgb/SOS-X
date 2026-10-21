@@ -1009,6 +1009,61 @@ export function paisDeTexto(txt: any, permitirCodigos = true): string | null {
 // sin esta lista el aviso salia diciendo "el SWIFT dice HX".
 const ISO_PAIS = new Set(['AD','AE','AF','AG','AL','AM','AO','AR','AT','AU','AW','AZ','BA','BB','BD','BE','BF','BG','BH','BI','BJ','BM','BN','BO','BR','BS','BT','BW','BY','BZ','CA','CD','CF','CG','CH','CI','CL','CM','CN','CO','CR','CU','CV','CY','CZ','DE','DJ','DK','DM','DO','DZ','EC','EE','EG','ER','ES','ET','FI','FJ','FR','GA','GB','GD','GE','GH','GI','GM','GN','GQ','GR','GT','GW','GY','HK','HN','HR','HT','HU','ID','IE','IL','IN','IQ','IR','IS','IT','JM','JO','JP','KE','KG','KH','KM','KN','KP','KR','KW','KY','KZ','LA','LB','LC','LI','LK','LR','LS','LT','LU','LV','LY','MA','MC','MD','ME','MG','MH','MK','ML','MM','MN','MO','MR','MT','MU','MV','MW','MX','MY','MZ','NA','NE','NG','NI','NL','NO','NP','NZ','OM','PA','PE','PG','PH','PK','PL','PR','PT','PY','QA','RO','RS','RU','RW','SA','SB','SC','SD','SE','SG','SI','SK','SL','SM','SN','SO','SR','SV','SY','SZ','TD','TG','TH','TJ','TM','TN','TO','TR','TT','TW','TZ','UA','UG','US','UY','UZ','VA','VC','VE','VN','VU','WS','YE','ZA','ZM','ZW']);
 
+/**
+ * ── El nombre del banco contra las 4 primeras letras del SWIFT ──────────────
+ *
+ * Las primeras cuatro letras de un SWIFT son la institucion: HSBC, BOFA,
+ * CHAS, WFBI. Si el banco que se capturo no corresponde a esas letras, algo no
+ * cuadra. Lo pidio Andres y el caso que lo motiva es el proveedor #65: banco
+ * "The Hongkong and Shanghai Banking Corporation Limited" con SWIFT que
+ * empieza en MRMD (tarea 866). Ahi la direccion fue lo unico que aviso; esta
+ * comprobacion lo habria marcado al instante y es independiente de ella.
+ *
+ * Va del NOMBRE al codigo, no al reves. Si fuera al reves haria falta conocer
+ * MRMD —que es justo el dato equivocado— y el caso no se detectaria. Asi, el
+ * nombre dice "HSBC" y se exige que el SWIFT empiece en HSBC.
+ *
+ * La tabla sale de los bancos que de verdad se usan en las ordenes; no hace
+ * falta un directorio BIC completo. Un banco que no este en la lista no se
+ * opina: callar es mejor que marcar de mas.
+ */
+const BANCOS_CONOCIDOS: Array<{ nombre: RegExp; bic: string[]; etiqueta: string }> = [
+  { nombre: /hsbc|hongkong and shanghai banking|hong kong and shanghai banking/i, bic: ['HSBC', 'HBUK', 'HBAP'], etiqueta: 'HSBC' },
+  { nombre: /wells\s*fargo/i, bic: ['WFBI'], etiqueta: 'Wells Fargo' },
+  { nombre: /bank of america|bofa/i, bic: ['BOFA'], etiqueta: 'Bank of America' },
+  { nombre: /jp\s*morgan|j\.?p\.?\s*morgan|chase/i, bic: ['CHAS'], etiqueta: 'JP Morgan Chase' },
+  { nombre: /citibank|citi\b/i, bic: ['CITI'], etiqueta: 'Citibank' },
+  { nombre: /ocbc/i, bic: ['OCBC'], etiqueta: 'OCBC' },
+  { nombre: /dbs bank/i, bic: ['DHBK', 'DBSS'], etiqueta: 'DBS Bank' },
+  { nombre: /chouzhou/i, bic: ['CZCB'], etiqueta: 'Zhejiang Chouzhou' },
+  { nombre: /e\.?\s*sun/i, bic: ['ESUN'], etiqueta: 'E.Sun' },
+  { nombre: /qilu/i, bic: ['JNSH'], etiqueta: 'Qilu Bank' },
+  { nombre: /china construction/i, bic: ['PCBC'], etiqueta: 'China Construction Bank' },
+  { nombre: /pudong/i, bic: ['SPDB'], etiqueta: 'Shanghai Pudong Development' },
+  { nombre: /1st source|first source/i, bic: ['SRCE'], etiqueta: '1st Source Bank' },
+  { nombre: /ping an/i, bic: ['SZDB', 'SZPB'], etiqueta: 'Ping An Bank' },
+  { nombre: /texas capital/i, bic: ['TXCB'], etiqueta: 'Texas Capital Bank' },
+  { nombre: /internacional.*xiamen|xiamen international/i, bic: ['IBXH', 'XIBI'], etiqueta: 'Banco Internacional de Xiamen' },
+  { nombre: /banamex|banco nacional de mexico/i, bic: ['BNMX'], etiqueta: 'Banamex' },
+  { nombre: /bbva/i, bic: ['BCMR', 'BBVA'], etiqueta: 'BBVA' },
+  { nombre: /santander/i, bic: ['BMSX', 'BSCH'], etiqueta: 'Santander' },
+  { nombre: /banorte/i, bic: ['MENO'], etiqueta: 'Banorte' },
+];
+
+/** ¿El nombre del banco y las 4 letras del SWIFT hablan del mismo banco? */
+export function revisarBancoContraSwift(b: { banco_nombre?: any; swift_bic?: any }): string | null {
+  const swift = sinAcentos(b?.swift_bic).replace(/[^A-Z0-9]/g, '');
+  if (swift.length < 8) return null;              // sin SWIFT usable no se opina
+  const bic4 = swift.slice(0, 4);
+  const nombre = String(b?.banco_nombre || '').trim();
+  if (!nombre) return null;
+  const conocido = BANCOS_CONOCIDOS.find(x => x.nombre.test(nombre));
+  if (!conocido) return null;                     // banco fuera de la lista: callar
+  if (conocido.bic.includes(bic4)) return null;
+  return `El banco dice ${conocido.etiqueta}, pero el SWIFT empieza en "${bic4}" y debería empezar en `
+    + `${conocido.bic.join(' o ')}. Confirma cuál de los dos está mal.`;
+}
+
 /** Monederos y pasarelas: no son bancos con sucursal, no tienen direccion. */
 export const esMonederoOPasarela = (banco: any) =>
   /alipay|wechat|we\s*chat|paypal|wise|mercado\s*pago|stp|sistema de transferencias/i.test(String(banco || ''));
@@ -1128,6 +1183,8 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
     return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
   }
+  const problemaBanco = revisarBancoContraSwift(b);
+  if (problemaBanco) return res.status(400).json({ error: problemaBanco, campo: 'swift_bic' });
 
   // Normalizadores
   const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
@@ -1274,15 +1331,18 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
     // Al editar, el SWIFT y el ABA pueden venir o no: se valida contra lo que
     // QUEDARÍA guardado, no solo contra lo que manda el formulario. Si no,
     // cambiar el SWIFT a uno de EUA dejaría el ABA vacío sin que nadie avise.
-    if (b.swift_bic !== undefined || b.aba_routing !== undefined) {
+    if (b.swift_bic !== undefined || b.aba_routing !== undefined || b.banco_nombre !== undefined) {
       const actual = await pool.query(
-        `SELECT swift_bic, aba_routing FROM entangled_suppliers WHERE id = $1`, [id]);
+        `SELECT swift_bic, aba_routing, banco_nombre FROM entangled_suppliers WHERE id = $1`, [id]);
       const quedaria = {
         swift_bic: b.swift_bic !== undefined ? b.swift_bic : actual.rows[0]?.swift_bic,
         aba_routing: b.aba_routing !== undefined ? b.aba_routing : actual.rows[0]?.aba_routing,
+        banco_nombre: b.banco_nombre !== undefined ? b.banco_nombre : actual.rows[0]?.banco_nombre,
       };
       const problema = revisarAbaDeBancoUsa(quedaria);
       if (problema) return res.status(400).json({ error: problema, campo: 'aba_routing' });
+      const problemaBanco = revisarBancoContraSwift(quedaria);
+      if (problemaBanco) return res.status(400).json({ error: problemaBanco, campo: 'swift_bic' });
     }
     if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
       return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
