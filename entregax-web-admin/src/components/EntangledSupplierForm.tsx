@@ -80,6 +80,9 @@ export default function EntangledSupplierForm({
   const swiftLimpio = String(value.swift_bic || '').replace(/\s+/g, '').toUpperCase();
   const bancoEsDeUsa = swiftLimpio.length >= 6 && swiftLimpio.slice(4, 6) === 'US';
   const pagaEnPesos = String(value.divisa_default || '').toUpperCase() === 'MXN';
+  // Alipay, Mercado Pago y demás no son bancos con sucursal: no tienen
+  // dirección que dar, y exigírsela bloquearía altas legítimas.
+  const esMonedero = /alipay|wechat|we\s*chat|paypal|wise|mercado\s*pago|stp|sistema de transferencias/i.test(String(value.banco_nombre || ''));
   const problemaClabe = (() => {
     if (!pagaEnPesos) return '';
     const d = String(value.clabe || '').replace(/\D/g, '');
@@ -316,11 +319,13 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.bankAddress', 'Dirección del banco')}
             value={value.banco_direccion}
             onChange={(e) => set({ banco_direccion: e.target.value })}
-            required
-            error={!String(value.banco_direccion || '').trim()}
-            helperText={!String(value.banco_direccion || '').trim()
-              ? 'Obligatoria: es el dato que permite detectar un país mal capturado'
-              : undefined}
+            required={!esMonedero}
+            error={!esMonedero && !String(value.banco_direccion || '').trim()}
+            helperText={esMonedero
+              ? 'No aplica para monederos y pasarelas'
+              : (!String(value.banco_direccion || '').trim()
+                  ? 'Obligatoria: es el dato que permite detectar un país mal capturado'
+                  : undefined)}
             sx={textFieldSx}
           />
         </Grid>

@@ -1009,6 +1009,10 @@ export function paisDeTexto(txt: any, permitirCodigos = true): string | null {
 // sin esta lista el aviso salia diciendo "el SWIFT dice HX".
 const ISO_PAIS = new Set(['AD','AE','AF','AG','AL','AM','AO','AR','AT','AU','AW','AZ','BA','BB','BD','BE','BF','BG','BH','BI','BJ','BM','BN','BO','BR','BS','BT','BW','BY','BZ','CA','CD','CF','CG','CH','CI','CL','CM','CN','CO','CR','CU','CV','CY','CZ','DE','DJ','DK','DM','DO','DZ','EC','EE','EG','ER','ES','ET','FI','FJ','FR','GA','GB','GD','GE','GH','GI','GM','GN','GQ','GR','GT','GW','GY','HK','HN','HR','HT','HU','ID','IE','IL','IN','IQ','IR','IS','IT','JM','JO','JP','KE','KG','KH','KM','KN','KP','KR','KW','KY','KZ','LA','LB','LC','LI','LK','LR','LS','LT','LU','LV','LY','MA','MC','MD','ME','MG','MH','MK','ML','MM','MN','MO','MR','MT','MU','MV','MW','MX','MY','MZ','NA','NE','NG','NI','NL','NO','NP','NZ','OM','PA','PE','PG','PH','PK','PL','PR','PT','PY','QA','RO','RS','RU','RW','SA','SB','SC','SD','SE','SG','SI','SK','SL','SM','SN','SO','SR','SV','SY','SZ','TD','TG','TH','TJ','TM','TN','TO','TR','TT','TW','TZ','UA','UG','US','UY','UZ','VA','VC','VE','VN','VU','WS','YE','ZA','ZM','ZW']);
 
+/** Monederos y pasarelas: no son bancos con sucursal, no tienen direccion. */
+export const esMonederoOPasarela = (banco: any) =>
+  /alipay|wechat|we\s*chat|paypal|wise|mercado\s*pago|stp|sistema de transferencias/i.test(String(banco || ''));
+
 /** El pais que declara el SWIFT (posiciones 5 y 6), si es un ISO de verdad. */
 export function paisDelSwift(swift: any): string | null {
   const v = sinAcentos(swift).replace(/\s+/g, '');
@@ -1114,7 +1118,11 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (problemaAba) return res.status(400).json({ error: problemaAba, campo: 'aba_routing' });
   // La direccion del banco es obligatoria: es el tercer dato que permite
   // cachar un pais mal capturado (tarea 866).
-  if (!String(b.banco_direccion || '').trim()) {
+  //
+  // Salvo en los monederos y pasarelas —Alipay, WeChat, PayPal, Wise, Mercado
+  // Pago, STP—, que no son bancos con sucursal y no tienen direccion que dar.
+  // La app ya los exceptuaba; exigirselo aqui habria bloqueado altas legitimas.
+  if (!esMonederoOPasarela(b.banco_nombre) && !String(b.banco_direccion || '').trim()) {
     return res.status(400).json({ error: 'Falta la dirección del banco. Es obligatoria: es el dato que permite detectar un país mal capturado.', campo: 'banco_direccion' });
   }
   if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
