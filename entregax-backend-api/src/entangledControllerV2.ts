@@ -60,9 +60,66 @@ const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_fa
 // user_saved_documents (document_type='constancia_fiscal'); el bucket es
 // privado, así que devolvemos una URL firmada (7 días) que ENTANGLED pueda
 // descargar. Devuelve undefined si el cliente no la tiene subida.
-async function fetchConstanciaUrl(userId: number | null | undefined): Promise<string | undefined> {
+/**
+ * La constancia que le toca a ESTA orden, por su RFC.
+ *
+ * Antes se buscaba solo por user_id:
+ *
+ *     SELECT file_url FROM user_saved_documents
+ *      WHERE user_id = $1 AND document_type = 'constancia_fiscal' LIMIT 1
+ *
+ * El RFC de la orden no se miraba, y esa tabla guarda UNA sola fila por
+ * cliente: la constancia que se sube pisa a la anterior. Joaquin Gonzalez
+ * (S3128) factura a siete razones sociales distintas; subio la de EUROPARTES
+ * el 15-oct y desde entonces TODAS sus ordenes salieron con esa. La XP992718,
+ * a nombre de THE HAIR DIAGRAM, se facturo con la constancia de EUROPARTES
+ * (tarea 879).
+ *
+ * Ahora la constancia vive en el perfil fiscal, que si es por RFC. Y si no se
+ * puede saber cual corresponde, NO SE MANDA NINGUNA: una factura sin
+ * constancia se detiene y se corrige; una con la constancia de otra empresa ya
+ * se emitio mal.
+ */
+async function fetchConstanciaUrl(
+  userId: number | null | undefined,
+  rfcDeLaOrden?: string | null | undefined,
+): Promise<string | undefined> {
   if (!userId) return undefined;
   try {
+    const rfc = String(rfcDeLaOrden || '').trim().toUpperCase();
+
+    // 1. La del perfil fiscal con ESE RFC.
+    if (rfc) {
+      const perfil = await pool.query(
+        `SELECT constancia_url FROM client_fiscal_profiles
+          WHERE user_id = $1 AND UPPER(TRIM(rfc)) = $2
+            AND COALESCE(constancia_url,'') <> '' LIMIT 1`,
+        [userId, rfc]
+      ).catch(() => ({ rows: [] as any[] }));
+      if (perfil.rows[0]?.constancia_url) {
+        const { signS3UrlIfNeeded } = await import('./s3Service');
+        const u = perfil.rows[0].constancia_url;
+        return (await signS3UrlIfNeeded(u, 7 * 24 * 60 * 60)) || u;
+      }
+    }
+
+    // 2. La vieja, de user_saved_documents, SOLO si no hay ambiguedad: si el
+    //    cliente factura a una sola razon social, esa constancia es suya sin
+    //    lugar a dudas. Con dos o mas, adivinar es justo lo que rompio esto.
+    if (rfc) {
+      const cuantas = await pool.query(
+        `SELECT count(DISTINCT UPPER(TRIM(rfc)))::int AS n
+           FROM client_fiscal_profiles WHERE user_id = $1 AND COALESCE(rfc,'') <> ''`,
+        [userId]
+      ).catch(() => ({ rows: [{ n: 0 }] as any[] }));
+      if (Number(cuantas.rows[0]?.n || 0) > 1) {
+        console.warn(`[ENTANGLED v2] sin constancia para el RFC ${rfc} del cliente ${userId}: `
+          + `tiene ${cuantas.rows[0].n} razones sociales y la constancia guardada no dice de cual es. `
+          + 'La orden sale SIN constancia a proposito.');
+        return undefined;
+      }
+    }
+
     const csf = await pool.query(
       `SELECT file_url FROM user_saved_documents
         WHERE user_id = $1 AND document_type = 'constancia_fiscal' LIMIT 1`,
@@ -927,7 +984,7 @@ export const createPaymentRequestV2 = async (
     // Adjuntar la Constancia de Situación Fiscal (CSF) del cliente final DENTRO
     // de cliente_final (ENTANGLED la lee ahí, no en el nivel raíz). URL firmada;
     // si el cliente no la tiene subida, se omite (la factura queda pendiente).
-    const constanciaUrl = await fetchConstanciaUrl(userId);
+    const constanciaUrl = await fetchConstanciaUrl(userId, clienteFinal?.rfc);
     if (constanciaUrl) {
       payload.cliente_final.constancia_url = constanciaUrl;
       payload.constancia_url = constanciaUrl; // compat: también en raíz
@@ -1530,7 +1587,9 @@ export async function sendPendingRequestToEntangled(
     payload.conceptos = conceptos as any[];
     // Constancia del cliente final DENTRO de cliente_final (igual que la ruta de
     // creación). Se omite si el cliente no la tiene subida.
-    const constanciaUrl = await fetchConstanciaUrl(reqRow.user_id);
+    // El RFC de ESTA orden, igual que en la ruta de creación. Es un reenvío:
+    // sin el RFC volvería a tomar la constancia de otra razón social.
+    const constanciaUrl = await fetchConstanciaUrl(reqRow.user_id, reqRow.cf_rfc);
     if (constanciaUrl) {
       payload.cliente_final.constancia_url = constanciaUrl;
       payload.constancia_url = constanciaUrl; // compat: también en raíz

@@ -18281,6 +18281,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     // dos numeros distintos del mismo contrato y quien paga necesita los dos.
     // Hasta hoy solo habia "numero de cuenta" (tarea 866).
     pool.query(`ALTER TABLE entangled_suppliers ADD COLUMN IF NOT EXISTS clabe TEXT`),
+    // La constancia fiscal va por RAZON SOCIAL, no por cliente. Antes vivia en
+    // user_saved_documents con UNA fila por user_id, asi que un cliente con
+    // varias razones sociales solo podia tener una y la ultima que subia
+    // pisaba a la anterior: la orden XP992718 (THE HAIR DIAGRAM) salio con la
+    // constancia de EUROPARTES y la factura se emitio mal (tarea 879).
+    pool.query(`ALTER TABLE client_fiscal_profiles ADD COLUMN IF NOT EXISTS constancia_url TEXT`),
+    pool.query(`ALTER TABLE client_fiscal_profiles ADD COLUMN IF NOT EXISTS constancia_subida_at TIMESTAMPTZ`),
   ]).catch(() => {});
 
   // Columna fuente en exchange_rate_config (idempotente)
