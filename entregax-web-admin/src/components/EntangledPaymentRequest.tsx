@@ -603,6 +603,29 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   // Por POSICIÓN y no por clave: una factura puede llevar el mismo producto en
   // dos partidas con distinto precio (TKT-2026-2730). Si se edita por clave, las
   // dos partidas cambian juntas.
+  /**
+   * Las partidas sin precio unitario (tarea 887).
+   *
+   * Se mide sobre las partidas YA CALCULADAS: el precio de la ULTIMA se
+   * autobalancea para que la suma cuadre con el total, asi que un cero ahi no
+   * es un campo vacio sino que las anteriores ya se comieron todo el monto. Y
+   * ese campo esta deshabilitado, asi que pedirle que lo llene seria pedirle
+   * lo imposible. Por eso se distinguen los dos casos.
+   *
+   * La cantidad no se valida: el campo arranca en 1 y su onChange nunca deja
+   * bajar de 1.
+   */
+  const partidasSinPrecio = (items: Array<{ clave_prodserv?: string; precioUnitario: number }>) => {
+    const malas: number[] = [];
+    items.forEach((x, i) => { if (!(x.precioUnitario > 0)) malas.push(i); });
+    return {
+      idx: new Set(malas),
+      claves: malas.map(i => items[i]?.clave_prodserv).filter(Boolean) as string[],
+      soloLaAutomatica: malas.length === 1 && malas[0] === items.length - 1,
+      hayAlguna: malas.length > 0,
+    };
+  };
+
   const setConceptoField = (idx: number, field: 'cantidad' | 'precioUnitario', value: number) => {
     setSelectedConceptos((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
   };
@@ -2274,6 +2297,22 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
         return detalle || 'La comercializadora no está disponible en este momento, habla con tu asesor.';
       }
+      // Ninguna partida puede ir en cero (tarea 887). Antes se podia enviar la
+      // solicitud con un concepto sin precio: se facturaba en cero y nadie lo
+      // veia hasta despues.
+      {
+        const falta = partidasSinPrecio(lineItems);
+        if (falta.hayAlguna) {
+          if (falta.soloLaAutomatica) {
+            return 'La última partida se calcula sola y quedó en $0 porque las anteriores ya cubren el monto completo. '
+              + 'Baja el precio de alguna de las anteriores, o quita esa partida.';
+          }
+          const cuales = falta.claves.join(', ');
+          return falta.claves.length === 1
+            ? `Falta el precio unitario de la partida ${cuales}. Ninguna puede quedar en $0.`
+            : `Faltan los precios unitarios de ${falta.claves.length} partidas (${cuales}). Ninguna puede quedar en $0.`;
+        }
+      }
     }
     return null;
   };
@@ -3824,16 +3863,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.5 }}>
                       {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
                     </Typography>
+                    {/* Las partidas sin precio se marcan en rojo en el acto, para
+                        que se vea cual corregir sin leer el mensaje (tarea 887). */}
                     {lineItems.map((c, idx) => {
                       const isLast = idx === lineItems.length - 1;
                       const subtotal = c.cantidad * c.precioUnitario;
+                      const malo = !(c.precioUnitario > 0);
                       return (
                       <Box key={`${c.clave_prodserv}-${idx}`}
                         sx={{
                           display: 'flex', flexDirection: 'column', gap: 0.6, py: 0.8, px: 1.2, mb: 0.5,
                           borderRadius: 1,
-                          bgcolor: 'rgba(16, 185, 129, 0.12)',
-                          border: '1px solid #10b981',
+                          bgcolor: malo ? 'rgba(198, 40, 40, 0.10)' : 'rgba(16, 185, 129, 0.12)',
+                          border: malo ? '2px solid #C62828' : '1px solid #10b981',
                         }}
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -3865,6 +3907,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             value={isLast ? c.precioUnitario.toFixed(2) : c.precioUnitario}
                             onChange={(e) => { if (!isLast) setConceptoField(idx, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
                             disabled={isLast}
+                            error={malo}
+                            helperText={malo ? (isLast ? 'Las anteriores ya cubren el monto' : 'Falta el precio') : undefined}
                             sx={{ width: 140, '& input': { color: isLast ? ORANGE : C.textPrimary, fontWeight: isLast ? 700 : 400 }, '& label': { color: C.textMuted } }}
                             inputProps={{ min: 0, step: '0.01' }}
                           />

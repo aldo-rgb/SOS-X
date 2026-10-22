@@ -23,6 +23,9 @@ const CHART_W = SCREEN_W - 56;
 const CHART_H = 90;
 
 const ORANGE = '#F05A28';
+// Rojo de "esto falta": el contorno con el que se marca una partida sin precio
+// unitario, para que se vea cual corregir sin leer el mensaje (tarea 887).
+const ROJO_FALTA = '#C62828';
 const RED = '#C1272D';
 const DARK = '#0A0A0A';
 const SURFACE = '#161616';
@@ -572,6 +575,30 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     last.precioUnitario = last.cantidad > 0 ? Math.max(0, (totalMxn - othersSubtotal) / last.cantidad) : 0;
     return items;
   };
+  /**
+   * Las partidas sin precio unitario (tarea 887).
+   *
+   * Se mide sobre las partidas YA CALCULADAS, no sobre lo que se tecleo, por
+   * una razon: el precio de la ULTIMA se autobalancea para que la suma cuadre
+   * con el total. Asi que un cero ahi no es un campo vacio, es que las
+   * anteriores ya se comieron todo el monto — y decirle a alguien que llene un
+   * campo de solo lectura no sirve de nada. Por eso se distinguen los dos
+   * casos.
+   *
+   * La cantidad no se valida: el campo arranca en 1 y qtyDe nunca devuelve
+   * menos de 1, asi que no puede quedar en cero.
+   */
+  const partidasSinPrecio = (items: Array<{ uid: string; clave: string; precioUnitario: number }>) => {
+    const malas = items.filter(x => !(x.precioUnitario > 0));
+    const ultimaUid = items.length ? items[items.length - 1]!.uid : null;
+    return {
+      uids: new Set(malas.map(x => x.uid)),
+      claves: malas.map(x => x.clave),
+      soloLaAutomatica: malas.length === 1 && malas[0]!.uid === ultimaUid,
+      hayAlguna: malas.length > 0,
+    };
+  };
+
   // Congela el precio autobalanceado de la clave que era última antes de agregar otra.
   const freezeLastBeforeAdd = () => {
     const claves = parseClaves(conceptos);
@@ -1448,6 +1475,32 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (invalid.length > 0) {
         const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
         return detalle || 'La comercializadora no está disponible en este momento, habla con tu asesor.';
+      }
+      // ── Ninguna partida puede ir en cero (tarea 887) ─────────────────────
+      // Antes se podia enviar la solicitud con un concepto sin precio: se
+      // facturaba en cero y nadie lo veia hasta despues.
+      {
+        const itemsAhora = computeMobileLineItems(
+          parseClaves(conceptos).map(c => {
+            const v = claveValidations.find(x => x.clave === c.clave);
+            return { clave: c.clave, descripcion: v?.descripcion || c.descripcion, uid: c.uid };
+          }),
+          quote?.monto_mxn_total || 0,
+        );
+        const sinPrecio = partidasSinPrecio(itemsAhora);
+        if (sinPrecio.hayAlguna) {
+          // La ultima se calcula sola: si ESA es la que sale en cero, el
+          // problema no es un campo vacio sino que las anteriores ya cubren
+          // todo el monto. Pedirle que la llene seria pedirle lo imposible.
+          if (sinPrecio.soloLaAutomatica) {
+            return 'La última partida se calcula sola y quedó en $0 porque las anteriores ya cubren el monto completo. '
+              + 'Baja el precio de alguna de las anteriores, o quita esa partida.';
+          }
+          const cuales = sinPrecio.claves.filter(Boolean).join(', ');
+          return sinPrecio.claves.length === 1
+            ? `Falta el precio unitario de la partida ${cuales}. Ninguna puede quedar en $0.`
+            : `Faltan los precios unitarios de ${sinPrecio.claves.length} partidas (${cuales}). Ninguna puede quedar en $0.`;
+        }
       }
       // Bloqueo de mezcla de empresas — igual que en web. Comparamos
       // por RFC (más confiable que el nombre, que puede variar en
@@ -3075,11 +3128,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     const totalPartidas = items.reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
                     return (
                       <View style={{ gap: 8, marginBottom: 10 }}>
-                        {items.map((s, idx) => {
+                        {/* Las partidas sin precio se marcan en rojo en el acto,
+                            para que se vea cual hay que corregir sin leer el
+                            mensaje de abajo (tarea 887). */}
+                        {(() => { const falta = partidasSinPrecio(items); return items.map((s, idx) => {
                           const isLast = idx === items.length - 1;
                           const subtotal = s.cantidad * s.precioUnitario;
+                          const malo = falta.uids.has(s.uid);
                           return (
-                          <View key={s.uid} style={{ backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: ORANGE, padding: 8, gap: 6 }}>
+                          <View key={s.uid} style={{ backgroundColor: malo ? '#FFF5F5' : '#FFF', borderRadius: 10, borderWidth: malo ? 2 : 1, borderColor: malo ? ROJO_FALTA : ORANGE, padding: 8, gap: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                               <Text style={{ fontSize: 12, fontWeight: '800', color: '#111', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{s.clave}</Text>
                               {!!s.descripcion && (
@@ -3122,8 +3179,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                                   editable={!isLast}
                                   keyboardType="decimal-pad"
                                   placeholder="0.00"
-                                  style={{ borderWidth: 1, borderColor: isLast ? ORANGE : '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: isLast ? ORANGE : '#111', fontWeight: isLast ? '800' : '400', backgroundColor: isLast ? '#FFF6F2' : '#FFF' }}
+                                  style={{ borderWidth: malo ? 2 : 1, borderColor: malo ? ROJO_FALTA : (isLast ? ORANGE : '#DDD'), borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: isLast ? ORANGE : '#111', fontWeight: isLast ? '800' : '400', backgroundColor: isLast ? '#FFF6F2' : '#FFF' }}
                                 />
+                                {malo && (
+                                  <Text style={{ fontSize: 9, color: ROJO_FALTA, fontWeight: '700', marginTop: 2 }}>
+                                    {isLast ? 'Las anteriores ya cubren el monto' : 'Falta el precio'}
+                                  </Text>
+                                )}
                               </View>
                               <View style={{ alignItems: 'flex-end', marginTop: 12 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>Subtotal</Text>
@@ -3132,7 +3194,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                             </View>
                           </View>
                           );
-                        })}
+                        }); })()}
                         {(quote?.monto_mxn_total || 0) > 0 && (
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 }}>
                             <Text style={{ fontSize: 11, color: TEXT_DIM }}>Suma de partidas</Text>

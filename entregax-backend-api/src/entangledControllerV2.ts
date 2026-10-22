@@ -676,6 +676,31 @@ export const createPaymentRequestV2 = async (
         .status(400)
         .json({ error: 'conceptos[] es requerido para pago_con_factura' });
     }
+    // Ninguna partida puede ir en cero (tarea 887).
+    //
+    // La web y la app ya lo bloquean y lo marcan en rojo, pero la red va aqui
+    // tambien porque el costo de que se cuele es una factura emitida con un
+    // concepto en cero, y eso no se deshace: se tiene que cancelar y volver a
+    // timbrar. Una validacion que solo vive en la pantalla se salta.
+    const enCero = conceptos
+      .map((c: any, i: number) => ({
+        i,
+        clave: String(c?.clave_prodserv || c?.clave || '').trim(),
+        precio: Number(c?.valor_unitario ?? c?.precio_unitario ?? c?.precioUnitario ?? 0),
+        cantidad: Number(c?.cantidad ?? 0),
+      }))
+      .filter((c) => !(c.precio > 0) || !(c.cantidad > 0));
+    if (enCero.length > 0) {
+      const detalle = enCero
+        .map((c) => `${c.clave || `partida ${c.i + 1}`}${!(c.cantidad > 0) ? ' (sin cantidad)' : ' (sin precio unitario)'}`)
+        .join(', ');
+      return res.status(400).json({
+        error: `No se puede facturar con partidas en cero: ${detalle}. `
+          + 'Cada concepto necesita cantidad y precio unitario mayores a cero.',
+        campo: 'conceptos',
+        partidas_en_cero: enCero.map((c) => c.clave || `#${c.i + 1}`),
+      });
+    }
   } else {
     if (!clienteFinal?.razon_social) {
       return res
