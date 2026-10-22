@@ -443,10 +443,18 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
             >
+            {(cerrar: () => void) => (<>
             <SelectorLista
               opciones={[{ k: null, l: 'Personal' }, ...categories.map(c => ({ k: c.id, l: c.name }))]}
               valor={catId}
-              onChange={k => { setCatId(k); setCatSection(null); }}
+              onChange={k => {
+                setCatId(k); setCatSection(null);
+                // Cierra al elegir, PERO no si esa categoria tiene
+                // sub-secciones: ahi falta escoger una y cerrarlo la
+                // esconderia (tarea 875).
+                const secs = categories.find(c => c.id === k)?.sections || [];
+                if (secs.length === 0) cerrar();
+              }}
             />
             <Text style={styles.helpTxt}>«Personal» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
             {(() => {
@@ -457,11 +465,12 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                   <SelectorLista
                     opciones={[{ k: null, l: 'Sin sub-sección' }, ...secs.map((x: any) => ({ k: x.id, l: x.name }))]}
                     valor={catSection ?? null}
-                    onChange={setCatSection}
+                    onChange={(k) => { setCatSection(k); cerrar(); }}
                   />
                 </>
               ) : null;
             })()}
+            </>)}
             </Plegable>
             </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
@@ -476,16 +485,18 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                   : (DUE_OPTS.find(o => o.k === dueOpt)?.l || 'Sin elegir')
               }
             >
+            {(cerrar: () => void) => (<>
             <View style={styles.eisRow}>
               {DUE_OPTS.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => { setDueOpt(o.k); setFechaCustom(null); }}
+                <TouchableOpacity key={o.k} onPress={() => { setDueOpt(o.k); setFechaCustom(null); cerrar(); }}
                   style={[styles.dateChip, dueOpt === o.k && styles.dateChipOn]}>
                   <Text style={[styles.dateChipTxt, dueOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
                 </TouchableOpacity>
               ))}
             </View>
             <Text style={[styles.fieldLbl, { marginTop: 10 }]}>O elígela en el calendario</Text>
-            <Calendario valor={fechaCustom} onChange={d => { setFechaCustom(d); setDueOpt('custom'); }} />
+            <Calendario valor={fechaCustom} onChange={d => { setFechaCustom(d); setDueOpt('custom'); cerrar(); }} />
+            </>)}
             </Plegable>
             {/* Checklist opcional. El backend ya la aceptaba al crear; la app
                 simplemente no la ofrecia, asi que habia que crear la tarea,
@@ -511,7 +522,16 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
               titulo="Involucrados"
               resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
             >
+            {(cerrar: () => void) => (<>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
+            {/* Aqui NO se cierra al elegir: se eligen varios, y cerrarse en el
+                primero obligaria a reabrirlo por cada persona. El boton hace lo
+                mismo que pidio Andres —quitar la lista de en medio para seguir
+                con los demas campos— sin estorbar la multiseleccion. */}
+            <TouchableOpacity onPress={cerrar} style={styles.plegableListo}>
+              <Text style={styles.plegableListoTxt}>Listo</Text>
+            </TouchableOpacity>
+            </>)}
             </Plegable>
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
@@ -811,10 +831,15 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
             >
+            {(cerrar: () => void) => (<>
             <SelectorLista
               opciones={[{ k: null, l: 'Personal' }, ...categories.map(c => ({ k: c.id, l: c.name }))]}
               valor={catId ?? null}
-              onChange={k => { setCatId(k); setCatSection(null); }}
+              onChange={k => {
+                setCatId(k); setCatSection(null);
+                const secs = categories.find(c => c.id === k)?.sections || [];
+                if (secs.length === 0) cerrar();
+              }}
             />
             {(() => {
               const secs = categories.find(c => c.id === catId)?.sections || [];
@@ -824,11 +849,12 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                   <SelectorLista
                     opciones={[{ k: null, l: 'Sin sub-sección' }, ...secs.map((x: any) => ({ k: x.id, l: x.name }))]}
                     valor={catSection ?? null}
-                    onChange={setCatSection}
+                    onChange={(k) => { setCatSection(k); cerrar(); }}
                   />
                 </>
               ) : null;
             })()}
+            </>)}
             </Plegable>
             </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
@@ -855,6 +881,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 primera ejecución, día, mes y hora. Abiertos a la vez eran una
                 pared de ~50 botones y había que adivinar dónde estaba cada cosa. */}
             <Plegable titulo="Cuándo" resumen={resumenCuando()}>
+            {(cerrar: () => void) => (<>
               <Text style={styles.fieldLbl}>Repetir</Text>
               <View style={styles.eisRow}>
                 {RECUR.map(o => (
@@ -960,13 +987,30 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                   </TouchableOpacity>
                 ))}
               </View>
+              {/* Aqui tampoco se cierra al elegir: despues de "Repetir" todavia
+                  vienen el dia, el mes y la hora, y cerrarlo los esconderia.
+                  El boton quita el bloque de en medio cuando ya se termino
+                  (tarea 875). */}
+              <TouchableOpacity onPress={cerrar} style={styles.plegableListo}>
+                <Text style={styles.plegableListoTxt}>Listo</Text>
+              </TouchableOpacity>
+            </>)}
             </Plegable>
             {(<>
             <Plegable
               titulo="Involucrados"
               resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
             >
+            {(cerrar: () => void) => (<>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
+            {/* Aqui NO se cierra al elegir: se eligen varios, y cerrarse en el
+                primero obligaria a reabrirlo por cada persona. El boton hace lo
+                mismo que pidio Andres —quitar la lista de en medio para seguir
+                con los demas campos— sin estorbar la multiseleccion. */}
+            <TouchableOpacity onPress={cerrar} style={styles.plegableListo}>
+              <Text style={styles.plegableListoTxt}>Listo</Text>
+            </TouchableOpacity>
+            </>)}
             </Plegable>
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
@@ -1178,13 +1222,23 @@ export function FilaElegida({ etiqueta, valor, onPress }: { etiqueta: string; va
   );
 }
 
+/**
+ * Un campo plegable.
+ *
+ * `children` puede ser una funcion que recibe `cerrar`. Eso es lo que permite
+ * que el desplegable se cierre al elegir, en vez de quedarse abierto
+ * empujando el resto del formulario hacia abajo y obligando a hacer scroll
+ * para llegar al siguiente campo (tarea 875).
+ */
 export function Plegable({
   titulo, resumen, children, abiertoInicial = false, requerido = false,
 }: {
-  titulo: string; resumen?: string; children: React.ReactNode;
+  titulo: string; resumen?: string;
+  children: React.ReactNode | ((cerrar: () => void) => React.ReactNode);
   abiertoInicial?: boolean; requerido?: boolean;
 }) {
   const [abierto, setAbierto] = useState(abiertoInicial);
+  const cerrar = React.useCallback(() => setAbierto(false), []);
   return (
     <View style={styles.plegable}>
       <TouchableOpacity style={styles.plegableCab} onPress={() => setAbierto(v => !v)} activeOpacity={0.7}>
@@ -1196,7 +1250,11 @@ export function Plegable({
         </View>
         <Ionicons name={abierto ? 'chevron-up' : 'chevron-down'} size={18} color="#9AA0A6" />
       </TouchableOpacity>
-      {abierto && <View style={styles.plegableCuerpo}>{children}</View>}
+      {abierto && (
+        <View style={styles.plegableCuerpo}>
+          {typeof children === 'function' ? (children as (c: () => void) => React.ReactNode)(cerrar) : children}
+        </View>
+      )}
     </View>
   );
 }
@@ -2663,6 +2721,9 @@ export const styles = StyleSheet.create({
   plegableCab: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 11, gap: 8 },
   plegableTitulo: { fontSize: 13, fontWeight: '800', color: '#222' },
   plegableResumen: { fontSize: 11.5, color: '#6B7280', marginTop: 1 },
+  plegableListo: { alignSelf: 'flex-end', marginTop: 10, paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 16, backgroundColor: ORANGE },
+  plegableListoTxt: { color: '#fff', fontSize: 13, fontWeight: '800' },
   plegableCuerpo: { paddingHorizontal: 12, paddingBottom: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#EEE' },
   cardTitle: { fontSize: 14, fontWeight: '700', color: '#222', lineHeight: 18 },
   cardFolio: { color: '#8A8A8A', fontWeight: '800' },
