@@ -1029,38 +1029,11 @@ export default function TareasPage() {
               </FormControl>
             </Box>
           )}
-          <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Responsable principal</InputLabel>
-              <Select label="Responsable principal" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
-                <MenuItem value="">Sin asignar</MenuItem>
-                {(() => {
-                  // Opciones = responsables configurados del tablero + los involucrados
-                  // elegidos (para poder nombrar responsable a quien acabas de involucrar).
-                  const m = new Map<number, UserOpt>();
-                  for (const u of assignees) if (isPickableGroup(u.role)) m.set(u.id, u);
-                  for (const u of users) if (involvedIds.includes(u.id) && isPickableGroup(u.role)) m.set(u.id, u);
-                  const opts = Array.from(m.values())
-                    .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
-                  if (opts.length === 0) return <MenuItem value="" disabled>Agrega un involucrado para elegir responsable</MenuItem>;
-                  return opts.map(u => {
-                    const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
-                    return (
-                      <MenuItem key={u.id} value={u.id}>
-                        {u.full_name}
-                        <Typography component="span" fontSize={12} color="text.secondary" sx={{ ml: 0.75 }}>
-                          · ⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}
-                        </Typography>
-                      </MenuItem>
-                    );
-                  });
-                })()}
-              </Select>
-            </FormControl>
-            <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}
-              error={!form.due_at}
-              value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
-          </Box>
+          {/* Involucrados ANTES del responsable: es el orden en que se eligen
+              —primero quien participa, luego quien de ellos responde— y el
+              propio selector de responsable lo dice, porque sin involucrados
+              solo ofrece "Agrega un involucrado para elegir responsable". Al
+              reves obligaba a bajar, elegir y volver a subir (tarea 875). */}
           {/* Involucrados (otros responsables) — buscador agrupado por tipo + chips
               de grupo, igual que en Mis Tareas. */}
           <Box sx={{ mt: 1.5 }}>
@@ -1097,6 +1070,38 @@ export default function TareasPage() {
                   sx={{ fontWeight: 600, borderColor: '#ddd' }} />
               ))}
             </Box>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Responsable principal</InputLabel>
+              <Select label="Responsable principal" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
+                <MenuItem value="">Sin asignar</MenuItem>
+                {(() => {
+                  // Opciones = responsables configurados del tablero + los involucrados
+                  // elegidos (para poder nombrar responsable a quien acabas de involucrar).
+                  const m = new Map<number, UserOpt>();
+                  for (const u of assignees) if (isPickableGroup(u.role)) m.set(u.id, u);
+                  for (const u of users) if (involvedIds.includes(u.id) && isPickableGroup(u.role)) m.set(u.id, u);
+                  const opts = Array.from(m.values())
+                    .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
+                  if (opts.length === 0) return <MenuItem value="" disabled>Agrega un involucrado para elegir responsable</MenuItem>;
+                  return opts.map(u => {
+                    const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+                    return (
+                      <MenuItem key={u.id} value={u.id}>
+                        {u.full_name}
+                        <Typography component="span" fontSize={12} color="text.secondary" sx={{ ml: 0.75 }}>
+                          · ⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}
+                        </Typography>
+                      </MenuItem>
+                    );
+                  });
+                })()}
+              </Select>
+            </FormControl>
+            <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}
+              error={!form.due_at}
+              value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
           {/* Checklist (subtareas) al crear — como en Mis Tareas */}
           <Box sx={{ mt: 2 }}>

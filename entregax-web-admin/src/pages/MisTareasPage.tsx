@@ -68,25 +68,9 @@ const etiquetaEspera = (t: any, larga = false): string =>
   esperaMiConfirmacion(t)
     ? (larga ? '⏳ Esperando TU confirmación' : '⏳ Esperando tu confirmación')
     : (larga ? '⏳ En espera de confirmación' : '⏳ En espera');
-// Los asesores no pueden involucrar a otras personas al crear una tarea.
-//
-// Con una excepción: el gerente de ventas. Coordina al equipo y necesita meter
-// a quien corresponda en la tarea que levanta; sin eso tiene que pedirle a
-// alguien más que la cree.
-//
-// Se reconoce por su PUESTO en el organigrama, no por su correo ni por su rol:
-// en la base es un 'advisor' idéntico a los demás —sin equipo asignado, sin
-// líder, is_broker en false— y lo único que lo distingue es que está asignado a
-// "Gerente de Ventas". Si mañana cambia de persona, se mueve en el organigrama
-// y esto lo sigue, sin tocar código.
-const ES_ASESOR_POR_ROL = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''));
 // Alias de visualización en la sección de Tareas: Aldo Campos (Super Admin) se
 // muestra como "Sistemas".
 const displayTaskName = (name?: string | null): string => (String(name || '').trim() === 'Aldo Campos' ? 'Sistemas' : String(name || ''));
-
-/** ¿El puesto del organigrama es de gerencia de ventas? */
-const esGerenciaDeVentas = (titulo?: string | null): boolean =>
-  /gerente\s+de\s+ventas/i.test(String(titulo || ''));
 
 const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)', yearly: 'Anual' };
 const ORDINAL_LABEL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -405,16 +389,11 @@ export default function MisTareasPage() {
   // (responsable, con comentarios sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
   const [showDone, setShowDone] = useState(false);
-  // Puesto del organigrama. Decide si a un asesor le toca poder involucrar
-  // gente: el Gerente de Ventas sí, los demás no.
-  const [miPuesto, setMiPuesto] = useState<string | null>(null);
-  useEffect(() => {
-    if (!ES_ASESOR_POR_ROL) return;   // a los demás roles no les cambia nada
-    axios.get(`${API_URL}/hr/mi-puesto`, H())
-      .then(r => setMiPuesto(r.data?.puesto?.title || null))
-      .catch(() => setMiPuesto(null));
-  }, []);
-  const IS_ASESOR = ES_ASESOR_POR_ROL && !esGerenciaDeVentas(miPuesto);
+  // Ya no se consulta el puesto del organigrama. Servia para decidir si a un
+  // asesor le tocaba poder involucrar gente —solo el Gerente de Ventas— y con
+  // eso se le escondia el selector al resto. Ahora el alta muestra todo a
+  // todos, asi que sobraba el estado, el efecto y una llamada HTTP en cada
+  // carga (tarea 875).
   // "Ocultar en espera": apagado por omisión, así que al entrar se ven TODAS,
   // incluidas las que esperan la confirmación de otra persona. Quien no las
   // quiera ver las apaga; antes era al revés y había que descubrir el botón
@@ -1390,12 +1369,15 @@ export default function MisTareasPage() {
               error={!form.due_at}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
-          {!IS_ASESOR && (<>
+          {/* Antes esto se le ocultaba al asesor, asi que creaba la tarea pelona
+              y tenia que entrar despues a configurarla. El backend no
+              restringe nada de esto por rol —la lista de asignables la decide
+              la configuracion del tablero, no quien pregunta—, asi que no
+              habia nada que proteger (tarea 875). */}
           <InvolvedPicker users={users} involvedIds={involvedIds} setInvolvedIds={setInvolvedIds} frequent={frequent} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
-          </>)}
 
           {/* Responsable — visible SOLO cuando hay al menos un involucrado
               distinto del creador. Obligatorio antes de crear la tarea. */}

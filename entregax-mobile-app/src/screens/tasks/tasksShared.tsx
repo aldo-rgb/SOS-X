@@ -394,10 +394,10 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   const submit = async () => {
     if (busy) return; // anti doble-envío
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
-    if (!advisorMode && catId === undefined) { Alert.alert('Falta categoría', 'Selecciona una categoría (o «Personal»).'); return; }
+    if (catId === undefined) { Alert.alert('Falta categoría', 'Selecciona una categoría (o «Personal»).'); return; }
     if (!eis) { Alert.alert('Falta prioridad', 'Selecciona la prioridad de la tarea.'); return; }
     if (!dueOpt) { Alert.alert('Falta fecha', 'Selecciona la fecha deseada.'); return; }
-    if (!advisorMode && !assignee) { Alert.alert('Falta responsable', 'Elige quién es el responsable de la tarea. Solo esa persona la puede marcar como completada.'); return; }
+    if (!assignee) { Alert.alert('Falta responsable', 'Elige quién es el responsable de la tarea. Solo esa persona la puede marcar como completada.'); return; }
     setBusy(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
@@ -438,7 +438,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
-            {!advisorMode && (<>
+            {(<>
             <Plegable
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
@@ -506,7 +506,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                 placeholderTextColor="#999" />
               <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
             </View>
-            {!advisorMode && (<>
+            {(<>
             <Plegable
               titulo="Involucrados"
               resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
@@ -670,7 +670,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
-    if (!advisorMode && !assignee) { Alert.alert('Falta responsable', 'Elige quién será el responsable de la tarea programada.'); return; }
+    if (!assignee) { Alert.alert('Falta responsable', 'Elige quién será el responsable de la tarea programada.'); return; }
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
@@ -806,7 +806,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 placeholderTextColor="#999" />
               <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
             </View>
-            {!advisorMode && (<>
+            {(<>
             <Plegable
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
@@ -961,7 +961,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 ))}
               </View>
             </Plegable>
-            {!advisorMode && (<>
+            {(<>
             <Plegable
               titulo="Involucrados"
               resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
@@ -1839,6 +1839,19 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       ))}
                     </View>
                   </Plegable>
+                  {/* Involucrados ANTES de Responsable: es el orden en que se
+                      eligen —primero quien participa, luego quien de ellos
+                      responde— y el responsable sale justo de esa lista. Al
+                      reves obligaba a bajar, elegir involucrados y volver a
+                      subir (tarea 875). */}
+                  <Plegable
+                    titulo="Involucrados"
+                    resumen={involvedExtra.length === 0 ? 'Solo el creador' : `${involvedExtra.length} además del creador`}
+                  >
+                    <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
+                      onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
+                      fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
+                  </Plegable>
                   <Plegable titulo="Responsable" resumen={t.assignee_name || '—'}>
                     <View style={styles.eisRow}>
                       {respCands.map(uid => (
@@ -1848,14 +1861,6 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                         </TouchableOpacity>
                       ))}
                     </View>
-                  </Plegable>
-                  <Plegable
-                    titulo="Involucrados"
-                    resumen={involvedExtra.length === 0 ? 'Solo el creador' : `${involvedExtra.length} además del creador`}
-                  >
-                    <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
-                      onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
-                      fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
                   </Plegable>
                   {/* Quién la asignó. Estaba solo en la vista de quien no puede
                       editar, así que justo el responsable —que sí puede— no veía
