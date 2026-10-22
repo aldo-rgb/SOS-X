@@ -4806,12 +4806,39 @@ export const investigarTicketCore = async (
         ].join('\n')
       : '';
 
+    // Los casilleros que menciona el TEXTO. Se escriben de muchas formas —"S
+    // 1070", "s2062", "suit S 1070", "del S4012"— y hay que reconocerlas
+    // todas, porque es el unico dato fiable de a quien se refiere el reclamo
+    // cuando lo levanta personal nuestro (tarea 868).
+    const casillerosEnElTexto = (() => {
+      const vistos = new Set<string>();
+      for (const m of String(hilo).matchAll(/\bS\s?-?\s?(\d{3,5})\b/gi)) vistos.add(`S${m[1]}`);
+      // El de quien reporta no cuenta como "mencionado": lo trae el contexto.
+      const propio = String(tk.box_id || '').toUpperCase().replace(/\s|-/g, '');
+      return [...vistos].filter(x => x.toUpperCase() !== propio);
+    })();
+
     const contexto = [
       `Ticket ${tk.ticket_folio} · estado ${tk.status} · categoría ${tk.category}`,
       loLevantoEmpleado
         ? `QUIÉN LO LEVANTÓ: un ASESOR de EntregaX, a nombre de su cliente. Los mensajes marcados como "client" en el hilo los escribió el ASESOR, no el dueño del casillero. Que el nombre de quien escribe no coincida con el titular del casillero es NORMAL: NO lo reportes como hallazgo ni como algo que aclarar.`
         : `QUIÉN LO LEVANTÓ: el propio cliente.`,
-      `Casillero del que se habla: ${tk.box_id || 'sin casillero'} · titular: ${tk.cliente || '—'}`,
+      // El casillero del que se habla NO siempre es el de quien levanta el
+      // ticket. Esta linea decia "Casillero del que se habla: <el del dueno
+      // del ticket>", y eso es una AFIRMACION FALSA cuando lo levanta un
+      // empleado a nombre de otro: en el TKT-2026-3224, Roman —gerente de
+      // sucursal, casillero S4012— reporto un problema del casillero S1070 y
+      // Cajito investigo el S4012, no encontro paquetes ahi y concluyo que no
+      // habia nada roto. La conclusion era de la caja equivocada (tarea 868).
+      loLevantoEmpleado
+        ? `CASILLERO DE QUIEN LEVANTO EL TICKET: ${tk.box_id || 'sin casillero'} · titular: ${tk.cliente || '—'}. `
+          + 'OJO: lo levanto personal de EntregaX, asi que ESE casillero casi nunca es el del caso — es el de quien reporta. '
+          + 'El casillero del que se habla es el que diga el TEXTO del hilo. Si el texto menciona uno, investiga ESE. '
+          + 'Si no menciona ninguno, NO investigues el de quien reporta como si fuera el del caso: dilo y pide el dato.'
+        : `Casillero del que se habla: ${tk.box_id || 'sin casillero'} · titular: ${tk.cliente || '—'}`,
+      casillerosEnElTexto.length
+        ? `CASILLEROS MENCIONADOS EN EL TEXTO: ${casillerosEnElTexto.join(', ')}. Investiga estos.`
+        : '',
       '',
       'Hilo:',
       hilo || '(sin mensajes)',
