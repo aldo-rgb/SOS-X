@@ -24,10 +24,15 @@ const APLICAR = process.argv.includes('--aplicar');
       LEFT JOIN users u ON u.id = s.user_id
      WHERE t.title ~ 'TKT-[0-9]{4}-[0-9]+'
        AND t.status <> 'cancelled'
-       -- Solo los tres titulos que el backend ya construye con contexto. El de
+       -- Solo los titulos que el backend construye con contexto. El de
        -- "Retraso" se deja igual A PROPOSITO: su flujo busca la tarea por
        -- titulo exacto en otros dos lugares y renombrarla la dejaria huerfana.
-       AND (t.title LIKE 'Error localizado %'
+       --
+       -- 'TKT-%' cubre las de error ya renombradas, que arrancan con el folio;
+       -- 'Error localizado %' las que todavia traigan el prefijo viejo. Asi el
+       -- script se puede volver a correr sin dejar fuera a las que ya toco.
+       AND (t.title LIKE 'TKT-%'
+         OR t.title LIKE 'Error localizado %'
          OR t.title LIKE 'Consulta a Juan Carlos %'
          OR t.title LIKE 'Ticket de servicio con inconformidad reportado %')
      ORDER BY t.id`);
@@ -35,9 +40,12 @@ const APLICAR = process.argv.includes('--aplicar');
   console.log(`${r.rows.length} tareas con titulo sin contexto\n`);
   let n = 0;
   for (const x of r.rows) {
-    // El titulo pudo haberse rellenado antes con el `subject` recortado: se
-    // recorta al base y se vuelve a armar con el texto completo (tarea 873).
-    const base = String(x.title).split(' · ')[0].trim();
+    // El titulo se recorta a su base y se vuelve a armar. La base de las
+    // tareas de error ya NO lleva el prefijo "Error localizado": es el folio
+    // solo, porque todas decian lo mismo y gastaba el espacio util (tarea
+    // 873). Las otras dos conservan su etiqueta, que si distingue el flujo.
+    const primero = String(x.title).split(' · ')[0].trim();
+    const base = primero.replace(/^Error localizado\s+/i, '');
     const nuevo = tituloDeTareaDeTicket(base, {
       texto: x.primer_texto || x.subject, category: x.category, reportante: x.reportante,
     });

@@ -209,7 +209,7 @@ const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
 // Folio de ticket de soporte (TKT-2026-1919, TKT-ACQ-123-456, …). Se usa para
 // convertir en hipervínculo la referencia dentro del título/descripción de las
-// tareas que nacen de "Reportar error" ("Error localizado {folio}").
+// tareas que nacen de "Reportar error" (su título arranca con el folio).
 const TICKET_FOLIO_RE = /TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*/g;
 const openTicketByFolio = (folio: string) => {
   // Navega al Centro de Soporte y abre el ticket (App.tsx escucha este evento).

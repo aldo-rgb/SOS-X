@@ -800,7 +800,7 @@ export default function SupportBoardPage() {
 
   // Fallback: cuando SupportBoardPage monta o cuando termina de cargar los
   // tickets, revisamos si hay un folio pendiente en localStorage (dejado por
-  // App.tsx al navegar desde una tarea "Error localizado TKT-…"). Si el
+  // App.tsx al navegar desde una tarea de ticket). Si el
   // listener del evento no alcanzó a registrarse antes de que se disparara,
   // este chequeo asegura que el ticket se abra igual.
   useEffect(() => {
@@ -1059,7 +1059,7 @@ export default function SupportBoardPage() {
               // El número, no el folio: el folio ya lo tiene en pantalla. Sin el
               // número no hay forma de llegar a la tarea que ya contestó esto.
               ? `Ya existe la tarea #${d.task_id} para este error. Búscala en Mis Tareas.`
-              : `Tarea #${d.task_id} creada: "Error localizado ${selectedTicket.ticket_folio}" con lo que investigó Cajito.`)
+              : `Tarea #${d.task_id} creada: "${selectedTicket.ticket_folio}" con lo que investigó Cajito.`)
           : (d.error || 'No se pudo reportar el error'),
         sev: r.ok ? 'success' : 'error',
       });
@@ -1083,7 +1083,7 @@ export default function SupportBoardPage() {
       if (res.ok) {
         setReportSnack({ msg: d.already
           ? `Ya existe la tarea #${d.task_id} para este error. Búscala en Mis Tareas.`
-          : `Tarea #${d.task_id} creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
+          : `Tarea #${d.task_id} creada: "${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
         setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client', error_reported: true } : prev));
         await loadTickets();
         await loadStats();

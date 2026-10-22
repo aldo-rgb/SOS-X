@@ -1102,7 +1102,7 @@ function App() {
         setPanelsExpanded(true);
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
-        // Si viene un folio (p.ej. desde una tarea "Error localizado TKT-…"),
+        // Si viene un folio (p.ej. desde una tarea que nace de un ticket),
         // abrimos ese ticket una vez montado el tablero de soporte. Como el
         // tablero puede tardar en montarse (transiciones/carga), dejamos el
         // folio en localStorage; SupportBoardPage lo recoge en su onMount

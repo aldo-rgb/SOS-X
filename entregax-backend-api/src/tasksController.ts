@@ -1820,7 +1820,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       } catch { /* opcional */ }
     };
 
-    // Si la tarea nació de "Reportar error" (título "Error localizado {folio}"),
+    // Si la tarea nació de "Reportar error" (su título arranca con el folio),
     // al completarla se avisa AL CLIENTE en el mismo ticket que ya fue corregido.
     // Solo ESCRIBE la respuesta en el ticket (sin notificación push/in-app).
     // ⚠️ NO cambiamos el status del ticket: el soporte técnico debe leer la
@@ -1862,7 +1862,13 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
 
     const notifyTicketFixed = async () => {
       try {
-        const m = String(task.title || '').match(/^Error localizado\s+(\S+)/i);
+        // El titulo de estas tareas ARRANCA con el folio y ya no trae el
+        // prefijo "Error localizado" (tarea 873). Se ancla al inicio a
+        // proposito: es lo que distingue una tarea de error de las otras que
+        // tambien llevan folio —"Consulta a Juan Carlos TKT-…", "Retraso
+        // TKT-…", "Ticket de servicio con inconformidad TKT-…"—, que NO deben
+        // escribirle al cliente que su error ya se corrigio.
+        const m = String(task.title || '').match(/^(TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)/i);
         if (!m) return;
         const folio = m[1];
         const tk = await pool.query(`SELECT id FROM support_tickets WHERE ticket_folio = $1 LIMIT 1`, [folio]);

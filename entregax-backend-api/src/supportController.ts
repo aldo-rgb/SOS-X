@@ -1901,7 +1901,7 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              -- que va el ticket (tarea 873), asi que comparar el titulo
              -- completo dejaria de encontrar la tarea y el ticket volveria a
              -- decir que nadie reporto el error.
-             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled') AS error_reported,
+             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title LIKE t.ticket_folio || '%' AND tk.status <> 'cancelled') AS error_reported,
              -- QUÉ tarea, no solo que existe. Saber que "ya se reportó" sin el
              -- número deja a quien atiende sin forma de llegar a la respuesta:
              -- el ticket no deja levantar otra tarea y tampoco dice dónde está
@@ -1909,10 +1909,10 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              -- TKT-2026-2879, cuya tarea (la 687) llevaba cuatro días resuelta
              -- (tarea 734).
              (SELECT tk.id FROM tasks tk
-               WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled'
+               WHERE tk.title LIKE t.ticket_folio || '%' AND tk.status <> 'cancelled'
                ORDER BY tk.id LIMIT 1) AS error_task_id,
              (SELECT tk.status FROM tasks tk
-               WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%' AND tk.status <> 'cancelled'
+               WHERE tk.title LIKE t.ticket_folio || '%' AND tk.status <> 'cancelled'
                ORDER BY tk.id LIMIT 1) AS error_task_status,
              -- Mensajes del cliente POSTERIORES a la última respuesta. Es lo que
              -- de verdad necesita ver quien atiende la bandeja: no "yo no lo he
@@ -2341,7 +2341,7 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
         .catch(() => {});
     }
 
-    // 🔗 Cierre de la tarea vinculada "Error localizado {folio}".
+    // 🔗 Cierre de la tarea vinculada al ticket (su título arranca con el folio).
     // Cuando el ticket se marca como resuelto, la tarea de soporte tecnico que
     // nacio de "Reportar error" se cierra automaticamente — sin importar si
     // estaba en 'open' o esperando confirmacion del creador.
@@ -2362,10 +2362,10 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
             WHERE title LIKE $1 || '%'
               AND status <> 'completed'
               AND status <> 'cancelled'`,
-          // Por el FOLIO, no por el titulo completo: el titulo ahora lleva
-          // ademas quien reporto y de que va (tarea 873). Comparando todo,
-          // esto habria dejado de cerrar la tarea sin que nada avisara.
-          [`Error localizado ${folio}`]
+          // Por el FOLIO: el titulo lleva ademas quien reporto y de que va, y
+          // ya no trae el prefijo "Error localizado" (tarea 873). Comparando
+          // el titulo completo esto dejaria de cerrar la tarea en silencio.
+          [folio]
         );
       } catch (e: any) {
         console.error('[support] Auto-cerrar tarea vinculada al ticket', folio, e?.message);
@@ -2869,7 +2869,7 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
 
 // Reportar error: crea una TAREA a partir de un ticket "Error Sistema".
 //  · responsable (assignee) = Super Admin · asignada por = usuario de soporte (creador)
-//  · soporte queda involucrado (participante) · título "Error localizado {folio}"
+//  · soporte queda involucrado (participante) · el título arranca con el folio
 //  · copia TODOS los archivos del ticket a la tarea.
 /**
  * El reporte de verdad, sin req/res. Lo usan el botón "Reportar error" y el juez
@@ -2895,10 +2895,19 @@ export const reportarErrorDeTicket = async (
     if (tRes.rows.length === 0) return { error: 'Ticket no encontrado', status: 404 };
     const ticket = tRes.rows[0];
     const folio = ticket.ticket_folio || `#${ticketId}`;
-    // El duplicado se busca por el FOLIO, no por el titulo completo: el titulo
-    // ahora lleva ademas quien reporto y de que va, y comparar todo eso haria
-    // que un cambio en el texto del ticket creara una segunda tarea.
-    const base = `Error localizado ${folio}`;
+    // El titulo arranca con el FOLIO y nada mas.
+    //
+    // Antes decia "Error localizado <folio>". Andres lo pidio fuera: TODAS las
+    // tareas que nacen de un ticket de error dicen lo mismo, asi que el
+    // prefijo gastaba el espacio util sin distinguir nada (tarea 873).
+    //
+    // El folio se queda al frente a proposito: es el ancla con la que cinco
+    // lugares del sistema encuentran esta tarea —el candado contra duplicados,
+    // el cierre automatico al resolver el ticket y la bandera de "ya se
+    // reporto"—. Y sirve como ancla porque ningun otro titulo empieza con un
+    // folio: los otros flujos arrancan con "Consulta a Juan Carlos",
+    // "Ticket de servicio con inconformidad" o "Retraso".
+    const base = folio;
     // El tema sale del texto COMPLETO del primer mensaje, no de `subject`, que
     // se guarda recortado a 50 caracteres y no alcanzaba para decir de que va
     // (tarea 873).
@@ -3190,7 +3199,7 @@ export const cerrarTicketsSinRespuesta = async (dias = 7): Promise<{ cerrados: n
           -- la tarea quede terminada o cancelada.
           AND NOT EXISTS (
                 SELECT 1 FROM tasks tk
-                 WHERE tk.title LIKE 'Error localizado ' || t.ticket_folio || '%'
+                 WHERE tk.title LIKE t.ticket_folio || '%'
                    AND tk.status NOT IN ('completed', 'cancelled'))`,
       [String(dias)]
     );

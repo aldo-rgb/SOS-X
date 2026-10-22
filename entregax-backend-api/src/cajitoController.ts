@@ -2379,7 +2379,7 @@ export const TOOLS: ToolDef[] = [
     name: 'lookup_task',
     requiredCapability: 'cajito.read.tasks',
     readOnly: true,
-    description: 'Abre UNA tarea por su número y la devuelve completa: descripción, estado, matriz de Eisenhower, tablero, responsable, quién la creó, fechas, el checklist, TODOS los comentarios con su autor y fecha, los archivos adjuntos y la bitácora de lo que le ha pasado. Si el título es "Error localizado TKT-…", trae además el ticket que la originó con su conversación. Úsala SIEMPRE que mencionen una tarea por número ("revisa la 538", "qué pasó con la tarea 470", "de qué trata la 522") o pidan investigar, resumir o entender un caso. También acepta texto para buscar entre títulos y descripciones cuando no sepan el número. OJO: de los adjuntos solo te dice que existen; para ver lo que trae adentro un Excel o un CSV usa leer_tabla_de_tarea.',
+    description: 'Abre UNA tarea por su número y la devuelve completa: descripción, estado, matriz de Eisenhower, tablero, responsable, quién la creó, fechas, el checklist, TODOS los comentarios con su autor y fecha, los archivos adjuntos y la bitácora de lo que le ha pasado. Si el título ARRANCA con un folio (TKT-…), trae además el ticket que la originó con su conversación. Úsala SIEMPRE que mencionen una tarea por número ("revisa la 538", "qué pasó con la tarea 470", "de qué trata la 522") o pidan investigar, resumir o entender un caso. También acepta texto para buscar entre títulos y descripciones cuando no sepan el número. OJO: de los adjuntos solo te dice que existen; para ver lo que trae adentro un Excel o un CSV usa leer_tabla_de_tarea.',
     parameters: {
       type: 'object',
       properties: {
@@ -2619,7 +2619,7 @@ export const TOOLS: ToolDef[] = [
   // No hay copia del cierre: se llama a `completeTask`, el MISMO handler del
   // botón, con la identidad de quien habla. Con eso hereda todo tal cual:
   // quién puede cerrar, la doble confirmación, el checklist pendiente, el aviso
-  // a los involucrados, el mensaje al cliente si es "Error localizado…" y el
+  // a los involucrados, el mensaje al cliente si el título arranca con folio, y el
   // evento hacia Grupo Rino. Lo único que Cajito NUNCA manda son los atajos
   // —skip_double_confirm, force_confirm, forced_reason—: si el tablero pediría
   // forzar, se le regresa a la persona para que lo decida ella en pantalla.
@@ -4254,7 +4254,7 @@ export function buildSystemPrompt(
     ...(tiene('cerrar_tarea') ? [
       'CERRAR UNA TAREA. Tienes cerrar_tarea: es el botón "Completar" del tablero, con sus mismas reglas.',
       '  - Antes de cerrarla, ábrela con lookup_task y dile a la persona cuál es (número y título) y qué va a pasar. Espera el sí.',
-      '  - Si el título empieza con "Error localizado", avísale que al cerrarla se le escribe al cliente en su ticket que ya quedó corregido.',
+      '  - Si el título EMPIEZA con un folio de ticket (TKT-…), es una tarea de error: avísale que al cerrarla se le escribe al cliente en su ticket que ya quedó corregido. Las que traen el folio más adelante ("Consulta a Juan Carlos TKT-…", "Retraso TKT-…") NO escriben nada al cliente.',
       '  - Si responde que espera confirmación de quien la asignó, o que tiene checklist pendiente, díselo tal cual: forzarla se decide en el tablero, no tú.',
     ] : [
       'CERRAR UNA TAREA: con esta persona no puedes cerrarlas. No lo ofrezcas; si te lo pide, dile que la cierre con "Completar" en Mis Tareas.',
