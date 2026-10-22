@@ -2059,13 +2059,29 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           </View>
                         </View>
                       ) : (
-                        /* selectable: en React Native el texto NO se puede
-                           seleccionar si no se pide. El titulo y la descripcion
-                           ya lo traian y la conversacion no, que es donde esta
-                           lo que uno quiere copiar —un folio, un RFC, una guia,
-                           una direccion— y habia que transcribirlo a mano
-                           (tarea 872). */
-                        <Text selectable style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
+                        /* Un TextInput de SOLO LECTURA, no un Text (tarea 872).
+                           Marcar el Text como selectable fue el primer intento y
+                           no alcanza: en iOS eso da un menu con "Copiar" que se
+                           lleva el mensaje COMPLETO, sin manejadores que
+                           arrastrar, que es justo lo que Andres reporto.
+
+                           Un TextInput no editable si renderiza un campo de
+                           texto nativo, y con el vienen la seleccion por
+                           palabra y los manejadores de inicio y fin, como en
+                           cualquier otra app. Se ve igual que antes: sin
+                           relleno, sin scroll propio y con el mismo estilo del
+                           texto.
+
+                           El titulo y la descripcion se quedan como Text porque
+                           ahi los folios de ticket son tocables, y un TextInput
+                           no admite hijos. */
+                        <TextInput
+                          value={c.body || ''}
+                          editable={false}
+                          multiline
+                          scrollEnabled={false}
+                          style={[styles.msgText, styles.msgTextInput, mine && { color: '#0B3D1E' }]}
+                        />
                       )}
                       {/* Un comentario puede traer archivo (asi llegan los de
                           Grupo Rino). Sin esto decia "Adjunto un archivo" y no
@@ -2724,6 +2740,14 @@ export const styles = StyleSheet.create({
   msgBubbleOther: { backgroundColor: '#F1F0F0', borderTopLeftRadius: 4 },
   msgAuthor: { fontSize: 11, fontWeight: '800', color: '#5E35B1', marginBottom: 2 },
   msgText: { fontSize: 14, color: '#222', lineHeight: 19 },
+  // El TextInput trae relleno propio y, en Android, centra el texto: se le
+  // quita todo para que se lea igual que el Text que reemplazo (tarea 872).
+  msgTextInput: {
+    padding: 0,
+    margin: 0,
+    textAlignVertical: 'top',
+    ...(Platform.OS === 'android' ? { paddingVertical: 0, includeFontPadding: false } : {}),
+  },
   msgTime: { fontSize: 10, marginTop: 3, alignSelf: 'flex-end' },
   modalFoot: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
   completeBtn: { backgroundColor: '#2E9E5B', borderRadius: 12, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },

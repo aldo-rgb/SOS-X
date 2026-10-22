@@ -512,9 +512,13 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                             </View>
                           </View>
                         ) : (
-                          <Text style={[styles.bubbleText, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
-                            {msg.deleted_at ? `🚫 ${msg.message}` : String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
-                          </Text>
+                          <TextInput
+                            value={msg.deleted_at ? `🚫 ${msg.message}` : String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
+                            editable={false}
+                            multiline
+                            scrollEnabled={false}
+                            style={[styles.bubbleText, styles.textoCopiable, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}
+                          />
                         )}
                         {/* Fotos dentro de la conversación, no como enlace suelto:
                             antes los adjuntos del ticket ni se veían aquí. */}
@@ -725,6 +729,9 @@ const styles = StyleSheet.create({
   bubbleClient: { backgroundColor: ORANGE, alignSelf: 'flex-end' },
   bubbleAgent: { backgroundColor: '#fff', alignSelf: 'flex-start', borderWidth: 1, borderColor: '#e0e0e0' },
   bubbleText: { fontSize: 14, lineHeight: 20 },
+  // El TextInput trae relleno propio: se le quita para que se lea igual que el
+  // Text que reemplazo (tarea 872).
+  textoCopiable: { padding: 0, margin: 0, textAlignVertical: 'top' },
   bubbleTextClient: { color: '#fff' },
   bubbleTextAgent: { color: '#333' },
   bubbleTime: { fontSize: 10, marginTop: 4, color: 'rgba(0,0,0,0.4)' },

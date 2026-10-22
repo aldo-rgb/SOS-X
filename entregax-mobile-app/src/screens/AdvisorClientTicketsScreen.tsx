@@ -580,9 +580,13 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
           </View>
         )}
         {!!msg.message?.trim() && (
-          <Text style={[styles.messageText, propio && { color: '#fff' }]}>
-            {String(msg.message).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
-          </Text>
+          <TextInput
+            value={String(msg.message).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
+            editable={false}
+            multiline
+            scrollEnabled={false}
+            style={[styles.messageText, styles.textoCopiable, propio && { color: '#fff' }]}
+          />
         )}
         {attachUrls.length > 0 && (
           <View style={{ marginTop: msg.message?.trim() ? 8 : 0, gap: 6 }}>
@@ -1418,6 +1422,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#999',
   },
+  // El TextInput trae relleno propio: se le quita para que se lea igual que
+  // el Text que reemplazo (tarea 872).
+  textoCopiable: { padding: 0, margin: 0, textAlignVertical: 'top' },
   messageText: {
     fontSize: 13,
     color: '#333',

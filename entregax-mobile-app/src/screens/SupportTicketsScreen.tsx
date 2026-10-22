@@ -630,9 +630,13 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
               {!!msg.reply.url && <Image source={{ uri: msg.reply.url }} style={styles.citaMini} resizeMode="cover" />}
             </View>
           )}
-          <Text style={[styles.msgText, { color: textColor }, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
-            {msg.deleted_at ? `🚫 ${msg.message}` : msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
-          </Text>
+          <TextInput
+            value={String(msg.deleted_at ? `🚫 ${msg.message}` : (msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim() || ''))}
+            editable={false}
+            multiline
+            scrollEnabled={false}
+            style={[styles.msgText, styles.textoCopiable, { color: textColor }, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}
+          />
           {attachUrls.map((url, i) => {
             const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
             return isPdf ? (
@@ -1036,6 +1040,9 @@ const styles = StyleSheet.create({
   bubbleClient: { backgroundColor: '#fff', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   msgSender: { fontSize: 10, fontWeight: '700', marginBottom: 2 },
   msgText: { fontSize: 14, lineHeight: 20 },
+  // El TextInput trae relleno propio: se le quita para que se lea igual que el
+  // Text que reemplazo (tarea 872).
+  textoCopiable: { padding: 0, margin: 0, textAlignVertical: 'top' },
   msgTime: { fontSize: 10, marginTop: 4, textAlign: 'right' },
   internalBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
