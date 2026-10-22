@@ -591,7 +591,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   // ÚLTIMA clave autobalancea su precio unitario. Las demás son editables.
   const facturaTotalMxn = quote?.monto_mxn_total || 0;
   const computeLineItems = useCallback((concs: SelectedConcepto[], totalMxn: number) => {
-    const items = concs.map((c) => ({ ...c, cantidad: Number(c.cantidad) || 1, precioUnitario: Number(c.precioUnitario) || 0 }));
+    // Vacio es CERO, no 1. Arrancar en 1 dejaba avanzar sin que nadie hubiera
+    // escrito nada: el campo en blanco es el seguro que obliga a ponerle al
+    // menos un 1 (tarea 887, Andres).
+    const items = concs.map((c) => ({ ...c, cantidad: Number(c.cantidad) || 0, precioUnitario: Number(c.precioUnitario) || 0 }));
     const n = items.length;
     if (n === 0) return items;
     const othersSubtotal = items.slice(0, n - 1).reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
@@ -612,16 +615,24 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
    * ese campo esta deshabilitado, asi que pedirle que lo llene seria pedirle
    * lo imposible. Por eso se distinguen los dos casos.
    *
-   * La cantidad no se valida: el campo arranca en 1 y su onChange nunca deja
-   * bajar de 1.
+   * La cantidad tambien se valida: desde la tarea 887 el campo nace vacio, y
+   * un vacio cuenta como cero.
    */
-  const partidasSinPrecio = (items: Array<{ clave_prodserv?: string; precioUnitario: number }>) => {
-    const malas: number[] = [];
-    items.forEach((x, i) => { if (!(x.precioUnitario > 0)) malas.push(i); });
+  const partidasSinPrecio = (items: Array<{ clave_prodserv?: string; cantidad: number; precioUnitario: number }>) => {
+    const sinCantidad: number[] = [];
+    const sinPrecio: number[] = [];
+    items.forEach((x, i) => {
+      if (!(x.cantidad > 0)) sinCantidad.push(i);
+      else if (!(x.precioUnitario > 0)) sinPrecio.push(i);
+    });
+    const malas = [...sinCantidad, ...sinPrecio];
+    const nombre = (i: number) => items[i]?.clave_prodserv;
     return {
       idx: new Set(malas),
-      claves: malas.map(i => items[i]?.clave_prodserv).filter(Boolean) as string[],
-      soloLaAutomatica: malas.length === 1 && malas[0] === items.length - 1,
+      idxSinCantidad: new Set(sinCantidad),
+      clavesSinCantidad: sinCantidad.map(nombre).filter(Boolean) as string[],
+      claves: sinPrecio.map(nombre).filter(Boolean) as string[],
+      soloLaAutomatica: sinCantidad.length === 0 && sinPrecio.length === 1 && sinPrecio[0] === items.length - 1,
       hayAlguna: malas.length > 0,
     };
   };
@@ -829,7 +840,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           empresa: newEmpresa,
           cuenta_bancaria: r.data?.cuenta_bancaria,
           facturacion: r.data?.facturacion,
-          cantidad: 1,
+          // Nace SIN cantidad a proposito: el campo vacio es lo que obliga a
+          // capturarla (tarea 887).
+          cantidad: undefined,
           precioUnitario: 0,
         }];
       });
@@ -2302,6 +2315,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       // veia hasta despues.
       {
         const falta = partidasSinPrecio(lineItems);
+        if (falta.clavesSinCantidad.length > 0) {
+          const cuales = falta.clavesSinCantidad.join(', ');
+          return falta.clavesSinCantidad.length === 1
+            ? `Falta la cantidad de piezas de la partida ${cuales}.`
+            : `Faltan las cantidades de piezas de ${falta.clavesSinCantidad.length} partidas (${cuales}).`;
+        }
         if (falta.hayAlguna) {
           if (falta.soloLaAutomatica) {
             return 'La última partida se calcula sola y quedó en $0 porque las anteriores ya cubren el monto completo. '
@@ -3863,12 +3882,23 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.5 }}>
                       {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
                     </Typography>
+                    {/* El aviso de contexto, antes de la lista: dice lo que hay
+                        que llenar sin esperar a que falle (tarea 887). */}
+                    <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.75, lineHeight: 1.4 }}>
+                      Cada concepto necesita su cantidad de piezas y su precio unitario.
+                      El precio del último se calcula solo para cuadrar con el total.
+                    </Typography>
                     {/* Las partidas sin precio se marcan en rojo en el acto, para
                         que se vea cual corregir sin leer el mensaje (tarea 887). */}
                     {lineItems.map((c, idx) => {
                       const isLast = idx === lineItems.length - 1;
                       const subtotal = c.cantidad * c.precioUnitario;
-                      const malo = !(c.precioUnitario > 0);
+                      // Cada campo se queja de LO SUYO: si falta la cantidad, el
+                      // de precio no dice "falta el precio", que seria falso y
+                      // manda a corregir donde no es.
+                      const faltaCantidad = !(c.cantidad > 0);
+                      const faltaPrecio = !faltaCantidad && !(c.precioUnitario > 0);
+                      const malo = faltaCantidad || faltaPrecio;
                       return (
                       <Box key={`${c.clave_prodserv}-${idx}`}
                         sx={{
@@ -3895,10 +3925,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, flexWrap: 'wrap' }}>
                           <TextField
                             size="small" type="number" label="Cantidad"
-                            value={c.cantidad}
-                            onChange={(e) => setConceptoField(idx, 'cantidad', Math.max(1, Number(e.target.value) || 1))}
-                            sx={{ width: 96, '& input': { color: C.textPrimary }, '& label': { color: C.textMuted } }}
-                            inputProps={{ min: 1, step: 1 }}
+                            // Vacio a proposito: es lo que obliga a capturarla.
+                            value={c.cantidad ?? ''}
+                            onChange={(e) => setConceptoField(idx, 'cantidad', Math.max(0, Number(e.target.value) || 0))}
+                            error={faltaCantidad}
+                            helperText={faltaCantidad ? 'Falta la cantidad' : undefined}
+                            placeholder="0"
+                            sx={{ width: 110, '& input': { color: C.textPrimary }, '& label': { color: C.textMuted } }}
+                            inputProps={{ min: 0, step: 1 }}
                           />
                           <Typography sx={{ color: C.textMuted }}>×</Typography>
                           <TextField
@@ -3907,8 +3941,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             value={isLast ? c.precioUnitario.toFixed(2) : c.precioUnitario}
                             onChange={(e) => { if (!isLast) setConceptoField(idx, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
                             disabled={isLast}
-                            error={malo}
-                            helperText={malo ? (isLast ? 'Las anteriores ya cubren el monto' : 'Falta el precio') : undefined}
+                            error={faltaPrecio}
+                            helperText={faltaPrecio ? (isLast ? 'Las anteriores ya cubren el monto' : 'Falta el precio') : undefined}
                             sx={{ width: 140, '& input': { color: isLast ? ORANGE : C.textPrimary, fontWeight: isLast ? 700 : 400 }, '& label': { color: C.textMuted } }}
                             inputProps={{ min: 0, step: '0.01' }}
                           />

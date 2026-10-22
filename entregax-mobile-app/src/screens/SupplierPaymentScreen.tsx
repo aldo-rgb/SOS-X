@@ -234,7 +234,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [conceptoQty, setConceptoQty] = useState<Record<string, string>>({});
   const [conceptoPrice, setConceptoPrice] = useState<Record<string, string>>({});
   // Cantidad y precio efectivos de una clave (lo que se manda a facturar).
-  const qtyDe = (clave: string) => Math.max(1, parseInt(conceptoQty[clave] || '', 10) || 1);
+  // Vacio es CERO, no 1. Arrancar en 1 dejaba avanzar sin que nadie hubiera
+  // escrito nada: el campo en blanco es justo el seguro que obliga a ponerle
+  // al menos un 1 (tarea 887, Andres).
+  const qtyDe = (clave: string) => Math.max(0, parseInt(conceptoQty[clave] || '', 10) || 0);
   const precioDe = (clave: string) => Math.max(0, parseFloat(conceptoPrice[clave] || '') || 0);
   const [claveHistory, setClaveHistory] = useState<Array<{ clave: string; descripcion?: string | null; uses_count: number }>>([]);
   const [monto, setMonto] = useState('');
@@ -588,14 +591,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
    * La cantidad no se valida: el campo arranca en 1 y qtyDe nunca devuelve
    * menos de 1, asi que no puede quedar en cero.
    */
-  const partidasSinPrecio = (items: Array<{ uid: string; clave: string; precioUnitario: number }>) => {
-    const malas = items.filter(x => !(x.precioUnitario > 0));
+  const partidasSinPrecio = (items: Array<{ uid: string; clave: string; cantidad: number; precioUnitario: number }>) => {
+    const sinCantidad = items.filter(x => !(x.cantidad > 0));
+    const sinPrecio = items.filter(x => x.cantidad > 0 && !(x.precioUnitario > 0));
     const ultimaUid = items.length ? items[items.length - 1]!.uid : null;
     return {
-      uids: new Set(malas.map(x => x.uid)),
-      claves: malas.map(x => x.clave),
-      soloLaAutomatica: malas.length === 1 && malas[0]!.uid === ultimaUid,
-      hayAlguna: malas.length > 0,
+      // Se marcan las dos cosas: el contorno rojo no distingue cual falta, el
+      // mensaje si.
+      uids: new Set([...sinCantidad, ...sinPrecio].map(x => x.uid)),
+      uidsSinCantidad: new Set(sinCantidad.map(x => x.uid)),
+      clavesSinCantidad: sinCantidad.map(x => x.clave),
+      claves: sinPrecio.map(x => x.clave),
+      soloLaAutomatica: sinCantidad.length === 0 && sinPrecio.length === 1 && sinPrecio[0]!.uid === ultimaUid,
+      hayAlguna: sinCantidad.length > 0 || sinPrecio.length > 0,
     };
   };
 
@@ -1488,6 +1496,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           quote?.monto_mxn_total || 0,
         );
         const sinPrecio = partidasSinPrecio(itemsAhora);
+        if (sinPrecio.clavesSinCantidad.length > 0) {
+          const cuales = sinPrecio.clavesSinCantidad.filter(Boolean).join(', ');
+          return sinPrecio.clavesSinCantidad.length === 1
+            ? `Falta la cantidad de piezas de la partida ${cuales}.`
+            : `Faltan las cantidades de piezas de ${sinPrecio.clavesSinCantidad.length} partidas (${cuales}).`;
+        }
         if (sinPrecio.hayAlguna) {
           // La ultima se calcula sola: si ESA es la que sale en cero, el
           // problema no es un campo vacio sino que las anteriores ya cubren
@@ -3128,13 +3142,24 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     const totalPartidas = items.reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
                     return (
                       <View style={{ gap: 8, marginBottom: 10 }}>
-                        {/* Las partidas sin precio se marcan en rojo en el acto,
+                        {/* El aviso de contexto, antes de la lista: dice lo que
+                            hay que llenar sin esperar a que falle (tarea 887). */}
+                        <Text style={{ fontSize: 10.5, color: TEXT_DIM, lineHeight: 14 }}>
+                          Cada concepto necesita su cantidad de piezas y su precio unitario.
+                          El precio del último se calcula solo para cuadrar con el total.
+                        </Text>
+                        {/* Las partidas incompletas se marcan en rojo en el acto,
                             para que se vea cual hay que corregir sin leer el
                             mensaje de abajo (tarea 887). */}
                         {(() => { const falta = partidasSinPrecio(items); return items.map((s, idx) => {
                           const isLast = idx === items.length - 1;
                           const subtotal = s.cantidad * s.precioUnitario;
                           const malo = falta.uids.has(s.uid);
+                          // Cada campo se queja de LO SUYO: si falta la cantidad,
+                          // el de precio no dice "falta el precio", que seria
+                          // falso y manda a corregir donde no es.
+                          const faltaCantidad = falta.uidsSinCantidad.has(s.uid);
+                          const faltaPrecio = malo && !faltaCantidad;
                           return (
                           <View key={s.uid} style={{ backgroundColor: malo ? '#FFF5F5' : '#FFF', borderRadius: 10, borderWidth: malo ? 2 : 1, borderColor: malo ? ROJO_FALTA : ORANGE, padding: 8, gap: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -3151,17 +3176,22 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               <View style={{ flex: 1 }}>
                                 <Text style={{ fontSize: 9, color: TEXT_DIM }}>Cantidad</Text>
                                 <TextInput
-                                  value={conceptoQty[s.uid] ?? '1'}
-                                  // Se acepta el campo vacío mientras se escribe; si se
-                                  // deja así, al salir vuelve a 1 (que es lo que se factura).
+                                  value={conceptoQty[s.uid] ?? ''}
+                                  // Arranca VACIO y se queda vacio. Antes volvia
+                                  // a 1 al salir, y eso dejaba avanzar sin que
+                                  // nadie hubiera escrito nada (tarea 887).
                                   onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.uid]: t.replace(/[^0-9]/g, '') }))}
-                                  onBlur={() => setConceptoQty(prev => (
-                                    prev[s.uid] ? prev : { ...prev, [s.uid]: '1' }
-                                  ))}
                                   selectTextOnFocus
                                   keyboardType="number-pad"
-                                  style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: '#111' }}
+                                  placeholder="0"
+                                  placeholderTextColor={TEXT_MUTED}
+                                  style={{ borderWidth: faltaCantidad ? 2 : 1, borderColor: faltaCantidad ? ROJO_FALTA : '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: '#111' }}
                                 />
+                                {faltaCantidad && (
+                                  <Text style={{ fontSize: 9, color: ROJO_FALTA, fontWeight: '700', marginTop: 2 }}>
+                                    Falta la cantidad
+                                  </Text>
+                                )}
                               </View>
                               <Text style={{ color: TEXT_DIM, marginTop: 12 }}>×</Text>
                               <View style={{ flex: 1.3 }}>
@@ -3179,9 +3209,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                                   editable={!isLast}
                                   keyboardType="decimal-pad"
                                   placeholder="0.00"
-                                  style={{ borderWidth: malo ? 2 : 1, borderColor: malo ? ROJO_FALTA : (isLast ? ORANGE : '#DDD'), borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: isLast ? ORANGE : '#111', fontWeight: isLast ? '800' : '400', backgroundColor: isLast ? '#FFF6F2' : '#FFF' }}
+                                  style={{ borderWidth: faltaPrecio ? 2 : 1, borderColor: faltaPrecio ? ROJO_FALTA : (isLast ? ORANGE : '#DDD'), borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: isLast ? ORANGE : '#111', fontWeight: isLast ? '800' : '400', backgroundColor: isLast ? '#FFF6F2' : '#FFF' }}
                                 />
-                                {malo && (
+                                {faltaPrecio && (
                                   <Text style={{ fontSize: 9, color: ROJO_FALTA, fontWeight: '700', marginTop: 2 }}>
                                     {isLast ? 'Las anteriores ya cubren el monto' : 'Falta el precio'}
                                   </Text>
