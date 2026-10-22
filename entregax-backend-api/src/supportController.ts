@@ -79,44 +79,75 @@ const wrapMulter = (req: Request, res: Response, next: Function) => {
 const CATEGORIA_EN_PALABRAS: Record<string, string> = {
   systemError: 'error del sistema', invoicing: 'facturación', accounting: 'cobranza',
   billing: 'facturación', tracking: 'rastreo', delivery: 'entrega', shipping: 'envío',
-  complaint: 'inconformidad', other: 'consulta general',
+  complaint: 'inconformidad', other: 'consulta',
 };
 
-// Saludos y arranques que ocupan el espacio util sin aportar nada.
+// Saludos y cierres de cortesia que ocupan el espacio util sin aportar nada.
 const SALUDO_AL_INICIO =
-  /^\s*(buen[oa]s?\s+(tardes|d[ií]as?|noches)|buen\s+d[ií]a|hola|qu[eé]\s+tal|saludos|disculp[ae]n?|por\s+favor|me\s+podr[ií]an?)[\s,.!:;¿?-]*/i;
+  /^\s*(buen[oa]s?\s+(tardes|d[ií]as?|noches)|buen\s+d[ií]a|hola|qu[eé]\s+tal|saludos|disculp[ae]n?|por\s+favor|gracias)[\s,.!:;¿?☀🌞-]*/iu;
 
-/** El trozo del texto del ticket que de verdad dice algo. */
-export function trozoUtilDelTicket(subject: any): string {
-  const crudo = String(subject || '');
-  const veniaCortado = /\.\.\.\s*$/.test(crudo);
-  let t = crudo.replace(/[\r\n]+/g, ' ')
+// "el siguiente suit S 2640", "de estas guias s 2155", "Cliente S3128": dice de
+// QUIEN es, no DE QUE va. Se saca el numero y se tira el resto de la frase.
+const ARRANQUE_CON_CASILLERO =
+  /^\s*(de\s+|del\s+)?(el\s+|la\s+|los\s+|las\s+|estas?\s+|estos?\s+)?(siguiente[s]?\s+)?(suit[e]?|gu[ií]a[s]?|casillero|cliente)\s*[:#]?\s*s?\s*(\d{3,5})\b[,.\s]*/iu;
+
+/**
+ * El tema de un ticket, sacado del TEXTO COMPLETO del primer mensaje.
+ *
+ * Antes se sacaba de `subject`, que se guarda recortado a 50 caracteres: no
+ * alcanzaba para decir de que iba y casi siempre caia en la categoria, con lo
+ * que todas acababan diciendo "consulta general" y la distincion no servia de
+ * nada. El texto completo si esta, en ticket_messages, y da entre 80 y 340
+ * caracteres (tarea 873).
+ *
+ * Se devuelve el casillero aparte porque es lo que un operador reconoce de un
+ * golpe, y porque va al frente del titulo donde no lo corta la lista.
+ */
+export function temaDelTicket(texto: any, maxTema = 50): { casillero: string | null; tema: string } {
+  let t = String(texto || '').replace(/[\r\n]+/g, ' ')
     .replace(/^\s*\[[^\]]{0,60}\]\s*/, '')              // [21 de octubre de 2026 1:01 p.m.]
     .replace(/^\s*📋?\s*Datos de incidencia:?\s*/i, '')   // plantilla del formulario
     .replace(/•[^•]*?:\s*/g, ' ')                         // • Número de cliente:
-    .replace(/\s*\.\.\.\s*$/, '');
-  for (let i = 0; i < 3; i++) t = t.replace(SALUDO_AL_INICIO, '');
-  t = t.replace(/^(el|la|los|las|de|del|que|y|a|en)\s+/i, '').replace(/\s+/g, ' ').trim();
-  // Guardado a 50 caracteres, la ultima palabra suele venir partida
-  // ("en el siste"): se tira en vez de dejarla a medias.
-  if (veniaCortado) t = t.replace(/\s+\S+$/, '');
-  return t.trim();
+    .replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 4; i++) t = t.replace(SALUDO_AL_INICIO, '');
+
+  let casillero: string | null = null;
+  const alInicio = t.match(ARRANQUE_CON_CASILLERO);
+  if (alInicio) {
+    casillero = `S${alInicio[5]}`;
+    t = t.slice(alInicio[0].length);
+  } else {
+    const suelto = t.match(/\bS\s?(\d{3,5})\b/i);
+    if (suelto) {
+      casillero = `S${suelto[1]}`;
+      // Fuera del texto, o el titulo lo diria dos veces.
+      t = t.replace(suelto[0], ' ');
+    }
+  }
+  // Emojis, selectores de variacion y signos sueltos que quedan del saludo
+  // ("☀️ Disculpen" dejaba un caracter invisible al frente), y otra pasada de
+  // saludo por si venia encadenado detras del emoji.
+  const limpiarArranque = (x: string) => x
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/^(que|y|a|en|de|del|la|el|los|las)\s+/i, '')
+    .replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 3; i++) t = limpiarArranque(t.replace(SALUDO_AL_INICIO, ''));
+  if (t.length > maxTema) t = t.slice(0, maxTema).replace(/\s+\S*$/, '') + '…';
+  return { casillero, tema: t };
 }
 
-/** `<base> · <quien lo reporto> · <de que va>`. */
+/** `<base> · <quien reporto> · <casillero> · <de que va>`. */
 export function tituloDeTareaDeTicket(
   base: string,
-  opts: { subject?: any; category?: any; reportante?: any },
-  maxTrozo = 42,
+  opts: { texto?: any; category?: any; reportante?: any },
 ): string {
   const quien = String(opts.reportante || '').trim().split(/\s+/).slice(0, 2).join(' ');
-  let trozo = trozoUtilDelTicket(opts.subject);
-  const letras = trozo.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').length;
-  if (letras < 14 || trozo.split(/\s+/).length < 3) {
-    trozo = CATEGORIA_EN_PALABRAS[String(opts.category)] || 'consulta';
-  }
-  if (trozo.length > maxTrozo) trozo = trozo.slice(0, maxTrozo).replace(/\s+\S*$/, '') + '…';
-  return [base, quien || null, trozo].filter(Boolean).join(' · ');
+  const { casillero, tema } = temaDelTicket(opts.texto);
+  const letras = tema.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').length;
+  const deQue = (letras >= 12 && tema.split(/\s+/).length >= 3)
+    ? tema
+    : (CATEGORIA_EN_PALABRAS[String(opts.category)] || 'consulta');
+  return [base, quien || null, casillero, deQue].filter(Boolean).join(' · ');
 }
 
 export const uploadSupportImages = wrapMulter;
@@ -1552,12 +1583,23 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
               -- rotulaba "Agente" aunque ya tenia el campo (tarea 794). Un
               -- mensaje de agente sin usuario es del equipo, no de una
               -- persona: se firma "Soporte", igual que en la vista de admin.
-              COALESCE(su.full_name, CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+              -- sender_id viene NULL en todos los mensajes de ticket, asi
+              -- que el nombre del lado "cliente" solo sale del DUENO del
+              -- ticket. Y un mensaje de agente sin usuario es del equipo, no
+              -- de una persona: se firma "Soporte" (tareas 794 y 873).
+              COALESCE(su.full_name,
+                       CASE WHEN tm.sender_type IN ('client','user') THEN tu.full_name END,
+                       CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+              COALESCE(tm.sender_id,
+                       CASE WHEN tm.sender_type IN ('client','user') THEN tk.user_id END) AS sender_user_id,
+              tk.creator_type AS ticket_creator_type,
               su.role      AS sender_role
        FROM ticket_messages tm
        LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
        LEFT JOIN users qu ON qu.id = q.sender_id
        LEFT JOIN users su ON su.id = tm.sender_id
+       LEFT JOIN support_tickets tk ON tk.id = tm.ticket_id
+       LEFT JOIN users tu ON tu.id = tk.user_id
        WHERE tm.ticket_id = $1
          AND COALESCE(tm.is_internal, FALSE) = FALSE
        ORDER BY tm.created_at ASC`,
@@ -2857,8 +2899,15 @@ export const reportarErrorDeTicket = async (
     // ahora lleva ademas quien reporto y de que va, y comparar todo eso haria
     // que un cambio en el texto del ticket creara una segunda tarea.
     const base = `Error localizado ${folio}`;
+    // El tema sale del texto COMPLETO del primer mensaje, no de `subject`, que
+    // se guarda recortado a 50 caracteres y no alcanzaba para decir de que va
+    // (tarea 873).
+    const primerTexto = (await pool.query(
+      `SELECT message FROM ticket_messages
+        WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent'
+        ORDER BY id LIMIT 1`, [ticketId])).rows[0]?.message;
     const title = tituloDeTareaDeTicket(base, {
-      subject: ticket.subject, category: ticket.category, reportante: ticket.client_name,
+      texto: primerTexto || ticket.subject, category: ticket.category, reportante: ticket.client_name,
     });
 
     // Evitar duplicados: si ya hay una tarea para este ticket, devolverla.
@@ -3204,7 +3253,6 @@ export const escalarADireccion = async (ticketId: number, uid: number, role: str
   if (!t) return { error: 'Ticket no encontrado', status: 404 };
   const folio = t.ticket_folio || `#${ticketId}`;
   const base = `Consulta a Juan Carlos ${folio}`;
-  const title = tituloDeTareaDeTicket(base, { subject: t.subject, category: t.category, reportante: t.cliente });
 
   const ya = await pool.query(`SELECT id FROM tasks WHERE title LIKE $1 || '%' AND status <> 'cancelled' LIMIT 1`, [base]);
   if (ya.rows.length) return { ok: true, task_id: ya.rows[0].id, already: true };
@@ -3212,6 +3260,8 @@ export const escalarADireccion = async (ticketId: number, uid: number, role: str
   const primerMsg = (await pool.query(
     `SELECT message FROM ticket_messages WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent' ORDER BY id LIMIT 1`,
     [ticketId])).rows[0]?.message;
+  const title = tituloDeTareaDeTicket(base, {
+    texto: primerMsg || t.subject, category: t.category, reportante: t.cliente });
   const quien = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Servicio a Cliente';
   const c = t.cajito || {};
   const desc = [
@@ -4279,7 +4329,6 @@ export const escalarInconformidadTicket = async (req: Request, res: Response): P
       });
     }
     const base = `Ticket de servicio con inconformidad reportado ${folio}`;
-    const title = tituloDeTareaDeTicket(base, { subject: t.subject, category: t.category, reportante: t.cliente });
 
     const ya = await pool.query(
       `SELECT id FROM tasks WHERE title LIKE $1 || '%' AND status <> 'cancelled' LIMIT 1`, [base]);
@@ -4291,6 +4340,8 @@ export const escalarInconformidadTicket = async (req: Request, res: Response): P
     const primerMsg = (await pool.query(
       `SELECT message FROM ticket_messages WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent'
         ORDER BY id LIMIT 1`, [ticketId])).rows[0]?.message;
+    const title = tituloDeTareaDeTicket(base, {
+      texto: primerMsg || t.subject, category: t.category, reportante: t.cliente });
     // La última respuesta del equipo: es con la que no quedó conforme, y sin
     // ella quien abre la tarea no sabe qué se le contestó.
     const ultimaAgente = (await pool.query(

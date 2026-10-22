@@ -312,10 +312,15 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     if (!urls.length && msg.attachment_url) urls = [msg.attachment_url];
     setCitando({
       id: msg.id,
-      autor: (!!user?.id && Number(msg.sender_id) === Number(user.id)) ? 'Tú'
-        : (msg.sender_type === 'user' || msg.sender_type === 'client') ? 'Cliente'
-        : msg.sender_type === 'ai' ? 'Orlando (IA)'
-        : (msg.sender_name || 'Soporte'),
+      autor: (() => {
+        const tk: any = selectedTicket || {};
+        const dueno = Number(tk.user_id ?? tk.client_id ?? 0);
+        const lado = msg.sender_type === 'user' || msg.sender_type === 'client';
+        if (lado && !!user?.id && dueno === Number(user.id)) return 'Tú';
+        if (lado) return ['employee','advisor','agent','staff'].includes(String(tk.creator_type||'').toLowerCase()) ? 'Asesor' : 'Cliente';
+        if (msg.sender_type === 'ai') return 'Orlando (IA)';
+        return msg.sender_name || 'Soporte';
+      })(),
       texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
       url: urls[0] || null,
     });
@@ -505,15 +510,34 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
      * viendo la pantalla, no el tipo de remitente. Y quedan tres lados
      * distintos, no dos: lo mio, el cliente y el resto del equipo.
      */
-    const propio = !!user?.id && Number(msg.sender_id) === Number(user.id);
-    const esCliente = msg.sender_type === 'user' || msg.sender_type === 'client';
     const isAI = msg.sender_type === 'ai';
-    const esEquipo = !propio && !esCliente && !isAI;
+    const ladoCliente = msg.sender_type === 'user' || msg.sender_type === 'client';
+
+    /**
+     * `sender_id` viene NULL en TODOS los mensajes de ticket, tambien en los
+     * del agente. Por eso compararlo con mi id nunca daba y lo mio seguia
+     * cayendo del lado del cliente.
+     *
+     * Quien escribio un mensaje del lado "cliente" es el DUENO del ticket. Si
+     * ese dueno soy yo, el mensaje es mio. Y si el ticket lo levanto un
+     * empleado o un asesor, ese lado no es "Cliente": decirlo asi hacia creer
+     * que hablaba el dueno del casillero (tarea 794).
+     */
+    const t: any = selectedTicket || {};
+    const duenoTicket = Number(t.user_id ?? t.client_id ?? 0);
+    const rolDelCreador = String(t.creator_type || '').toLowerCase();
+    const creadoPorEquipo = ['employee', 'advisor', 'agent', 'staff'].includes(rolDelCreador);
+
+    const propio = ladoCliente && !!user?.id && !!duenoTicket && duenoTicket === Number(user.id);
+    const esCliente = ladoCliente && !propio;
+    const esEquipo = !propio && !ladoCliente && !isAI;
     const quienHabla = propio ? 'Tú'
-      : esCliente ? 'Cliente'
+      : esCliente ? (msg.sender_name || (creadoPorEquipo ? 'Asesor' : 'Cliente'))
       : isAI ? 'Orlando (IA)'
       : (msg.sender_name || 'Soporte');
-    const iconoHabla = propio ? 'person-circle' : esCliente ? 'person' : isAI ? 'sparkles' : 'headset';
+    const iconoHabla = propio ? 'person-circle'
+      : esCliente ? (creadoPorEquipo ? 'briefcase' : 'person')
+      : isAI ? 'sparkles' : 'headset';
 
     let attachUrls: string[] = [];
     if (Array.isArray(msg.attachments)) attachUrls = msg.attachments as string[];

@@ -1866,12 +1866,22 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
              qu.full_name AS cita_autor,
              -- Quien escribio el mensaje. Faltaba, y por eso el asesor veia
              -- "Agente" tanto en lo suyo como en lo del agente (tarea 794).
-             COALESCE(su.full_name, CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+             -- sender_id viene NULL en todos los mensajes de ticket, asi que
+             -- el nombre del lado "cliente" solo sale del DUENO del ticket
+             -- (tarea 794).
+             COALESCE(su.full_name,
+                      CASE WHEN tm.sender_type IN ('client','user') THEN tu.full_name END,
+                      CASE WHEN tm.sender_type = 'agent' THEN 'Soporte' END) AS sender_name,
+             COALESCE(tm.sender_id,
+                      CASE WHEN tm.sender_type IN ('client','user') THEN tk.user_id END) AS sender_user_id,
+             tk.creator_type AS ticket_creator_type,
              su.role      AS sender_role
       FROM ticket_messages tm
       LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
       LEFT JOIN users qu ON qu.id = q.sender_id
       LEFT JOIN users su ON su.id = tm.sender_id
+      LEFT JOIN support_tickets tk ON tk.id = tm.ticket_id
+      LEFT JOIN users tu ON tu.id = tk.user_id
       WHERE tm.ticket_id = $1
       ORDER BY tm.created_at ASC
     `, [ticketId]);

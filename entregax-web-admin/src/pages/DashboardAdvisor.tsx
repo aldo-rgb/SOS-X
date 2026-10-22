@@ -427,16 +427,30 @@ const miIdDeUsuario = (): number => {
   try { return Number(JSON.parse(localStorage.getItem('user') || '{}')?.id) || 0; } catch { return 0; }
 };
 
-/** Como se pinta un mensaje de ticket: lado, color y de quien es. */
-const ladoDelMensaje = (msg: any) => {
+/**
+ * Como se pinta un mensaje de ticket: lado, color y de quien es.
+ *
+ * `sender_id` viene NULL en TODOS los mensajes de ticket, tambien en los del
+ * agente, asi que compararlo con mi id nunca daba. Quien escribio un mensaje
+ * del lado "cliente" es el DUENO del ticket; si ese dueno soy yo, el mensaje
+ * es mio. Y si el ticket lo levanto un empleado o un asesor, ese lado no es
+ * "Cliente": decirlo asi hace creer que habla el dueno del casillero.
+ */
+const ladoDelMensaje = (msg: any, ticket?: any) => {
   const yo = miIdDeUsuario();
-  const propio = !!yo && Number(msg?.sender_id) === yo;
-  const esCliente = msg?.sender_type === 'client' || msg?.sender_type === 'user';
   const esIA = msg?.sender_type === 'ai';
-  const esEquipo = !propio && !esCliente && !esIA;
+  const ladoCliente = msg?.sender_type === 'client' || msg?.sender_type === 'user';
+  const dueno = Number(ticket?.user_id ?? ticket?.client_id ?? 0);
+  const creadoPorEquipo = ['employee', 'advisor', 'agent', 'staff']
+    .includes(String(ticket?.creator_type || '').toLowerCase());
+  const propio = ladoCliente && !!yo && !!dueno && dueno === yo;
+  const esCliente = ladoCliente && !propio;
+  const esEquipo = !propio && !ladoCliente && !esIA;
   return {
     propio, esCliente, esEquipo,
-    quien: propio ? 'Tú' : esCliente ? 'Cliente' : esIA ? 'Orlando (IA)' : (msg?.sender_name || 'Soporte'),
+    quien: propio ? 'Tú'
+      : esCliente ? (msg?.sender_name || (creadoPorEquipo ? 'Asesor' : 'Cliente'))
+      : esIA ? 'Orlando (IA)' : (msg?.sender_name || 'Soporte'),
     sx: {
       alignSelf: propio ? 'flex-end' : 'flex-start',
       maxWidth: '80%',
@@ -6574,13 +6588,13 @@ export default function DashboardAdvisor() {
                       }
                       if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
                       return (
-                      <Box key={msg.id} sx={ladoDelMensaje(msg).sx}>
+                      <Box key={msg.id} sx={ladoDelMensaje(msg, selectedAdvisorTicket).sx}>
                         <Typography variant="caption" sx={{
                           display: 'block', fontWeight: 700, mb: 0.25,
-                          color: ladoDelMensaje(msg).propio ? 'rgba(255,255,255,0.85)'
-                            : ladoDelMensaje(msg).esEquipo ? '#1565C0' : 'text.secondary',
+                          color: ladoDelMensaje(msg, selectedAdvisorTicket).propio ? 'rgba(255,255,255,0.85)'
+                            : ladoDelMensaje(msg, selectedAdvisorTicket).esEquipo ? '#1565C0' : 'text.secondary',
                         }}>
-                          {ladoDelMensaje(msg).quien}
+                          {ladoDelMensaje(msg, selectedAdvisorTicket).quien}
                         </Typography>
                         {msg.message && (
                           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
@@ -9027,13 +9041,13 @@ export default function DashboardAdvisor() {
                   }
                   if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
                   return (
-                  <Box key={msg.id} sx={ladoDelMensaje(msg).sx}>
+                  <Box key={msg.id} sx={ladoDelMensaje(msg, selectedAdvisorTicket).sx}>
                     <Typography variant="caption" sx={{
                       display: 'block', fontWeight: 700, mb: 0.25,
-                      color: ladoDelMensaje(msg).propio ? 'rgba(255,255,255,0.85)'
-                        : ladoDelMensaje(msg).esEquipo ? '#1565C0' : 'text.secondary',
+                      color: ladoDelMensaje(msg, selectedAdvisorTicket).propio ? 'rgba(255,255,255,0.85)'
+                        : ladoDelMensaje(msg, selectedAdvisorTicket).esEquipo ? '#1565C0' : 'text.secondary',
                     }}>
-                      {ladoDelMensaje(msg).quien}
+                      {ladoDelMensaje(msg, selectedAdvisorTicket).quien}
                     </Typography>
                     {msg.message && (
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>

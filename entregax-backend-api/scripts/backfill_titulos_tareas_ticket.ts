@@ -14,13 +14,15 @@ const APLICAR = process.argv.includes('--aplicar');
 
 (async () => {
   const r = await pool.query(`
-    SELECT t.id, t.title, t.status, s.subject, s.category, u.full_name AS reportante
+    SELECT t.id, t.title, t.status, s.subject, s.category, u.full_name AS reportante,
+           (SELECT m.message FROM ticket_messages m
+             WHERE m.ticket_id = s.id AND COALESCE(m.sender_type,'') <> 'agent'
+             ORDER BY m.id LIMIT 1) AS primer_texto
       FROM tasks t
       JOIN support_tickets s
         ON s.ticket_folio = substring(t.title from 'TKT-[0-9]{4}-[0-9]+')
       LEFT JOIN users u ON u.id = s.user_id
      WHERE t.title ~ 'TKT-[0-9]{4}-[0-9]+'
-       AND t.title NOT LIKE '%·%'
        AND t.status <> 'cancelled'
        -- Solo los tres titulos que el backend ya construye con contexto. El de
        -- "Retraso" se deja igual A PROPOSITO: su flujo busca la tarea por
@@ -33,9 +35,11 @@ const APLICAR = process.argv.includes('--aplicar');
   console.log(`${r.rows.length} tareas con titulo sin contexto\n`);
   let n = 0;
   for (const x of r.rows) {
-    const base = String(x.title).trim();
+    // El titulo pudo haberse rellenado antes con el `subject` recortado: se
+    // recorta al base y se vuelve a armar con el texto completo (tarea 873).
+    const base = String(x.title).split(' · ')[0].trim();
     const nuevo = tituloDeTareaDeTicket(base, {
-      subject: x.subject, category: x.category, reportante: x.reportante,
+      texto: x.primer_texto || x.subject, category: x.category, reportante: x.reportante,
     });
     if (nuevo === base) continue;
     n++;

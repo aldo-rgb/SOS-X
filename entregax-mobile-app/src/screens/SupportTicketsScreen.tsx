@@ -604,7 +604,14 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         ]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
             <Text style={[styles.msgSender, { color: senderColor }]}>
-              {esMio && isAgent ? 'Tú' : isAgent ? (msg.sender_name || 'Soporte') : 'Cliente'}
+              {/* El lado "cliente" no siempre es un cliente: muchos tickets los
+                  levanta un asesor o un empleado, y decirle "Cliente" hace
+                  creer que habla el dueno del casillero (tarea 794). */}
+              {esMio && isAgent ? 'Tú'
+                : isAgent ? (msg.sender_name || 'Soporte')
+                : (msg.sender_name
+                    || (['employee','advisor','agent','staff'].includes(String((selectedTicket as any)?.creator_type || '').toLowerCase())
+                        ? 'Asesor' : 'Cliente'))}
             </Text>
             {isInternal && (
               <View style={styles.internalBadge}>

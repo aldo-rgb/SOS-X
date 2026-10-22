@@ -1986,8 +1986,17 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 };
                 return (
                   <View key={`${item.tipo}-${c.id}`} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
-                    <TouchableOpacity activeOpacity={0.9} onLongPress={responder} delayLongPress={250}
-                      style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
+                    {/* View y no TouchableOpacity: el onLongPress de la burbuja
+                        se robaba el gesto que necesita la seleccion nativa de
+                        texto, asi que mantener presionado citaba el mensaje en
+                        vez de seleccionar la palabra y dejar arrastrar los
+                        manejadores. Marcar el texto seleccionable no alcanzaba
+                        mientras el toque lo interceptara (tarea 872).
+
+                        No se pierde nada: cada burbuja ya trae su boton
+                        "Responder" visible, que era lo mismo que hacia el
+                        long-press y encima se ve. */}
+                    <View style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
                       {!mine && (
                         <Text style={[styles.msgAuthor, { color: authorColor(autorId, autorNombre) }]}>
                           {autorNombre || '—'}
@@ -2096,7 +2105,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           {!esArchivo && c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
                         </Text>
                       </View>
-                    </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })}
