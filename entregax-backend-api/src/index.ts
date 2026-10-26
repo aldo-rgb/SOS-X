@@ -1114,6 +1114,9 @@ import {
   elpAdminListContainers,
   elpAdminStats,
   elpAdminResendNotify,
+  elpAdminDownloadZip,
+  elpUploadDocument,
+  elpAdminDownloadInbound,
   elpAdminGetSettings,
   elpAdminUpdateSettings,
   elpAdminGetPrecios,
@@ -8679,10 +8682,19 @@ app.get('/api/elp/containers/:ref/documents', requireElpApiKey, elpGetDocuments)
 // Nota: sin punto en el path para evitar el parseo de extensión de Express 5.
 app.get('/api/elp/containers/:ref/zip', elpDownloadZip);
 app.post('/api/elp/containers/:ref/status', requireElpApiKey, elpReceiveStatus);
+// El camino de vuelta para ARCHIVOS. Hasta ahora ELP solo podia mandarnos los
+// cuatro pulsos de status, que son texto: no habia forma de que nos entregaran
+// la confirmacion del ISF ni la firma del CBP como documento.
+const elpInboundUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+app.post('/api/elp/containers/:ref/documents', requireElpApiKey, elpInboundUpload.single('file'), elpUploadDocument);
 // Endpoints admin (login normal) para la página "API ELP"
 app.get('/api/elp/admin/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminListContainers);
 app.get('/api/elp/admin/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminStats);
 app.post('/api/elp/admin/containers/:id/notify', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminResendNotify);
+// La MISMA descarga que hace el proveedor, para el equipo y con sesion normal:
+// asi se puede ver que se le entrego sin pedirselo ni conocer su llave.
+app.get('/api/elp/admin/containers/:id/zip', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminDownloadZip);
+app.get('/api/elp/admin/containers/:id/inbound-zip', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminDownloadInbound);
 app.get('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetSettings);
 app.put('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpdateSettings);
 // Precio mensual del contenedor dedicado y tarifas del tramo nacional (tarea

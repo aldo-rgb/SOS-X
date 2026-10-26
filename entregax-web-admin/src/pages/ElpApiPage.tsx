@@ -34,6 +34,8 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmailIcon from '@mui/icons-material/Email';
 import DownloadIcon from '@mui/icons-material/Download';
+import LinkIcon from '@mui/icons-material/Link';
+import InboxIcon from '@mui/icons-material/MoveToInbox';
 import EditIcon from '@mui/icons-material/Edit';
 import SearchIcon from '@mui/icons-material/Search';
 import PriceIcon from '@mui/icons-material/AttachMoney';
@@ -69,6 +71,9 @@ interface ElpContainer {
   doc_count: number;
   documents: ElpDocuments;
   zip_url: string;
+  /** Lo que ELP nos mando a NOSOTROS (distinto de doc_count, que es lo que le publicamos a el). */
+  inbound_count?: number;
+  inbound_docs?: Array<{ id: number; tipo: string | null; file_name: string; file_url: string; created_at: string }>;
 }
 
 interface ElpStats {
@@ -193,6 +198,73 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
       }
     } catch (e: any) {
       setSnackbar({ open: true, message: e.message, severity: 'error' });
+    }
+  };
+
+  /**
+   * Descarga el MISMO ZIP que se le entrega a ELP, pero con la sesión del
+   * equipo en vez del link público del proveedor.
+   *
+   * Dos razones, y la segunda es la que importa:
+   *  1. El token del proveedor no tiene por qué salir en la pantalla.
+   *  2. Separa las descargas. Hasta ahora las nuestras y las de ELP pasaban
+   *     por el mismo endpoint y quedaban registradas igual, así que al ver el
+   *     historial no se podía saber si el proveedor ya había bajado los
+   *     documentos o si solo los habíamos abierto nosotros. Ahora las del
+   *     equipo se registran aparte.
+   */
+  const [bajando, setBajando] = useState<number | null>(null);
+  const handleDescargar = async (c: ElpContainer) => {
+    setBajando(c.id);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/containers/${c.id}/zip`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `No se pudo descargar (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${c.container_number}_documentos.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.message, severity: 'error' });
+    } finally {
+      setBajando(null);
+    }
+  };
+
+  /** Lo que ELP nos mando de vuelta, en un ZIP. */
+  const [bajandoEntrante, setBajandoEntrante] = useState<number | null>(null);
+  const handleDescargarEntrante = async (c: ElpContainer) => {
+    setBajandoEntrante(c.id);
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/containers/${c.id}/inbound-zip`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `No se pudo descargar (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${c.container_number}_de_ELP.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.message, severity: 'error' });
+    } finally {
+      setBajandoEntrante(null);
     }
   };
 
@@ -475,15 +547,51 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Tooltip title="Descargar todos los documentos (ZIP)">
+                      <Tooltip title={c.doc_count === 0
+                        ? 'Este contenedor todavía no tiene documentos cargados'
+                        : `Descargar los ${c.doc_count} documentos que recibe ELP (ZIP)`}>
                         <span>
                           <IconButton
                             size="small"
                             color="secondary"
+                            disabled={c.doc_count === 0 || bajando === c.id}
+                            onClick={() => handleDescargar(c)}
+                          >
+                            {bajando === c.id
+                              ? <CircularProgress size={16} />
+                              : <DownloadIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {/* El link del proveedor, tal cual: sirve para comprobar
+                          que lo que ELP abre desde su correo funciona. */}
+                      <Tooltip title="Abrir el link tal como lo ve ELP (su enlace del correo)">
+                        <span>
+                          <IconButton
+                            size="small"
                             disabled={c.doc_count === 0}
                             onClick={() => window.open(c.zip_url, '_blank')}
                           >
-                            <DownloadIcon fontSize="small" />
+                            <LinkIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {/* Lo que ELP nos manda a NOSOTROS. Queda deshabilitado
+                          mientras no hayan mandado nada, con el motivo en el
+                          tooltip para que no parezca que el boton no sirve. */}
+                      <Tooltip title={(c.inbound_count || 0) === 0
+                        ? 'ELP todavía no nos ha enviado ningún documento de este contenedor'
+                        : `Descargar los ${c.inbound_count} documentos que ELP nos envió`}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="success"
+                            disabled={(c.inbound_count || 0) === 0 || bajandoEntrante === c.id}
+                            onClick={() => handleDescargarEntrante(c)}
+                          >
+                            {bajandoEntrante === c.id
+                              ? <CircularProgress size={16} />
+                              : <InboxIcon fontSize="small" />}
                           </IconButton>
                         </span>
                       </Tooltip>

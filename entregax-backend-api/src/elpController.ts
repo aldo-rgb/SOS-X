@@ -309,6 +309,73 @@ const extFromUrl = (url: string, fallback: string): string => {
   }
 };
 
+/**
+ * Arma el ZIP de documentos de un contenedor.
+ *
+ * Lo usan DOS entradas con autenticacion distinta: la publica por token HMAC,
+ * que es la que usa el proveedor desde el link del correo, y la de staff con
+ * sesion normal, para que desde la pantalla de ELP se pueda bajar lo MISMO que
+ * se le entrega al proveedor sin tener que pedirselo ni conocer la llave.
+ *
+ * Devuelve null si el contenedor no tiene ni un documento.
+ */
+const armarZipDeContenedor = async (row: any): Promise<{ buffer: Buffer; nombre: string; archivos: number } | null> => {
+  const docs = buildDocuments(row);
+  const wanted: { url: string | null; name: string; fallbackExt: string }[] = [
+    { url: docs.bl, name: 'BL', fallbackExt: 'pdf' },
+    { url: docs.telex_isf, name: 'TELEX_ISF', fallbackExt: 'pdf' },
+    { url: docs.isf_word, name: 'ISF', fallbackExt: 'docx' },
+    { url: docs.invoice, name: 'INVOICE', fallbackExt: 'pdf' },
+    { url: docs.packing_list, name: 'PACKING', fallbackExt: 'xlsx' },
+  ];
+  const parts = await Promise.all(
+    wanted.filter((w) => w.url).map(async (w) => ({
+      name: `${row.container_number}_${w.name}.${extFromUrl(w.url as string, w.fallbackExt)}`,
+      bytes: await fetchDocBytes(w.url),
+    }))
+  );
+  const available = parts.filter((p) => p.bytes && p.bytes.length > 0);
+  if (available.length === 0) return null;
+  const zip = new JSZip();
+  for (const p of available) zip.file(p.name, p.bytes as Buffer);
+  return {
+    buffer: await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+    nombre: `${row.container_number}_documentos.zip`,
+    archivos: available.length,
+  };
+};
+
+// GET /api/elp/admin/containers/:id/zip — la MISMA descarga, para el equipo.
+// Con sesion normal, sin el token HMAC: nadie tiene que conocer la llave del
+// proveedor para ver que se le entrego.
+export const elpAdminDownloadZip = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const r = await pool.query(`${CONTAINER_DOC_SQL} WHERE c.id = $1 LIMIT 1`, [id]);
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'Contenedor no encontrado' });
+
+    const zip = await armarZipDeContenedor(row);
+    if (!zip) {
+      return res.status(404).json({
+        error: `${row.container_number} no tiene ningún documento cargado todavía.`,
+      });
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zip.nombre}"`);
+    res.setHeader('Content-Length', String(zip.buffer.length));
+    res.status(200).end(zip.buffer);
+    // Se registra aparte del del proveedor: asi el historial no confunde una
+    // descarga nuestra con una suya.
+    await logElpEvent(row.id, row.container_number, 'staff_docs', 'zip_downloaded',
+      { files: zip.archivos, por: (req as any).user?.userId || null }, 200);
+  } catch (e: any) {
+    console.error('[ELP] elpAdminDownloadZip error:', e?.stack || e?.message || e);
+    if (!res.headersSent) res.status(500).json({ error: 'Error generando el ZIP' });
+  }
+};
+
 // GET /api/elp/containers/:ref/documents.zip?token=... — descarga pública (link del correo)
 // Auth por token en la URL (HMAC del número de contenedor con la API key), sin header.
 export const elpDownloadZip = async (req: Request, res: Response): Promise<any> => {
@@ -325,39 +392,16 @@ export const elpDownloadZip = async (req: Request, res: Response): Promise<any> 
     if (!row) return res.status(404).send(`Contenedor no encontrado: ${ref}`);
     if (!row.elp_enabled) return res.status(403).send('La ruta de este contenedor no está habilitada para ELP');
 
-    const docs = buildDocuments(row);
-    const wanted: { url: string | null; name: string; fallbackExt: string }[] = [
-      { url: docs.bl, name: 'BL', fallbackExt: 'pdf' },
-      { url: docs.telex_isf, name: 'TELEX_ISF', fallbackExt: 'pdf' },
-      { url: docs.isf_word, name: 'ISF', fallbackExt: 'docx' },
-      { url: docs.invoice, name: 'INVOICE', fallbackExt: 'pdf' },
-      { url: docs.packing_list, name: 'PACKING', fallbackExt: 'xlsx' },
-    ];
-    // Descargar todos los bytes ANTES de empezar el stream (para poder responder 404 si no hay ninguno).
-    const parts = await Promise.all(
-      wanted.filter((w) => w.url).map(async (w) => ({
-        name: `${row.container_number}_${w.name}.${extFromUrl(w.url as string, w.fallbackExt)}`,
-        bytes: await fetchDocBytes(w.url),
-      }))
-    );
-    const available = parts.filter((p) => p.bytes && p.bytes.length > 0);
-    if (available.length === 0) {
+    const zip = await armarZipDeContenedor(row);
+    if (!zip) {
       await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_empty', null, 404);
       return res.status(404).send('No hay documentos disponibles para este contenedor');
     }
-
-    // Armar el ZIP en memoria y enviarlo completo (docs son pocos y pequeños).
-    const zip = new JSZip();
-    for (const p of available) {
-      zip.file(p.name, p.bytes as Buffer);
-    }
-    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${row.container_number}_documentos.zip"`);
-    res.setHeader('Content-Length', String(zipBuffer.length));
-    res.status(200).end(zipBuffer);
-    await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_downloaded', { files: available.length }, 200);
+    res.setHeader('Content-Disposition', `attachment; filename="${zip.nombre}"`);
+    res.setHeader('Content-Length', String(zip.buffer.length));
+    res.status(200).end(zip.buffer);
+    await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_downloaded', { files: zip.archivos }, 200);
   } catch (e: any) {
     console.error('[ELP] elpDownloadZip error:', e?.stack || e?.message || e);
     if (!res.headersSent) res.status(500).send('Error generando el ZIP');
@@ -446,8 +490,13 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
     const containers = await Promise.all(r.rows.map(async (row: any) => {
       const documents = await buildSignedDocuments(row);
       const docCount = Object.values(documents).filter(Boolean).length;
+      // Lo que ELP nos mando a NOSOTROS. Es distinto de docCount, que cuenta
+      // lo que nosotros le publicamos a el.
+      const entrantes = await docsEntrantesDe(row.container_number);
       return {
         id: row.id,
+        inbound_docs: entrantes,
+        inbound_count: entrantes.length,
         container_number: row.container_number,
         bl_number: row.bl_number,
         reference_code: row.reference_code,
@@ -685,5 +734,161 @@ export const elpAdminUpdateTarifaNacional = async (req: AuthRequest, res: Respon
   } catch (e: any) {
     console.error('[ELP] elpAdminUpdateTarifaNacional:', e.message);
     res.status(500).json({ error: e.message });
+  }
+};
+
+/* ───────────────────────────────────────────────────────────────────────────
+ *  Documentos que ELP nos MANDA a nosotros
+ *
+ *  Hasta ahora la integración era de un solo sentido en cuanto a archivos:
+ *  nosotros publicábamos los documentos del contenedor y el proveedor los
+ *  bajaba. Lo único que podían mandarnos de vuelta eran los cuatro pulsos de
+ *  status, que son texto: no había manera de que nos entregaran la
+ *  confirmación del ISF ni la firma del CBP como archivo.
+ *
+ *  Esto abre ese camino. Deliberadamente NO se amarra a una lista cerrada de
+ *  tipos: el proveedor manda un `tipo` libre y nosotros lo mostramos. Fijar
+ *  los tipos de antemano obligaría a tocar código cada vez que aparezca un
+ *  documento nuevo, y todavía no sabemos cuáles van a mandar.
+ *  ─────────────────────────────────────────────────────────────────────────── */
+
+let _tablaDocsEntrantes = false;
+const asegurarTablaDocsEntrantes = async (): Promise<void> => {
+  if (_tablaDocsEntrantes) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS elp_inbound_documents (
+      id SERIAL PRIMARY KEY,
+      container_id INTEGER,
+      container_number TEXT NOT NULL,
+      tipo TEXT,
+      file_name TEXT NOT NULL,
+      file_url TEXT NOT NULL,
+      size_bytes INTEGER,
+      notas TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_elp_in_docs_cont ON elp_inbound_documents(container_number)`);
+  _tablaDocsEntrantes = true;
+};
+
+/** Los documentos que ELP nos mandó de un contenedor, con la URL ya firmada. */
+export const docsEntrantesDe = async (containerNumber: string) => {
+  try {
+    await asegurarTablaDocsEntrantes();
+    const r = await pool.query(
+      `SELECT id, tipo, file_name, file_url, size_bytes, notas, created_at
+         FROM elp_inbound_documents
+        WHERE UPPER(container_number) = UPPER($1)
+        ORDER BY id DESC`, [containerNumber]);
+    return Promise.all(r.rows.map(async (d: any) => ({
+      ...d,
+      file_url: (await signS3UrlIfNeeded(d.file_url, ELP_DOC_URL_TTL)) || d.file_url,
+    })));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * POST /api/elp/containers/:ref/documents — el proveedor nos sube un archivo.
+ *
+ * Acepta multipart (campo `file`) y también JSON con `file_base64`, porque no
+ * todos los clientes de API arman un multipart con la misma facilidad y no
+ * queremos que eso sea el motivo por el que no nos manden nada.
+ */
+export const elpUploadDocument = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const ref = String(req.params.ref || '');
+    const row = await getContainerRowByNumber(ref);
+    if (!row) {
+      await logElpEvent(null, ref, 'inbound_docs', 'not_found', { tipo: req.body?.tipo }, 404);
+      return res.status(404).json({ error: `Contenedor no encontrado: ${ref}` });
+    }
+    if (!row.elp_enabled) {
+      await logElpEvent(row.id, row.container_number, 'inbound_docs', 'route_not_elp', null, 403);
+      return res.status(403).json({ error: 'La ruta de este contenedor no está habilitada para ELP' });
+    }
+
+    const archivo: any = (req as any).file;
+    let bytes: Buffer | null = archivo?.buffer || null;
+    let nombre = String(archivo?.originalname || req.body?.file_name || '').trim();
+    if (!bytes && req.body?.file_base64) {
+      try {
+        bytes = Buffer.from(String(req.body.file_base64).replace(/^data:[^;]+;base64,/, ''), 'base64');
+      } catch { bytes = null; }
+    }
+    if (!bytes || bytes.length === 0) {
+      await logElpEvent(row.id, row.container_number, 'inbound_docs', 'sin_archivo', { tipo: req.body?.tipo }, 400);
+      return res.status(400).json({
+        error: 'No se recibió archivo. Manda el archivo en el campo "file" (multipart) o en "file_base64" (JSON), '
+          + 'y opcionalmente "tipo" y "notas".',
+      });
+    }
+    if (!nombre) nombre = `${row.container_number}_${Date.now()}`;
+
+    const tipo = String(req.body?.tipo || '').trim() || null;
+    const notas = String(req.body?.notas || '').trim() || null;
+    const ext = (nombre.split('.').pop() || '').toLowerCase();
+    const key = `elp/entrantes/${row.container_number}/${Date.now()}_${nombre}`.replace(/\s+/g, '_');
+
+    const { uploadToS3, isS3Configured } = await import('./s3Service');
+    const url = isS3Configured()
+      ? await uploadToS3(bytes, key, archivo?.mimetype || (ext === 'pdf' ? 'application/pdf' : 'application/octet-stream'))
+      : `data:application/octet-stream;base64,${bytes.toString('base64')}`;
+
+    await asegurarTablaDocsEntrantes();
+    const ins = await pool.query(
+      `INSERT INTO elp_inbound_documents (container_id, container_number, tipo, file_name, file_url, size_bytes, notas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+      [row.id, row.container_number, tipo, nombre, url, bytes.length, notas]
+    );
+    await logElpEvent(row.id, row.container_number, 'inbound_docs', 'documento_recibido',
+      { tipo, file_name: nombre, size: bytes.length }, 200);
+
+    return res.json({
+      ok: true,
+      id: ins.rows[0].id,
+      container_number: row.container_number,
+      tipo, file_name: nombre, size_bytes: bytes.length,
+      received_at: ins.rows[0].created_at,
+    });
+  } catch (e: any) {
+    console.error('[ELP] elpUploadDocument error:', e?.stack || e?.message || e);
+    return res.status(500).json({ error: 'Error guardando el documento' });
+  }
+};
+
+/** GET /api/elp/admin/containers/:id/inbound-zip — lo que ELP nos mandó, en un ZIP. */
+export const elpAdminDownloadInbound = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const r = await pool.query(`SELECT id, container_number FROM containers WHERE id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'Contenedor no encontrado' });
+
+    await asegurarTablaDocsEntrantes();
+    const docs = (await pool.query(
+      `SELECT tipo, file_name, file_url FROM elp_inbound_documents
+        WHERE container_id = $1 ORDER BY id`, [id])).rows;
+    if (docs.length === 0) {
+      return res.status(404).json({ error: `ELP todavía no nos ha enviado documentos de ${row.container_number}.` });
+    }
+    const parts = await Promise.all(docs.map(async (d: any) => ({
+      name: d.tipo ? `${d.tipo}_${d.file_name}` : d.file_name,
+      bytes: await fetchDocBytes(await signS3UrlIfNeeded(d.file_url, 600) || d.file_url),
+    })));
+    const zip = new JSZip();
+    let n = 0;
+    for (const p of parts) if (p.bytes && p.bytes.length) { zip.file(p.name, p.bytes as Buffer); n++; }
+    if (n === 0) return res.status(404).json({ error: 'No se pudieron leer los archivos.' });
+    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${row.container_number}_de_ELP.zip"`);
+    res.setHeader('Content-Length', String(buf.length));
+    return res.status(200).end(buf);
+  } catch (e: any) {
+    console.error('[ELP] elpAdminDownloadInbound error:', e?.stack || e?.message || e);
+    if (!res.headersSent) res.status(500).json({ error: 'Error generando el ZIP' });
   }
 };
