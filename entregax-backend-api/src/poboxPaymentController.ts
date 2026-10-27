@@ -2509,7 +2509,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
 
         // Obtener orden
         const orderRes = await client.query(
-            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, service_type
              FROM pobox_payments
              WHERE id = $1
              FOR UPDATE`,
@@ -2552,12 +2552,43 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             const pkgIds = (Array.isArray(pkgIdsRaw) ? pkgIdsRaw : [])
                 .map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, ''))).filter(Boolean);
             if (pkgIds.length > 0) {
-                const yaPagadas = await client.query(
-                    `SELECT tracking_internal FROM packages
-                      WHERE id = ANY($1::int[])
-                        AND (payment_status = 'paid' OR client_paid = TRUE)`,
-                    [pkgIds]
+                // La guia se busca en la tabla que le corresponde al servicio.
+                // En una orden DHL los package_ids apuntan a dhl_shipments y sus
+                // ids COLISIONAN con los de packages: buscarlos en packages lee
+                // las guias de OTROS clientes, que casualmente llevan ese mismo
+                // id. Eso freno un pago legitimo (tarea 927): las guias de la
+                // orden estaban sin pagar en dhl_shipments, pero los dos ids
+                // existian tambien en packages, ya pagados y de otros dos
+                // clientes, y el error acusaba al cliente de duplicar un pago
+                // nombrandole guias que no son suyas.
+                const svcRes = await client.query(
+                    `SELECT service_type FROM openpay_webhook_logs
+                      WHERE transaction_id = $1 AND service_type IS NOT NULL
+                      ORDER BY id DESC LIMIT 1`,
+                    [order.payment_reference]
                 );
+                const svcOrden = String(
+                    svcRes.rows[0]?.service_type || order.service_type || ''
+                ).toUpperCase();
+                const esDhl = svcOrden === 'AA_DHL'
+                    || /^UW-/i.test(String(order.payment_reference || ''));
+
+                // En dhl_shipments payment_reference viene vacio en las 1594
+                // filas, asi que la marca de pagada son paid_at y monto_pagado.
+                const yaPagadas = esDhl
+                    ? await client.query(
+                        `SELECT COALESCE(inbound_tracking, gex_folio, id::text) AS tracking_internal
+                           FROM dhl_shipments
+                          WHERE id = ANY($1::int[])
+                            AND (paid_at IS NOT NULL OR COALESCE(monto_pagado, 0) > 0)`,
+                        [pkgIds]
+                      )
+                    : await client.query(
+                        `SELECT tracking_internal FROM packages
+                          WHERE id = ANY($1::int[])
+                            AND (payment_status = 'paid' OR client_paid = TRUE)`,
+                        [pkgIds]
+                      );
                 if (yaPagadas.rows.length > 0) {
                     await client.query('ROLLBACK');
                     const guias = yaPagadas.rows.map((x: any) => x.tracking_internal).filter(Boolean);
