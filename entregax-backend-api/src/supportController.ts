@@ -104,22 +104,43 @@ const ARRANQUE_CON_CASILLERO =
  * golpe, y porque va al frente del titulo donde no lo corta la lista.
  */
 export function temaDelTicket(texto: any, maxTema = 50): { casillero: string | null; tema: string } {
-  let t = String(texto || '').replace(/[\r\n]+/g, ' ')
+  // Las etiquetas del formulario van en RENGLONES PROPIOS y sin viñeta:
+  //
+  //     Número de cliente: S297
+  //     Cedis: USA
+  //     Número de guía: 128E74E90345650738
+  //
+  //     Caja entregada el 14 de Octubre
+  //
+  // Por eso hay que quitarlas ANTES de aplastar los saltos de línea: después
+  // ya no se distingue dónde termina una y empieza el texto de verdad, y el
+  // resumen salía como "Número de cliente: Cedis: Número de guía:…" (tarea
+  // 915). El casillero no se pierde: se extrae aparte, más abajo.
+  let t = String(texto || '')
+    .replace(/^[ \t]*(?:•\s*)?(?:n[úu]mero de (?:cliente|gu[íi]a)|cedis(?: de incidencia)?|sucursal)\s*:.*$/gim, '')
+    .replace(/[\r\n]+/g, ' ')
     .replace(/^\s*\[[^\]]{0,60}\]\s*/, '')              // [21 de octubre de 2026 1:01 p.m.]
     .replace(/^\s*📋?\s*Datos de incidencia:?\s*/i, '')   // plantilla del formulario
-    .replace(/•[^•]*?:\s*/g, ' ')                         // • Número de cliente:
+    .replace(/•[^•]*?:\s*/g, ' ')
+    .replace(/\bn\/a\b/gi, ' ')
     .replace(/\s+/g, ' ').trim();
   for (let i = 0; i < 4; i++) t = t.replace(SALUDO_AL_INICIO, '');
 
+  // El casillero se busca en el texto ORIGINAL, no en el ya limpio: la línea
+  // "Número de cliente: S297" es justo la que se acaba de borrar, y es donde
+  // viene escrito la mayoría de las veces.
   let casillero: string | null = null;
+  const enLaEtiqueta = String(texto || '').match(/n[úu]mero de cliente\s*:\s*S\s?-?\s?(\d{3,5})\b/i);
+  if (enLaEtiqueta) casillero = `S${enLaEtiqueta[1]}`;
+
   const alInicio = t.match(ARRANQUE_CON_CASILLERO);
   if (alInicio) {
-    casillero = `S${alInicio[5]}`;
+    if (!casillero) casillero = `S${alInicio[5]}`;
     t = t.slice(alInicio[0].length);
   } else {
     const suelto = t.match(/\bS\s?(\d{3,5})\b/i);
     if (suelto) {
-      casillero = `S${suelto[1]}`;
+      if (!casillero) casillero = `S${suelto[1]}`;
       // Fuera del texto, o el titulo lo diria dos veces.
       t = t.replace(suelto[0], ' ');
     }
@@ -1350,7 +1371,14 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
                 SELECT substring(tm.message FROM 'N.mero de cliente:[[:space:]]*([^' || chr(10) || chr(13) || ']+)')
                 FROM ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at ASC LIMIT 1
               )), '') AS client_number,
-              CASE WHEN t.user_id = $1 THEN 'own' ELSE 'assigned' END AS source
+              CASE WHEN t.user_id = $1 THEN 'own' ELSE 'assigned' END AS source,
+              -- El texto COMPLETO del primer mensaje. subject se guarda
+              -- recortado a 50 caracteres y, quitandole la fecha y la
+              -- plantilla con que arranca, no queda nada: en la tarjeta se leia
+              -- "Numero de c..." y ya (tarea 915). El resumen se arma abajo.
+              (SELECT tm2.message FROM ticket_messages tm2
+                WHERE tm2.ticket_id = t.id AND COALESCE(tm2.sender_type,'') <> 'agent'
+                ORDER BY tm2.created_at ASC LIMIT 1) AS primer_mensaje
        FROM support_tickets t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN support_departments d ON d.id = t.department_id
@@ -1360,7 +1388,22 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
       [userId]
     );
 
-    res.json(result.rows);
+    // El resumen que se pinta en la tarjeta: el tema de verdad, sin la fecha
+    // entre corchetes ni la plantilla del formulario. Se reusa el mismo
+    // extractor de los titulos de tarea (tarea 873), asi los dos dicen lo
+    // mismo del mismo ticket.
+    const filas = result.rows.map((r: any) => {
+      const { casillero, tema } = temaDelTicket(r.primer_mensaje || r.subject, 90);
+      const { primer_mensaje, ...resto } = r;
+      return {
+        ...resto,
+        resumen: tema || null,
+        // Si el texto nombra un casillero y el extractor de arriba no lo saco,
+        // sirve de respaldo.
+        client_number: r.client_number || casillero || null,
+      };
+    });
+    res.json(filas);
   } catch (error) {
     console.error('Error obteniendo tickets:', error);
     res.status(500).json({ error: 'Error obteniendo tickets' });

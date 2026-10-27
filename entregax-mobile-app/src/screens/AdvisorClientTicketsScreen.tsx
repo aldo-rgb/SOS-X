@@ -80,6 +80,14 @@ interface MyTicket {
   priority: string | null;
   created_at: string;
   updated_at: string;
+  /** El casillero del que trata el ticket (S297). Lo extrae el backend del
+   *  primer mensaje; NO confundir con client_box_id, que es el del asesor. */
+  client_number?: string | null;
+  client_name?: string | null;
+  department_name?: string | null;
+  /** El tema ya limpio, armado por el backend con el texto COMPLETO del primer
+   *  mensaje. `subject` viene recortado a 50 caracteres y no alcanza. */
+  resumen?: string | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
@@ -395,6 +403,27 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
   const getStatusInfo = (status: string) => STATUS_CONFIG[status] || STATUS_CONFIG.open_ai;
 
+  /**
+   * El asunto, sin lo que no distingue.
+   *
+   * Tal como llega arranca con la fecha entre corchetes y la plantilla del
+   * formulario, y eso se comia los dos renglones de la tarjeta: se leia
+   * "[08 de octubre de 2026 12:21 p.m.]" y luego "Numero de c..." cortado,
+   * que es justo lo unico que decia de quien era (tarea 915).
+   */
+  const asuntoLimpio = (texto?: string | null): string => {
+    let t = String(texto || '').replace(/[\r\n]+/g, ' ');
+    t = t.replace(/^\s*\[[^\]]{0,60}\]\s*/, '');              // [08 de octubre de 2026 12:21 p.m.]
+    t = t.replace(/^\s*📋?\s*Datos de incidencia:?\s*/i, '');   // plantilla del formulario
+    t = t.replace(/•?\s*N[úu]mero de cliente:\s*\S*/i, ' ');     // ya va aparte, como chip
+    t = t.replace(/•?\s*(Cedis de incidencia|N[úu]mero de gu[íi]a):\s*[^•]*/gi, ' ');
+    t = t.replace(/\bn\/a\b/gi, ' ');
+    for (let i = 0; i < 3; i++) {
+      t = t.replace(/^\s*(buen[oa]s?\s+(tardes|d[ií]as?|noches)|buen\s+d[ií]a|hola|qu[eé]\s+tal|saludos)[\s,.!:;¿?-]*/i, '');
+    }
+    return t.replace(/\s+/g, ' ').trim();
+  };
+
   const renderMyTicketItem = ({ item }: { item: MyTicket }) => {
     const statusInfo = getStatusInfo(item.status);
     return (
@@ -409,20 +438,29 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
           </View>
           <Text style={styles.ticketTime}>{timeAgo(item.updated_at)}</Text>
         </View>
-        <View style={styles.clientRow}>
-          <View style={[styles.clientAvatar, { backgroundColor: '#2196F320' }]}>
-            <Ionicons name="person" size={16} color="#2196F3" />
-          </View>
-          <View style={styles.clientInfo}>
-            <Text style={styles.clientName}>{item.subject || 'Sin asunto'}</Text>
-            <Text style={styles.clientBox}>{formatDate(item.created_at)}</Text>
-          </View>
+        {/* Primero DE QUIEN es, que era lo que no se alcanzaba a leer, y luego
+            de que va. La fecha ya esta arriba como "hace 3d": repetirla abajo
+            gastaba un renglon sin decir nada nuevo (tarea 915). */}
+        <View style={styles.filaCliente}>
+          {!!item.client_number && (
+            <View style={styles.chipCasillero}>
+              <Ionicons name="person" size={11} color="#1565C0" />
+              <Text style={styles.chipCasilleroTxt}>{item.client_number}</Text>
+            </View>
+          )}
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>
               {CATEGORY_LABELS[item.category] || item.category}
             </Text>
           </View>
+          {!!item.department_name && (
+            <Text style={styles.deptTxt} numberOfLines={1}>{item.department_name}</Text>
+          )}
         </View>
+
+        <Text style={styles.asuntoTxt} numberOfLines={2}>
+          {item.resumen || asuntoLimpio(item.subject) || 'Sin asunto'}
+        </Text>
       </TouchableOpacity>
     );
   };
@@ -467,8 +505,10 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
           </View>
         </View>
 
-        {item.subject && (
-          <Text style={styles.ticketSubject} numberOfLines={1}>{item.subject}</Text>
+        {/* El mismo limpiado que en "Mis Tickets": sin la fecha entre corchetes
+            ni la plantilla, que ocupaban el renglon entero (tarea 915). */}
+        {!!asuntoLimpio(item.subject) && (
+          <Text style={styles.ticketSubject} numberOfLines={2}>{asuntoLimpio(item.subject)}</Text>
         )}
 
         {item.last_message && (
@@ -1194,6 +1234,17 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 10,
   },
+  // Tarjeta de "Mis Tickets" (tarea 915): el casillero al frente, una sola
+  // fecha y el asunto ya limpio.
+  filaCliente: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' },
+  chipCasillero: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#E8F1FB', borderWidth: 1, borderColor: '#90CAF9',
+    borderRadius: 11, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  chipCasilleroTxt: { fontSize: 12, fontWeight: '800', color: '#1565C0' },
+  deptTxt: { fontSize: 10.5, color: '#9AA0A6', flexShrink: 1 },
+  asuntoTxt: { fontSize: 13.5, color: '#333', lineHeight: 18, marginTop: 7 },
   categoryText: {
     fontSize: 10,
     fontWeight: '600',
