@@ -2434,7 +2434,11 @@ export const deleteMyAccount = async (req: AuthRequest, res: Response): Promise<
                 SET deleted_at = NOW(),
                     email = $2,
                     phone = NULL,
-                    profile_photo = NULL,
+                    -- profile_photo_url, no profile_photo: el segundo no
+                    -- existe. Era el mismo error que password_hash y habria
+                    -- tronado el UPDATE aunque el SELECT ya estuviera bien
+                    -- (tarea 886).
+                    profile_photo_url = NULL,
                     is_active = FALSE
               WHERE id = $1`,
             [userId, anonymizedEmail]
