@@ -2400,7 +2400,11 @@ export const deleteMyAccount = async (req: AuthRequest, res: Response): Promise<
     try {
         // 1. Verificar contraseña actual
         const userResult = await pool.query(
-            'SELECT id, email, password_hash, deleted_at FROM users WHERE id = $1',
+            // La columna se llama `password`, no `password_hash`. Con el
+            // nombre equivocado esta consulta truena, el catch devuelve 500 y
+            // el cliente ve "No se pudo eliminar la cuenta": el borrado
+            // self-service nunca funciono para nadie (tarea 886).
+            'SELECT id, email, password, deleted_at FROM users WHERE id = $1',
             [userId]
         );
         if (userResult.rows.length === 0) {
@@ -2412,7 +2416,7 @@ export const deleteMyAccount = async (req: AuthRequest, res: Response): Promise<
             res.status(410).json({ error: 'Esta cuenta ya fue eliminada.' });
             return;
         }
-        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        const passwordOk = await bcrypt.compare(password, user.password || '');
         if (!passwordOk) {
             res.status(401).json({
                 error: 'Contraseña incorrecta.',
