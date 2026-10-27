@@ -53,6 +53,7 @@ import {
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
 import { signRowFileUrls } from './entangledController';
+import { FacturamaClient } from './facturamaClient';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
@@ -421,6 +422,44 @@ function friendlyEntangledError(code?: string | null, respuesta?: any, ctx?: { s
   // proveedor le toca la operación." El crudo se queda en el log.
   console.warn(`[XPAY] error del proveedor sin traducir (se muestra el genérico): ${raw}`);
   return MENSAJE_GENERICO_XPAY;
+}
+
+/**
+ * ¿La clave existe en el catálogo OFICIAL del SAT?
+ *
+ * Se pregunta a nuestro PAC, que expone el catálogo completo. Sirve para
+ * separar dos casos que hoy se ven igual y se resuelven distinto:
+ *
+ *  - la partida se capturó con el nombre del producto → el asesor lo arregla
+ *    buscando la clave;
+ *  - la clave es correcta y del SAT, pero el catálogo de facturación todavía
+ *    no la tiene → el asesor NO puede hacer nada, hay que darla de alta.
+ *
+ * Decirle lo primero cuando pasa lo segundo lo manda a repetir justo lo que ya
+ * hizo bien. Es lo que ocurrió con 31411901 "Sello moldeado de caucho" y
+ * 31411705 "Sello de labio" (tarea 907): claves válidas del SAT que el
+ * catálogo de facturación no lista — de hecho le falta toda la familia 3141.
+ *
+ * Ante cualquier falla devuelve null = "no sé", y el mensaje se queda como
+ * estaba.
+ */
+const satCache = new Map<string, boolean>();
+async function claveExisteEnSat(clave: string): Promise<boolean | null> {
+  const k = String(clave || '').trim();
+  if (!/^\d{8}$/.test(k)) return null;
+  if (satCache.has(k)) return satCache.get(k)!;
+  try {
+    const cli: any = await FacturamaClient.firstActive();
+    const r = await cli.http.get(`/catalogs/ProductsOrServices?keyword=${k}`);
+    const d = r.data;
+    const arr = Array.isArray(d) ? d : (d?.Items || d?.items || []);
+    const existe = arr.some((x: any) => String(x?.Value || '').trim() === k);
+    satCache.set(k, existe);
+    return existe;
+  } catch (e: any) {
+    console.warn(`[XPAY] no se pudo consultar el catálogo SAT para ${k}:`, e?.message);
+    return null;
+  }
 }
 
 /**
@@ -2214,6 +2253,27 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     // para que el frontend muestre el mensaje real al usuario. 5xx → 502 con mensaje genérico.
     const upstream = result.upstream_status;
     if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) {
+      // Concepto rechazado CON una clave que sí es del SAT. El mensaje normal
+      // manda a buscar la clave en el catálogo, pero aquí ya está bien puesta:
+      // repetir eso deja al asesor dando vueltas sobre lo que ya hizo. Pasa
+      // cuando el catálogo de facturación no tiene esa clave todavía
+      // (tarea 907).
+      const codigo = String(result.error || '').trim().toLowerCase().replace(/\s+/g, '_');
+      if (codigo === 'sin_comercializadora' || codigo === 'costo_operacion_no_configurado') {
+        const claveUsada = String(concepto || '').trim();
+        if (await claveExisteEnSat(claveUsada) === true) {
+          console.warn(`[XPAY] clave SAT valida ${claveUsada} rechazada por el catalogo de facturacion (${codigo})`);
+          return res.status(upstream).json({
+            error: `La clave ${claveUsada} es correcta y sí existe en el catálogo del SAT, `
+              + `pero todavía no está habilitada para facturación. No es algo que puedas `
+              + `corregir desde aquí ni reintentando: repórtala para darla de alta, o usa `
+              + `otra clave que describa el mismo producto.`,
+            error_code: result.error || null,
+            clave_sat_valida_no_habilitada: claveUsada,
+            upstream_status: upstream,
+          });
+        }
+      }
       // Se traduce a un mensaje neutro; el crudo queda en error_code/log para
       // nosotros. Antes se reenviaba tal cual y el asesor leía el texto que
       // ENTANGLED escribió para desarrolladores.
