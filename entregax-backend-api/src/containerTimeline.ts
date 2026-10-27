@@ -79,7 +79,12 @@ export type PasoLinea = {
 };
 
 export const PASOS: PasoLinea[] = [
-  { paso: 1,  clave: 'isf_enviado',      etiqueta: 'Documentación enviada para ISF', hito: 'En Bodega',         fuente: 'ELP / manual' },
+  // El paso 1 son DOS momentos, no uno: nosotros ENVIAMOS la documentación al
+  // dar de alta el contenedor, y ELP la RECIBE y lo confirma con su pulso. La
+  // etiqueta decía solo "enviada" pero lo que marcaba el paso era el pulso de
+  // recepción, así que el momento del envío no se veía en ningún lado. Ahora
+  // el paso lleva sus dos fechas (`enviada_at` / `recibida_at`).
+  { paso: 1,  clave: 'isf_enviado',      etiqueta: 'Documentación para ISF'        , hito: 'En Bodega',         fuente: 'ELP / manual' },
   { paso: 2,  clave: 'isf_confirmado',   etiqueta: 'Confirmación de ISF',            hito: null,                fuente: 'ELP' },
   { paso: 3,  clave: 'zarpo',            etiqueta: 'Zarpó — ETD / ETA naviera',      hito: 'Ya Zarpó',          fuente: 'Naviera / captura' },
   { paso: 4,  clave: 'pickup_terminal',  etiqueta: 'Solicitud de pick up en terminal', hito: null,              fuente: 'ELP' },
@@ -209,7 +214,18 @@ export const lineaDeTiempo = async (req: AuthRequest, res: Response): Promise<an
         // días corren hasta hoy: es lo que dice cuánto lleva atorado.
         dias_desde_anterior: e ? dias(anterior, e.ocurrio_at) : null,
         dias_esperando: !e && anterior ? dias(anterior, ahora) : null,
-      };
+      } as any;
+      // Las dos fechas del paso 1. `enviada_at` sale de cuando le avisamos a
+      // ELP —el dato ya existía, solo que no se mostraba en ningún lado— y
+      // `recibida_at` del pulso con el que ellos confirman haberla recibido.
+      //
+      // OJO al compararlas: elp_notified_at guarda el ÚLTIMO aviso, no el
+      // primero. Si se le reenvió el correo puede quedar DESPUÉS de la
+      // recepción, y eso no es un error de dato.
+      if (p.paso === 1) {
+        fila.enviada_at = c.elp_notified_at || null;
+        fila.recibida_at = e && e.origen === 'elp' ? e.ocurrio_at : null;
+      }
       if (e) anterior = e.ocurrio_at;
       return fila;
     });

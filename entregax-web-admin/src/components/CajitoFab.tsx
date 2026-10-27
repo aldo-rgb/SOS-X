@@ -2236,6 +2236,13 @@ export default function CajitoFab() {
                             {p.dias_desde_anterior != null && p.dias_desde_anterior > 0 && ` · +${p.dias_desde_anterior}d`}
                             {p.dias_esperando != null && ` · lleva ${p.dias_esperando}d`}
                           </Typography>
+                          {(p.enviada_at || p.recibida_at) && (
+                            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: 11 }}>
+                              {p.enviada_at && <>Enviada a ELP: {new Date(p.enviada_at).toLocaleDateString('es-MX')}</>}
+                              {p.enviada_at && p.recibida_at && ' · '}
+                              {p.recibida_at && <>Recibida por ELP: {new Date(p.recibida_at).toLocaleDateString('es-MX')}</>}
+                            </Typography>
+                          )}
                         </Box>
                       </Box>
                     ))}

@@ -847,6 +847,17 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       {p.dias_desde_anterior != null && p.dias_desde_anterior > 0 && ` · +${p.dias_desde_anterior} día(s)`}
                       {p.dias_esperando != null && ` · lleva ${p.dias_esperando} día(s) esperando`}
                     </Typography>
+                    {/* El paso 1 lleva sus DOS fechas: cuándo le enviamos la
+                        documentación a ELP y cuándo confirmaron recibirla. Antes
+                        solo se veía una y la etiqueta decía "enviada" aunque lo
+                        que la marcaba fuera la recepción. */}
+                    {(p.enviada_at || p.recibida_at) && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                        {p.enviada_at && <>Enviada a ELP: {new Date(p.enviada_at).toLocaleString('es-MX')}</>}
+                        {p.enviada_at && p.recibida_at && ' · '}
+                        {p.recibida_at && <>Recibida por ELP: {new Date(p.recibida_at).toLocaleString('es-MX')}</>}
+                      </Typography>
+                    )}
                     {p.fotos?.length > 0 && (
                       <Box sx={{ display: 'flex', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
                         {p.fotos.map((fo: any) => {
