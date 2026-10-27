@@ -7,7 +7,7 @@ import { FacturamaClient } from './facturamaClient';
 import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffer } from './s3Service';
 
 // Dominio web público para enmascarar el enlace del PDF (entregax.app/orden-de-pago/…)
-import { urlPublicaFactura } from './facturaArchivo';
+import { urlPublicaFactura, sqlUrlFactura } from './facturaArchivo';
 
 const webBaseUrl = (): string => (process.env.FRONTEND_URL || 'https://entregax.app').replace(/\/$/, '');
 
@@ -155,8 +155,8 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.paid_at,
         pp.facturada,
         pp.requiere_factura,
-        (SELECT pdf_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
-        (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
+        (SELECT ${sqlUrlFactura('fe', 'pdf')} FROM facturas_emitidas fe WHERE fe.uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
+        (SELECT ${sqlUrlFactura('fe', 'xml')} FROM facturas_emitidas fe WHERE fe.uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
         -- Cuántos comprobantes del cliente están esperando autorización. Sin
@@ -273,8 +273,8 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.paid_at,
         pp.facturada,
         pp.requiere_factura,
-        (SELECT pdf_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
-        (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
+        (SELECT ${sqlUrlFactura('fe', 'pdf')} FROM facturas_emitidas fe WHERE fe.uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
+        (SELECT ${sqlUrlFactura('fe', 'xml')} FROM facturas_emitidas fe WHERE fe.uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
         -- Debe existir también aquí: las dos ramas del UNION tienen que tener
@@ -1229,7 +1229,7 @@ const loadOrderForAdvisor = async (id: any, aid: number, source: string | null) 
       SELECT apo.id, 'advisor' AS created_by, apo.client_id, apo.total_mxn,
              apo.payment_reference, apo.pobox_payment_id, apo.package_uids,
              COALESCE(apo.service_type_cfg, 'POBOX_USA') AS service_type_cfg,
-             ppx.paid_at, ppx.status AS pay_status
+             ppx.paid_at, ppx.status AS pay_status, ppx.factura_uuid
       FROM advisor_payment_orders apo
       LEFT JOIN pobox_payments ppx ON ppx.id = apo.pobox_payment_id
       WHERE apo.id = $1 AND apo.advisor_id = $2
@@ -1238,7 +1238,7 @@ const loadOrderForAdvisor = async (id: any, aid: number, source: string | null) 
              pp.payment_reference, pp.id AS pobox_payment_id,
              COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
              'POBOX_USA' AS service_type_cfg,
-             pp.paid_at, pp.status AS pay_status
+             pp.paid_at, pp.status AS pay_status, pp.factura_uuid
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
       WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
@@ -1251,6 +1251,36 @@ const loadOrderForAdvisor = async (id: any, aid: number, source: string | null) 
 
 const paymentIdOf = (order: any): string =>
   String(order.payment_reference || order.pobox_payment_id || `APO-${order.id}`);
+
+/**
+ * La factura de una orden. Se busca PRIMERO por el uuid que la orden guarda en
+ * pobox_payments.factura_uuid, y solo despues por payment_id.
+ *
+ * payment_id no sirve como liga: viene NULL en 954 de las filas de
+ * facturas_emitidas, y cuando trae algo no es la referencia de la orden sino la
+ * del cobro que la origino. La RO-9171893A apunta a la factura 339, cuyo
+ * payment_id dice 'PP-888268FF': buscar por payment_id no la encontraba y el
+ * asesor recibia un 404 "Esta orden aun no tiene factura emitida" con la
+ * factura timbrada y vigente delante (TKT-2026-3258).
+ */
+const facturaDeOrden = async (order: any, campos: string) => {
+  const uuid = String(order?.factura_uuid || '').trim();
+  if (uuid) {
+    const r = await pool.query(
+      `SELECT ${campos} FROM facturas_emitidas
+        WHERE uuid_sat = $1 ORDER BY created_at DESC LIMIT 1`,
+      [uuid]
+    );
+    if (r.rows[0]) return r.rows[0];
+  }
+  const r = await pool.query(
+    `SELECT ${campos} FROM facturas_emitidas
+      WHERE payment_id = $1 AND status = 'valid'
+      ORDER BY created_at DESC LIMIT 1`,
+    [paymentIdOf(order)]
+  );
+  return r.rows[0] || null;
+};
 
 // GET — info para el diálogo: monto, empresa emisora, datos fiscales del
 // cliente y si la orden ya tiene factura.
@@ -1280,11 +1310,12 @@ export const getAdvisorOrderInvoiceInfo = async (req: Request, res: Response): P
     `, [order.client_id]);
     const f = fr.rows[0] || {};
 
-    const facRes = await pool.query(
-      `SELECT uuid_sat, pdf_url, xml_url FROM facturas_emitidas
-       WHERE payment_id = $1 AND status = 'valid' ORDER BY created_at DESC LIMIT 1`,
-      [paymentIdOf(order)]
+    const facturaInfo = await facturaDeOrden(
+      order,
+      `uuid_sat, ${sqlUrlFactura('facturas_emitidas', 'pdf')} AS pdf_url, ` +
+      `${sqlUrlFactura('facturas_emitidas', 'xml')} AS xml_url`
     );
+    const facRes = { rows: facturaInfo ? [facturaInfo] : [] };
 
     // Perfiles fiscales guardados del cliente (varios, como las direcciones)
     await ensureFiscalProfilesTable();
@@ -1343,14 +1374,7 @@ export const getAdvisorOrderInvoiceFile = async (req: Request, res: Response): P
     const order = await loadOrderForAdvisor(id, aid, source);
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const facRes = await pool.query(
-      `SELECT id, facturama_id, fiscal_emitter_id, uuid_sat
-         FROM facturas_emitidas
-        WHERE payment_id = $1 AND status = 'valid'
-        ORDER BY created_at DESC LIMIT 1`,
-      [paymentIdOf(order)]
-    );
-    const invoice = facRes.rows[0];
+    const invoice = await facturaDeOrden(order, 'id, facturama_id, fiscal_emitter_id, uuid_sat');
     if (!invoice) return res.status(404).json({ error: 'Esta orden aún no tiene factura emitida' });
     if (!invoice.facturama_id) {
       return res.status(400).json({ error: 'La factura no se emitió por Facturama' });

@@ -7,6 +7,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { sqlUrlFactura } from './facturaArchivo';
 import { FacturamaClient, FacturamaError } from './facturamaClient';
 
 // Interfaz extendida de Request con usuario autenticado
@@ -195,8 +196,13 @@ export const getFacturasUsuario = async (req: AuthRequest, res: Response): Promi
         currency,
         folio,
         serie,
-        pdf_url,
-        xml_url,
+        -- El enlace se arma al vuelo desde el UUID. La columna guarda el del API
+        -- de Facturama (api.facturama.mx/cfdi/pdf/issued/...), que a quien no
+        -- lleve nuestras credenciales le contesta que se denego la
+        -- autorizacion: el cliente tocaba "descargar" y salia a una pagina con
+        -- error (TKT-2026-3258). Mismo criterio que ya usa contabilidad.
+        ${sqlUrlFactura('facturas_emitidas', 'pdf')} AS pdf_url,
+        ${sqlUrlFactura('facturas_emitidas', 'xml')} AS xml_url,
         status,
         created_at
       FROM facturas_emitidas

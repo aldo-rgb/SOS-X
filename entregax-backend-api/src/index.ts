@@ -58,7 +58,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 }
 
 import { pool } from './db';
-import { servirArchivoFactura } from './facturaArchivo';
+import { servirArchivoFactura, sqlUrlFactura } from './facturaArchivo';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
 import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
@@ -4376,8 +4376,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           created_at AS fecha,
           total,
           status,
-          pdf_url,
-          xml_url
+          -- Armado desde el UUID: la columna trae el enlace del API de Facturama,
+          -- que responde "se ha denegado la autorizacion" a quien no lleve
+          -- nuestras credenciales (TKT-2026-3258).
+          ${sqlUrlFactura('facturas_emitidas', 'pdf')} AS pdf_url,
+          ${sqlUrlFactura('facturas_emitidas', 'xml')} AS xml_url
         FROM facturas_emitidas
         WHERE user_id = $1
         ORDER BY created_at DESC
