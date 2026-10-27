@@ -1418,8 +1418,8 @@ export default function DashboardAdvisor() {
             </tr>` : ''}
             ${creditoAplicado > 0 ? `
             <tr>
-              <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px;color:#2E7D32">💳 Crédito aplicado:</td>
-              <td style="text-align:right;color:#2E7D32">−${fmt(creditoAplicado)} MXN</td>
+              <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px;color:#1565C0">💳 Cargado a su línea de crédito:</td>
+              <td style="text-align:right;color:#1565C0">−${fmt(creditoAplicado)} MXN</td>
             </tr>` : ''}
             <tr class="total-row">
               <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>

@@ -2208,6 +2208,19 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
 
             // 3) cost_breakdown. DHL: el total ya es todo-incluido; se desglosa
             //    con los campos del embarque (nacional + impuestos DHL).
+            //
+            // El desglose se arma contra el monto BRUTO, no contra amount.
+            // amount es lo que al cliente le queda por transferir: ya viene con
+            // el saldo a favor y la linea de credito descontados. Al restarle la
+            // suma de las guias, la diferencia salia impresa como "Descuento
+            // aplicado" por el monto completo, y una orden liberada a credito se
+            // leia como regalada (TKT-2026-3299, UW-48372034: $23,334.70 de
+            // guias con un "descuento" de $23,334.70 y $0.00 a pagar, cuando en
+            // realidad son $20,771.70 de credito y $2,563.00 de saldo a favor).
+            // Los comprobantes NO entran aqui: esos no bajan amount.
+            const montoBruto = (Number(row.amount) || 0)
+                + (Number(row.credit_applied) || 0)
+                + (Number(row.wallet_applied) || 0);
             const cost_breakdown: any = {
                 pobox: 0, paqueteria: 0, gex: 0, extra: 0,
                 cargos_extra: 0, descuento: 0,
@@ -2233,7 +2246,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 // Lo que falte o sobre contra el total cobrado: un descuento pactado
                 // o un ajuste manual. Se imprime en vez de dejar que el cliente
                 // adivine por qué el renglón no cuadra con el total.
-                cost_breakdown.dhl_ajuste = redondear((Number(row.amount) || 0) - cost_breakdown.dhl_total_guias);
+                cost_breakdown.dhl_ajuste = redondear(montoBruto - cost_breakdown.dhl_total_guias);
                 // Compatibilidad con versiones viejas de la app: la paquetería es la
                 // suma real y el impuesto NUNCA es un cargo extra.
                 cost_breakdown.paqueteria = redondear(cost_breakdown.dhl_paqueteria);
@@ -2259,7 +2272,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         cost_breakdown.cargos_extra += cargosByTracking.get(t) || 0;
                         cost_breakdown.descuento += descuentosByTracking.get(t) || 0;
                     }
-                    cost_breakdown.pobox = (Number(row.amount) || 0)
+                    cost_breakdown.pobox = montoBruto
                         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
                 }
             } catch (e) {

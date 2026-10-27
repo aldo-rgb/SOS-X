@@ -182,6 +182,12 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   }
 
   const totalMxn = fmt(Number(order.total_mxn) || 0);
+  // Saldo a favor y linea de credito que ya se descontaron. total_mxn es el
+  // NETO: lo que al cliente le queda por transferir. Sin estos dos renglones el
+  // documento lista guias que suman mas que el total y la diferencia aparece
+  // rotulada como "Descuento aplicado" por el monto completo (TKT-2026-3299).
+  const saldoAplicado = Number((order as any).wallet_applied) || 0;
+  const creditoAplicado = Number((order as any).credit_applied) || 0;
   // Filas de desglose (Paquetería / GEX / Cargos Extra), igual que el PDF del
   // cliente. PO Box queda implícito en las filas por guía.
   const bd = costBreakdown || {};
@@ -245,6 +251,8 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
       <tbody>
         ${pkgRows}
         ${breakdownRows}
+        ${saldoAplicado > 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="${totalCols - 2}" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#2E7D32">Saldo a favor aplicado</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:#2E7D32">-${fmt(saldoAplicado)}</td></tr>` : ''}
+        ${creditoAplicado > 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="${totalCols - 2}" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#1565C0">Cargado a su linea de credito</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:#1565C0">-${fmt(creditoAplicado)}</td></tr>` : ''}
         <tr class="total-row">
           <td colspan="${totalCols - 1}" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
           <td style="text-align:right;color:#E65100;font-size:14px">${totalMxn} MXN</td>

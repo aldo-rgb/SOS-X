@@ -342,8 +342,8 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         </tr>` : ''}
         ${(Number(data.credit_applied) || 0) > 0 ? `
         <tr>
-          <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px; color:#2E7D32;">💳 Crédito aplicado:</td>
-          <td style="text-align:right; color:#2E7D32;">−${formatCurrency(Number(data.credit_applied))}</td>
+          <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px; color:#1565C0;">💳 Cargado a su línea de crédito:</td>
+          <td style="text-align:right; color:#1565C0;">−${formatCurrency(Number(data.credit_applied))}</td>
         </tr>` : ''}
         <tr class="total-row">
           <td colspan="${totalCols - 1}" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>

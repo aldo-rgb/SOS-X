@@ -908,6 +908,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       return res.status(404).json({ error: 'Orden no encontrada' });
     }
     const order = orderRes.rows[0];
+    // Monto BRUTO de la orden. En la rama 'client' del UNION, total_mxn es
+    // pp.amount: lo que falta por transferir, ya neteado del saldo a favor y de
+    // la linea de credito. El desglose de abajo se arma contra este bruto; si se
+    // arma contra el neto, la diferencia contra la suma de las guias se imprime
+    // como "Descuento aplicado" por el total completo (TKT-2026-3299).
+    const montoBrutoOrden = (Number(order.total_mxn) || 0)
+      + (Number(order.credit_applied) || 0)
+      + (Number(order.wallet_applied) || 0);
 
     // Extraer IDs de packages desde package_uids (PKG-XX, MAR-XX, DHL-XX, o int)
     const uids: any[] = Array.isArray(order.package_uids) ? order.package_uids : [];
@@ -1155,9 +1163,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // Diferencia entre lo que suman las guías y lo que se está cobrando:
         // un descuento pactado, un ajuste manual. Se imprime en vez de dejar
         // que el cliente adivine por qué el total no cuadra con el renglón.
-        cost_breakdown.dhl_ajuste = redondear((Number(order.total_mxn) || 0) - cost_breakdown.dhl_total_guias);
+        cost_breakdown.dhl_ajuste = redondear(montoBrutoOrden - cost_breakdown.dhl_total_guias);
       }
-      cost_breakdown.pobox = (Number(order.total_mxn) || 0)
+      cost_breakdown.pobox = montoBrutoOrden
         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
     } catch (e) {
       console.error('[payment-orders] detail cost_breakdown:', e);
