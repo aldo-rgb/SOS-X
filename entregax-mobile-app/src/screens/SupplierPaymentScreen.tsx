@@ -3146,7 +3146,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                             hay que llenar sin esperar a que falle (tarea 887). */}
                         <Text style={{ fontSize: 10.5, color: TEXT_DIM, lineHeight: 14 }}>
                           Cada concepto necesita su cantidad de piezas y su precio unitario.
-                          El precio del último se calcula solo para cuadrar con el total.
                         </Text>
                         {/* Las partidas incompletas se marcan en rojo en el acto,
                             para que se vea cual hay que corregir sin leer el

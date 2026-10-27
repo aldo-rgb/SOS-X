@@ -3886,7 +3886,6 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         que llenar sin esperar a que falle (tarea 887). */}
                     <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.75, lineHeight: 1.4 }}>
                       Cada concepto necesita su cantidad de piezas y su precio unitario.
-                      El precio del último se calcula solo para cuadrar con el total.
                     </Typography>
                     {/* Las partidas sin precio se marcan en rojo en el acto, para
                         que se vea cual corregir sin leer el mensaje (tarea 887). */}
