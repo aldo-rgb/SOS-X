@@ -20,8 +20,10 @@ const startCajitoCorreosCron = () => {
     // Los avisos del almacén de El Paso se vuelven pasos de la línea de tiempo
     // del contenedor (tarea 478). Va aquí porque es la misma llegada de correo.
     try {
-      const { procesarCorreosDeAlmacen } = await import('./containerTimeline');
+      const { procesarCorreosDeAlmacen, procesarCorreosDeIsf } = await import('./containerTimeline');
       await procesarCorreosDeAlmacen();
+      // La confirmacion del ISF llega por correo, no por el pulso de ELP.
+      await procesarCorreosDeIsf();
     } catch (e: any) {
       console.warn('[CRON] línea de tiempo desde correos:', e?.message);
     }

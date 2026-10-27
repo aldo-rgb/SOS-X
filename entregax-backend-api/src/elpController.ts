@@ -492,7 +492,16 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
       const docCount = Object.values(documents).filter(Boolean).length;
       // Lo que ELP nos mando a NOSOTROS. Es distinto de docCount, que cuenta
       // lo que nosotros le publicamos a el.
-      const entrantes = await docsEntrantesDe(row.container_number);
+      //
+      // Vienen de DOS lados, porque hoy usan los dos: el endpoint de la API
+      // —que acaba de abrirse— y el correo al buzon de Cajito, que es por
+      // donde mandan la confirmacion del ISF. Un archivo que llego por correo
+      // cuenta igual que uno subido por API.
+      const { adjuntosDeCorreoDe } = await import('./containerTimeline');
+      const entrantes = [
+        ...(await docsEntrantesDe(row.container_number)),
+        ...(await adjuntosDeCorreoDe(row.container_number)),
+      ];
       return {
         id: row.id,
         inbound_docs: entrantes,
@@ -868,11 +877,21 @@ export const elpAdminDownloadInbound = async (req: AuthRequest, res: Response): 
     if (!row) return res.status(404).json({ error: 'Contenedor no encontrado' });
 
     await asegurarTablaDocsEntrantes();
-    const docs = (await pool.query(
-      `SELECT tipo, file_name, file_url FROM elp_inbound_documents
-        WHERE container_id = $1 ORDER BY id`, [id])).rows;
+    const { adjuntosDeCorreoDe } = await import('./containerTimeline');
+    const docs = [
+      ...(await pool.query(
+        `SELECT tipo, file_name, file_url FROM elp_inbound_documents
+          WHERE container_id = $1 ORDER BY id`, [id])).rows,
+      // Los que llegaron por correo al buzon de Cajito mencionando este
+      // contenedor. Para quien descarga son lo mismo: documentos de ELP.
+      ...(await adjuntosDeCorreoDe(row.container_number)).map((a: any) => ({
+        tipo: 'correo', file_name: a.file_name, file_url: a.file_url,
+      })),
+    ];
     if (docs.length === 0) {
-      return res.status(404).json({ error: `ELP todavía no nos ha enviado documentos de ${row.container_number}.` });
+      return res.status(404).json({
+        error: `Todavía no hay documentos de ELP para ${row.container_number}, ni por la API ni por correo.`,
+      });
     }
     const parts = await Promise.all(docs.map(async (d: any) => ({
       name: d.tipo ? `${d.tipo}_${d.file_name}` : d.file_name,

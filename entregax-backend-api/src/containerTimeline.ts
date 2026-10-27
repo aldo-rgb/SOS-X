@@ -337,6 +337,104 @@ const pasoDelCorreo = (asunto: string): number | null => {
   return null;
 };
 
+/* ───────────────────────────────────────────────────────────────────────────
+ *  La confirmación del ISF llega por CORREO, no por el API
+ *
+ *  El paso 2 estaba pensado para el pulso `procedure_requested` de ELP, y ese
+ *  pulso no lo han mandado nunca: de 9 pulsos recibidos en toda la
+ *  integración, ni uno. Lo que sí hacen es mandar la confirmación del ISF por
+ *  correo al buzón de Cajito, con el documento adjunto.
+ *
+ *  Así que el paso también se alimenta de ahí. El pulso sigue sirviendo si
+ *  algún día lo mandan: los dos caminos escriben el mismo paso y el índice
+ *  único lo deja en uno solo.
+ *  ─────────────────────────────────────────────────────────────────────────── */
+
+// Para marcar el paso 2 se piden las TRES cosas: que el asunto o el cuerpo
+// hablen del ISF, que mencione un contenedor nuestro, y que traiga adjunto.
+// Un correo del hilo de integración —"Re: ISF Integracion // dev-1956"— habla
+// del ISF pero no confirma ninguno, y sin las otras dos condiciones marcaría
+// contenedores que nadie confirmó.
+const DICE_ISF = /\bISF\b/i;
+const ES_HILO_DE_INTEGRACION = /integraci[oó]n|integracion\s*\/\/|dev-\d+/i;
+
+/** ¿Este correo confirma el ISF de un contenedor? */
+export const correoConfirmaIsf = (asunto: string, cuerpo: string, adjuntos: number): boolean => {
+  const texto = `${asunto || ''} ${cuerpo || ''}`;
+  if (adjuntos < 1) return false;
+  if (!DICE_ISF.test(texto)) return false;
+  // El hilo de la integración NO es una confirmación, aunque diga ISF.
+  if (ES_HILO_DE_INTEGRACION.test(String(asunto || ''))) return false;
+  return PATRON_CONTENEDOR.test(String(cuerpo || '')) || PATRON_CONTENEDOR.test(String(asunto || ''));
+};
+
+/** Los adjuntos que llegaron por correo mencionando ESE contenedor. */
+export const adjuntosDeCorreoDe = async (containerNumber: string): Promise<any[]> => {
+  const num = String(containerNumber || '').toUpperCase().trim();
+  if (!/^[A-Z]{4}\d{7}$/.test(num)) return [];
+  const r = await pool.query(
+    `SELECT folio, asunto, de_email, recibido_at, adjuntos
+       FROM cajito_correos
+      WHERE adjuntos IS NOT NULL AND jsonb_array_length(adjuntos) > 0
+        AND (UPPER(COALESCE(cuerpo,'')) LIKE '%' || $1 || '%'
+          OR UPPER(COALESCE(asunto,'')) LIKE '%' || $1 || '%')
+      ORDER BY id DESC`, [num]).catch(() => ({ rows: [] as any[] }));
+  const out: any[] = [];
+  for (const c of r.rows) {
+    for (const a of (c.adjuntos || [])) {
+      out.push({
+        origen: 'correo',
+        correo_folio: c.folio,
+        de: c.de_email,
+        asunto: c.asunto,
+        file_name: a?.nombre || 'adjunto',
+        file_url: a?.url || null,
+        size_bytes: a?.tamano || null,
+        created_at: c.recibido_at,
+      });
+    }
+  }
+  return out.filter(x => x.file_url);
+};
+
+/**
+ * Convierte en paso 2 los correos que confirman el ISF de un contenedor.
+ * Corre con el mismo cron que los del almacén.
+ */
+export const procesarCorreosDeIsf = async (): Promise<{ registrados: number; sin_contenedor: number }> => {
+  await ensureLineaTiempo();
+  const correos = await pool.query(
+    `SELECT folio, asunto, cuerpo, recibido_at,
+            CASE WHEN adjuntos IS NULL THEN 0 ELSE jsonb_array_length(adjuntos) END AS n_adj
+       FROM cajito_correos
+      WHERE folio NOT IN (SELECT correo_folio FROM container_timeline_events WHERE correo_folio IS NOT NULL)
+      ORDER BY id`);
+
+  let registrados = 0, sinContenedor = 0;
+  for (const c of correos.rows) {
+    if (!correoConfirmaIsf(c.asunto, c.cuerpo, Number(c.n_adj) || 0)) continue;
+    const encontrados = [...new Set(
+      `${c.asunto || ''} ${c.cuerpo || ''}`.toUpperCase().match(PATRON_CONTENEDOR) || [])];
+    if (!encontrados.length) { sinContenedor++; continue; }
+    for (const numero of encontrados) {
+      const cont = await pool.query(
+        `SELECT id FROM containers WHERE UPPER(TRIM(container_number)) = $1 LIMIT 1`, [numero]);
+      if (!cont.rowCount) { sinContenedor++; continue; }
+      const r = await registrarPaso({
+        containerId: cont.rows[0].id,
+        paso: 2,
+        ocurrioAt: c.recibido_at,
+        origen: 'correo_isf',
+        detalle: c.asunto || 'Confirmación de ISF por correo',
+        correoFolio: c.folio,
+      });
+      if (r === 'nuevo') registrados++;
+    }
+  }
+  if (registrados) console.log(`[linea-tiempo] ${registrados} confirmacion(es) de ISF registradas desde el buzón`);
+  return { registrados, sin_contenedor: sinContenedor };
+};
+
 /**
  * Revisa los correos del almacén que todavía no se hayan convertido en paso y
  * los registra. Corre con el mismo cron que sincroniza el buzón.
