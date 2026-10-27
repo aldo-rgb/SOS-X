@@ -356,7 +356,13 @@ const pasoDelCorreo = (asunto: string): number | null => {
 // del ISF pero no confirma ninguno, y sin las otras dos condiciones marcaría
 // contenedores que nadie confirmó.
 const DICE_ISF = /\bISF\b/i;
-const ES_HILO_DE_INTEGRACION = /integraci[oó]n|integracion\s*\/\/|dev-\d+/i;
+// Lo que NO es una confirmacion aunque diga ISF:
+//  · el hilo de la integracion ("Re: ISF Integracion // dev-1956"), que dice
+//    ISF en cada correo y no confirma ninguno;
+//  · las pruebas. Mientras ELP esta probando mandan correos como "Isf Test",
+//    y si uno de esos trae un contenedor y un adjunto marcaria como confirmado
+//    el ISF de un contenedor real. Una prueba no debe mover nada.
+const ES_HILO_DE_INTEGRACION = /integraci[oó]n|integracion\s*\/\/|dev-\d+|\btest\b|\bprueba\b|\btesting\b/i;
 
 /** ¿Este correo confirma el ISF de un contenedor? */
 export const correoConfirmaIsf = (asunto: string, cuerpo: string, adjuntos: number): boolean => {
