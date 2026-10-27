@@ -439,6 +439,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const [subservicio, setSubservicio] = useState<'transfer' | 'efectivo'>('transfer');
   const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
   const [editingFiscalData, setEditingFiscalData] = useState(false);
+  // Captura fiscal abierta. El formulario se mostraba con
+  // `!form.rfc || !form.razon_social`, o sea que se CERRABA solo en cuanto esos
+  // dos campos quedaban llenos: el asesor terminaba de teclear el RFC y la razón
+  // social del cliente nuevo y el contenedor se le cerraba en la cara, con el
+  // C.P., el régimen y el correo todavía vacíos. Para seguir tenía que entrar a
+  // "Editar datos fiscales" (tarea 930). Ahora lo cierra quien lo está usando.
+  const [capturandoFiscal, setCapturandoFiscal] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
   // CSF (Constancia de Situación Fiscal) — obligatoria y vigente para facturar
   const [csfStatus, setCsfStatus] = useState<CsfStatus | null>(null);
@@ -1015,6 +1022,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
   }, [authHeader, token, advisorClientId, supplierUrl]);
 
+  // Se abre sola cuando de verdad faltan datos, y de ahí en adelante solo la
+  // cierra el botón de Listo, la carga de un perfil guardado o el envío.
+  useEffect(() => {
+    if (!form.rfc || !form.razon_social) setCapturandoFiscal(true);
+  }, [form.rfc, form.razon_social]);
+
   const loadFiscalProfile = useCallback(async () => {
     if (!token) return;
     try {
@@ -1038,6 +1051,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           uso_cfdi: usoCfdiTouchedRef.current ? prev.uso_cfdi : (p.uso_cfdi || 'G03'),
           email: p.email || '',
         }));
+        // Datos que YA existían: aquí sí corresponde la tarjeta resumida.
+        if (p.rfc && p.razon_social) setCapturandoFiscal(false);
       }
     } catch (err: unknown) {
       console.error('[ENTANGLED] loadFiscalProfile:', err);
@@ -2180,6 +2195,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       setSupplierForm(EMPTY_SUPPLIER);
       setSelectedSupplierId('new');
       setEditingFiscalData(false);
+      setCapturandoFiscal(false);
       setEditingSupplierData(false);
       setSaveSupplierForLater(true);
       // empresas_asignadas: con el nuevo flujo, ENTANGLED no responde con esto
@@ -3514,7 +3530,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               </Box>
 
               {/* Mostrar datos precargados si existen */}
-              {form.rfc && form.razon_social && !editingFiscalData && (
+              {form.rfc && form.razon_social && !editingFiscalData && !capturandoFiscal && (
                 <Card sx={{ mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}` }}>
                   <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                     <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 1 }}>
@@ -3580,7 +3596,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 </Card>
               )}
               
-              {(!form.rfc || !form.razon_social || editingFiscalData) && (
+              {(!form.rfc || !form.razon_social || editingFiscalData || capturandoFiscal) && (
               <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: C.textPrimary }}>
                   📋 {t('entangled.sections.fiscal')}
@@ -3743,6 +3759,28 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     label={t('entangled.wizard.saveFiscal', 'Guardar estos datos para próximas solicitudes')}
                     sx={{ color: C.textPrimary }}
                   />
+                </Grid>
+                {/* El cierre es explícito. Antes el contenedor se cerraba solo
+                    al detectar RFC y razón social llenos, a media captura. */}
+                <Grid size={{ xs: 12 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={!form.rfc || !form.razon_social || !form.cp}
+                    onClick={() => { setCapturandoFiscal(false); setEditingFiscalData(false); }}
+                    sx={{
+                      color: ORANGE, borderColor: ORANGE,
+                      '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(240, 90, 40, 0.1)' },
+                      '&.Mui-disabled': { color: C.textFaint, borderColor: C.border },
+                    }}
+                  >
+                    ✓ Listo, usar estos datos
+                  </Button>
+                  {(!form.rfc || !form.razon_social || !form.cp) && (
+                    <Typography variant="caption" sx={{ color: C.textSecondary, display: 'block', mt: 0.5 }}>
+                      Captura RFC, razón social y C.P. para continuar.
+                    </Typography>
+                  )}
                 </Grid>
               </Grid>
             </Paper>

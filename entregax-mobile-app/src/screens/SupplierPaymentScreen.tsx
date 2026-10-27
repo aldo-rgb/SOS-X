@@ -296,6 +296,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [advisorCommissionPct, setAdvisorCommissionPct] = useState<string>('');
   const authHeaders = { Authorization: `Bearer ${token}` };
   const [editingFiscalData, setEditingFiscalData] = useState(false);
+  // Captura fiscal abierta. El bloque se decidia con `rfc && razon`, o sea que
+  // se CERRABA solo en cuanto esos dos quedaban llenos: el asesor terminaba de
+  // teclear el RFC y la razon social de un cliente nuevo y el formulario se le
+  // cerraba con el CP, el regimen y el correo vacios, y tenia que entrar a
+  // "Editar" para seguir (tarea 930). Ahora lo cierra quien lo usa.
+  const [capturandoFiscal, setCapturandoFiscal] = useState(false);
   // Constancia de Situación Fiscal (CSF) — estado + subida (como en web)
   const [csfStatus, setCsfStatus] = useState<{ exists: boolean; is_valid?: boolean; valid_until?: string | null; issued_at?: string | null } | null>(null);
   const [csfLoading, setCsfLoading] = useState(false);
@@ -304,6 +310,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [csfNeedsDate, setCsfNeedsDate] = useState(false);
   const [csfManualDate, setCsfManualDate] = useState('');
   const [editingSupplierData, setEditingSupplierData] = useState(false);
+  useEffect(() => {
+    if (!rfc || !razon) setCapturandoFiscal(true);
+  }, [rfc, razon]);
   const [showNewSupplierForm, setShowNewSupplierForm] = useState(false);
   // Wizard ahora arranca en step 0 (selección de servicio: con/sin factura)
   // igual que la versión web. Antes el wizard empezaba en "Monto" y la
@@ -520,6 +529,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           setUso(p.uso_cfdi || 'G03');
         }
         setEmail(p.email || '');
+        // Datos que YA existian: aqui si corresponde la tarjeta resumida.
+        if (p.rfc && p.razon_social) setCapturandoFiscal(false);
         setRequiereFactura(true);
       }
     } catch {}
@@ -1321,7 +1332,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefBankAddress(''); setBenefSwift(''); setBenefAba(''); setBenefAlias('');
         setComprobanteAsset(null);
         setSelectedSupplierId('new');
-        setEditingFiscalData(false); setEditingSupplierData(false); setWizardStep(0);
+        setEditingFiscalData(false); setCapturandoFiscal(false); setEditingSupplierData(false); setWizardStep(0);
         loadRequests(); loadSuppliers();
         setViewMode('dashboard');
       } else {
@@ -3006,7 +3017,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   clientId={isAdvisorMode ? advisorClientId : undefined}
                 />
 
-                {rfc && razon && !editingFiscalData ? (
+                {rfc && razon && !editingFiscalData && !capturandoFiscal ? (
                   <View style={styles.infoCardSuccess}>
                     <Text style={styles.infoCardTitleSuccess}>✓ {t('xpay.fiscalLoaded', 'Datos fiscales cargados')}</Text>
                     <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Razón Social:</Text> {razon}</Text>
@@ -3099,6 +3110,26 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                     <Text style={styles.label}>{t('entangled.fields.email', 'Email')}</Text>
                     <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+
+                    {/* El cierre es explicito. Antes se cerraba solo al detectar
+                        RFC y razon social llenos, a media captura. */}
+                    <TouchableOpacity
+                      disabled={!rfc || !razon || !cp}
+                      onPress={() => { setCapturandoFiscal(false); setEditingFiscalData(false); }}
+                      style={{
+                        marginTop: 14, paddingVertical: 11, borderRadius: 8, borderWidth: 1,
+                        borderColor: (!rfc || !razon || !cp) ? '#555' : ORANGE, alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: (!rfc || !razon || !cp) ? '#777' : ORANGE, fontWeight: '700', fontSize: 13 }}>
+                        ✓ Listo, usar estos datos
+                      </Text>
+                    </TouchableOpacity>
+                    {(!rfc || !razon || !cp) && (
+                      <Text style={{ color: '#999', fontSize: 11, marginTop: 5, textAlign: 'center' }}>
+                        Captura RFC, razón social y C.P. para continuar.
+                      </Text>
+                    )}
                   </>
                 )}
 
