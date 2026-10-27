@@ -2949,7 +2949,8 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
         await client.query('BEGIN');
 
         const orderRes = await client.query(
-            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, credit_applied
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, credit_applied,
+                    COALESCE(voucher_total, 0) AS voucher_total
              FROM pobox_payments WHERE id = $1 FOR UPDATE`,
             [orderId]
         );
@@ -2969,7 +2970,12 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
         }
 
         const orderAmount = parseFloat(order.amount);
-        const applied = Math.min(reqAmount, orderAmount); // no exceder el monto pendiente
+        // El tope es el FALTANTE, no el total: en una orden parcial el total
+        // todavia incluye lo que el comprobante ya cubrio, y usar credito por
+        // ese monto le cargaba al cliente deuda por un dinero que ya pago
+        // (tarea 883).
+        const faltante = Math.max(0, orderAmount - (parseFloat(order.voucher_total) || 0));
+        const applied = Math.min(reqAmount, faltante);
 
         // Validar bloqueo global
         const u = await client.query(`SELECT is_credit_blocked FROM users WHERE id = $1`, [userId]);
@@ -3024,7 +3030,11 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
         );
 
         let completed = false;
-        if (newAmount <= 0.009) {
+        // Contra lo ya depositado, no contra cero: al cubrir el faltante de una
+        // orden parcial, amount baja hasta el monto del comprobante y no llega a
+        // cero. Sin esto la orden quedaba cubierta pero abierta (tarea 883).
+        const yaDepositado = parseFloat(order.voucher_total) || 0;
+        if (newAmount - yaDepositado <= 0.009) {
             // Pago cubierto 100% con crédito
             await client.query(
                 `UPDATE pobox_payments SET status='completed', paid_at=CURRENT_TIMESTAMP, payment_method='credit' WHERE id=$1`,
@@ -3207,7 +3217,8 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
         await client.query('BEGIN');
 
         const orderRes = await client.query(
-            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, wallet_applied
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, wallet_applied,
+                    COALESCE(voucher_total, 0) AS voucher_total
              FROM pobox_payments WHERE id = $1 FOR UPDATE`,
             [orderId]
         );
@@ -3227,7 +3238,12 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
         }
 
         const orderAmount = parseFloat(order.amount);
-        const applied = Math.min(reqAmount, orderAmount);
+        // Se topa en lo que FALTA. En una orden parcial el total todavia
+        // incluye lo que el comprobante ya cubrio: topar en el total dejaba
+        // aplicar monedero de mas y regalarle al cliente su propio deposito
+        // (tarea 883).
+        const faltante = Math.max(0, orderAmount - (parseFloat(order.voucher_total) || 0));
+        const applied = Math.min(reqAmount, faltante);
 
         // Validar saldo disponible
         const uRes = await client.query(
@@ -3283,7 +3299,11 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
         );
 
         let completed = false;
-        if (newAmount <= 0.009) {
+        // Contra lo ya depositado, no contra cero: al cubrir el faltante de una
+        // orden parcial, amount baja hasta el monto del comprobante y no llega a
+        // cero. Sin esto la orden quedaba cubierta pero abierta (tarea 883).
+        const yaDepositado = parseFloat(order.voucher_total) || 0;
+        if (newAmount - yaDepositado <= 0.009) {
             await client.query(
                 `UPDATE pobox_payments SET status='completed', paid_at=CURRENT_TIMESTAMP, payment_method='wallet' WHERE id=$1`,
                 [orderId]

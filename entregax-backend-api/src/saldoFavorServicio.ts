@@ -154,7 +154,8 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     await client.query('BEGIN');
     const o = await client.query(
       `SELECT id, user_id, amount, status, payment_reference, currency, package_ids,
-              COALESCE(wallet_applied, 0) AS wallet_applied
+              COALESCE(wallet_applied, 0) AS wallet_applied,
+              COALESCE(voucher_total, 0) AS voucher_total
          FROM pobox_payments WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [orderId, userId]
     );
@@ -162,22 +163,33 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     const orden = o.rows[0];
 
     // Solo sobre órdenes que todavía se van a pagar. Sobre una pagada sería
-    // regalar dinero, y sobre una con comprobante el cliente ya calculó el
-    // depósito con el monto anterior.
-    const ABIERTAS = ['pending_payment', 'pending', 'generated'];
+    // regalar dinero.
+    //
+    // `vouchers_partial` SÍ entra. Antes no, y el motivo era que "el cliente ya
+    // calculó el depósito con el monto anterior" — cierto en una orden pendiente
+    // donde todavía no deposita nada, pero no aquí: en una parcial ya depositó,
+    // ese comprobante no cambia de monto, y lo único que queda es el faltante.
+    // Dejarla fuera obligaba a borrar el comprobante para poder usar el saldo
+    // (tarea 883: un cliente con $65,742.33 en su billetera y una orden de
+    // $129,940.26 a medias que no podía completar).
+    const ABIERTAS = ['pending_payment', 'pending', 'generated', 'vouchers_partial'];
     if (!ABIERTAS.includes(String(orden.status))) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `No se puede aplicar saldo a una orden en estado ${orden.status}` });
     }
-    const comp = await client.query(
-      `SELECT COUNT(*)::int n FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
-      [orderId]);
-    if (Number(comp.rows[0]?.n) > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: 'Esta orden ya tiene un comprobante',
-        message: 'Ya subiste un comprobante calculado con el monto actual. Pide a soporte que ajuste la orden.',
-      });
+    // El candado del comprobante sigue para las órdenes que NO son parciales:
+    // ahí el comprobante se calculó contra el monto que se está por mover.
+    if (String(orden.status) !== 'vouchers_partial') {
+      const comp = await client.query(
+        `SELECT COUNT(*)::int n FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
+        [orderId]);
+      if (Number(comp.rows[0]?.n) > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Esta orden ya tiene un comprobante',
+          message: 'Ya subiste un comprobante calculado con el monto actual. Pide a soporte que ajuste la orden.',
+        });
+      }
     }
 
     const servicio = await resolveOrderService(client, {
@@ -203,7 +215,11 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     }
 
     const pedido = Number(req.body?.monto) > 0 ? +Number(req.body.monto).toFixed(2) : disponible;
-    const aplicar = +Math.min(pedido, disponible, Number(orden.amount) || 0).toFixed(2);
+    // Se topa en el FALTANTE, no en el total: en una parcial el total todavía
+    // incluye lo que el comprobante ya cubrió, y topar ahí dejaba aplicar saldo
+    // de más y regalarle al cliente el depósito que ya hizo.
+    const faltante = Math.max(0, (Number(orden.amount) || 0) - (Number(orden.voucher_total) || 0));
+    const aplicar = +Math.min(pedido, disponible, faltante).toFixed(2);
     if (!(aplicar > 0)) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Nada que aplicar' }); }
 
     await client.query(
@@ -246,8 +262,12 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     // aplicaron $8,697 a las 21:28, la cotización siguió apareciendo pendiente
     // y alguien de cobranza la cerró a mano dos horas después. Sin eso se
     // queda colgada para siempre, porque ya no hay nada que conciliar.
+    // Se compara contra lo ya depositado, no contra cero. Al aplicar el saldo a
+    // una orden parcial, amount baja hasta el monto del comprobante y nunca
+    // llega a cero, asi que sin esto la orden quedaba cubierta pero abierta.
     const restante = Number(upd.rows[0]?.amount ?? 0);
-    const quedoCubierta = restante <= 0.009;
+    const yaDepositado = Number(orden.voucher_total) || 0;
+    const quedoCubierta = (restante - yaDepositado) <= 0.009;
     if (quedoCubierta) {
       await client.query(
         `UPDATE pobox_payments
