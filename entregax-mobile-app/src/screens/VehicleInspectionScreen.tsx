@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import api, { API_URL } from '../services/api';
 
 interface Vehicle {
@@ -162,6 +163,36 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
     setCurrentStep(1);
   };
 
+  // La foto se reduce ANTES de guardarla en el estado.
+  //
+  // `quality` de ImagePicker solo baja la compresion JPEG, no el tamano: la
+  // camara sigue devolviendo ~4000x3000. Esa imagen se pintaba completa en la
+  // vista previa, y una sola ocupa unos 48 MB al decodificarse (4000 x 3000 x 4
+  // bytes). El paso de las cuatro caras exteriores muestra cuatro a la vez: casi
+  // 200 MB. Android mata la app sin aviso, que es exactamente lo reportado —
+  // "no dice nada, solo los saca de la app" al tomar las fotos (tarea 845).
+  //
+  // De paso convierte a JPEG de verdad. La camara de iOS entrega HEIC, y el
+  // envio lo rotulaba como image/jpeg por la extension del nombre.
+  //
+  // Mismos parametros que ya usa el alta de empleados, pero devolviendo la RUTA
+  // del archivo reducido, no base64: el envio es FormData y lee del disco.
+  const prepararFoto = async (uri: string): Promise<string> => {
+    try {
+      const r = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1280 } }],
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      return r.uri;
+    } catch (e) {
+      // Si no se pudo reducir, mejor la original que ninguna: el checklist
+      // existe por la evidencia.
+      console.warn('[inspeccion] no se pudo reducir la foto:', e);
+      return uri;
+    }
+  };
+
   const takePhoto = async (field: PhotoField) => {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -186,12 +217,8 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        // En producción, aquí subirías la imagen a un servidor
-        // Por ahora guardamos la URI local
-        setInspectionData({
-          ...inspectionData,
-          [field]: result.assets[0].uri,
-        });
+        const lista = await prepararFoto(result.assets[0].uri);
+        setInspectionData((prev) => ({ ...prev, [field]: lista }));
       }
     } catch (error) {
       // En simulador iOS la cámara puede no estar disponible.
@@ -210,10 +237,8 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
               });
 
               if (!galleryResult.canceled && galleryResult.assets && galleryResult.assets[0]) {
-                setInspectionData({
-                  ...inspectionData,
-                  [field]: galleryResult.assets[0].uri,
-                });
+                const lista = await prepararFoto(galleryResult.assets[0].uri);
+                setInspectionData((prev) => ({ ...prev, [field]: lista }));
               }
             },
           },
