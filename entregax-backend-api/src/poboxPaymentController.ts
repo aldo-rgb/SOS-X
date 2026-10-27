@@ -2521,6 +2521,44 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             });
         }
 
+        // ── Que ninguna guia de esta orden la haya pagado YA otra orden ──────
+        //
+        // El FOR UPDATE de arriba protege contra pagar DOS VECES LA MISMA
+        // orden, pero no contra dos ordenes distintas que llevan la misma
+        // guia. Eso fue lo que paso con S204 (tarea 864): se generaron dos
+        // ordenes por la caja US-3634962846 con 24 segundos de diferencia y
+        // las dos se pagaron con credito, cobrandole 373.01 dos veces.
+        //
+        // El alta de ordenes del asesor si revisa esto, pero este pago no, y
+        // es el punto donde de verdad se mueve el dinero. Aqui es donde tiene
+        // que cortarse: cuando la segunda orden se pago, la guia ya estaba
+        // marcada como pagada por la primera desde 16 segundos antes.
+        {
+            const pkgIdsRaw = typeof order.package_ids === 'string'
+                ? JSON.parse(order.package_ids || '[]') : (order.package_ids || []);
+            const pkgIds = (Array.isArray(pkgIdsRaw) ? pkgIdsRaw : [])
+                .map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, ''))).filter(Boolean);
+            if (pkgIds.length > 0) {
+                const yaPagadas = await client.query(
+                    `SELECT tracking_internal FROM packages
+                      WHERE id = ANY($1::int[])
+                        AND (payment_status = 'paid' OR client_paid = TRUE)`,
+                    [pkgIds]
+                );
+                if (yaPagadas.rows.length > 0) {
+                    await client.query('ROLLBACK');
+                    const guias = yaPagadas.rows.map((x: any) => x.tracking_internal).filter(Boolean);
+                    return res.status(409).json({
+                        error: 'Guías ya pagadas',
+                        message: guias.length === 1
+                            ? `La guía ${guias[0]} ya está pagada en otra orden. Esta orden se tiene que cancelar, no pagar.`
+                            : `Estas guías ya están pagadas en otra orden: ${guias.join(', ')}. Esta orden se tiene que cancelar, no pagar.`,
+                        guias_ya_pagadas: guias,
+                    });
+                }
+            }
+        }
+
         const amount = parseFloat(order.amount);
 
         // 🔧 FIX: Derivar el servicio REAL de la orden. Se prioriza el
