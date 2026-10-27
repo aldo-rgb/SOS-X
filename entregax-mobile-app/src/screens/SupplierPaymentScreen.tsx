@@ -3135,10 +3135,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                 {/* Claves SAT por operación (siempre visible cuando requiere factura) */}
                 <View style={{ marginTop: 16, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FFD580', backgroundColor: '#FFF8E7' }}>
-                  <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 4, color: '#111' }]}>🧾 {t('xpay.claveSatPerOp', 'Claves SAT de los productos a importar')}</Text>
-                  <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 8 }}>
-                    {t('xpay.claveSatHint', 'Captura los códigos SAT del producto a importar.')}
-                  </Text>
+                  {/* "Conceptos" y ya. Entre este titulo, el subtitulo que decia
+                      lo mismo y la etiqueta del buscador, la pantalla repetia
+                      tres veces que aqui van claves SAT (tarea 887). El titulo
+                      nombra la seccion; el buscador explica que se teclea. */}
+                  <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 8, color: '#111' }]}>🧾 {t('xpay.conceptos', 'Conceptos')}</Text>
                   {claveHistory.length > 0 && (
                     <>
                       <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 4 }}>
@@ -3172,10 +3173,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     if (items.length === 0) return null;
                     const totalPartidas = items.reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
                     return (
-                      <View style={{ gap: 8, marginBottom: 10 }}>
-                        {/* El aviso de contexto, antes de la lista: dice lo que
-                            hay que llenar sin esperar a que falle (tarea 887). */}
-                        <Text style={{ fontSize: 10.5, color: TEXT_DIM, lineHeight: 14 }}>
+                      /* El aviso vive DENTRO del bloque de las partidas, no
+                         arriba suelto: pegado al formulario que describe se lee
+                         como su instruccion y no como un parrafo mas de la
+                         pantalla (tarea 887). */
+                      <View style={{ gap: 8, marginBottom: 10, backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: '#FFD580', padding: 8 }}>
+                        <Text style={{ fontSize: 10.5, color: TEXT_DIM, lineHeight: 14, fontStyle: 'italic' }}>
                           Cada concepto necesita su cantidad de piezas y su precio unitario.
                         </Text>
                         {/* Las partidas incompletas se marcan en rojo en el acto,

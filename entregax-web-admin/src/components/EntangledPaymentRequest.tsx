@@ -3788,8 +3788,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
               {/* Clave SAT — SIEMPRE visible (incluso con datos fiscales precargados) */}
               <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
+                {/* "Conceptos" y ya. Entre este titulo, el subtitulo que decia
+                    lo mismo y la etiqueta del buscador, la pantalla repetia tres
+                    veces que aqui van claves SAT (tarea 887). El titulo nombra la
+                    seccion; el buscador explica que se teclea. */}
                 <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
-                  📝 Claves de Productos SAT a importar *
+                  📝 Conceptos *
                 </Typography>
                 <Box sx={{ position: 'relative' }}>
                   <TextField
@@ -3920,11 +3924,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.5 }}>
                       {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
                     </Typography>
-                    {/* El aviso de contexto, antes de la lista: dice lo que hay
-                        que llenar sin esperar a que falle (tarea 887). */}
-                    <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.75, lineHeight: 1.4 }}>
-                      Cada concepto necesita su cantidad de piezas y su precio unitario.
-                    </Typography>
+                    {/* El aviso vive DENTRO del bloque de las partidas, no arriba
+                        suelto: pegado al formulario que describe se lee como su
+                        instruccion y no como un parrafo mas de la pantalla
+                        (tarea 887). */}
+                    <Box sx={{ bgcolor: C.surface, border: `1px solid ${C.border}`, borderRadius: 1, p: 1.25 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: C.textSecondary, display: 'block', mb: 1, lineHeight: 1.4, fontStyle: 'italic' }}
+                      >
+                        Cada concepto necesita su cantidad de piezas y su precio unitario.
+                      </Typography>
                     {/* Las partidas sin precio se marcan en rojo en el acto, para
                         que se vea cual corregir sin leer el mensaje (tarea 887). */}
                     {lineItems.map((c, idx) => {
@@ -4000,6 +4010,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         </Typography>
                       </Box>
                     )}
+                    </Box>
                   </Box>
                 )}
 
