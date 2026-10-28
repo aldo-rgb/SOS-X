@@ -821,7 +821,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadMyTaskCount();
     loadCsDashboard();
     loadEmpProfile();
-  }, [loadLeadsWidgets, loadCsDashboard, loadEmpProfile]);
+  }, [loadLeadsWidgets, loadCsDashboard, loadEmpProfile, loadMyTaskCount]);
 
   // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
   useEffect(() => {
@@ -958,7 +958,13 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         loadAdvisorData();
       }
       fetchUnreadNotifications();
-    }, [refreshUserData, loadStats, isOnboarded, isAdvisor, loadAdvisorData, fetchUnreadNotifications])
+      // El contador de tareas se quedaba con el numero del arranque. Se cargaba
+      // al montar la pantalla y al jalar para refrescar, pero NO al volver a
+      // ella: cierras tareas, regresas al home, y el resto de los contadores ya
+      // se actualizaron menos este. Por eso el widget decia un numero que ya no
+      // existia.
+      loadMyTaskCount();
+    }, [refreshUserData, loadStats, isOnboarded, isAdvisor, loadAdvisorData, fetchUnreadNotifications, loadMyTaskCount])
   );
 
   const onRefresh = () => {

@@ -1097,7 +1097,9 @@ export interface TaskT {
  * hacer nada con ellas.
  */
 export function esPendienteDeMi(t: any, myId?: number | null): boolean {
-  if (!myId || !t || t.status === 'completed') return false;
+  // Cancelada tampoco es pendiente. Antes solo se excluia 'completed', asi que
+  // una tarea cancelada seguia sumando al contador del home.
+  if (!myId || !t || t.status === 'completed' || t.status === 'cancelled') return false;
   // En espera te toca si la asignaste tú, o si te contestaron y no has
   // respondido (espera_tu_respuesta, calculado en /tasks/mine).
   if (t.status === 'awaiting_confirmation') return Number(t.created_by) === Number(myId) || t.espera_tu_respuesta === true;
