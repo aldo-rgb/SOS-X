@@ -1162,6 +1162,41 @@ export function revisarAbaDeBancoUsa(b: { swift_bic?: any; aba_routing?: any }):
 const ERROR_ABA = 'Falta el ABA / Routing. El banco es de Estados Unidos (lo dice su SWIFT) '
   + 'y sin ABA el pago se rechaza. Viene en el estado de cuenta del proveedor, son 9 dígitos.';
 
+/**
+ * El ABA capturado donde NO va, o con el dato equivocado dentro.
+ *
+ * `revisarAbaDeBancoUsa` sale en null en cuanto el banco no es de Estados
+ * Unidos, asi que de un banco de fuera nunca se reviso nada. Por ahi se colo el
+ * proveedor del TKT-2026-3132: banco de Hong Kong, y en el campo del ABA el
+ * NUMERO DE CUENTA completo, 15 digitos. El ABA es un identificador de banco de
+ * EUA y solo existe alla; mandarlo con una transferencia internacional a otro
+ * pais es un dato que el banco receptor no puede resolver, y la transferencia se
+ * regresa. Es lo que reporto el proveedor: que el banco le confirmo que el
+ * dinero se devolvio.
+ *
+ * Se revisa en dos sentidos, porque son dos errores distintos:
+ *  - banco de fuera de EUA con ABA capturado: el campo debe ir vacio;
+ *  - ABA igual al numero de cuenta: el clasico copiar y pegar en el campo de
+ *    al lado, y pasa con banco de cualquier pais.
+ */
+export function revisarAbaFueraDeLugar(b: { swift_bic?: any; aba_routing?: any; numero_cuenta?: any }): string | null {
+  const aba = String(b?.aba_routing ?? '').trim();
+  if (!aba) return null;
+  const abaDigitos = aba.replace(/\D/g, '');
+  const cuentaDigitos = String(b?.numero_cuenta ?? '').replace(/\D/g, '');
+  if (abaDigitos && abaDigitos === cuentaDigitos) {
+    return 'El ABA / Routing que capturaste es el mismo número de cuenta. '
+      + 'Son dos datos distintos: el ABA identifica al banco (9 dígitos) y solo lo tienen '
+      + 'los bancos de Estados Unidos. Si el banco no es de allá, deja el campo vacío.';
+  }
+  const swift = String(b?.swift_bic || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (swift.length < 6) return null;              // sin SWIFT no se puede saber el pais
+  if (swift.slice(4, 6) === 'US') return null;    // banco de EUA: lo revisa la otra funcion
+  return `El ABA / Routing solo lo tienen los bancos de Estados Unidos, y el SWIFT dice `
+    + `que este banco es de ${swift.slice(4, 6)}. Deja el campo vacío: un routing que el banco `
+    + `receptor no reconoce puede hacer que la transferencia se regrese.`;
+}
+
 export const createMySupplier = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
   const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
@@ -1169,7 +1204,7 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
     return res.status(400).json({ error: 'nombre_beneficiario, numero_cuenta y banco_nombre son requeridos' });
   }
-  const problemaAba = revisarAbaDeBancoUsa(b);
+  const problemaAba = revisarAbaDeBancoUsa(b) || revisarAbaFueraDeLugar(b);
   if (problemaAba) return res.status(400).json({ error: problemaAba, campo: 'aba_routing' });
   // La direccion del banco es obligatoria: es el tercer dato que permite
   // cachar un pais mal capturado (tarea 866).
@@ -1331,15 +1366,19 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
     // Al editar, el SWIFT y el ABA pueden venir o no: se valida contra lo que
     // QUEDARÍA guardado, no solo contra lo que manda el formulario. Si no,
     // cambiar el SWIFT a uno de EUA dejaría el ABA vacío sin que nadie avise.
-    if (b.swift_bic !== undefined || b.aba_routing !== undefined || b.banco_nombre !== undefined) {
+    // numero_cuenta entra a la lista porque el ABA se compara contra el: hay
+    // que cachar el caso de pegar la cuenta en el campo del ABA (tarea 826).
+    if (b.swift_bic !== undefined || b.aba_routing !== undefined || b.banco_nombre !== undefined
+        || b.numero_cuenta !== undefined) {
       const actual = await pool.query(
-        `SELECT swift_bic, aba_routing, banco_nombre FROM entangled_suppliers WHERE id = $1`, [id]);
+        `SELECT swift_bic, aba_routing, banco_nombre, numero_cuenta FROM entangled_suppliers WHERE id = $1`, [id]);
       const quedaria = {
         swift_bic: b.swift_bic !== undefined ? b.swift_bic : actual.rows[0]?.swift_bic,
         aba_routing: b.aba_routing !== undefined ? b.aba_routing : actual.rows[0]?.aba_routing,
         banco_nombre: b.banco_nombre !== undefined ? b.banco_nombre : actual.rows[0]?.banco_nombre,
+        numero_cuenta: b.numero_cuenta !== undefined ? b.numero_cuenta : actual.rows[0]?.numero_cuenta,
       };
-      const problema = revisarAbaDeBancoUsa(quedaria);
+      const problema = revisarAbaDeBancoUsa(quedaria) || revisarAbaFueraDeLugar(quedaria);
       if (problema) return res.status(400).json({ error: problema, campo: 'aba_routing' });
       const problemaBanco = revisarBancoContraSwift(quedaria);
       if (problemaBanco) return res.status(400).json({ error: problemaBanco, campo: 'swift_bic' });
