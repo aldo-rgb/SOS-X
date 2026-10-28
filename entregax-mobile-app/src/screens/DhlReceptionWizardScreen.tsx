@@ -902,6 +902,17 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Cliente</Text>
               <Text style={styles.summaryValue}>{clientInfo.box_id}</Text>
+              {/* El NOMBRE, no solo el codigo. El casillero se elige una vez al
+                  principio y de ahi en adelante esta barra era lo unico que
+                  acompanaba al operador, con "S3621" y nada mas. Un codigo mal
+                  tecleado no salta a la vista; un nombre que no es el del
+                  paquete que traes en la mano, si. Es como quedo una guia a
+                  nombre de otro cliente en el TKT-2026-3357. */}
+              {!!clientInfo.full_name && (
+                <Text style={styles.summaryClientName} numberOfLines={1}>
+                  {clientInfo.full_name}
+                </Text>
+              )}
             </View>
           )}
           <View style={styles.summaryItem}>
@@ -1390,6 +1401,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  summaryClientName: {
+    fontSize: 10,
+    color: '#FFCC00',
+    fontWeight: '600',
+    maxWidth: 110,
+    textAlign: 'center',
+    marginTop: 1,
   },
 
   // Scan mode chooser

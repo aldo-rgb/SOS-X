@@ -1618,6 +1618,19 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
             <Box>
               <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', lineHeight: 1 }}>Cliente</Typography>
               <Typography fontWeight="bold" sx={{ fontSize: '0.85rem' }}>📦 {clientInfo.box_id}</Typography>
+              {/* El NOMBRE, no solo el codigo. El casillero se elige una vez al
+                  principio y de ahi en adelante esta barra era lo unico que
+                  acompanaba al operador, con el codigo y nada mas. Un codigo mal
+                  tecleado no salta a la vista; un nombre que no es el del
+                  paquete que traes en la mano, si (TKT-2026-3357). */}
+              {!!clientInfo.full_name && (
+                <Typography
+                  noWrap
+                  sx={{ fontSize: '0.7rem', color: DHL_YELLOW, fontWeight: 600, maxWidth: 170 }}
+                >
+                  {clientInfo.full_name}
+                </Typography>
+              )}
             </Box>
           )}
           {tracking && (
