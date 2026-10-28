@@ -17508,13 +17508,34 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         [userId, calle || '', cp || '']
       );
       if (existing.rows[0]) return existing.rows[0].id;
+      // La CIUDAD se saca del CP.
+      //
+      // El sistema anterior no la manda: su payload trae calle, numero, colonia,
+      // cp, estado y pais, y ciudad no viene. Como la columna tampoco estaba en
+      // este INSERT, las 65 direcciones que ha creado el sync quedaron sin
+      // ciudad —las 65, contra 0 de las 599 capturadas a mano— y una direccion
+      // de entrega sin ciudad llega asi a la etiqueta impresa.
+      //
+      // Se resuelve del CP con el mismo endpoint interno que ya usa la
+      // cotizacion de Paquete Express. Si falla, se guarda igual sin ciudad:
+      // perder la direccion completa seria peor que guardarla incompleta.
+      let ciudadDelCp: string | null = null;
+      if (cp) {
+        try {
+          const port = process.env.PORT || 3001;
+          const z = await axios.get(`http://localhost:${port}/api/zipcode/${encodeURIComponent(String(cp))}`, { timeout: 6000 });
+          ciudadDelCp = String(z.data?.city || '').trim() || null;
+        } catch (e: any) {
+          console.warn(`[sync-entregax] no se pudo resolver la ciudad del CP ${cp}: ${e?.message || e}`);
+        }
+      }
       const r = await pool.query(
         `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number,
-                                neighborhood, zip_code, state, is_default, internal_only)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, TRUE)
+                                neighborhood, city, zip_code, state, is_default, internal_only)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, TRUE)
          RETURNING id`,
         [userId, `EntregaX Sync · ${guia}`, quienrecibe || null, calle || null,
-         numeroext || null, colonia || null, cp || null, estado || null]
+         numeroext || null, colonia || null, ciudadDelCp, cp || null, estado || null]
       );
       return r.rows[0]?.id ?? null;
     };
