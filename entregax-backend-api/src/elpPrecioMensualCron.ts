@@ -18,15 +18,15 @@
 import { pool } from './db';
 
 /** Quién captura y quién vigila. */
-// La tarea va a quien PUEDE capturar el precio.
+// El responsable del precio es servicio a cliente, y asi se queda.
 //
-// Estaba al reves: el responsable era Ricardo (servicio a cliente) y la pantalla
-// vive en Administracion, asi que no tiene acceso — lo dijo el 26-oct en la
-// tarea del mes y el precio se quedo sin capturar. Juan Segura, que iba solo
-// como vigilante, es quien de hecho capturo los dos precios que existen.
-// Ricardo se queda como participante para seguir viendo el aviso.
-export const RESPONSABLE_PRECIO_ELP = 62;   // Juan Segura — admin, captura el precio
-export const VIGILA_PRECIO_ELP = 71;        // Ricardo Mendez — servicio a cliente, enterado
+// No podia guardar: el endpoint del precio exigia nivel admin y su rol es 70.
+// Lo reporto el 26-oct y el precio se quedo sin capturar. La salida NO fue
+// moverle la tarea a un admin, sino que pudiera hacerla: el guardado ahora
+// acepta tambien el permiso de modulo elp_api, que se concede persona por
+// persona. Hay que tenerselo activado.
+export const RESPONSABLE_PRECIO_ELP = 71;   // Ricardo Mendez — servicio a cliente
+export const VIGILA_PRECIO_ELP = 62;        // Juan Segura — admin, vigila
 
 /** ¿Hoy faltan 5 días o menos para que termine el mes? */
 export function faltanCincoDiasOMenos(hoy: Date = new Date()): boolean {

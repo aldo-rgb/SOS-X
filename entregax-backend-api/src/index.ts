@@ -75,6 +75,7 @@ import {
   authenticateToken,
   requireRole,
   requireMinLevel,
+  requireMinLevelOrModule,
   requireMinLevelOrRoles,
   getDashboardSummary,
   getBranchManagerDashboard,
@@ -8716,7 +8717,8 @@ app.get('/api/public/elp/opciones', async (_req: Request, res: Response): Promis
   }
 });
 app.get('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetPrecios);
-app.put('/api/elp/admin/precios', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpsertPrecio);
+app.put('/api/elp/admin/precios', authenticateToken,
+  requireMinLevelOrModule(ROLES.ADMIN, 'admin_china_sea', 'elp_api'), elpAdminUpsertPrecio);
 app.get('/api/elp/admin/tarifas-nacionales', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetTarifasNacionales);
 app.put('/api/elp/admin/tarifas-nacionales/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpdateTarifaNacional);
 

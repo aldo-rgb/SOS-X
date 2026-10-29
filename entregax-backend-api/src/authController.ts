@@ -853,6 +853,53 @@ export const requireMinLevelOrRoles = (minRole: string, ...allowedRoles: string[
     };
 };
 
+/**
+ * Nivel minimo O el modulo concedido a ESA persona.
+ *
+ * Hay pantallas de Administracion cuyo guardado estaba cerrado por nivel de rol,
+ * y eso deja fuera a quien si es responsable del dato aunque su rol sea mas
+ * bajo. El caso que lo motivo: la captura del precio mensual del contenedor
+ * dedicado ELP exigia nivel admin, la tarea mensual estaba asignada a servicio
+ * a cliente (nivel 70), y el precio se quedaba sin capturar mes con mes porque
+ * la persona responsable no podia guardar (tarea 912).
+ *
+ * Bajar el nivel habria abierto el guardado a TODO servicio a cliente. En vez
+ * de eso se respeta el mecanismo que ya existe para esto: el permiso de modulo,
+ * que se concede persona por persona en user_module_permissions. Quien tenga
+ * can_edit del modulo pasa; quien no, sigue necesitando el nivel.
+ */
+export const requireMinLevelOrModule = (minRole: string, panelKey: string, moduleKey: string) => {
+    return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+        if (!req.user) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const normalizedUserRole = normalizeRoleForHierarchy(req.user.role);
+        const userLevel = ROLE_HIERARCHY[normalizedUserRole] || ROLE_HIERARCHY[req.user.role] || 0;
+        const requiredLevel = ROLE_HIERARCHY[minRole] || 0;
+        if (userLevel >= requiredLevel) { next(); return; }
+        try {
+            const r = await pool.query(
+                `SELECT COALESCE(can_edit, false) AS can_edit
+                   FROM user_module_permissions
+                  WHERE user_id = $1 AND panel_key = $2 AND module_key = $3
+                  LIMIT 1`,
+                [req.user.userId, panelKey, moduleKey]
+            );
+            if (r.rows[0]?.can_edit === true) {
+                console.log(`[AUTH] ${req.user.email} pasa por permiso de modulo ${panelKey}/${moduleKey} (nivel ${userLevel} < ${requiredLevel})`);
+                next();
+                return;
+            }
+        } catch (e: any) {
+            console.warn(`[AUTH] no se pudo leer el permiso de modulo ${panelKey}/${moduleKey}:`, e?.message);
+        }
+        res.status(403).json({
+            error: `No tienes permiso para guardar aqui. Pide que te activen el modulo correspondiente en tus permisos.`,
+            requiredMinRole: minRole,
+            moduloRequerido: `${panelKey}/${moduleKey}`,
+            tuRol: normalizedUserRole,
+        });
+    };
+};
+
 // ============ OBTENER PERFIL (RUTA PROTEGIDA) ============
 export const getProfile = async (req: AuthRequest, res: Response): Promise<void> => {
     const userId = req.user?.userId;
