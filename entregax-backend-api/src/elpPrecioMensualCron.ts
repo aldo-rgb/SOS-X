@@ -18,8 +18,15 @@
 import { pool } from './db';
 
 /** Quién captura y quién vigila. */
-export const RESPONSABLE_PRECIO_ELP = 71;   // Ricardo Mendez — servicio a cliente
-export const VIGILA_PRECIO_ELP = 62;        // Juan Segura — admin
+// La tarea va a quien PUEDE capturar el precio.
+//
+// Estaba al reves: el responsable era Ricardo (servicio a cliente) y la pantalla
+// vive en Administracion, asi que no tiene acceso — lo dijo el 26-oct en la
+// tarea del mes y el precio se quedo sin capturar. Juan Segura, que iba solo
+// como vigilante, es quien de hecho capturo los dos precios que existen.
+// Ricardo se queda como participante para seguir viendo el aviso.
+export const RESPONSABLE_PRECIO_ELP = 62;   // Juan Segura — admin, captura el precio
+export const VIGILA_PRECIO_ELP = 71;        // Ricardo Mendez — servicio a cliente, enterado
 
 /** ¿Hoy faltan 5 días o menos para que termine el mes? */
 export function faltanCincoDiasOMenos(hoy: Date = new Date()): boolean {
@@ -72,6 +79,30 @@ export async function recordarPrecioElp(hoy: Date = new Date()): Promise<{ cread
     `${(Number(x.flete_usd)+Number(x.liberacion_usd)+Number(x.utilidad_usd)).toLocaleString('en-US')} USD`
   ).join('\n') || '· todavía no hay ningún precio capturado';
 
+  // Las consecuencias NO son las mismas para las dos clases de ruta, y decirlas
+  // igual engaña: la que ya tuvo precio sigue vendiendo al viejo, y la que nunca
+  // lo ha tenido no cotiza nada. Antes el texto afirmaba siempre lo primero, y
+  // en CHN-LGB-MEX —50 contenedores y sin un solo precio capturado— eso era
+  // falso.
+  const nuncaPreciadas = await pool.query(
+    `SELECT r.code FROM maritime_routes r
+      WHERE COALESCE(r.elp_enabled,false) = TRUE
+        AND NOT EXISTS (SELECT 1 FROM elp_precios_mensuales p WHERE p.route_id = r.id)
+      ORDER BY r.code`);
+  const sinHistoria = nuncaPreciadas.rows.map((x: any) => String(x.code));
+  const conHistoria = faltan.filter((c) => !sinHistoria.includes(c));
+  const consecuencias = [
+    conHistoria.length
+      ? `· ${conHistoria.join(', ')}: si no se captura, el cotizador SIGUE VENDIENDO al `
+        + `precio anterior. No se detiene ni avisa al cliente.`
+      : '',
+    sinHistoria.filter((c) => faltan.includes(c)).length
+      ? `· ${sinHistoria.filter((c) => faltan.includes(c)).join(', ')}: nunca ha tenido precio, `
+        + `así que el cotizador NO COTIZA esa ruta — al cliente le aparece "todavía no hay `
+        + `precio publicado". Mientras siga así, esa ruta no se puede vender.`
+      : '',
+  ].filter(Boolean).join('\n');
+
   const descripcion =
     `Falta el precio de ${mesTexto} para: ${faltan.join(', ')}.\n\n` +
     `Se capturan dos datos por ruta, en Administración → API ELP → Precios:\n` +
@@ -79,8 +110,8 @@ export async function recordarPrecioElp(hoy: Date = new Date()): Promise<{ cread
     `2. Costo de liberación con entrega en CDMX.\n` +
     `La utilidad son 5,000 USD y se suma sola.\n\n` +
     `Precio vigente hoy:\n${actuales}\n\n` +
-    `Si no se captura, el cotizador SIGUE VENDIENDO al precio anterior: no se ` +
-    `detiene ni avisa al cliente. Por eso esta tarea es el único aviso.`;
+    `Qué pasa si no se captura:\n${consecuencias}\n\n` +
+    `Esta tarea es el único aviso.`;
 
   const board = await pool.query(
     `SELECT id FROM task_boards WHERE name ILIKE '%desarrollo%' OR name ILIKE '%sistema%' ORDER BY id LIMIT 1`);
