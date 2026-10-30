@@ -573,6 +573,26 @@ export const TOOLS: ToolDef[] = [
       // AIR…-001L → AIR…-001 (sufijo de 3 dígitos con una letra pegada)
       const sinLetraFinal = limpio.replace(/(-\d{3})[A-Za-z]$/, '$1');
       if (sinLetraFinal !== limpio) variantes.push(sinLetraFinal);
+      // Caracteres que se confunden al LEER la etiqueta a ojo.
+      //
+      // Estas guias se teclean mirando una caja, y la Z de UPS se lee como 2
+      // constantemente: en el TKT-2026-3275 el ticket traia
+      // "128E74E90345650738" y la guia real es "1Z8E74E90345650738". Buscar el
+      // numero del ticket no devolvia NADA, y de ahi sale la conclusion de que
+      // la caja no esta en el sistema cuando si estaba, con su cliente correcto.
+      //
+      // Solo se agregan variantes CONCRETAS, no una busqueda difusa: una guia
+      // equivocada que parezca encontrada es peor que no encontrar ninguna.
+      // UPS son 18 caracteres y empiezan en 1Z, asi que el canje 2→Z en la
+      // segunda posicion es seguro — no hay guia real que empiece en "12" con
+      // ese largo.
+      if (/^12[A-Z0-9]{16}$/i.test(sinLetraFinal)) {
+        variantes.push('1Z' + sinLetraFinal.slice(2));
+      }
+      // Y al reves, por si se capturo mal al recibir y el ticket trae el bueno.
+      if (/^1Z[A-Z0-9]{16}$/i.test(sinLetraFinal)) {
+        variantes.push('12' + sinLetraFinal.slice(2));
+      }
       // El prefijo solo se usa con algo que parezca una guía. Con "1" o "2"
       // —que sí existen como child_no basura— traería medio almacén.
       // Con NULL, `ILIKE NULL` da NULL y no coincide con nada. (No un carácter
