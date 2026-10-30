@@ -4164,6 +4164,21 @@ export function buildSystemPrompt(
     // como texto en el mismo mensaje.
     'SÍ puedes recibir hojas de cálculo y CSV adjuntos en el chat (.xlsx, .xls, .csv): sus renglones te llegan ya leídos dentro del mensaje. No le pidas a nadie que levante una tarea solo para que puedas leer un archivo, ni digas que no puedes leerlo. leer_tabla_de_tarea sigue siendo para los archivos que YA están colgados de una tarea.',
     'NUNCA digas que una herramienta no encontró algo si no la llamaste. Si no la has llamado, llámala; si no quieres o no puedes, di que no lo consultaste, no que salió vacío. Un "no aparece" inventado manda a buscar un problema que no existe.',
+    // La misma falla, del otro lado: no inventar que NO hay, sino inventar que SÍ.
+    //
+    // Le preguntaron "XP742997" a secas y contestó, sin llamar ninguna
+    // herramienta, que era de una clienta con nombre y apellido, de un casillero
+    // concreto y del asesor Marcelo González, con su correo. Las tres cosas eran
+    // falsas: la orden es de otro cliente y de otro asesor. Marcelo buscó al
+    // cliente inventado, no le salió, y se levantó la tarea 942.
+    //
+    // Lo que lo delata: en esa misma conversación las cuatro preguntas
+    // anteriores SÍ llamaron a buscar_orden_xpay, las respuestas salieron con la
+    // misma plantilla y tres de ellas decían "Marcelo González". Copió el patrón
+    // de sus propias respuestas en vez de consultar. Por eso la regla no puede
+    // ser solo "no inventes": tiene que nombrar esa trampa.
+    'Y al revés también: NUNCA afirmes un dato concreto —de quién es una orden o una guía, un nombre, un casillero, un asesor, un correo, un monto, una fecha— si no salió de una herramienta que llamaste EN ESTE TURNO. No lo deduzcas, no lo recuerdes de más arriba en la conversación, y sobre todo NO lo copies de la forma que tuvieron tus respuestas anteriores. Que las últimas tres órdenes fueran del mismo asesor no dice nada de la cuarta.',
+    'Un folio solo, sin pregunta ("XP742997", "RO-1234ABCD", "US-0000000000"), es una consulta: llama a la herramienta que le corresponde antes de decir una sola palabra sobre él. Atribuirle a alguien una orden que no es suya lo manda a buscar un cliente que no existe y enruta el caso al asesor equivocado.',
     `Pantallas que tiene permitidas además de su rol: ${paneles}.`,
     'Háblale por su nombre y da por hecho quién es: no le preguntes su rol ni le pidas que se identifique.',
     '',
@@ -5241,6 +5256,36 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
           + '\n\nPara preguntas de "cómo/dónde hago X" o procedimientos: si el tema coincide con uno de arriba, LLAMA a search_knowledge y responde SOLO con lo que devuelva. Si el tema NO está en esta lista, di textualmente que no tienes ese procedimiento documentado y que un administrador debe registrarlo — NUNCA inventes pasos, rutas del panel ni nombres de botones.';
       } else {
         systemPrompt += '\n\n=== BASE DE CONOCIMIENTO VACÍA ===\nNo hay procedimientos documentados. Para preguntas de "cómo/dónde hago X" di que no tienes esa información documentada y NO inventes pasos, rutas del panel ni nombres de botones.';
+      }
+    } catch { /* si falla, seguimos sin la inyección */ }
+
+    // Folios en el mensaje: instruccion DE ESTE TURNO, no regla general.
+    //
+    // La regla general de "no inventes datos" ya estaba en el prompt y no basto:
+    // le preguntaron "XP742997" a secas y contesto cliente, casillero y asesor
+    // sin llamar ninguna herramienta, copiando la plantilla de sus cuatro
+    // respuestas anteriores — y las tres cosas eran falsas (tarea 942).
+    //
+    // Una instruccion que nombra el folio concreto que acaba de llegar pesa mas
+    // que un principio al final de un prompt largo. Se arma aqui porque es lo
+    // unico que depende del mensaje.
+    try {
+      const ultimo = String(message || '');
+      const folios: Array<{ re: RegExp; tool: string; que: string }> = [
+        { re: /\bXP[-\s]?\d{4,}\b/i,                     tool: 'buscar_orden_xpay',     que: 'una orden X-Pay' },
+        { re: /\b(?:RO|PP|UW|CEX)[-\s]?[A-Z0-9]{6,}\b/i,   tool: 'lookup_payment_order',  que: 'una orden de pago' },
+        { re: /\bLOG\d{2}[A-Z]{4}\d{4,}\b/i,              tool: 'lookup_maritimo',       que: 'un envio maritimo' },
+      ];
+      const detectados = folios
+        .map((f) => ({ ...f, m: ultimo.match(f.re) }))
+        .filter((f) => f.m)
+        .map((f) => `  - "${f.m![0]}" es ${f.que}: llama a ${f.tool}.`);
+      if (detectados.length) {
+        systemPrompt += '\n\n=== FOLIOS EN EL MENSAJE QUE ACABAS DE RECIBIR ===\n'
+          + detectados.join('\n')
+          + '\n\nNo digas NADA sobre estos folios —de quien son, su cliente, su casillero, su asesor, su monto, su estatus— '
+          + 'hasta que la herramienta te lo haya devuelto en ESTE turno. Si no la llamas, no contestes con datos: di que no lo consultaste. '
+          + 'Y no te guies por lo que contestaste antes en esta conversacion: que las ultimas ordenes fueran del mismo asesor no dice nada de esta.';
       }
     } catch { /* si falla, seguimos sin la inyección */ }
 
