@@ -24,6 +24,11 @@ import { pool } from './db';
 const PUEDE_ENTREGAR_SIN_PAGO = ['branch_manager', 'director', 'admin', 'super_admin'];
 
 const saldoDe = (p: any): number => {
+  // Si la guia ya esta pagada no hay nada que cobrar, y se revisa ANTES de
+  // calcular: el pago de una orden PO Box vive en pobox_payments y no escribe
+  // `monto_pagado`, asi que la resta de abajo daba el costo completo y la
+  // ventanilla pedia cobrar de nuevo algo ya pagado, con el cliente enfrente.
+  if (p.client_paid === true || String(p.payment_status || '') === 'paid') return 0;
   const saldo = Number(p.saldo_pendiente);
   if (Number.isFinite(saldo) && saldo > 0) return Math.round(saldo * 100) / 100;
   const total = Number(p.assigned_cost_mxn) || 0;
@@ -44,7 +49,7 @@ export const listarPendientesMostrador = async (req: Request, res: Response): Pr
     const params = q ? [`%${q}%`] : [];
     const r = await pool.query(`
       SELECT p.id, p.tracking_internal, p.weight, p.total_boxes, p.status, p.carrier,
-             p.assigned_cost_mxn, p.monto_pagado, p.saldo_pendiente, p.client_paid,
+             p.assigned_cost_mxn, p.monto_pagado, p.saldo_pendiente, p.client_paid, p.payment_status,
              p.updated_at, p.received_at,
              u.id AS user_id, u.full_name AS cliente, u.box_id,
              (SELECT pp.payment_reference FROM pobox_payments pp
