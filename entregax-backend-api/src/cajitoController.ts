@@ -5307,6 +5307,43 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
           + 'hasta que la herramienta te lo haya devuelto en ESTE turno. Si no la llamas, no contestes con datos: di que no lo consultaste. '
           + 'Y no te guies por lo que contestaste antes en esta conversacion: que las ultimas ordenes fueran del mismo asesor no dice nada de esta.';
       }
+
+      // Y para las X-Pay, el dato RESUELTO, no solo la orden de resolverlo.
+      //
+      // La instruccion de arriba no basto. Volvio a contestar el mismo folio con
+      // el mismo cliente y el mismo asesor inventados, sin llamar la
+      // herramienta, y esta vez agrego "es la misma orden que consultaste antes":
+      // estaba leyendo su PROPIA respuesta equivocada del historial. Contra un
+      // dato falso que ya vive en la conversacion, una regla de texto pierde.
+      //
+      // Asi que el folio se resuelve aqui, contra la base, y se le entrega
+      // resuelto. Deja de ser algo que el modelo tiene que ir a buscar y pasa a
+      // ser un hecho que ya tiene enfrente, mas reciente que el historial.
+      // Coincidencia EXACTA a proposito: la herramienta tambien busca por
+      // subcadena de digitos, y con LIMIT 1 eso puede devolver otra orden.
+      const xp = ultimo.match(/\bXP[-\s]?(\d{4,})\b/i);
+      if (xp) {
+        const ref = 'XP' + xp[1];
+        const v = await pool.query(
+          `SELECT e.referencia_pago, e.estatus_global, e.op_monto, e.op_divisa_destino,
+                  u.box_id, u.full_name AS cliente, a.full_name AS asesor
+             FROM entangled_payment_requests e
+             LEFT JOIN users u ON u.id = e.user_id
+             LEFT JOIN users a ON a.id = e.advisor_id
+            WHERE UPPER(TRIM(e.referencia_pago)) = $1
+            LIMIT 1`,
+          [ref]
+        );
+        const o: any = v.rows[0];
+        systemPrompt += `\n\n=== DATO VERIFICADO EN LA BASE HACE UN INSTANTE (${ref}) ===\n`
+          + (o
+            ? `Cliente: ${o.cliente || '(sin nombre)'}. Casillero: ${o.box_id || '(sin casillero)'}. `
+              + `Asesor responsable: ${o.asesor || '(sin asesor asignado)'}. Estatus: ${o.estatus_global}. `
+              + `Monto: ${o.op_monto} ${o.op_divisa_destino}.`
+            : `En la base NO existe ninguna orden X-Pay con la referencia ${ref}. Dilo asi, sin inventar un cliente ni un asesor.`)
+          + `\nEsto es lo que dice la base AHORA y manda sobre cualquier cosa que se haya dicho antes en esta conversacion, `
+          + `incluidas tus propias respuestas. Si antes dijiste otro cliente u otro asesor, estaba mal: corrigelo de frente.`;
+      }
     } catch { /* si falla, seguimos sin la inyección */ }
 
     // Historial que se le pasa al modelo. Eran 20 mensajes: alcanzaba para un
