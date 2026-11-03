@@ -1158,7 +1158,13 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
             setContainers(prev => prev.map(c => c.id === selectedContainer.id ? { ...c, reference_code: referenceValue.trim() } : c));
             setSelectedContainer({ ...selectedContainer, reference_code: referenceValue.trim() });
             setEditingReference(false);
-        } catch { /* noop */ } finally { setSavingReference(false); }
+        } catch (e: any) {
+            // Antes se tragaba el error en silencio: el campo se cerraba igual y
+            // parecía guardado. En un dato que luego se busca por referencia,
+            // eso es peor que fallar de frente.
+            const msg = e?.response?.data?.error || e?.message || 'No se pudo guardar la referencia';
+            alert(`No se guardó la referencia: ${msg}`);
+        } finally { setSavingReference(false); }
     };
 
     const saveCosts = async () => {
@@ -1975,10 +1981,27 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                                                             <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }}>
                                                                 {selectedContainer.reference_code || '-'}
                                                             </Typography>
-                                                            {canEditReference && !!selectedContainer.reference_code && (
-                                                                <IconButton size="small" onClick={() => { setReferenceValue(selectedContainer.reference_code || ''); setEditingReference(true); }} sx={{ color: '#999', p: 0.3 }}>
-                                                                    <EditIcon sx={{ fontSize: 14 }} />
-                                                                </IconButton>
+                                                            {/* También cuando NO hay referencia.
+                                                                Antes el lápiz pedía que `reference_code` ya trajera algo, así
+                                                                que se podía corregir una referencia existente pero no asignar
+                                                                la que faltaba: el contenedor sin referencia se quedaba sin
+                                                                forma de recibir una desde esta pantalla. Son 12 contenedores,
+                                                                8 de ellos en tránsito. El backend siempre lo aceptó — sólo
+                                                                hacía falta ofrecerlo. */}
+                                                            {canEditReference && (
+                                                                selectedContainer.reference_code ? (
+                                                                    <IconButton size="small" onClick={() => { setReferenceValue(selectedContainer.reference_code || ''); setEditingReference(true); }} sx={{ color: '#999', p: 0.3 }}>
+                                                                        <EditIcon sx={{ fontSize: 14 }} />
+                                                                    </IconButton>
+                                                                ) : (
+                                                                    <Button
+                                                                        size="small" variant="text" startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                                                                        onClick={() => { setReferenceValue(''); setEditingReference(true); }}
+                                                                        sx={{ ml: 0.5, py: 0, minWidth: 0, fontSize: 11, textTransform: 'none', color: '#1565C0' }}
+                                                                    >
+                                                                        asignar
+                                                                    </Button>
+                                                                )
                                                             )}
                                                         </Box>
                                                     )}
