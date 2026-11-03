@@ -49,6 +49,25 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
       FROM air_waybill_costs ac
       LEFT JOIN air_routes ar ON ar.id = ac.route_id
       WHERE ac.received_at IS NULL
+         -- Caja rezagada: una AWB se cierra cuando todas SUS cajas de ese
+         -- momento se escanearon, pero una caja puede caer en ella despues
+         -- (llega tarde, o se corrige el AWB con el que venia). Cerrada y
+         -- fuera de la lista, esa caja se queda sin puerta por donde entrar:
+         -- el almacen la tiene fisicamente y no puede recibirla. Si sigue en
+         -- camino, la AWB reaparece como PARCIAL. La ventana de 30 dias deja
+         -- fuera las AWB viejas con cajas que nunca se van a recibir, que solo
+         -- serian ruido en la pantalla del almacen.
+         OR (
+           ac.received_at > NOW() - INTERVAL '30 days'
+           AND EXISTS (
+             SELECT 1 FROM packages p
+              WHERE p.international_tracking = ac.awb_number
+                AND p.status::text IN (
+                  'received_china','received_china_air','received_china_sea','received_origin',
+                  'in_transit','customs','customs_mx','at_port','shipped','sent','processing'
+                )
+           )
+         )
       ORDER BY ac.created_at DESC
     `);
 
@@ -218,11 +237,9 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
     const awb = awbRes.rows[0];
-    if (awb.received_at) {
-      await client.query('ROLLBACK');
-      res.status(400).json({ success: false, error: 'Esta AWB ya fue recibida' });
-      return;
-    }
+    // Que la AWB este cerrada ya no detiene el escaneo: si esta caja sigue
+    // pendiente es una rezagada y hay que poder recibirla. Si la caja ya estaba
+    // recibida, mas abajo se contesta eso mismo, que es la informacion util.
 
     // Buscar paquete vinculado a este AWB. Match ROBUSTO por código normalizado
     // (sin caracteres no alfanuméricos): tolera el guion espurio ("AI-R…") y el
@@ -296,7 +313,7 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
       await client.query(
         `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
          VALUES ($1, $2, $3, $4, NOW())`,
-        [pkg.id, receivedStatus, `Recibido en ${userBranchCode || 'CEDIS'} vía AWB ${awb.awb_number}`, userId || null]
+        [pkg.id, receivedStatus, `Recibido en ${userBranchCode || 'CEDIS'} vía AWB ${awb.awb_number}${awb.received_at ? ' (caja rezagada: la AWB ya estaba cerrada)' : ''}`, userId || null]
       );
     } catch (_) {
       /* tabla puede no existir, ignorar */
@@ -407,11 +424,6 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
       return;
     }
     const awb = awbRes.rows[0];
-    if (awb.received_at) {
-      await client.query('ROLLBACK');
-      res.status(400).json({ success: false, error: 'Esta AWB ya fue recibida' });
-      return;
-    }
 
     const pkgs = await client.query(
       `SELECT id, status FROM packages WHERE international_tracking = $1`,
@@ -427,6 +439,15 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
     };
     const received = pkgs.rows.filter((p) => isMxReceivedFinal(p.status)).length;
     const missing = total - received;
+
+    // Cerrada y sin nada pendiente: no hay nada que finalizar. Si quedo una
+    // caja rezagada si se deja cerrar otra vez, para que la AWB termine con la
+    // fecha en que de verdad se completo.
+    if (awb.received_at && missing === 0) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ success: false, error: 'Esta AWB ya fue recibida' });
+      return;
+    }
 
     if (missing > 0 && !allow_partial) {
       await client.query('ROLLBACK');
