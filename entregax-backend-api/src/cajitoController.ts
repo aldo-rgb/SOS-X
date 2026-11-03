@@ -1029,6 +1029,58 @@ export const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- DIRECTORIO INTERNO --------------------
+  {
+    name: 'directorio_interno',
+    // A proposito NO pide cajito.read.clients: esto no son datos de un cliente,
+    // es el telefono de un companero de trabajo. Quien tiene acceso a Cajito ya
+    // es de la empresa. Gatearlo con read.clients habria dejado la duda sin
+    // resolver para quien la levanto, que tiene el permiso minimo justamente
+    // porque no debe ver datos de clientes (CJD-2026-0047).
+    requiredCapability: 'cajito.access',
+    readOnly: true,
+    description: 'Directorio del PERSONAL de EntregaX: busca a un compañero por nombre y devuelve su puesto, teléfono, correo y sucursal. ÚSALA cuando pregunten el teléfono, el correo o cómo contactar a alguien del equipo —un asesor, un repartidor, alguien de CEDIS, de contabilidad— o quién es cierta persona. NO sirve para clientes: para un casillero S#### usa search_clients.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string', description: 'Nombre o parte del nombre de la persona (mín 3 caracteres). También acepta el correo.' },
+      },
+      required: ['nombre'],
+    },
+    handler: async ({ nombre }) => {
+      const q = String(nombre || '').trim();
+      if (q.length < 3) return { error: 'Dime al menos 3 letras del nombre.' };
+      // Por inicio de palabra, igual que el resto: "Daniel" no debe traer a
+      // quien lo lleve a media palabra.
+      const palabras = q.split(/\s+/).filter(Boolean)
+        .map((w) => '\\m' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const r = await pool.query(
+        `SELECT u.full_name, u.role, u.phone, u.email, b.name AS sucursal,
+                COALESCE(u.is_active, TRUE) AS activo
+           FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.role <> 'client'
+            AND (u.full_name ~* ALL($1::text[]) OR u.email ILIKE $2)
+          ORDER BY COALESCE(u.is_active, TRUE) DESC, u.full_name
+          LIMIT 10`,
+        [palabras, `%${q}%`]
+      );
+      if (r.rows.length === 0) {
+        return { encontrados: 0, nota: `No encontré a nadie del equipo que se llame "${q}". Si es un cliente, búscalo por su casillero.` };
+      }
+      return {
+        encontrados: r.rows.length,
+        personas: r.rows.map((x: any) => ({
+          nombre: x.full_name,
+          puesto: x.role,
+          telefono: x.phone || 'sin teléfono registrado',
+          correo: x.email,
+          sucursal: x.sucursal || null,
+          ...(x.activo ? {} : { nota: 'ya no está activo en el sistema' }),
+        })),
+      };
+    },
+  },
+
   // -------------------- CLIENTES --------------------
   {
     name: 'search_clients',
