@@ -5040,6 +5040,70 @@ export const investigarTicketCore = async (
  * Es el mismo bucle de herramientas del chat y de la investigación de tickets;
  * lo que cambia es que no persiste conversación ni acepta adjuntos.
  */
+/**
+ * Los folios que vienen en la pregunta, RESUELTOS contra la base.
+ *
+ * Se le entrega el dato hecho en vez de la orden de ir a buscarlo. Nace de la
+ * tarea 942: preguntaron un folio X-Pay a secas y contesto cliente, casillero y
+ * asesor inventados, sin llamar ninguna herramienta, repitiendo la plantilla de
+ * sus respuestas anteriores. Dos capas de texto —una regla y una instruccion por
+ * turno— no alcanzaron, porque el dato falso ya vivia en la conversacion y
+ * sonaba mas concreto que la regla.
+ *
+ * Va en las DOS vias que hablan con el modelo: el chat y la consulta por API de
+ * la app de direccion. La segunda no tenia ninguna proteccion y es la misma
+ * falla esperando.
+ */
+export async function datosDeFoliosEnElMensaje(mensaje: string): Promise<string> {
+  let out = '';
+  try {
+    const ultimo = String(mensaje || '');
+    const pistas: Array<{ re: RegExp; tool: string; que: string }> = [
+      { re: /\bXP[-\s]?\d{4,}\b/i,                      tool: 'buscar_orden_xpay',    que: 'una orden X-Pay' },
+      { re: /\b(?:RO|PP|UW|CEX)[-\s]?[A-Z0-9]{6,}\b/i,    tool: 'lookup_payment_order', que: 'una orden de pago' },
+      { re: /\bLOG\d{2}[A-Z]{4}\d{4,}\b/i,               tool: 'lookup_maritimo',      que: 'un envio maritimo' },
+    ];
+    const detectados = pistas
+      .map((f) => ({ ...f, m: ultimo.match(f.re) }))
+      .filter((f) => f.m)
+      .map((f) => `  - "${f.m![0]}" es ${f.que}: llama a ${f.tool}.`);
+    if (detectados.length) {
+      out += '\n\n=== FOLIOS EN EL MENSAJE QUE ACABAS DE RECIBIR ===\n'
+        + detectados.join('\n')
+        + '\n\nNo digas NADA sobre estos folios —de quien son, su cliente, su casillero, su asesor, su monto, su estatus— '
+        + 'hasta que la herramienta te lo haya devuelto en ESTE turno. Si no la llamas, no contestes con datos: di que no lo consultaste. '
+        + 'Y no te guies por lo que contestaste antes en esta conversacion: que las ultimas ordenes fueran del mismo asesor no dice nada de esta.';
+    }
+    // Coincidencia EXACTA a proposito: la herramienta tambien busca por subcadena
+    // de digitos y con LIMIT 1, asi que un folio que no existe puede devolver
+    // otra orden y atribuirsela a quien no es.
+    const xp = ultimo.match(/\bXP[-\s]?(\d{4,})\b/i);
+    if (xp) {
+      const ref = 'XP' + xp[1];
+      const v = await pool.query(
+        `SELECT e.referencia_pago, e.estatus_global, e.op_monto, e.op_divisa_destino,
+                u.box_id, u.full_name AS cliente, a.full_name AS asesor
+           FROM entangled_payment_requests e
+           LEFT JOIN users u ON u.id = e.user_id
+           LEFT JOIN users a ON a.id = e.advisor_id
+          WHERE UPPER(TRIM(e.referencia_pago)) = $1
+          LIMIT 1`,
+        [ref]
+      );
+      const o: any = v.rows[0];
+      out += `\n\n=== DATO VERIFICADO EN LA BASE HACE UN INSTANTE (${ref}) ===\n`
+        + (o
+          ? `Cliente: ${o.cliente || '(sin nombre)'}. Casillero: ${o.box_id || '(sin casillero)'}. `
+            + `Asesor responsable: ${o.asesor || '(sin asesor asignado)'}. Estatus: ${o.estatus_global}. `
+            + `Monto: ${o.op_monto} ${o.op_divisa_destino}.`
+          : `En la base NO existe ninguna orden X-Pay con la referencia ${ref}. Dilo asi, sin inventar un cliente ni un asesor.`)
+        + `\nEsto es lo que dice la base AHORA y manda sobre cualquier cosa que se haya dicho antes en esta conversacion, `
+        + `incluidas tus propias respuestas. Si antes dijiste otro cliente u otro asesor, estaba mal: corrigelo de frente.`;
+    }
+  } catch { /* si falla, se sigue sin la inyección */ }
+  return out;
+}
+
 export const preguntarCore = async (opts: {
   userId: number;
   role: string;
@@ -5081,7 +5145,8 @@ export const preguntarCore = async (opts: {
 
 QUIÉN TE PREGUNTA AHORA: ${opts.origen || 'una consulta por API'}, no una persona escribiendo en el chat.
 Contesta en texto plano, completo y en español, sin pedir que abran una pantalla: quien lee tu respuesta
-no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consultar e informar.`;
+no tiene la pantalla enfrente. En esta vía NO puedes modificar nada, solo consultar e informar.`
+    + await datosDeFoliosEnElMensaje(pregunta);
 
   const tools = toolsForUser(caps, { conEscritura: false, role });
   const provider = getLlmProvider();
@@ -5279,72 +5344,9 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       }
     } catch { /* si falla, seguimos sin la inyección */ }
 
-    // Folios en el mensaje: instruccion DE ESTE TURNO, no regla general.
-    //
-    // La regla general de "no inventes datos" ya estaba en el prompt y no basto:
-    // le preguntaron "XP742997" a secas y contesto cliente, casillero y asesor
-    // sin llamar ninguna herramienta, copiando la plantilla de sus cuatro
-    // respuestas anteriores — y las tres cosas eran falsas (tarea 942).
-    //
-    // Una instruccion que nombra el folio concreto que acaba de llegar pesa mas
-    // que un principio al final de un prompt largo. Se arma aqui porque es lo
-    // unico que depende del mensaje.
-    try {
-      const ultimo = String(message || '');
-      const folios: Array<{ re: RegExp; tool: string; que: string }> = [
-        { re: /\bXP[-\s]?\d{4,}\b/i,                     tool: 'buscar_orden_xpay',     que: 'una orden X-Pay' },
-        { re: /\b(?:RO|PP|UW|CEX)[-\s]?[A-Z0-9]{6,}\b/i,   tool: 'lookup_payment_order',  que: 'una orden de pago' },
-        { re: /\bLOG\d{2}[A-Z]{4}\d{4,}\b/i,              tool: 'lookup_maritimo',       que: 'un envio maritimo' },
-      ];
-      const detectados = folios
-        .map((f) => ({ ...f, m: ultimo.match(f.re) }))
-        .filter((f) => f.m)
-        .map((f) => `  - "${f.m![0]}" es ${f.que}: llama a ${f.tool}.`);
-      if (detectados.length) {
-        systemPrompt += '\n\n=== FOLIOS EN EL MENSAJE QUE ACABAS DE RECIBIR ===\n'
-          + detectados.join('\n')
-          + '\n\nNo digas NADA sobre estos folios —de quien son, su cliente, su casillero, su asesor, su monto, su estatus— '
-          + 'hasta que la herramienta te lo haya devuelto en ESTE turno. Si no la llamas, no contestes con datos: di que no lo consultaste. '
-          + 'Y no te guies por lo que contestaste antes en esta conversacion: que las ultimas ordenes fueran del mismo asesor no dice nada de esta.';
-      }
-
-      // Y para las X-Pay, el dato RESUELTO, no solo la orden de resolverlo.
-      //
-      // La instruccion de arriba no basto. Volvio a contestar el mismo folio con
-      // el mismo cliente y el mismo asesor inventados, sin llamar la
-      // herramienta, y esta vez agrego "es la misma orden que consultaste antes":
-      // estaba leyendo su PROPIA respuesta equivocada del historial. Contra un
-      // dato falso que ya vive en la conversacion, una regla de texto pierde.
-      //
-      // Asi que el folio se resuelve aqui, contra la base, y se le entrega
-      // resuelto. Deja de ser algo que el modelo tiene que ir a buscar y pasa a
-      // ser un hecho que ya tiene enfrente, mas reciente que el historial.
-      // Coincidencia EXACTA a proposito: la herramienta tambien busca por
-      // subcadena de digitos, y con LIMIT 1 eso puede devolver otra orden.
-      const xp = ultimo.match(/\bXP[-\s]?(\d{4,})\b/i);
-      if (xp) {
-        const ref = 'XP' + xp[1];
-        const v = await pool.query(
-          `SELECT e.referencia_pago, e.estatus_global, e.op_monto, e.op_divisa_destino,
-                  u.box_id, u.full_name AS cliente, a.full_name AS asesor
-             FROM entangled_payment_requests e
-             LEFT JOIN users u ON u.id = e.user_id
-             LEFT JOIN users a ON a.id = e.advisor_id
-            WHERE UPPER(TRIM(e.referencia_pago)) = $1
-            LIMIT 1`,
-          [ref]
-        );
-        const o: any = v.rows[0];
-        systemPrompt += `\n\n=== DATO VERIFICADO EN LA BASE HACE UN INSTANTE (${ref}) ===\n`
-          + (o
-            ? `Cliente: ${o.cliente || '(sin nombre)'}. Casillero: ${o.box_id || '(sin casillero)'}. `
-              + `Asesor responsable: ${o.asesor || '(sin asesor asignado)'}. Estatus: ${o.estatus_global}. `
-              + `Monto: ${o.op_monto} ${o.op_divisa_destino}.`
-            : `En la base NO existe ninguna orden X-Pay con la referencia ${ref}. Dilo asi, sin inventar un cliente ni un asesor.`)
-          + `\nEsto es lo que dice la base AHORA y manda sobre cualquier cosa que se haya dicho antes en esta conversacion, `
-          + `incluidas tus propias respuestas. Si antes dijiste otro cliente u otro asesor, estaba mal: corrigelo de frente.`;
-      }
-    } catch { /* si falla, seguimos sin la inyección */ }
+    // Los folios del mensaje, resueltos. Mismo helper que usa la via de la
+    // app de direccion, para que las dos digan lo mismo.
+    systemPrompt += await datosDeFoliosEnElMensaje(message);
 
     // Historial que se le pasa al modelo. Eran 20 mensajes: alcanzaba para un
     // intercambio corto, pero en una conversación de trabajo lo del principio se
