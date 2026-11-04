@@ -247,6 +247,64 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
 // ============================================
 // 1. CREAR PAGO PAYPAL PARA POBOX
 // ============================================
+/**
+ * ¿Estos ids son del usuario y en que tabla viven?
+ *
+ * Un id de orden de pago puede ser de `packages`, de `maritime_orders` o de
+ * `dhl_shipments`, y las tres tablas tienen secuencias independientes: el mismo
+ * numero existe en mas de una a la vez. Por eso se buscan las tres y se
+ * desempata por tabla, prefiriendo packages, que es lo que el frontend arma.
+ *
+ * Esta regla vivia solo en el alta de ordenes en efectivo. PayPal y la tarjeta
+ * revisaban unicamente `packages`, asi que una guia DHL se les caia con
+ * "Algunos paquetes no existen o no pertenecen al usuario": el id de la guia
+ * existe en dhl_shipments y en packages es otra caja, de otro cliente. Al
+ * cliente le negaba el pago de una guia que si era suya y si existia, con un
+ * mensaje que decia lo contrario de lo que pasaba (tarea 980).
+ */
+export async function paquetesDelUsuario(packageIds: number[], userId: number) {
+    // El box_id acepta tambien los paquetes legacy: user_id NULL pero el
+    // casillero coincide. El panel del cliente ya los muestra asi.
+    let userBoxId: string | null = null;
+    try {
+        const u = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+        userBoxId = u.rows[0]?.box_id || null;
+    } catch { /* si falla seguimos con solo user_id */ }
+
+    const packagesCheck = await pool.query(
+        `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'package' as source
+         FROM packages
+         WHERE id = ANY($1)
+           AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))
+        UNION ALL
+        SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, brand_type::text, merchandise_type::text, 'maritime' as source
+         FROM maritime_orders
+         WHERE id = ANY($1)
+           AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(shipping_mark, '')) = UPPER($3::text)))
+        UNION ALL
+        SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'dhl' as source
+         FROM dhl_shipments
+         -- Guia con proceso especial y costo retenido: no se puede cobrar
+         -- hasta que operaciones le asigne el suyo (tarea 573).
+         WHERE id = ANY($1)
+           AND COALESCE(costo_retenido, FALSE) = FALSE
+           AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))`,
+        [packageIds, userId, userBoxId]
+    );
+
+    const sourcePriority: Record<string, number> = { package: 0, dhl: 1, maritime: 2 };
+    const porId = new Map<number, any>();
+    for (const r of packagesCheck.rows) {
+        const id = Number(r.id);
+        const existing = porId.get(id);
+        if (!existing || (sourcePriority[r.source] ?? 99) < (sourcePriority[existing.source] ?? 99)) {
+            porId.set(id, r);
+        }
+    }
+    const faltantes = (packageIds as number[]).filter(id => !porId.has(Number(id)));
+    return { rows: Array.from(porId.values()), porId, faltantes };
+}
+
 export const createPoboxPaypalPayment = async (req: Request, res: Response): Promise<any> => {
     try {
         // Los costos PO Box están en MXN; el default de moneda debe ser MXN (no USD).
@@ -288,18 +346,14 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
             ]);
         }
 
-        // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
-        const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type
-             FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 
-             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
-            [packageIds, userId]
-        );
-
-        if (packagesCheck.rows.length !== packageIds.length) {
-            return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
+        // Verificar que los paquetes existen y pertenecen al usuario, con la
+        // misma regla que el alta en efectivo: packages, marítimo y DHL.
+        const revision = await paquetesDelUsuario(packageIds, userId);
+        if (revision.faltantes.length > 0) {
+            return res.status(400).json({
+                error: 'Algunos paquetes no existen o no pertenecen al usuario',
+                missing_ids: revision.faltantes,
+            });
         }
 
         // Verificar que ningún paquete esté ya en una orden de pago pendiente
@@ -666,18 +720,14 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
             ]);
         }
 
-        // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
-        const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type
-             FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 
-             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
-            [packageIds, userId]
-        );
-
-        if (packagesCheck.rows.length !== packageIds.length) {
-            return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
+        // Verificar que los paquetes existen y pertenecen al usuario, con la
+        // misma regla que el alta en efectivo: packages, marítimo y DHL.
+        const revision = await paquetesDelUsuario(packageIds, userId);
+        if (revision.faltantes.length > 0) {
+            return res.status(400).json({
+                error: 'Algunos paquetes no existen o no pertenecen al usuario',
+                missing_ids: revision.faltantes,
+            });
         }
 
         // Verificar que ningún paquete esté ya en una orden de pago pendiente
@@ -853,66 +903,15 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             ]);
         }
 
-        // Resolver el box_id del usuario para aceptar también paquetes legacy
-        // (con user_id NULL pero box_id que coincide). El dashboard del cliente
-        // ya incluye estos paquetes vía OR box_id = user.box_id, así que la
-        // verificación de pago tiene que reflejar la misma regla — si no, las
-        // selecciones múltiples que mezclan paquetes nuevos + legacy fallan
-        // con 400 "Algunos paquetes no existen o no pertenecen al usuario".
-        let userBoxId: string | null = null;
-        try {
-            const u = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
-            userBoxId = u.rows[0]?.box_id || null;
-        } catch { /* si falla seguimos con sólo user_id */ }
+        // Misma revisión que PayPal y la tarjeta, en un solo lugar.
+        const revision = await paquetesDelUsuario(packageIds, userId);
+        const checkedRows = revision.rows;
+        const dedupedById = revision.porId;
 
-        // Verificar que los paquetes existen y pertenecen al usuario
-        // (por user_id, o por box_id/shipping_mark si son legacy).
-        const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'package' as source
-             FROM packages
-             WHERE id = ANY($1)
-               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))
-            UNION ALL
-            SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, brand_type::text, merchandise_type::text, 'maritime' as source
-             FROM maritime_orders
-             WHERE id = ANY($1)
-               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(shipping_mark, '')) = UPPER($3::text)))
-            UNION ALL
-            SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'dhl' as source
-             FROM dhl_shipments
-             -- Guía con proceso especial y costo retenido: no se puede cobrar
-             -- hasta que operaciones le asigne el suyo (tarea 573).
-             WHERE id = ANY($1)
-               AND COALESCE(costo_retenido, FALSE) = FALSE
-               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))`,
-            [packageIds, userId, userBoxId]
-        );
-
-        // 🔒 Las tablas packages, maritime_orders y dhl_shipments tienen
-        // secuencias de id INDEPENDIENTES, así que un mismo id numérico
-        // puede aparecer en >1 tabla simultáneamente (caso real: id 326
-        // existe en packages como hija AIR y en maritime_orders como una
-        // orden marítima sin relación). El UNION ALL devuelve ambas filas,
-        // y comparar `rows.length !== packageIds.length` rompía pagos
-        // legítimos con un 400 falso (47 filas devueltas vs 40 ids).
-        // Deduplicamos por id priorizando la tabla packages — que es la
-        // fuente que el frontend ya prefiere al armar la selección.
-        const sourcePriority: Record<string, number> = { package: 0, dhl: 1, maritime: 2 };
-        const dedupedById = new Map<number, any>();
-        for (const r of packagesCheck.rows) {
-            const id = Number(r.id);
-            const existing = dedupedById.get(id);
-            if (!existing || (sourcePriority[r.source] ?? 99) < (sourcePriority[existing.source] ?? 99)) {
-                dedupedById.set(id, r);
-            }
-        }
-        const checkedRows = Array.from(dedupedById.values());
-
-        if (dedupedById.size !== packageIds.length) {
-            const missing = (packageIds as number[]).filter(id => !dedupedById.has(Number(id)));
+        if (revision.faltantes.length > 0) {
             return res.status(400).json({
                 error: 'Algunos paquetes no existen o no pertenecen al usuario',
-                missing_ids: missing,
+                missing_ids: revision.faltantes,
             });
         }
 
