@@ -1023,7 +1023,16 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 const base = await pool.query(
                     `SELECT COALESCE(SUM(COALESCE(saldo_pendiente, assigned_cost_mxn, 0)), 0) AS guias,
                             COALESCE(SUM(COALESCE(gex_total_cost, 0)), 0) AS gex,
-                            COALESCE(SUM(COALESCE(national_shipping_cost, 0)), 0) AS flete
+                            -- En un pick up la caja no viaja: lo que hay en
+                            -- national_shipping_cost es la maniobra de $3 USD
+                            -- por caja, que ya viene contada en la guia. Sumarla
+                            -- tambien como flete hacia que este cotejo esperara
+                            -- justo el doble, y por eso no avisó del cobro
+                            -- duplicado que reporto la tarea 984.
+                            COALESCE(SUM(CASE
+                              WHEN status::text = 'ready_pickup'
+                                OR COALESCE(national_carrier, carrier, '') ILIKE '%pick%up%'
+                              THEN 0 ELSE COALESCE(national_shipping_cost, 0) END), 0) AS flete
                        FROM packages WHERE id = ANY($1::int[])`, [idsParaCotejo]);
                 const b = base.rows[0] || {};
                 const esperado = Number(b.guias || 0) + Number(b.gex || 0) + Number(b.flete || 0);

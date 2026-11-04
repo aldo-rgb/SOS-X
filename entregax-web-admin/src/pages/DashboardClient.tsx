@@ -912,11 +912,24 @@ export default function DashboardClient() {
   // paquetería es local/pickup es gratis; y si hay paquetería nacional pero
   // todavía SIN cotización, aplica un FALLBACK mínimo de $400.
   const PQT_FALLBACK_MXN = 400;
+  // Mismo criterio que el helper canonico de costos: el pick up llega con tres
+  // nombres distintos segun quien asigno las instrucciones.
+  const esPickUp = (pkg: PackageTracking): boolean =>
+    pkg.status === 'ready_pickup'
+    || /pick\s*_?-?\s*up/i.test(String(pkg.national_carrier || pkg.carrier || ''));
   const getNationalShippingMXN = (pkg: PackageTracking): number => {
     // Paquetería "por cobrar" (collect, ej. Pitic/Estafeta por cobrar): el cliente
     // paga al transportista al recibir → nuestro flete nacional es 0 (no se cobra
     // en la orden). Se evalúa PRIMERO para ignorar cualquier costo/fallback.
     if ((pkg as any).is_collect === true || (pkg as any).collect_carrier) return 0;
+    // Pick up en mostrador: la caja NUNCA viaja, asi que no hay flete nacional.
+    // Lo que el backend dejo en national_shipping_cost es la maniobra de $3 USD
+    // por caja, y esa maniobra YA es el total de la guia (assigned_cost_mxn).
+    // Leerla aqui como flete la cobraba dos veces: tres guias de $3 se
+    // cotizaban en $18 en vez de $9 (tarea 984). Va ANTES de `direct` porque el
+    // campo viene lleno y por eso la regla de "paqueteria sin flete" de mas
+    // abajo nunca se alcanzaba a evaluar.
+    if (esPickUp(pkg)) return 0;
     const direct = Number(pkg.national_shipping_cost) || 0;
     if (direct > 0) return direct;
     const fromChildren = (pkg.included_guides || []).reduce(
@@ -964,6 +977,10 @@ export default function DashboardClient() {
     let envioMXN = monto;
     if (isPobox) {
       const bd = getPackageCostBreakdown(pkg);
+      // Pick up: el helper ya devuelve el total correcto —solo la maniobra, sin
+      // servicio PO Box ni garantia— y se usa tal cual. Rearmarlo aqui sumando
+      // paqueteria era justo lo que duplicaba la maniobra.
+      if (esPickUp(pkg)) return bd.totalMxn + (Number(pkg.extra_charges_total) || 0);
       if (bd.poboxServiceMxn > 0) envioMXN = bd.poboxServiceMxn;
     }
 
