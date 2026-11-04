@@ -3040,9 +3040,24 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     // Si todos (o al menos 1) hijos ya están enviados, actualizar master
                     if (parseInt(done) > 0) {
                         const statusCol = await getPackageStatusColumn();
+                        // Se escriben LAS DOS columnas, el mismo arreglo que ya
+                        // tenian la caja y las hijas de un REPACK y que aqui se
+                        // quedo sin hacer: `statusCol` es delivery_status, y el
+                        // panel del asesor y el portal del cliente leen el ENUM
+                        // `status`. Por eso el master de una guia multicaja
+                        // seguia diciendo "recibido en CEDIS, sin salida"
+                        // aunque no quedara ni una caja en bodega: tenia
+                        // delivery_status='shipped' y status='received_mty'.
+                        // Al revisarlo habia 117 guias master asi (tarea 986).
+                        const setsMaster = [`${statusCol} = $1`, 'updated_at = NOW()'];
+                        const paramsMaster: any[] = [sentStatus, masterId];
+                        if (statusCol !== 'status') {
+                            setsMaster.push('status = $3');
+                            paramsMaster.push(sentStatus);
+                        }
                         await pool.query(
-                            `UPDATE packages SET ${statusCol} = $1, updated_at = NOW() WHERE id = $2`,
-                            [sentStatus, masterId]
+                            `UPDATE packages SET ${setsMaster.join(', ')} WHERE id = $2`,
+                            paramsMaster
                         );
                         console.log(`[paqHandoff] Master ${masterId} actualizado a '${sentStatus}' (${done}/${total} hijos procesados)`);
                     }
