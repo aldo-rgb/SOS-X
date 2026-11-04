@@ -1081,6 +1081,64 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  {
+    name: 'asesor_del_casillero',
+    // Igual que directorio_interno: NO pide cajito.read.clients porque no
+    // devuelve nada del cliente —ni nombre, ni correo, ni telefono, ni guias—,
+    // solo a que companero le toca atenderlo. Es ruteo interno. search_clients
+    // ya contestaba esto, pero va gateada con read.clients y quien pregunta
+    // "de quien es este casillero para avisarle" suele tener el permiso minimo
+    // a proposito: Cajito terminaba diciendo "no tengo una herramienta"
+    // (CJD-2026-0048 y CJD-2026-0049).
+    requiredCapability: 'cajito.access',
+    readOnly: true,
+    description: 'Dice QUE ASESOR atiende un casillero, con su teléfono y correo para poder avisarle. ÚSALA cuando pregunten de quién es un casillero, a qué asesor le toca o a quién avisarle de una guía, y te den un casillero (S2127, S96…). Acepta varios separados por coma o espacio. NO devuelve datos del cliente: para eso es search_clients.',
+    parameters: {
+      type: 'object',
+      properties: {
+        casillero: { type: 'string', description: 'Casillero del cliente (p.ej. "S2127"). También varios separados por coma o espacio.' },
+      },
+      required: ['casillero'],
+    },
+    handler: async ({ casillero }) => {
+      const q = String(casillero || '').trim();
+      if (!q) return { error: 'Dime el casillero, por ejemplo S2127.' };
+      const pedidos = q.split(/[\s,;]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+      if (!pedidos.every((x) => /^S\d+$/i.test(x))) {
+        return { error: 'Eso no parece un casillero. Un casillero es la letra S y digitos, como S2127.' };
+      }
+      const r = await pool.query(
+        `SELECT u.box_id,
+                a.full_name AS asesor, a.role AS puesto, a.phone AS telefono, a.email AS correo,
+                b.name AS sucursal, COALESCE(a.is_active, TRUE) AS activo
+           FROM users u
+           LEFT JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
+           LEFT JOIN branches b ON b.id = a.branch_id
+          WHERE UPPER(u.box_id) = ANY($1::text[])
+          ORDER BY u.box_id
+          LIMIT $2`,
+        [pedidos, MAX_ROWS]
+      );
+      const hallados = new Set(r.rows.map((x: any) => String(x.box_id || '').toUpperCase()));
+      const inexistentes = pedidos.filter((x) => !hallados.has(x));
+      return {
+        encontrados: r.rows.length,
+        casilleros: r.rows.map((x: any) => (x.asesor
+          ? {
+              casillero: x.box_id,
+              asesor: x.asesor,
+              puesto: x.puesto,
+              telefono: x.telefono || 'sin teléfono registrado',
+              correo: x.correo,
+              sucursal: x.sucursal || null,
+              ...(x.activo ? {} : { nota: 'ese asesor ya no está activo; hay que reasignar el casillero' }),
+            }
+          : { casillero: x.box_id, asesor: null, nota: 'ese casillero no tiene asesor asignado' })),
+        ...(inexistentes.length ? { no_existen: inexistentes } : {}),
+      };
+    },
+  },
+
   // -------------------- CLIENTES --------------------
   {
     name: 'search_clients',
