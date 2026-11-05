@@ -13645,7 +13645,7 @@ export default function DashboardClient() {
           {/* Input oculto para seleccionar archivos (imágenes / PDF / Excel) */}
           <input
             type="file"
-            accept="image/*,.pdf,.xml,.xls,.xlsx,.csv,application/pdf,text/xml,application/xml,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+            accept="image/*,video/*,.pdf,.xml,.xls,.xlsx,.csv,application/pdf,text/xml,application/xml,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
             multiple
             id="support-image-upload"
             style={{ display: 'none' }}

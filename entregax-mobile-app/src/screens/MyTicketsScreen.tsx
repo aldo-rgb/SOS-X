@@ -48,7 +48,8 @@ const listaAdjuntos = (m: TicketMessage): string[] => {
   }
   return m.attachment_url ? [m.attachment_url] : [];
 };
-const esImagenUrl = (u: string) => !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(String(u));
+const esImagenUrl = (u: string) => !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt|mp4|mov|m4v|3gp|webm|mkv|avi)(\?|$)/i.test(String(u));
+const esVideoUrl = (u: string) => /\.(mp4|mov|m4v|3gp|webm|mkv|avi)(\?|$)/i.test(String(u));
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
   open_ai:        { label: 'IA Atendiendo',     color: '#2196F3', icon: 'chatbubble-ellipses', bg: '#E3F2FD' },
@@ -181,12 +182,33 @@ export default function MyTicketsScreen({ navigation, route }: any) {
       Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: 'images', allowsMultipleSelection: true, selectionLimit: 10 });
-    if (result.canceled || !result.assets?.length) return;
-    const items = result.assets.map(a => {
-      const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
-      return { uri: a.uri, name: a.fileName || `img.${ext}`, type: `image/${ext === 'jpg' ? 'jpeg' : ext}` };
+    // Fotos Y VIDEO. Hay errores que no dejan nada que capturar —los que
+    // sacan de la app sin mensaje— y la grabacion de pantalla es la unica
+    // prueba posible; el selector solo ofrecia fotos (TKT-2026-3182).
+    const result = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.7,
+      mediaTypes: ['images', 'videos'],
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
+    if (result.canceled || !result.assets?.length) return;
+    const items: { uri: string; name: string; type: string }[] = [];
+    for (const a of result.assets) {
+      const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+      const esVideo = a.type === 'video' || ['mp4', 'mov', 'm4v', '3gp', 'webm'].includes(ext);
+      // El tope del servidor son 50MB por archivo. Mejor decirlo aqui que
+      // mandarlo y que se caiga el envio completo.
+      if (a.fileSize && a.fileSize > 50 * 1024 * 1024) {
+        Alert.alert('Archivo muy grande', `"${a.fileName || 'el video'}" pesa más de 50MB. Recórtalo y vuelve a intentar.`);
+        continue;
+      }
+      items.push({
+        uri: a.uri,
+        name: a.fileName || `${esVideo ? 'video' : 'img'}.${ext}`,
+        type: a.mimeType || (esVideo ? `video/${ext === 'mov' ? 'quicktime' : ext}` : `image/${ext === 'jpg' ? 'jpeg' : ext}`),
+      });
+    }
+    if (!items.length) return;
     if (target === 'new') setNewAttachments(prev => [...prev, ...items]);
     else setReplyAttachments(prev => [...prev, ...items]);
   };
@@ -526,6 +548,12 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                           esImagenUrl(u) ? (
                             <TouchableOpacity key={i} onPress={() => Linking.openURL(u)} style={{ marginTop: 6 }}>
                               <Image source={{ uri: u }} style={styles.adjuntoFoto} resizeMode="cover" />
+                            </TouchableOpacity>
+                          ) : esVideoUrl(u) ? (
+                            <TouchableOpacity key={i} onPress={() => Linking.openURL(u)}
+                              style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <Ionicons name="play-circle" size={18} color="#1565C0" />
+                              <Text style={{ fontSize: 12, color: '#1565C0', fontWeight: '700' }}>Ver video</Text>
                             </TouchableOpacity>
                           ) : (
                             <TouchableOpacity key={i} onPress={() => Linking.openURL(u)}

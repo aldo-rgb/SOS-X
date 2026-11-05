@@ -2035,12 +2035,34 @@ export default function SupportBoardPage() {
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                             {urls.map((u, i) => {
                               const isPdf = u.toLowerCase().includes('.pdf') || u.includes('/pdf') || u.includes('application/pdf');
+                              // El video se reproduce aqui mismo. Sin esta rama
+                              // caia en <ProtectedImage> y se veia como una foto
+                              // rota: es la evidencia de los errores que no dejan
+                              // mensaje, asi que tiene que abrirse de un clic.
+                              const isVideo = /\.(mp4|mov|m4v|3gp|webm|mkv|avi)(\?|$)/i.test(u);
                               // Extraer nombre del archivo de la URL
                               let fileName = '';
                               try {
                                 const cleanUrl = u.split('?')[0];
                                 fileName = decodeURIComponent(cleanUrl.split('/').pop() || `archivo-${i}`);
                               } catch { fileName = `archivo-${i}`; }
+                              if (isVideo) {
+                                // Directo a S3 y no por el proxy de descarga: la
+                                // URL ya viene firmada y asi el navegador puede
+                                // pedir el video por partes y adelantarlo. El
+                                // proxy lo traeria completo a memoria y sin poder
+                                // mover la barra.
+                                return (
+                                  <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                                    <video src={u} controls playsInline preload="metadata"
+                                      style={{ width: 260, maxWidth: '100%', maxHeight: 320, borderRadius: 6, border: '1px solid #ddd', background: '#000' }} />
+                                    <a href={`${API_URL}/files/download?src=${encodeURIComponent(u)}&name=${encodeURIComponent(fileName)}`}
+                                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2' }}>
+                                      <Typography variant="caption" fontWeight={600}>⬇ Descargar video</Typography>
+                                    </a>
+                                  </Box>
+                                );
+                              }
                               return isPdf ? (
                                 <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
                                   <a href={/amazonaws\.com/i.test(u) ? `${API_URL}/files/download?inline=1&name=${encodeURIComponent(fileName)}&src=${encodeURIComponent(u)}` : u} target="_blank" rel="noreferrer"
@@ -2259,7 +2281,7 @@ export default function SupportBoardPage() {
                         <LockIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Adjuntar imagen o PDF">
+                    <Tooltip title="Adjuntar imagen, video o PDF">
                       <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#666' }}>
                         <AttachFileIcon fontSize="small" />
                       </IconButton>
@@ -2272,7 +2294,7 @@ export default function SupportBoardPage() {
                       // Una factura son DOS archivos: PDF y XML. El selector solo
                       // ofrecia PDF, asi que el XML habia que buscarlo con "todos
                       // los archivos" y aun asi el backend lo tiraba (tarea 458).
-                      accept="image/*,application/pdf,.pdf,.xml,text/xml,application/xml,.xls,.xlsx,.csv"
+                      accept="image/*,video/*,application/pdf,.pdf,.xml,text/xml,application/xml,.xls,.xlsx,.csv"
                       onChange={(e) => {
                         if (e.target.files) setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
                         e.target.value = '';

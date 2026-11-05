@@ -1836,7 +1836,7 @@ export default function DashboardBranchManager() {
                 sx={{ mb: 2 }}
               />
 
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Adjuntos (fotos o PDF)</Typography>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Adjuntos (fotos, video o PDF)</Typography>
               <Box sx={{ p: 1, ...estiloZonaSoltar(arrastrandoTicket) }} {...propsSoltarTicket}>
               <Button
                 component="label"
@@ -1849,7 +1849,10 @@ export default function DashboardBranchManager() {
                   type="file"
                   hidden
                   multiple
-                  accept="image/*,application/pdf"
+                  // Video incluido: un error que "solo saca de la app" no deja
+                  // mensaje que capturar, y la grabacion de la pantalla es la
+                  // unica prueba que se puede mandar (TKT-2026-3182).
+                  accept="image/*,video/*,application/pdf"
                   onChange={(e) => {
                     if (e.target.files) setNewTicketFiles(prev => [...prev, ...Array.from(e.target.files!)]);
                     e.target.value = '';

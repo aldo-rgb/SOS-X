@@ -226,20 +226,33 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
         return;
       }
 
+      // Fotos Y VIDEO: hay fallas que no dejan mensaje que capturar —las que
+      // cierran la app sin aviso— y la grabacion de pantalla es la unica
+      // prueba posible (TKT-2026-3182).
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: true,
         quality: 0.7,
         selectionLimit: 5,
       });
 
       if (!result.canceled && result.assets) {
-        const newImages = result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.fileName || `image_${Date.now()}.jpg`,
-          type: asset.mimeType || 'image/jpeg',
-        }));
-        setTicketImages((prev) => [...prev, ...newImages].slice(0, 5));
+        const newImages: { uri: string; name: string; type: string }[] = [];
+        for (const asset of result.assets) {
+          const ext = (asset.uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+          const esVideo = asset.type === 'video' || ['mp4', 'mov', 'm4v', '3gp', 'webm'].includes(ext);
+          // El tope del servidor son 50MB por archivo.
+          if (asset.fileSize && asset.fileSize > 50 * 1024 * 1024) {
+            Alert.alert(t('common.error'), `"${asset.fileName || 'el video'}" pesa más de 50MB. Recórtalo y vuelve a intentar.`);
+            continue;
+          }
+          newImages.push({
+            uri: asset.uri,
+            name: asset.fileName || `${esVideo ? 'video' : 'image'}_${Date.now()}.${esVideo ? (ext || 'mp4') : 'jpg'}`,
+            type: asset.mimeType || (esVideo ? `video/${ext === 'mov' ? 'quicktime' : (ext || 'mp4')}` : 'image/jpeg'),
+          });
+        }
+        if (newImages.length) setTicketImages((prev) => [...prev, ...newImages].slice(0, 5));
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -678,7 +691,13 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     {ticketImages.map((img, index) => (
                       <View key={index} style={styles.imagePreviewWrapper}>
-                        <Image source={{ uri: img.uri }} style={styles.imagePreview} />
+                        {String(img.type || '').startsWith('video/') ? (
+                          <View style={[styles.imagePreview, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#1A1A1A' }]}>
+                            <Ionicons name="play-circle" size={28} color="#fff" />
+                          </View>
+                        ) : (
+                          <Image source={{ uri: img.uri }} style={styles.imagePreview} />
+                        )}
                         <TouchableOpacity 
                           style={styles.removeImageButton}
                           onPress={() => handleRemoveImage(index)}

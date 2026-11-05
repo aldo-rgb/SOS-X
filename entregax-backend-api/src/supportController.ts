@@ -29,9 +29,19 @@ try {
 
 const multerUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por archivo
-  fileFilter: (_req, file, cb) => {
-    // Imágenes (incl. HEIC/HEIF), PDF, Excel (xls/xlsx/csv) y XML.
+  // 50MB por archivo: un video de celular de unos segundos pesa mas de 20MB,
+  // que era el tope anterior, y lo tiraba por tamano (ver nota del filtro).
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    // Imágenes (incl. HEIC/HEIF), VIDEO, PDF, Office (Word/Excel/PowerPoint),
+    // CSV, XML y texto plano.
+    //
+    // 🎥 El video faltaba, y es la unica evidencia posible de un error que
+    // "solo saca de la app": no hay mensaje que capturar. En TKT-2026-3182 el
+    // reportante dijo DOS veces que anexaba el video y ninguno llego — de
+    // 3,434 adjuntos en la historia de los tickets no hay un solo mp4 ni mov.
+    // Veinte dias sin poder reproducir un error porque la prueba se tiraba
+    // aqui.
     //
     // 📄 El XML faltaba y es la mitad de una factura: al cliente que pide su
     // CFDI hay que mandarle PDF **y** XML. La pantalla dejaba adjuntarlo, el
@@ -40,12 +50,22 @@ const multerUpload = multer({
     // enviado (tarea 458, reportado por Leonardo).
     const mime = String(file.mimetype || '').toLowerCase();
     const ext = String(file.originalname || '').toLowerCase().split('.').pop() || '';
-    const mimeOk = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$|^(application|text)\/xml$/.test(mime);
+    const mimeOk = /^image\/|^video\/|^application\/pdf$|^application\/msword$|^application\/rtf$|^application\/vnd\.ms-excel$|^application\/vnd\.ms-powerpoint$|^application\/vnd\.openxmlformats-officedocument\.|^text\/(csv|plain)$|^(application|text)\/xml$/.test(mime);
     // Muchos navegadores mandan el XML como application/octet-stream, así que
-    // la extensión decide cuando el tipo viene genérico.
-    const extOk = ['xml', 'pdf', 'csv', 'xls', 'xlsx'].includes(ext);
+    // la extensión decide cuando el tipo viene genérico. Lo mismo pasa con el
+    // .mov que comparte el iPhone.
+    // Word, PowerPoint, txt y rtf se agregan por lo mismo: el formulario del
+    // asesor YA los ofrece en su selector, y aqui se tiraban callados.
+    const extOk = ['xml', 'pdf', 'csv', 'xls', 'xlsx', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'rtf',
+                   'mp4', 'mov', 'm4v', '3gp', 'webm', 'mkv', 'avi'].includes(ext);
     const ok = mimeOk || extOk;
     if (!ok) {
+      // Y se APUNTA el rechazo. Descartar callado es lo que hizo que el XML
+      // tardara en salir y que nadie supiera del video: el mensaje se enviaba
+      // igual y desde fuera parecia que el archivo habia viajado.
+      const yaRechazados: string[] = (req as any).adjuntosRechazados || [];
+      yaRechazados.push(file.originalname || 'archivo');
+      (req as any).adjuntosRechazados = yaRechazados;
       console.warn(`[SOPORTE] adjunto rechazado por tipo: ${file.originalname} (${mime}). Si es válido, agrégalo al filtro.`);
     }
     cb(null, ok);
@@ -54,7 +74,28 @@ const multerUpload = multer({
 
 const wrapMulter = (req: Request, res: Response, next: Function) => {
   multerUpload(req, res, (err: any) => {
-    if (err) console.warn('⚠️ Error de multer (ignorando):', err.message || err);
+    // Si el adjunto no se pudo leer, el mensaje NO se manda.
+    //
+    // Antes el error se ignoraba y el mensaje salia sin el archivo: el que
+    // escribio "aqui te anexo el video" se queda creyendo que lo mando y del
+    // otro lado llega un texto que habla de algo que no esta. Es mejor decirle
+    // que no se pudo, en el momento, con el nombre del archivo.
+    if (err) {
+      console.warn('⚠️ Error de multer:', err.message || err);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'El archivo pesa más de 50 MB y no se pudo adjuntar. Si es un video, recórtalo y vuelve a intentar.' });
+      }
+      if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({ error: 'Puedes adjuntar hasta 10 archivos por mensaje.' });
+      }
+      return res.status(400).json({ error: 'No se pudieron leer los archivos adjuntos. Intenta de nuevo.' });
+    }
+    const rechazados: string[] = (req as any).adjuntosRechazados || [];
+    if (rechazados.length) {
+      return res.status(415).json({
+        error: `No se puede adjuntar ${rechazados.join(', ')}. Se aceptan fotos, video, PDF, Word, Excel, PowerPoint, CSV, XML y texto.`,
+      });
+    }
     next();
   });
 };

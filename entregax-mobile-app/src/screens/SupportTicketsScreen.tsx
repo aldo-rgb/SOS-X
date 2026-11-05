@@ -63,7 +63,7 @@ interface TicketMessage {
 interface AttachedFile {
   uri: string;
   name: string;
-  type: 'image' | 'pdf';
+  type: 'image' | 'video' | 'pdf';
   mimeType: string; // MIME type real del archivo
 }
 
@@ -383,20 +383,35 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       Alert.alert('Límite alcanzado', `Puedes adjuntar hasta ${MAX_ADJUNTOS} archivos por respuesta.`);
       return;
     }
+    // Fotos Y VIDEO. Un error que saca de la app no deja mensaje que
+    // capturar: la grabacion de pantalla es la unica prueba que se puede
+    // mandar, y el selector solo ofrecia fotos (TKT-2026-3182).
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images', 'videos'],
       quality: 0.8,
       allowsEditing: false,
       allowsMultipleSelection: true,
       selectionLimit: restantes,
     });
     if (result.canceled || !result.assets?.length) return;
-    const nuevos: AttachedFile[] = result.assets.slice(0, restantes).map((asset, i) => ({
-      uri: asset.uri,
-      name: asset.fileName || `foto_${Date.now()}_${i}.jpg`,
-      type: 'image' as const,
-      mimeType: asset.mimeType || 'image/jpeg',
-    }));
+    const nuevos: AttachedFile[] = [];
+    for (const [i, asset] of result.assets.slice(0, restantes).entries()) {
+      const ext = (asset.uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+      const esVideo = asset.type === 'video' || ['mp4', 'mov', 'm4v', '3gp', 'webm'].includes(ext);
+      // El tope del servidor son 50MB por archivo: avisar aqui en vez de
+      // dejar que se caiga el envio entero.
+      if (asset.fileSize && asset.fileSize > 50 * 1024 * 1024) {
+        Alert.alert('Archivo muy grande', `"${asset.fileName || 'el video'}" pesa más de 50MB. Recórtalo y vuelve a intentar.`);
+        continue;
+      }
+      nuevos.push({
+        uri: asset.uri,
+        name: asset.fileName || `${esVideo ? 'video' : 'foto'}_${Date.now()}_${i}.${esVideo ? (ext || 'mp4') : 'jpg'}`,
+        type: esVideo ? 'video' : 'image',
+        mimeType: asset.mimeType || (esVideo ? `video/${ext === 'mov' ? 'quicktime' : (ext || 'mp4')}` : 'image/jpeg'),
+      });
+    }
+    if (!nuevos.length) return;
     setAttachedFiles(prev => [...prev, ...nuevos]);
     if (result.assets.length > restantes) {
       Alert.alert('Límite alcanzado', `Solo se agregaron ${restantes}: el máximo es ${MAX_ADJUNTOS} por respuesta.`);
@@ -417,7 +432,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
 
   const showAttachMenu = () => {
     Alert.alert('Adjuntar archivo', 'Selecciona el tipo de archivo', [
-      { text: 'Foto de galería', onPress: pickImage },
+      { text: 'Foto o video de galería', onPress: pickImage },
       { text: 'Documento PDF', onPress: pickDocument },
       { text: 'Cancelar', style: 'cancel' },
     ]);
@@ -639,6 +654,17 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
           />
           {attachUrls.map((url, i) => {
             const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
+            // Sin esta rama el video caia en <Image> y se veia como una foto
+            // rota; asi se abre en el reproductor del telefono.
+            const isVideo = /\.(mp4|mov|m4v|3gp|webm|mkv|avi)(\?|$)/i.test(url);
+            if (isVideo) {
+              return (
+                <TouchableOpacity key={i} style={styles.attachPdf} onPress={() => Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir el video'))}>
+                  <Ionicons name="play-circle" size={18} color="#1565C0" />
+                  <Text style={[styles.attachPdfText, { color: '#1565C0' }]}>Ver video</Text>
+                </TouchableOpacity>
+              );
+            }
             return isPdf ? (
               <TouchableOpacity key={i} style={styles.attachPdf} onPress={() => Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir el archivo'))}>
                 <Ionicons name="document-outline" size={16} color="#E91E63" />
@@ -842,7 +868,11 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                           <Image source={{ uri: f.uri }} style={styles.attachPreviewImg} />
                         ) : (
                           <View style={styles.attachPreviewPdf}>
-                            <Ionicons name="document-outline" size={18} color="#E91E63" />
+                            <Ionicons
+                              name={f.type === 'video' ? 'play-circle' : 'document-outline'}
+                              size={18}
+                              color={f.type === 'video' ? '#1565C0' : '#E91E63'}
+                            />
                             <Text style={styles.attachPreviewPdfText} numberOfLines={1}>{f.name}</Text>
                           </View>
                         )}
