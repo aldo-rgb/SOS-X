@@ -351,6 +351,47 @@ export const resolverPaisDestino = (
 const MENSAJE_GENERICO_XPAY =
   'La comercializadora no está disponible en este momento, habla con tu asesor.';
 
+// ===========================================================================
+// Validación PRE-ENVÍO de los datos bancarios del beneficiario.
+// ---------------------------------------------------------------------------
+// El proveedor guarda estos campos en columnas cortas y, si algo se excede,
+// contesta "value too long for type character varying(20)" sin decir cuál
+// campo. Esto corta antes de la llamada y nombra el campo exacto.
+//
+// Vive aquí —y no dentro de la ruta de creación, donde nació— porque el envío
+// también ocurre DIFERIDO: una operación se puede crear sin comprobante y
+// mandarse después, cuando el cliente sube el suyo. Ese segundo camino no
+// validaba, y ahí el error es mucho peor: el cliente YA depositó. Le pasó a
+// una operación de 2,715 USD que se quedó 59 días en error_envio con un
+// SWIFT de 23 caracteres, y solo se recuperó porque el cliente volvió a
+// capturarla a mano (tarea 987).
+// ===========================================================================
+type FalloBancario = { label: string; largo: number; max: number; valor: string };
+
+export const validarDatosBancariosBeneficiario = (
+  benefSnap: any
+): FalloBancario | null => {
+  if (!benefSnap) return null;
+  const checks: Array<{ val: any; label: string; max: number }> = [
+    { val: benefSnap.swift,  label: 'SWIFT/BIC',        max: 11 },
+    { val: benefSnap.aba,    label: 'ABA/Routing',      max: 20 },
+    { val: benefSnap.cuenta, label: 'número de cuenta', max: 20 },
+    { val: benefSnap.iban,   label: 'IBAN',             max: 20 },
+  ];
+  for (const c of checks) {
+    const v = String(c.val ?? '').trim();
+    if (v.length > c.max) {
+      return { label: c.label, largo: v.length, max: c.max, valor: v };
+    }
+  }
+  return null;
+};
+
+const textoFalloBancario = (f: FalloBancario): string =>
+  `El ${f.label} del beneficiario no es válido: tiene ${f.largo} caracteres ` +
+  `(máximo ${f.max}). Corrígelo y vuelve a enviar. ` +
+  `Valor capturado: "${f.valor.slice(0, 40)}${f.valor.length > 40 ? '…' : ''}"`;
+
 function friendlyEntangledError(code?: string | null, respuesta?: any, ctx?: { swift?: any; paisDeclarado?: any; divisa?: any }): string {
   const raw = String(code || '').trim();
   if (!raw) return '';
@@ -1103,35 +1144,25 @@ export const createPaymentRequestV2 = async (
     payload.notas = String(body.notas);
   }
 
-  // ✅ Validación PRE-ENVÍO de los datos bancarios del beneficiario. ENTANGLED
-  //    guarda estos campos en columnas cortas (BIC / varchar(20)) y, si algo se
-  //    excede, responde con un error genérico ("value too long...") SIN decir cuál
-  //    campo. Lo detectamos aquí y le decimos al usuario EXACTAMENTE qué corregir
-  //    (además, al cortar antes de la llamada externa, la respuesta es JSON rápido
-  //    y el móvil ya no ve el críptico "JSON Parse error" por timeout del gateway).
-  if (benefSnap) {
-    const bankChecks: Array<{ val: any; label: string; max: number }> = [
-      { val: benefSnap.swift,     label: 'SWIFT/BIC',         max: 11 },
-      { val: benefSnap.aba,       label: 'ABA/Routing',       max: 20 },
-      { val: benefSnap.cuenta,    label: 'número de cuenta',  max: 20 },
-      { val: benefSnap.iban,      label: 'IBAN',              max: 20 },
-    ];
-    for (const c of bankChecks) {
-      const s = String(c.val ?? '').trim();
-      if (s.length > c.max) {
-        await pool.query(
-          `UPDATE entangled_payment_requests
-              SET estatus_global = 'error_envio', error_message = $1, updated_at = NOW()
-            WHERE id = $2`,
-          [`${c.label} inválido (${s.length} caracteres, máx ${c.max})`, requestId]
-        ).catch(() => {});
-        return res.status(400).json({
-          error: `El ${c.label} del beneficiario no es válido: tiene ${s.length} caracteres (máximo ${c.max}). ` +
-                 `Corrígelo y vuelve a enviar. Valor capturado: "${s.slice(0, 40)}${s.length > 40 ? '…' : ''}"`,
-          campo: c.label,
-          request_id: requestId,
-        });
-      }
+  // ✅ Validación PRE-ENVÍO de los datos bancarios (ver
+  //    validarDatosBancariosBeneficiario). Aquí el cliente TODAVÍA no depositó,
+  //    así que basta con decirle al asesor qué campo corregir. Cortar antes de
+  //    la llamada externa también evita el críptico "JSON Parse error" que el
+  //    móvil mostraba cuando el gateway tardaba.
+  {
+    const fallo = validarDatosBancariosBeneficiario(benefSnap);
+    if (fallo) {
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET estatus_global = 'error_envio', error_message = $1, updated_at = NOW()
+          WHERE id = $2`,
+        [`${fallo.label} inválido (${fallo.largo} caracteres, máx ${fallo.max})`, requestId]
+      ).catch(() => {});
+      return res.status(400).json({
+        error: textoFalloBancario(fallo),
+        campo: fallo.label,
+        request_id: requestId,
+      });
     }
   }
 
@@ -1582,6 +1613,35 @@ export async function sendPendingRequestToEntangled(
   const snap = reqRow.instructions_snapshot && typeof reqRow.instructions_snapshot === 'object'
     ? reqRow.instructions_snapshot as any : null;
   const benefSnap = snap?.beneficiarioSnapshot || null;
+
+  // ✅ Mismo candado que la ruta de creación. Este camino corre DESPUÉS de que
+  //    el cliente subió su comprobante, así que el aviso tiene que decir que su
+  //    depósito está a salvo: lo único que falta es corregir los datos del
+  //    beneficiario. Sin esto, el dato largo se mandaba, el proveedor tronaba
+  //    con un error que no nombra el campo, y la operación quedaba en
+  //    error_envio con el dinero del cliente ya dentro.
+  {
+    const fallo = validarDatosBancariosBeneficiario(benefSnap);
+    if (fallo) {
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET estatus_global = 'error_envio', error_message = $1, updated_at = NOW()
+          WHERE id = $2`,
+        [`${fallo.label} inválido (${fallo.largo} caracteres, máx ${fallo.max})`, requestId]
+      ).catch(() => {});
+      console.error(`[XPAY] envío diferido detenido en ${reqRow.referencia_pago}: ${fallo.label} de ${fallo.largo} caracteres.`);
+      return {
+        ok: false,
+        status: 400,
+        payload: {
+          error: `${textoFalloBancario(fallo)} Tu comprobante quedó guardado; la operación se manda en cuanto se corrija.`,
+          campo: fallo.label,
+          request_id: requestId,
+        },
+      };
+    }
+  }
+
   // 🌎 País destino (ver build principal): preferir país del beneficiario, si no
   //    derivar de la divisa (RMB→China, MXN→México, USD→Estados Unidos).
   //    Faltaba el caso MXN: una operación en pesos se mandaba como "Estados
@@ -2081,9 +2141,15 @@ export async function syncPendingEntangledOperations(): Promise<{ checked: numbe
     `SELECT id, servicio, entangled_transaccion_id
        FROM entangled_payment_requests
       WHERE entangled_transaccion_id IS NOT NULL
-        AND estatus_global IN ('en_proceso', 'esperando_comprobante')
+        -- 'solicitada' es un estatus que se agregó después y nunca se sumó a
+        -- esta lista: una operación que entraba ahí dejaba de consultarse para
+        -- siempre, y si su webhook se perdía quedaba congelada. Había una viva
+        -- de 4,947 USD en ese hueco. 'error_envio' entra por lo mismo; las que
+        -- nunca llegaron al proveedor ya quedan fuera por el filtro de
+        -- transaccion_id de arriba.
+        AND estatus_global IN ('en_proceso', 'esperando_comprobante', 'solicitada', 'error_envio')
         AND (COALESCE(estatus_factura,'') <> 'emitida' OR COALESCE(estatus_proveedor,'') <> 'completado')
-        AND created_at >= NOW() - INTERVAL '45 days'
+        AND created_at >= NOW() - INTERVAL '120 days'
       ORDER BY updated_at ASC
       LIMIT 60`
   );
