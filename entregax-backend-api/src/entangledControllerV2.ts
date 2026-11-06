@@ -2058,6 +2058,14 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
     ]
   );
 
+  // 🔔 El pull manual es la tercera vía por la que nos enteramos; avisa igual.
+  if (facturaUrl || estatusFacturaRemote === 'emitida') {
+    void avisarAvanceXpay(Number(id), 'factura');
+  }
+  if (estatusProveedorRemote === 'completado') {
+    void avisarAvanceXpay(Number(id), 'pago');
+  }
+
   return res.json({ ok: true, request: upd.rows[0], remote: data });
 };
 
@@ -2133,6 +2141,15 @@ export async function syncPendingEntangledOperations(): Promise<{ checked: numbe
         [facturaUrl, comprobanteProvUrl, estatusProveedorRemote, facturaXmlUrl, JSON.stringify(data), row.servicio, estatusFacturaRemote, row.id, comprobanteClienteUrl]
       );
       if (upd.rowCount) updated++;
+      // 🔔 Si el webhook no llegó y el cambio lo detectó este cron, el aviso
+      // igual sale. avisarAvanceXpay se reclama a sí mismo en la base, así
+      // que si el webhook ya avisó esto no duplica.
+      if (facturaUrl || estatusFacturaRemote === 'emitida') {
+        void avisarAvanceXpay(Number(row.id), 'factura');
+      }
+      if (estatusProveedorRemote === 'completado') {
+        void avisarAvanceXpay(Number(row.id), 'pago');
+      }
     } catch (e: any) {
       console.warn('[ENTANGLED sync] error op', row.id, e?.message);
     }
@@ -2597,6 +2614,166 @@ const parseRawJson = (rawBody: Buffer): any => {
   }
 };
 
+// ===========================================================================
+// 🔔 Avisos de avance de una operación X-Pay (TKT-2026-3509 / tarea 991).
+// ---------------------------------------------------------------------------
+// Ni la factura emitida ni el pago al beneficiario avisaban a nadie: de 83
+// operaciones pagadas, las ÚNICAS notificaciones X-Pay que existían eran las
+// 17 de orden cancelada. El asesor y el cliente se enteraban preguntando, y
+// como el pago tarda entre 5 y 188 horas, preguntaban por ticket.
+//
+// El claim del aviso va en el MISMO UPDATE que lo manda: el webhook y el cron
+// de respaldo detectan la misma transición, y así solo uno de los dos avisa.
+// ===========================================================================
+let columnasAvisoXpayListas: Promise<void> | null = null;
+const asegurarColumnasAvisoXpay = (): Promise<void> => {
+  if (!columnasAvisoXpayListas) {
+    columnasAvisoXpayListas = (async () => {
+      // La PRIMERA vez que existen estas columnas hay 83 operaciones ya
+      // pagadas y 72 ya facturadas. Si quedaran sin sellar, el primer pull
+      // manual sobre cualquiera de ellas mandaría un aviso —y un WhatsApp—
+      // de un pago de hace semanas. Se sellan con su propia fecha: el aviso
+      // solo aplica de aquí hacia adelante.
+      const existe = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'entangled_payment_requests'
+            AND column_name = 'notif_pago_at'
+          LIMIT 1`
+      );
+      const esPrimeraVez = existe.rowCount === 0;
+      await pool.query(
+        `ALTER TABLE entangled_payment_requests
+           ADD COLUMN IF NOT EXISTS notif_factura_at TIMESTAMPTZ,
+           ADD COLUMN IF NOT EXISTS notif_pago_at TIMESTAMPTZ`
+      );
+      if (esPrimeraVez) {
+        const f = await pool.query(
+          `UPDATE entangled_payment_requests
+              SET notif_factura_at = factura_emitida_at
+            WHERE factura_emitida_at IS NOT NULL AND notif_factura_at IS NULL`
+        );
+        const g = await pool.query(
+          `UPDATE entangled_payment_requests
+              SET notif_pago_at = proveedor_pagado_at
+            WHERE proveedor_pagado_at IS NOT NULL AND notif_pago_at IS NULL`
+        );
+        console.log(`[XPAY] avisos de avance activados; selladas ${f.rowCount} facturas y ${g.rowCount} pagos previos (no se avisan).`);
+      }
+    })()
+      .then(() => undefined)
+      .catch((e) => {
+        columnasAvisoXpayListas = null;
+        console.error('[XPAY] columnas de aviso:', e?.message);
+      });
+  }
+  return columnasAvisoXpayListas;
+};
+
+const montoXpayFmt = (monto: any, divisa: any): string =>
+  `$${Number(monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${String(divisa || 'USD')}`;
+
+export const avisarAvanceXpay = async (
+  requestId: number,
+  etapa: 'factura' | 'pago'
+): Promise<void> => {
+  try {
+    await asegurarColumnasAvisoXpay();
+    const col = etapa === 'factura' ? 'notif_factura_at' : 'notif_pago_at';
+    const claim = await pool.query(
+      `UPDATE entangled_payment_requests
+          SET ${col} = NOW()
+        WHERE id = $1
+          AND ${col} IS NULL
+        RETURNING id, user_id, advisor_id, referencia_pago, op_monto, op_divisa_destino,
+                  op_beneficiario_nombre, sup_nombre_beneficiario`,
+      [requestId]
+    );
+    if (claim.rowCount === 0) return; // ya se avisó
+    const r = claim.rows[0];
+    const ref = r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`;
+    const montoFmt = montoXpayFmt(r.op_monto, r.op_divisa_destino);
+    const benef = r.op_beneficiario_nombre || r.sup_nombre_beneficiario || 'tu beneficiario';
+
+    const textos = etapa === 'factura'
+      ? {
+          titulo: 'X-Pay: factura emitida',
+          asesor: `Ya se emitió la factura de ${ref} (${montoFmt}). El cliente ya puede descargarla.`,
+          cliente: `Tu factura de la operación ${ref} (${montoFmt}) ya está lista. Descárgala en X-Pay › Últimos envíos.`,
+          tipo: 'xpay_factura_emitida',
+          icono: '🧾',
+        }
+      : {
+          titulo: 'X-Pay: pago enviado',
+          asesor: `El pago de ${ref} (${montoFmt}) ya salió a ${benef}. El comprobante ya está en la operación.`,
+          cliente: `Tu pago ${ref} (${montoFmt}) ya se envió a ${benef}. El comprobante está en X-Pay › Últimos envíos.`,
+          tipo: 'xpay_pago_enviado',
+          icono: '✅',
+        };
+
+    const destinatarios: Array<{ id: number; msg: string }> = [];
+    if (r.advisor_id) destinatarios.push({ id: Number(r.advisor_id), msg: textos.asesor });
+    if (r.user_id && Number(r.user_id) !== Number(r.advisor_id)) {
+      destinatarios.push({ id: Number(r.user_id), msg: textos.cliente });
+    }
+
+    for (const d of destinatarios) {
+      await pool
+        .query(
+          `INSERT INTO notifications (user_id, title, message, type, icon, data)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+          [d.id, textos.titulo, d.msg, textos.tipo, textos.icono,
+           JSON.stringify({ request_id: r.id, referencia_pago: ref, etapa })]
+        )
+        .catch((e: any) => console.warn('[XPAY] notif avance:', e?.message));
+    }
+
+    // Push: sin notificationType, para no arrastrar los destinatarios extra
+    // que el panel de sonidos agrega por rol — aquí solo van los dos dueños
+    // de la operación.
+    try {
+      const { sendPushToUsers } = await import('./pushService');
+      for (const d of destinatarios) {
+        void sendPushToUsers([d.id], {
+          title: textos.titulo,
+          body: d.msg,
+          data: { tipo: textos.tipo, request_id: String(r.id), referencia: ref },
+        });
+      }
+    } catch (e: any) {
+      console.warn('[XPAY] push avance:', e?.message);
+    }
+
+    // WhatsApp al cliente SOLO cuando el dinero ya salió. La plantilla
+    // xpay_pago_confirmado dice "tu pago fue procesado, consulta el
+    // comprobante" y se mandaba al SUBIR el comprobante del cliente, o sea
+    // ANTES de que el pago existiera: el cliente ya tenía el aviso de pagado
+    // y luego preguntaba por ticket si de verdad había salido.
+    if (etapa === 'pago') {
+      try {
+        const u = await pool.query(
+          `SELECT full_name, phone FROM users WHERE id = $1 LIMIT 1`,
+          [r.user_id]
+        );
+        const phone = u.rows[0]?.phone;
+        if (phone) {
+          const { sendXPayPagoConfirmado } = await import('./whatsappService');
+          void sendXPayPagoConfirmado({
+            phone,
+            nombre: u.rows[0]?.full_name || '',
+            referencia: ref,
+            monto: montoFmt,
+            beneficiario: benef,
+          });
+        }
+      } catch (e: any) {
+        console.warn('[XPAY] WhatsApp de pago enviado:', e?.message);
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[XPAY] no se pudo avisar el avance (${etapa}) de la solicitud ${requestId}:`, e?.message);
+  }
+};
+
 // POST /api/entangled/webhook/factura-generada
 export const webhookFacturaGeneradaV2 = async (
   req: Request,
@@ -2664,6 +2841,8 @@ export const webhookFacturaGeneradaV2 = async (
     // se recupera. Idempotente.
     generateXpayCommission(Number(requestId)).catch((e: any) =>
       console.error('[ENTANGLED v2] Error comisión XPAY (webhook factura):', e));
+    // 🔔 El cliente y su asesor se enteran de que la factura ya existe.
+    void avisarAvanceXpay(Number(requestId), 'factura');
     await logWebhook(transaccionId, evento, payload, requestId);
     return res.status(200).json({ ok: true });
   } catch (err) {
@@ -2809,6 +2988,9 @@ export const webhookPagoProveedorV2 = async (
     // momento correcto. generateXpayCommission es idempotente (ON CONFLICT).
     generateXpayCommission(Number(requestId)).catch((e: any) =>
       console.error('[ENTANGLED v2] Error comisión XPAY (webhook proveedor):', e));
+    // 🔔 Este es el momento en que el dinero ya salió: aquí va el aviso al
+    // cliente y a su asesor, y el WhatsApp de pago confirmado.
+    if (estatus === 'completado') void avisarAvanceXpay(Number(requestId), 'pago');
     await logWebhook(transaccionId, evento, payload, requestId);
     return res.status(200).json({ ok: true });
   } catch (err) {
@@ -2909,7 +3091,7 @@ export const webhookOrdenesV2 = async (req: Request, res: Response): Promise<any
         try {
           const msg = cuentaNueva
             ? `La cuenta de depósito de la orden ${ref} cambió. El cliente debe pagar a la nueva cuenta (${cuentaNueva.banco || ''} ${cuentaNueva.clabe || cuentaNueva.cuenta || ''}).`
-            : `La cuenta de la orden ${ref} se desactivó y no hay cuenta alterna. Requiere reasignación manual (contactar a ENTANGLED).`;
+            : `La cuenta de la orden ${ref} se desactivó y no hay cuenta alterna. Requiere reasignación manual: repórtalo a Operaciones.`;
           await pool.query(
             `INSERT INTO notifications (user_id, title, message, type, icon, data)
              VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,

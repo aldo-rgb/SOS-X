@@ -6414,34 +6414,34 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
       [id, url]
     );
 
-    // Enviar xpay_pago_confirmado al cliente cuando sube su comprobante (fire-and-forget)
+    // 🧾 Aquí el cliente ACABA de subir su comprobante de depósito: el pago al
+    // beneficiario todavía no existe y tarda entre horas y varios días.
+    // Antes en este punto se mandaba la plantilla de WhatsApp
+    // xpay_pago_confirmado ("tu pago fue procesado exitosamente, consulta el
+    // comprobante de pago"), que es el aviso del final del proceso. El cliente
+    // quedaba convencido de que su dinero ya había salido y luego abría ticket
+    // preguntando si de verdad salía ese día (TKT-2026-3509). Ese WhatsApp se
+    // movió a avisarAvanceXpay(id, 'pago'), que corre cuando el pago al
+    // beneficiario se confirma de verdad. Aquí solo se acusa recibo.
     try {
-      const { sendXPayPagoConfirmado } = await import('./whatsappService');
-      const waRow = await dbPool.query(
-        `SELECT u.full_name, u.phone,
-                epr.referencia_pago, epr.op_monto, epr.op_divisa_destino,
-                epr.op_beneficiario_nombre
-           FROM entangled_payment_requests epr
-           JOIN users u ON u.id = epr.user_id
-          WHERE epr.id = $1 LIMIT 1`,
+      const recRow = await dbPool.query(
+        `SELECT user_id, advisor_id, referencia_pago FROM entangled_payment_requests WHERE id = $1 LIMIT 1`,
         [id]
       );
-      const wu = waRow.rows[0];
-      if (wu?.phone) {
-        const montoFmt = `$${Number(wu.op_monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${wu.op_divisa_destino || 'USD'}`;
-        console.log(`[XPAY WA] Enviando xpay_pago_confirmado a ${wu.phone} ref=${wu.referencia_pago}`);
-        void sendXPayPagoConfirmado({
-          phone: wu.phone,
-          nombre: wu.full_name || '',
-          referencia: wu.referencia_pago || '',
-          monto: montoFmt,
-          beneficiario: wu.op_beneficiario_nombre || '',
-        });
-      } else {
-        console.warn(`[XPAY WA] Usuario sin teléfono para xpay_pago_confirmado, solicitud ${id}`);
+      const rec = recRow.rows[0];
+      if (rec?.user_id) {
+        const refRec = rec.referencia_pago || `XP${String(id).padStart(6, '0')}`;
+        await dbPool.query(
+          `INSERT INTO notifications (user_id, title, message, type, icon, data)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+          [rec.user_id, 'X-Pay: comprobante recibido',
+           `Recibimos tu comprobante de ${refRec}. En cuanto el pago salga al beneficiario te avisamos.`,
+           'xpay_comprobante_recibido', '🧾',
+           JSON.stringify({ request_id: id, referencia_pago: refRec })]
+        );
       }
-    } catch (waErr) {
-      console.warn('[XPAY WA] Error enviando xpay_pago_confirmado:', waErr);
+    } catch (recErr) {
+      console.warn('[XPAY] aviso de comprobante recibido:', (recErr as Error).message);
     }
 
     // 2) Si la solicitud aún NO ha sido enviada a ENTANGLED (no tiene
