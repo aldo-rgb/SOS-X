@@ -767,6 +767,29 @@ export const getAvailableVehicles = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Deja constancia de una inspeccion que NO se pudo registrar.
+ *
+ * Hasta ahora un rechazo no dejaba rastro: el chofer veia su mensaje en la app
+ * y aqui no quedaba nada. Cuando alguien reportaba "no me deja hacer la
+ * inspeccion" no habia forma de saber en que paso se frenaba, ni si siquiera
+ * habia llegado al servidor — un ticket estuvo veinte dias abierto por eso
+ * (TKT-2026-3182). Se escribe en audit_log, que ya existe, en vez de abrir una
+ * tabla nueva.
+ */
+const registrarInspeccionRechazada = async (
+  userId: number | null, vehicleId: any, motivo: string, extra: Record<string, any> = {},
+): Promise<void> => {
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
+       VALUES ('fleet_inspection_rechazada', 'vehicles', $1, $2, $3::jsonb)`,
+      [Number(vehicleId) || null, userId, JSON.stringify({ motivo, ...extra })]);
+  } catch (e: any) {
+    console.error('[fleet] no se pudo registrar el rechazo de la inspeccion:', e?.message);
+  }
+};
+
 // Registrar inspección diaria (desde la app del chofer)
 export const submitDailyInspection = async (req: Request, res: Response) => {
   try {
@@ -826,6 +849,7 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     const damage_photo_url    = foto('damage_photo', req.body.damage_photo_url);
     
     if (!vehicle_id || !Number.isFinite(reported_mileage) || reported_mileage <= 0) {
+      await registrarInspeccionRechazada(userId, vehicle_id, 'falta vehiculo o kilometraje', { reported_mileage: req.body.reported_mileage ?? null });
       return res.status(400).json({ error: 'Vehículo y kilometraje son requeridos' });
     }
 
@@ -845,6 +869,7 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       `, [vehicle_id, userId, inspection_type || 'check_in']);
 
       if (existing.rows.length > 0) {
+        await registrarInspeccionRechazada(userId, vehicle_id, 'ya tenia una inspeccion de ese tipo hoy', { inspection_type: inspection_type || 'check_in' });
         return res.status(400).json({ error: 'Ya registraste una inspección de este tipo hoy' });
       }
     }
@@ -855,10 +880,12 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       [vehicle_id]
     );
     if (vehicle.rows.length === 0) {
+      await registrarInspeccionRechazada(userId, vehicle_id, 'el vehiculo no existe');
       return res.status(404).json({ error: 'Vehículo no encontrado' });
     }
 
     if (vehicle.rows[0].status !== 'active') {
+      await registrarInspeccionRechazada(userId, vehicle_id, 'el vehiculo no esta activo', { status: vehicle.rows[0].status });
       return res.status(400).json({ error: 'El vehículo no está activo para inspección' });
     }
 
@@ -867,10 +894,12 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     // requiere que el vehículo esté asignado al usuario actual.
     const isCheckOut = inspection_type === 'check_out' || inspection_type === 'return';
     if (!isMonitoreo && isCheckOut && Number(vehicle.rows[0].assigned_driver_id) !== userId) {
+      await registrarInspeccionRechazada(userId, vehicle_id, 'devolucion de un vehiculo que no trae asignado', { assigned_driver_id: vehicle.rows[0].assigned_driver_id });
       return res.status(403).json({ error: 'No puedes entregar este vehículo: no está asignado a ti' });
     }
     
     if (reported_mileage < vehicle.rows[0].current_mileage) {
+      await registrarInspeccionRechazada(userId, vehicle_id, 'kilometraje menor al que ya traia la unidad', { reportado: reported_mileage, actual: vehicle.rows[0].current_mileage });
       return res.status(400).json({ 
         error: `El kilometraje no puede ser menor al actual (${vehicle.rows[0].current_mileage} km)` 
       });
@@ -1010,8 +1039,9 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       inspection: result.rows[0],
       flagged
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error registrando inspección:', error);
+    await registrarInspeccionRechazada(getAuthUserId(req), req.body?.vehicle_id, 'error del servidor', { mensaje: String(error?.message || error).slice(0, 300) });
     res.status(500).json({ error: 'Error al registrar inspección' });
   }
 };

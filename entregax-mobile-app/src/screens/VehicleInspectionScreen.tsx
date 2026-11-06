@@ -80,6 +80,11 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   const [submitting, setSubmitting] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [alreadyInspected, setAlreadyInspected] = useState(false);
+  // Fotos que NO se pudieron reducir. De esas se guarda la ruta para subirlas,
+  // pero no se pinta la imagen: cuatro bitmaps de 4000x3000 a la vez son casi
+  // 200 MB y el telefono cierra la app sin aviso. Un recuadro con la palomita
+  // dice lo mismo y no cuesta memoria.
+  const [sinVistaPrevia, setSinVistaPrevia] = useState<Partial<Record<PhotoField, boolean>>>({});
   const [inspectionData, setInspectionData] = useState<InspectionData>({
     vehicle_id: null,
     reported_mileage: '',
@@ -177,19 +182,21 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   //
   // Mismos parametros que ya usa el alta de empleados, pero devolviendo la RUTA
   // del archivo reducido, no base64: el envio es FormData y lee del disco.
-  const prepararFoto = async (uri: string): Promise<string> => {
+  const prepararFoto = async (uri: string): Promise<{ uri: string; reducida: boolean }> => {
     try {
       const r = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 1280 } }],
         { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
       );
-      return r.uri;
+      return { uri: r.uri, reducida: true };
     } catch (e) {
       // Si no se pudo reducir, mejor la original que ninguna: el checklist
-      // existe por la evidencia.
+      // existe por la evidencia. Pero se devuelve marcada, porque de esa NO se
+      // puede pintar vista previa: seria volver a meter 48 MB de bitmap en
+      // pantalla, que es justo lo que cerraba la app.
       console.warn('[inspeccion] no se pudo reducir la foto:', e);
-      return uri;
+      return { uri, reducida: false };
     }
   };
 
@@ -218,7 +225,8 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
 
       if (!result.canceled && result.assets && result.assets[0]) {
         const lista = await prepararFoto(result.assets[0].uri);
-        setInspectionData((prev) => ({ ...prev, [field]: lista }));
+        setInspectionData((prev) => ({ ...prev, [field]: lista.uri }));
+        setSinVistaPrevia((prev) => ({ ...prev, [field]: !lista.reducida }));
       }
     } catch (error) {
       // En simulador iOS la cámara puede no estar disponible.
@@ -238,7 +246,8 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
 
               if (!galleryResult.canceled && galleryResult.assets && galleryResult.assets[0]) {
                 const lista = await prepararFoto(galleryResult.assets[0].uri);
-                setInspectionData((prev) => ({ ...prev, [field]: lista }));
+                setInspectionData((prev) => ({ ...prev, [field]: lista.uri }));
+                setSinVistaPrevia((prev) => ({ ...prev, [field]: !lista.reducida }));
               }
             },
           },
@@ -395,8 +404,13 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
       style={[styles.photoButton, inspectionData[field] ? styles.photoButtonTaken : {}]}
       onPress={() => takePhoto(field)}
     >
-      {inspectionData[field] ? (
+      {inspectionData[field] && !sinVistaPrevia[field] ? (
         <Image source={{ uri: inspectionData[field] }} style={styles.photoPreview} />
+      ) : inspectionData[field] ? (
+        <View style={[styles.photoPreview, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F5E9' }]}>
+          <MaterialIcons name="photo-camera" size={26} color="#2E7D46" />
+          <Text style={{ fontSize: 10, color: '#2E7D46', fontWeight: '700', textAlign: 'center' }}>Foto lista</Text>
+        </View>
       ) : (
         <>
           <MaterialIcons name="camera-alt" size={32} color="#F05A28" />

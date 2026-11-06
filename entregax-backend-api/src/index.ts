@@ -13432,9 +13432,14 @@ app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles
 //
 // Sigue aceptando JSON para no romper a quien todavia no actualice la app: en
 // ese caso simplemente no hay fotos, que es lo mismo que habia.
-const fleetInspectionUpload = multer({
+const fleetInspectionUploadRaw = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024, files: 7 },
+  // 25MB por foto. Eran 12, y una foto sin reducir de un iPhone reciente los
+  // pasa: a 48MP un JPEG sale de 10 a 25MB. La app ya reduce a 1280 antes de
+  // subir, pero eso vive en una actualizacion OTA que llega telefono por
+  // telefono al reiniciar la app — el que todavia no la tenga manda la foto
+  // completa, y con el tope viejo su inspeccion NUNCA pasaba.
+  limits: { fileSize: 25 * 1024 * 1024, files: 7 },
 }).fields([
   { name: 'odometer_photo', maxCount: 1 },
   { name: 'front_photo', maxCount: 1 },
@@ -13444,6 +13449,36 @@ const fleetInspectionUpload = multer({
   { name: 'cabin_photo', maxCount: 1 },
   { name: 'damage_photo', maxCount: 1 },
 ]);
+
+// Si multer falla, el chofer tiene que saber POR QUE.
+//
+// Antes no habia nada: el error subia al manejador por omision de Express, que
+// contesta un 500 en HTML. La app no encuentra `error` en esa respuesta y
+// muestra "No se pudo enviar la inspeccion", sin decir que fue la foto. Y del
+// lado del servidor no quedaba ni un renglon, asi que un chofer podia estar
+// semanas sin poder cerrar su inspeccion y aqui no se veia absolutamente nada
+// (ticket TKT-2026-3182). Ahora se contesta con el motivo y se deja registro.
+const fleetInspectionUpload = (req: any, res: any, next: any) => {
+  fleetInspectionUploadRaw(req, res, async (err: any) => {
+    if (!err) return next();
+    const motivo = err.code === 'LIMIT_FILE_SIZE'
+      ? 'Una de las fotos pesa más de 25 MB. Vuelve a tomarla y reintenta.'
+      : err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE'
+        ? 'Llegaron más fotos de las esperadas en la inspección.'
+        : 'No se pudieron leer las fotos de la inspección. Intenta de nuevo.';
+    console.error(`[fleet] inspeccion rechazada al subir fotos (${err.code || 'sin codigo'}):`, err.message || err);
+    try {
+      await pool.query(
+        `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
+         VALUES ('fleet_inspection_rechazada', 'vehicles', $1, $2, $3::jsonb)`,
+        [Number(req.body?.vehicle_id) || null, req.user?.userId ?? req.user?.id ?? null,
+         JSON.stringify({ etapa: 'subida_de_fotos', codigo: err.code || null, motivo })]);
+    } catch (e: any) {
+      console.error('[fleet] no se pudo registrar el rechazo de la inspeccion:', e?.message);
+    }
+    return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: motivo });
+  });
+};
 
 const subirFotosDeInspeccion = async (req: any, _res: any, next: any) => {
   try {
