@@ -113,6 +113,9 @@ async function ensureChatTables() {
     CREATE INDEX IF NOT EXISTS idx_cajito_gaps_estado ON cajito_gaps(estado, veces DESC, last_seen_at DESC);
     ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS folio TEXT;
     ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS task_id INTEGER;
+    -- Por qué se cerró una duda que NO se cerró enseñándole algo: casi siempre
+    -- porque le faltaba una herramienta y ya se le puso (ver updateGap).
+    ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS resolucion_nota TEXT;
     -- Una sola fila por pregunta+motivo mientras siga pendiente: lo que interesa
     -- es cuántas veces la preguntan, no tener mil filas iguales.
     CREATE UNIQUE INDEX IF NOT EXISTS uq_cajito_gaps_pendiente
@@ -6659,25 +6662,34 @@ export const listGaps = async (req: AuthRequest, res: Response): Promise<void> =
     const validos = ['pendiente', 'resuelta', 'descartada', 'todas'];
     if (!validos.includes(estado)) { res.status(400).json({ error: 'Estado inválido' }); return; }
 
+    // Una versión vieja escribía 'resuelto' en masculino. Cinco dudas quedaron
+    // con ese valor y NINGÚN filtro las alcanzaba —ni pendiente, ni resuelta,
+    // ni descartada—, así que desaparecieron del panel. Se leen como 'resuelta'
+    // en vez de reescribir las filas.
+    const equivalentes = estado === 'resuelta' ? ['resuelta', 'resuelto'] : [estado];
+
     const r = await pool.query(
       `SELECT g.id, g.folio, g.pregunta, g.motivo, g.detalle, g.tool_name, g.respuesta,
               g.estado, g.veces, g.first_seen_at, g.last_seen_at, g.resolved_at,
-              g.knowledge_id, k.title AS knowledge_title,
+              g.knowledge_id, g.resolucion_nota, k.title AS knowledge_title,
               u.full_name AS pregunto, r.full_name AS resolvio
          FROM cajito_gaps g
          LEFT JOIN users u ON u.id = g.user_id
          LEFT JOIN users r ON r.id = g.resolved_by
          LEFT JOIN cajito_knowledge k ON k.id = g.knowledge_id
-        ${estado === 'todas' ? '' : 'WHERE g.estado = $1'}
+        ${estado === 'todas' ? '' : 'WHERE g.estado = ANY($1::text[])'}
         -- Primero lo que más gente ha preguntado: es lo que más urge enseñarle.
         ORDER BY g.estado = 'pendiente' DESC, g.veces DESC, g.last_seen_at DESC
         LIMIT 200`,
-      estado === 'todas' ? [] : [estado]
+      estado === 'todas' ? [] : [equivalentes]
     );
 
     const resumen = await pool.query(
-      `SELECT estado, COUNT(*)::int n, COALESCE(SUM(veces),0)::int preguntas
-         FROM cajito_gaps GROUP BY estado`
+      // Mismo motivo que arriba: 'resuelto' cuenta como 'resuelta' para no
+      // mostrar un casillero fantasma en el resumen del panel.
+      `SELECT CASE WHEN estado = 'resuelto' THEN 'resuelta' ELSE estado END AS estado,
+              COUNT(*)::int n, COALESCE(SUM(veces),0)::int preguntas
+         FROM cajito_gaps GROUP BY 1`
     );
 
     res.json({
@@ -6693,33 +6705,74 @@ export const listGaps = async (req: AuthRequest, res: Response): Promise<void> =
   }
 };
 
-/** PATCH /api/cajito/gaps/:id — descartar o reabrir una duda. */
+/**
+ * PATCH /api/cajito/gaps/:id — descartar, reabrir, o cerrar una duda que se
+ * arregló en el código.
+ *
+ * Faltaba justo ese tercer caso. Cuando a Cajito no le faltaba el DATO sino la
+ * HERRAMIENTA, el arreglo es código y no conocimiento, y el panel solo ofrecía
+ * "Enseñarle" —que crea una entrada de conocimiento— o "Descartar" —que
+ * significa que nadie lo resolvió—. Ninguna de las dos era cierta, así que la
+ * duda y su tarea urgente se quedaban abiertas para siempre. Le pasó a
+ * CJD-2026-0048 (tarea 971): la herramienta ya está puesta y contesta, pero no
+ * había manera de decirlo.
+ *
+ * Enseñarle a mano un dato que una herramienta ya saca sería peor: el
+ * conocimiento se queda viejo en cuanto el dato cambia.
+ */
 export const updateGap = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await ensureChatTables();
     const id = parseInt(String(req.params.id), 10);
     const estado = String(req.body?.estado || '');
-    if (!id || !['pendiente', 'descartada'].includes(estado)) {
-      res.status(400).json({ error: 'Estado inválido (pendiente | descartada)' });
+    const nota = String(req.body?.nota || '').trim() || null;
+    if (!id || !['pendiente', 'descartada', 'resuelta'].includes(estado)) {
+      res.status(400).json({ error: 'Estado inválido (pendiente | descartada | resuelta)' });
       return;
     }
+    // Cerrar como resuelta SIN enseñarle nada exige decir por qué: si no, en un
+    // mes nadie sabe si de verdad se arregló o solo se cerró para limpiar.
+    if (estado === 'resuelta' && !nota) {
+      res.status(400).json({ error: 'Para cerrarla como resuelta, escribe qué se arregló.' });
+      return;
+    }
+    // ⚠️ Los casts explícitos NO son adorno: sin ellos esta consulta TRUENA
+    // siempre. $2 solo aparece dentro de un CASE junto a NULL, así que Postgres
+    // lo deduce como text y luego rechaza guardarlo en resolved_by, que es
+    // integer: "column resolved_by is of type integer but expression is of type
+    // text". Es el bug que tenía este endpoint desde que se escribió, así que
+    // el botón "Descartar" del panel de dudas nunca cerró nada — contestaba 500
+    // y el frontend se lo tragaba en un catch vacío, de modo que la duda seguía
+    // ahí y parecía que el botón no hacía nada. Lo mismo que ya pasó en el
+    // webhook del proveedor de X-Pay por la misma razón.
     const r = await pool.query(
       `UPDATE cajito_gaps
-          SET estado = $1,
-              resolved_at = CASE WHEN $1 = 'pendiente' THEN NULL ELSE NOW() END,
-              resolved_by = CASE WHEN $1 = 'pendiente' THEN NULL ELSE $2 END
-        WHERE id = $3 RETURNING id, folio, estado, task_id`,
-      [estado, req.user?.userId ?? null, id]
+          SET estado = $1::text,
+              resolved_at = CASE WHEN $1::text = 'pendiente' THEN NULL ELSE NOW() END,
+              resolved_by = CASE WHEN $1::text = 'pendiente' THEN NULL ELSE $2::int END,
+              resolucion_nota = CASE WHEN $1::text = 'pendiente' THEN NULL
+                                     ELSE COALESCE($4::text, resolucion_nota) END
+        WHERE id = $3::int RETURNING id, folio, estado, task_id, resolucion_nota`,
+      [estado, req.user?.userId ?? null, id, nota]
     );
     if (r.rows.length === 0) { res.status(404).json({ error: 'Duda no encontrada' }); return; }
 
-    // Descartar una duda también cierra su tarea: si no, el tablero se llena de
-    // urgentes que ya nadie va a trabajar.
+    // Cerrar una duda —descartada o resuelta— también cierra su tarea: si no, el
+    // tablero se llena de urgentes que ya nadie va a trabajar.
     const tid = Number(r.rows[0]?.task_id) || 0;
-    if (tid && estado === 'descartada') {
+    if (tid && estado !== 'pendiente') {
       await pool.query(
         `UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
           WHERE id = $1 AND status <> 'cancelled'`, [tid]).catch(() => {});
+      // Queda escrito en la tarea POR QUÉ se cerró, para que el cierre no sea
+      // un cambio de estatus sin explicación.
+      if (nota) {
+        await pool.query(
+          `INSERT INTO task_comments (task_id, author_id, body, mentions)
+           VALUES ($1, $2, $3, '[]'::jsonb)`,
+          [tid, req.user?.userId ?? null, `Duda ${r.rows[0].folio} cerrada: ${nota}`]
+        ).catch(() => {});
+      }
     }
     res.json({ success: true, gap: r.rows[0] });
   } catch (err: any) {

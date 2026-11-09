@@ -33,6 +33,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
@@ -1348,6 +1349,12 @@ export default function CajitoFab() {
   const [gapsList, setGapsList] = useState<any[]>([]);
   const [gapsLoading, setGapsLoading] = useState(false);
   const [gapsPendientes, setGapsPendientes] = useState(0);
+  // Cerrar una duda que se arregló en código (le faltaba una herramienta,
+  // no el dato). "Enseñarle" guardaría a mano un dato que la herramienta ya
+  // saca, y se quedaría viejo; "Descartar" diría que nadie lo resolvió.
+  const [arregladaGap, setArregladaGap] = useState<{ id: number; folio: string; nota: string } | null>(null);
+  const [arregladaError, setArregladaError] = useState('');
+  const [gapsError, setGapsError] = useState('');
   const [correosOpen, setCorreosOpen] = useState(false);
   const [correosList, setCorreosList] = useState<any[]>([]);
   const [correosLoading, setCorreosLoading] = useState(false);
@@ -1650,7 +1657,31 @@ export default function CajitoFab() {
     try { await api.patch(`/cajito/correos/${folio}`, { estado }); setCorreoAbierto(null); loadCorreos(); } catch { /* */ }
   };
   const descartarGap = async (id: number) => {
-    try { await api.patch(`/cajito/gaps/${id}`, { estado: 'descartada' }); loadGaps(); } catch { /* */ }
+    setGapsError('');
+    try {
+      await api.patch(`/cajito/gaps/${id}`, { estado: 'descartada' });
+      loadGaps();
+    } catch (e: any) {
+      // Antes esto era un catch vacío. El endpoint llevaba tiempo contestando
+      // 500 y el botón parecía no hacer nada: la duda seguía en la lista y
+      // nadie sabía por qué.
+      setGapsError(e?.response?.data?.error || 'No se pudo descartar la duda.');
+    }
+  };
+  // Se cierra como resuelta y la nota queda también como comentario en la tarea
+  // urgente que esta duda levantó, para que el cierre tenga explicación.
+  const guardarGapArreglada = async () => {
+    if (!arregladaGap) return;
+    const nota = arregladaGap.nota.trim();
+    if (!nota) { setArregladaError('Escribe qué se arregló.'); return; }
+    try {
+      await api.patch(`/cajito/gaps/${arregladaGap.id}`, { estado: 'resuelta', nota });
+      setArregladaGap(null);
+      setArregladaError('');
+      loadGaps();
+    } catch (e: any) {
+      setArregladaError(e?.response?.data?.error || 'No se pudo cerrar la duda.');
+    }
   };
   // Enseñar = escribir la respuesta que faltaba. Se abre el mismo formulario de
   // conocimiento, precargado con la pregunta real que hizo la persona.
@@ -2355,6 +2386,11 @@ export default function CajitoFab() {
           <HelpOutlineIcon sx={{ color: CAJITO_RING }} /> Dudas que Cajito no supo resolver
         </DialogTitle>
         <DialogContent dividers>
+          {gapsError && (
+            <Typography variant="body2" sx={{ mb: 1.5, color: 'error.main', fontWeight: 600 }}>
+              {gapsError}
+            </Typography>
+          )}
           {gapsLoading ? (
             <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
           ) : gapsList.length === 0 ? (
@@ -2385,6 +2421,10 @@ export default function CajitoFab() {
                       sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>
                       Enseñarle
                     </Button>
+                    <Button size="small" variant="outlined" startIcon={<BuildOutlinedIcon />}
+                      onClick={() => { setArregladaError(''); setArregladaGap({ id: g.id, folio: g.folio || `#${g.id}`, nota: '' }); }}>
+                      Ya quedó en código
+                    </Button>
                     <Button size="small" color="inherit" onClick={() => descartarGap(g.id)}>Descartar</Button>
                   </Box>
                 </Box>
@@ -2394,6 +2434,34 @@ export default function CajitoFab() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setGapsOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!arregladaGap} onClose={() => setArregladaGap(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          Ya quedó en código · {arregladaGap?.folio}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Esto cierra la duda y su tarea urgente, sin guardar nada en el conocimiento.
+            Escribe qué se arregló: queda como comentario en la tarea.
+          </Typography>
+          <TextField
+            fullWidth multiline minRows={3} autoFocus
+            label="Qué se arregló"
+            placeholder="Le faltaba una herramienta; se agregó asesor_del_casillero y ya contesta."
+            value={arregladaGap?.nota || ''}
+            onChange={(e) => setArregladaGap((p) => (p ? { ...p, nota: e.target.value } : p))}
+            error={!!arregladaError}
+            helperText={arregladaError || ' '}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setArregladaGap(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={guardarGapArreglada}
+            sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>
+            Cerrar la duda
+          </Button>
         </DialogActions>
       </Dialog>
 
