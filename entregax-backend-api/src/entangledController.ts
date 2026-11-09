@@ -686,19 +686,16 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              u.box_id AS client_box_id,
              a.full_name AS advisor_name,
              prov.provider_name AS provider_inferred,
-             -- Sankie no esta en el catalogo de proveedores, asi que no podia salir
-             -- por ninguno de los dos caminos de abajo: no tiene fila que unir por
-             -- provider_id y la deduccion por porcentaje solo mira esa misma tabla.
-             -- Resultado: sus operaciones se mostraban como BTX, que es falso.
-             -- La senal buena es el evento "solicitada": ese aviso lo manda Sankie
-             -- y nadie mas, asi que haberlo recibido —o estar parada en ese
-             -- estatus— identifica al proveedor sin adivinar nada, y por eso gana
-             -- sobre el resto.
+             -- Sankie NO es otro proveedor: es un subcanal de BTX. El proveedor
+             -- sigue siendo BTX; lo que cambia es por donde se opero, y eso no se
+             -- guarda en ninguna columna. La senal es el evento "solicitada", que
+             -- solo manda ese carril, asi que haberlo recibido —o estar parada en
+             -- ese estatus— dice por donde paso sin adivinar nada.
              CASE
                WHEN r.estatus_global = 'solicitada'
                     OR EXISTS (SELECT 1 FROM entangled_webhook_logs wl
                                 WHERE wl.request_id = r.id AND wl.evento = 'solicitada')
-                 THEN 'Sankie'
+                 THEN 'BTX vía Sankie'
                ELSE pr.name
              END AS provider_name,
              (r.empresas_asignadas->0->'empresa'->>'razon_social') AS empresa_facturadora,

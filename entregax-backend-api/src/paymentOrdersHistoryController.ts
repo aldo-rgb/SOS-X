@@ -289,19 +289,16 @@ export const getPaymentOrdersHistory = async (
         -- Con quien se opero. La columna "Origen" de esta pantalla mostraba el
         -- nombre interno de la tabla —"entangled"—, que ademas es la marca del
         -- proveedor y no debe circular. Aqui sale el proveedor de verdad.
-        -- Sankie no esta en el catalogo de proveedores, asi que no podia salir
-        -- por ninguno de los dos caminos de abajo: no tiene fila que unir por
-        -- provider_id y la deduccion por porcentaje solo mira esa misma tabla.
-        -- Resultado: sus operaciones se mostraban como BTX, que es falso.
-        -- La senal buena es el evento "solicitada": ese aviso lo manda Sankie
-        -- y nadie mas, asi que haberlo recibido —o estar parada en ese
-        -- estatus— identifica al proveedor sin adivinar nada, y por eso gana
-        -- sobre el resto.
+        -- Sankie NO es otro proveedor: es un subcanal de BTX. El proveedor
+        -- sigue siendo BTX; lo que cambia es por donde se opero, y eso no se
+        -- guarda en ninguna columna. La senal es el evento "solicitada", que
+        -- solo manda ese carril, asi que haberlo recibido —o estar parada en
+        -- ese estatus— dice por donde paso sin adivinar nada.
         CASE
           WHEN r.estatus_global = 'solicitada'
                OR EXISTS (SELECT 1 FROM entangled_webhook_logs wl
                            WHERE wl.request_id = r.id AND wl.evento = 'solicitada')
-            THEN 'Sankie'
+            THEN 'BTX vía Sankie'
           ELSE pr.name
         END AS provider_name,
         -- Respaldo para lo creado antes de que se guardara el proveedor: se
