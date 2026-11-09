@@ -686,18 +686,16 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              u.box_id AS client_box_id,
              a.full_name AS advisor_name,
              prov.provider_name AS provider_inferred,
-             -- Sankie NO es otro proveedor: es un subcanal de BTX. El proveedor
-             -- sigue siendo BTX; lo que cambia es por donde se opero, y eso no se
-             -- guarda en ninguna columna. La senal es el evento "solicitada", que
-             -- solo manda ese carril, asi que haberlo recibido —o estar parada en
-             -- ese estatus— dice por donde paso sin adivinar nada.
-             CASE
-               WHEN r.estatus_global = 'solicitada'
-                    OR EXISTS (SELECT 1 FROM entangled_webhook_logs wl
-                                WHERE wl.request_id = r.id AND wl.evento = 'solicitada')
-                 THEN 'BTX vía Sankie'
-               ELSE pr.name
-             END AS provider_name,
+             -- OJO: "solicitada" NO dice por donde se fue la operacion. Se probo
+             -- etiquetar con ese evento y salio mal: marcaba operaciones que no
+             -- eran de ese carril. El evento es una ETAPA (aprobada y en proceso de
+             -- pago), no un proveedor. Hoy no hay forma de saber el carril: al
+             -- crear la solicitud no mandamos proveedor, el que ellos usan lo
+             -- eligen de su lado por pais destino, y ni su API ni sus webhooks lo
+             -- devuelven —se revisaron las 35 llaves de su respuesta—. Pedido
+             -- abierto con ellos para que lo incluyan. Mientras, aqui solo sale lo
+             -- que se eligio en el panel, y si no, la deduccion marcada con (?).
+             pr.name AS provider_name,
              (r.empresas_asignadas->0->'empresa'->>'razon_social') AS empresa_facturadora,
              (SELECT COALESCE(override_porcentaje_compra, 0) FROM entangled_providers
                WHERE is_active = true AND is_default = true ORDER BY id ASC LIMIT 1) AS costo_default_pct
