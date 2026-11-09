@@ -33,6 +33,10 @@ type ServiceKey =
 
 interface PaymentOrderRow {
   source: 'pobox_payments' | 'advisor_payment_orders' | 'entangled' | 'warranty';
+  /** Solo X-Pay: el proveedor con el que se opero. */
+  provider_name?: string | null;
+  /** Solo X-Pay: deducido, cuando no hay dato guardado. */
+  provider_inferred?: string | null;
   service: ServiceKey;
   service_label: string;
   id: number;
@@ -281,9 +285,33 @@ export const getPaymentOrdersHistory = async (
         1 AS items_count,
         r.user_id AS client_id,
         u.full_name AS client_name,
-        u.box_id AS client_box_id
+        u.box_id AS client_box_id,
+        -- Con quien se opero. La columna "Origen" de esta pantalla mostraba el
+        -- nombre interno de la tabla —"entangled"—, que ademas es la marca del
+        -- proveedor y no debe circular. Aqui sale el proveedor de verdad.
+        pr.name AS provider_name,
+        -- Respaldo para lo creado antes de que se guardara el proveedor: se
+        -- deduce del porcentaje cobrado contra el tarifario. Es flojo (solo
+        -- mira proveedores activos), por eso va marcado aparte.
+        prov.provider_name AS provider_inferred
       FROM entangled_payment_requests r
       LEFT JOIN users u ON u.id = r.user_id
+      LEFT JOIN entangled_providers pr ON pr.id = r.provider_id
+      LEFT JOIN LATERAL (
+        SELECT ep.name AS provider_name
+          FROM entangled_providers ep,
+               jsonb_array_elements(COALESCE(ep.tarifas, '[]'::jsonb)) tf
+         WHERE ep.is_active = true
+           AND r.comision_cobrada_porcentaje IS NOT NULL
+           AND tf->>'servicio_codigo' = r.servicio
+           AND NULLIF(
+                 CASE
+                   WHEN (r.raw_response->>'es_pesos') = 'true'  THEN tf->>'comision_pesos_porcentaje'
+                   WHEN (r.raw_response->>'es_hibrida') = 'true' THEN tf->>'comision_hibrida_porcentaje'
+                   ELSE tf->>'comision_normal_porcentaje'
+                 END, 'inactivo')::numeric = r.comision_cobrada_porcentaje
+         LIMIT 1
+      ) prov ON true
       WHERE r.created_at >= $1 AND r.created_at <= $2
         AND ($3::text IS NULL OR
              UPPER(COALESCE(r.referencia_pago,'')) LIKE UPPER($3) OR
@@ -417,6 +445,8 @@ export const getPaymentOrdersHistory = async (
         created_at: r.created_at,
         paid_at: r.paid_at || null,
         items_count: Number(r.items_count) || 1,
+        provider_name: r.provider_name || null,
+        provider_inferred: r.provider_inferred || null,
         has_pdf: false,
       });
     }

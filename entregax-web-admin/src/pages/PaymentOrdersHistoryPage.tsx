@@ -17,6 +17,26 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// La columna "Origen" mostraba el nombre interno de la tabla de donde salía la
+// orden: "pobox_payments", "advisor_payment_orders", "warranty" y "entangled".
+// Lo último era lo grave: ésa es la marca del proveedor de X-Pay y no debe
+// circular —esta pantalla la ve servicio a cliente, no solo dirección—. Ahora
+// cada origen se nombra como lo nombra la operación, y en X-Pay se dice con
+// qué proveedor se operó, que es el dato que sí sirve aquí.
+const ORIGEN_LABEL: Record<string, string> = {
+  pobox_payments: 'Orden de pago',
+  advisor_payment_orders: 'Orden de asesor',
+  warranty: 'Garantía',
+};
+const origenLabel = (r: OrderRow): string => {
+  if (r.source === 'entangled') {
+    if (r.provider_name) return r.provider_name;
+    if (r.provider_inferred) return `${r.provider_inferred} (?)`;
+    return 'X-Pay';
+  }
+  return ORIGEN_LABEL[r.source] || '—';
+};
+
 type ServiceKey = 'ALL' | 'POBOX_USA' | 'MARITIMO' | 'AA_DHL' | 'AIR_CHN_MX' | 'TDI_EXPRESS' | 'XPAY' | 'GEX';
 
 interface OrderRow {
@@ -37,6 +57,10 @@ interface OrderRow {
   paid_at: string | null;
   items_count: number;
   has_pdf?: boolean;
+  /** Solo X-Pay: el proveedor con el que se operó (dato guardado). */
+  provider_name?: string | null;
+  /** Solo X-Pay: deducido del porcentaje cobrado, cuando no hay dato guardado. */
+  provider_inferred?: string | null;
 }
 
 interface ApiResponse {
@@ -307,7 +331,7 @@ export default function PaymentOrdersHistoryPage() {
                       <TableCell><Typography variant="caption">{dateFmt(r.paid_at)}</Typography></TableCell>
                       <TableCell>
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                          {r.source}
+                          {origenLabel(r)}
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
