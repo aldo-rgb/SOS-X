@@ -4,7 +4,8 @@
 // con todos los campos bancarios internacionales y foto.
 // ============================================================================
 
-import { Grid, MenuItem, TextField, Button, Stack, Typography, Box } from '@mui/material';
+import { Grid, MenuItem, TextField, Button, Stack, Typography, Box,
+         Checkbox, FormControlLabel } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
@@ -23,6 +24,10 @@ export interface SupplierFormData {
   banco_pais: string;
   swift_bic: string;
   aba_routing: string;
+  /** El asesor confirmó con el proveedor que el banco y el SWIFT son
+   *  correctos aunque no cuadren con nuestra tabla. Viaja al backend,
+   *  que hace la misma revisión y también bloquea (tarea 970). */
+  swift_confirmado?: boolean;
   divisa_default: string;
   motivo_default: string;
   foto_url: string;
@@ -43,6 +48,7 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
   banco_pais: '',
   swift_bic: '',
   aba_routing: '',
+  swift_confirmado: false,
   divisa_default: 'RMB',
   motivo_default: '',
   foto_url: '',
@@ -342,7 +348,7 @@ export default function EntangledSupplierForm({
             fullWidth
             label={t('entangled.suppliers.bankName', 'Nombre del banco')}
             value={value.banco_nombre}
-            onChange={(e) => set({ banco_nombre: e.target.value })}
+            onChange={(e) => set({ banco_nombre: e.target.value, swift_confirmado: false })}
             required
             sx={textFieldSx}
           />
@@ -377,12 +383,36 @@ export default function EntangledSupplierForm({
             fullWidth
             label={t('entangled.suppliers.swift', 'SWIFT / BIC (internacional)')}
             value={value.swift_bic}
-            onChange={(e) => set({ swift_bic: e.target.value.trim().toUpperCase() })}
+            onChange={(e) => set({ swift_bic: e.target.value.trim().toUpperCase(), swift_confirmado: false })}
             inputProps={{ maxLength: 11 }}
-            error={!!problemaBanco}
+            error={!!problemaBanco && !value.swift_confirmado}
             helperText={problemaBanco || undefined}
             sx={textFieldSx}
           />
+          {/* El aviso deja de ser un muro. Nuestra tabla de bancos no es un
+              directorio BIC y se equivoca: un banco que conserva el código
+              viejo tras una fusión no cuadra con su nombre nuevo y aun así es
+              correcto —OCBC Wing Hang conserva WIHB desde 2014 y por eso una
+              orden legítima no se podía crear (tarea 970)—. El aviso se queda,
+              porque cachó un caso real (tarea 866), pero se puede seguir
+              confirmándolo, y el backend registra quién lo confirmó. */}
+          {!!problemaBanco && (
+            <FormControlLabel
+              sx={{ mt: 0.5, alignItems: 'flex-start' }}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={!!value.swift_confirmado}
+                  onChange={(e) => set({ swift_confirmado: e.target.checked })}
+                />
+              }
+              label={
+                <Typography variant="caption" color="text.secondary">
+                  Ya lo confirmé con el proveedor: los datos son correctos
+                </Typography>
+              }
+            />
+          )}
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
           {/* El ABA se valida aquí mismo y no al guardar: son 9 dígitos exactos

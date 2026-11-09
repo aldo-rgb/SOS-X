@@ -256,6 +256,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [savedSuppliers, setSavedSuppliers] = useState<any[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | 'new'>('new');
   const [saveSupplier, setSaveSupplier] = useState(true);
+  // El aviso de banco-contra-SWIFT dejo de ser un muro. La tabla de bancos
+  // conocidos es nuestra, no un directorio BIC, y se equivoca: un banco que
+  // conserva el codigo viejo despues de una fusion no cuadra con su nombre
+  // nuevo y aun asi es correcto. Paso con OCBC Wing Hang, que conserva WIHB
+  // desde 2014: el asesor tenia los datos bien y no podia crear la orden
+  // (tarea 970). Ahora el aviso se queda —sirve, cacho un caso real en la
+  // tarea 866— pero se puede seguir confirmandolo, y eso queda registrado.
+  const [swiftConfirmado, setSwiftConfirmado] = useState(false);
   const [benefName, setBenefName] = useState('');
   const [benefNameZh, setBenefNameZh] = useState('');
   // Referencia que pide el proveedor para ESTE pago (TKT-2026-2515). Es de la
@@ -1177,6 +1185,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 numero_cuenta: benefAccount, iban: benefIban, banco_nombre: benefBankName,
                 banco_direccion: benefBankAddress, swift_bic: benefSwift,
                 aba_routing: benefAba, clabe: benefClabe || null, divisa_default: divisa,
+                // El backend hace la misma revisión y también bloquea; sin esto
+                // el proveedor no se guardaría aunque la app ya dejó pasar.
+                swift_confirmado: swiftConfirmado,
               }),
             }
           );
@@ -1390,6 +1401,57 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       + 'Los dos deberían coincidir.';
   })();
 
+  // Las primeras cuatro letras de un SWIFT son la institución: HSBC, CHAS,
+  // WFBI. Si el banco capturado no corresponde a esas letras, uno de los dos
+  // está mal. Va del NOMBRE al código, no al revés: al revés haría falta
+  // conocer el código equivocado —que es justo el dato en duda— y el caso que
+  // lo motiva no se detectaría. Ése fue el proveedor #65, banco "The Hongkong
+  // and Shanghai Banking Corporation Limited" con SWIFT MRMDUS33 (tarea 866);
+  // ahí la dirección fue lo único que avisó.
+  //
+  // La tabla son los bancos que de verdad se usan, no un directorio BIC. Un
+  // banco que no esté en ella no se opina: callar es mejor que marcar de más
+  // y bloquear un alta legítima. Y cuando sí opina, se puede desatorar
+  // confirmándolo: la tabla también se equivoca (ver swiftConfirmado).
+  const avisoBancoSwift = ((): string => {
+    const swift = benefSwift.replace(/\s+/g, '').toUpperCase();
+    if (swift.length < 8 || !benefBankName.trim()) return '';
+    const TABLA: Array<[RegExp, string[], string]> = [
+      [/hsbc|hongkong and shanghai banking|hong kong and shanghai banking/i, ['HSBC', 'HBUK', 'HBAP'], 'HSBC'],
+      [/wells\s*fargo/i, ['WFBI'], 'Wells Fargo'],
+      [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
+      [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
+      [/citibank|citi\b/i, ['CITI'], 'Citibank'],
+      // OCBC Wing Hang (Hong Kong) conserva el BIC de Wing Hang, WIHBHKHH,
+      // desde que OCBC la compró: el nombre cambió y el código no. Exigirle
+      // OCBC bloqueaba un beneficiario correcto (tarea 970). Va ANTES que la
+      // regla genérica para que el aviso nombre al banco como lo conoce el
+      // proveedor.
+      [/wing\s*hang/i, ['WIHB', 'OCBC'], 'OCBC Wing Hang'],
+      [/ocbc/i, ['OCBC', 'WIHB'], 'OCBC'],
+      [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
+      [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
+      [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],
+      [/qilu/i, ['JNSH'], 'Qilu Bank'],
+      [/china construction/i, ['PCBC'], 'China Construction Bank'],
+      [/pudong/i, ['SPDB'], 'Shanghai Pudong Development'],
+      [/1st source|first source/i, ['SRCE'], '1st Source Bank'],
+      [/ping an/i, ['SZDB', 'SZPB'], 'Ping An Bank'],
+      [/texas capital/i, ['TXCB'], 'Texas Capital Bank'],
+      [/internacional.*xiamen|xiamen international/i, ['IBXH', 'XIBI'], 'Banco Internacional de Xiamen'],
+      [/banamex|banco nacional de mexico/i, ['BNMX'], 'Banamex'],
+      [/bbva/i, ['BCMR', 'BBVA'], 'BBVA'],
+      [/santander/i, ['BMSX', 'BSCH'], 'Santander'],
+      [/banorte/i, ['MENO'], 'Banorte'],
+    ];
+    const hit = TABLA.find(([re]) => re.test(benefBankName));
+    if (!hit || hit[1].includes(swift.slice(0, 4))) return '';
+    return `El banco dice ${hit[2]}, pero el SWIFT empieza en "${swift.slice(0, 4)}" y debería empezar en ${hit[1].join(' o ')}. Confírmalo con el proveedor antes de seguir.`;
+  })();
+
+  // Si cambian el banco o el SWIFT, lo confirmado ya no aplica: son otros datos.
+  React.useEffect(() => { setSwiftConfirmado(false); }, [benefBankName, benefSwift]);
+
   const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
     if (step === 0) {
       // El step 0 solo confirma la selección de servicio (requiereFactura ya
@@ -1441,50 +1503,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         const suma = pesos.reduce((acc, p, i) => acc + Number(aba[i]) * p, 0);
         if (suma % 10 !== 0) return 'El ABA / Routing no es válido: tiene 9 dígitos pero no pasa la verificación del banco. Revísalo con el proveedor, lo más común es un dígito cambiado.';
       }
-      // ── El nombre del banco contra las 4 letras del SWIFT ────────────────
-      // Las primeras cuatro letras de un SWIFT son la institución: HSBC, CHAS,
-      // WFBI. Si el banco capturado no corresponde a esas letras, uno de los
-      // dos está mal. Va del NOMBRE al código, no al revés: al revés haría
-      // falta conocer el código equivocado —que es justo el dato en duda— y el
-      // caso que lo motiva no se detectaría. Ése fue el proveedor #65, banco
-      // "The Hongkong and Shanghai Banking Corporation Limited" con SWIFT
-      // MRMDUS33 (tarea 866); ahí la dirección fue lo único que avisó.
-      //
-      // La tabla son los bancos que de verdad se usan, no un directorio BIC.
-      // Un banco que no esté en ella no se opina: callar es mejor que marcar
-      // de más y bloquear un alta legítima.
-      if (swift.length >= 8 && benefBankName.trim()) {
-        const TABLA: Array<[RegExp, string[], string]> = [
-          [/hsbc|hongkong and shanghai banking|hong kong and shanghai banking/i, ['HSBC', 'HBUK', 'HBAP'], 'HSBC'],
-          [/wells\s*fargo/i, ['WFBI'], 'Wells Fargo'],
-          [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
-          [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
-          [/citibank|citi\b/i, ['CITI'], 'Citibank'],
-          // OCBC Wing Hang (Hong Kong) conserva el BIC de Wing Hang, WIHBHKHH, desde que OCBC la compro: el nombre cambio y el codigo no. Exigirle OCBC bloqueaba un beneficiario correcto (tarea 970).
-          // Va ANTES que la regla generica de OCBC para que el aviso, si
-          // llega a salir, nombre al banco como lo conoce el proveedor.
-          [/wing\s*hang/i, ['WIHB', 'OCBC'], 'OCBC Wing Hang'],
-          [/ocbc/i, ['OCBC', 'WIHB'], 'OCBC'],
-          [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
-          [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
-          [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],
-          [/qilu/i, ['JNSH'], 'Qilu Bank'],
-          [/china construction/i, ['PCBC'], 'China Construction Bank'],
-          [/pudong/i, ['SPDB'], 'Shanghai Pudong Development'],
-          [/1st source|first source/i, ['SRCE'], '1st Source Bank'],
-          [/ping an/i, ['SZDB', 'SZPB'], 'Ping An Bank'],
-          [/texas capital/i, ['TXCB'], 'Texas Capital Bank'],
-          [/internacional.*xiamen|xiamen international/i, ['IBXH', 'XIBI'], 'Banco Internacional de Xiamen'],
-          [/banamex|banco nacional de mexico/i, ['BNMX'], 'Banamex'],
-          [/bbva/i, ['BCMR', 'BBVA'], 'BBVA'],
-          [/santander/i, ['BMSX', 'BSCH'], 'Santander'],
-          [/banorte/i, ['MENO'], 'Banorte'],
-        ];
-        const hit = TABLA.find(([re]) => re.test(benefBankName));
-        if (hit && !hit[1].includes(swift.slice(0, 4))) {
-          return `El banco dice ${hit[2]}, pero el SWIFT empieza en "${swift.slice(0, 4)}" y debería empezar en ${hit[1].join(' o ')}. Confirma con el proveedor cuál de los dos está mal.`;
-        }
-      }
+      // El banco contra el SWIFT se revisa en avisoBancoSwift, arriba, para
+      // que el asesor lo vea junto al campo y no solo al intentar avanzar.
+      // Deja de ser un muro: si ya lo confirmó con el proveedor, puede seguir.
+      if (avisoBancoSwift && !swiftConfirmado) return avisoBancoSwift;
       return null;
     }
     if (step === 3 && requiereFactura && (!rfc || !razon || !cp || !email)) {
@@ -2895,6 +2917,24 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                 <Text style={styles.label}>{t('xpay.swift', 'SWIFT/BIC')}</Text>
                 <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
+
+                {!!avisoBancoSwift && (
+                  <View style={styles.avisoPais}>
+                    <Ionicons name="warning-outline" size={16} color="#8A4B00" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.avisoPaisTexto}>{avisoBancoSwift}</Text>
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
+                        onPress={() => setSwiftConfirmado(v => !v)}
+                      >
+                        <Ionicons name={swiftConfirmado ? 'checkbox' : 'square-outline'} size={18} color="#8A4B00" />
+                        <Text style={[styles.avisoPaisTexto, { marginLeft: 6, fontWeight: '700' }]}>
+                          Ya lo confirmé con el proveedor: los datos son correctos
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
 
                 <Text style={styles.label}>{t('xpay.aba', 'ABA / Routing WIRE')}</Text>
                 <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" placeholder="9 dígitos" placeholderTextColor={TEXT_MUTED} />

@@ -1066,6 +1066,31 @@ export function revisarBancoContraSwift(b: { banco_nombre?: any; swift_bic?: any
     + `${conocido.bic.join(' o ')}. Confirma cuál de los dos está mal.`;
 }
 
+/**
+ * Lo mismo, pero dejando pasar lo que el asesor ya confirmo con el proveedor.
+ *
+ * La tabla de BANCOS_CONOCIDOS es nuestra, no un directorio BIC, y se
+ * equivoca: un banco que conserva su codigo viejo despues de una fusion no
+ * cuadra con su nombre nuevo y aun asi esta bien. Paso con OCBC Wing Hang, que
+ * conserva WIHB desde 2014: la asesora tenia los datos correctos tal cual
+ * venian en el PDF del proveedor y no podia crear la orden; el ticket se quedo
+ * seis dias detenido (tarea 970).
+ *
+ * El aviso se queda —cacho un caso real, el del SWIFT MRMDUS33 de la tarea
+ * 866— pero deja de ser un muro: quien lo confirma con el proveedor puede
+ * seguir, y queda registrado en el log con su id.
+ */
+export function bloqueoBancoSwift(b: any, quien: number | null): string | null {
+  const problema = revisarBancoContraSwift(b);
+  if (!problema) return null;
+  const confirmado = b?.swift_confirmado === true || String(b?.swift_confirmado) === 'true';
+  if (confirmado) {
+    console.warn(`[XPAY] banco y SWIFT no cuadran y el usuario ${quien ?? '?'} lo confirmo con el proveedor: ${problema}`);
+    return null;
+  }
+  return problema;
+}
+
 /** Monederos y pasarelas: no son bancos con sucursal, no tienen direccion. */
 export const esMonederoOPasarela = (banco: any) =>
   /alipay|wechat|we\s*chat|paypal|wise|mercado\s*pago|stp|sistema de transferencias/i.test(String(banco || ''));
@@ -1220,8 +1245,10 @@ export const createMySupplier = async (req: Request, res: Response, opts?: { own
   if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
     return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
   }
-  const problemaBanco = revisarBancoContraSwift(b);
-  if (problemaBanco) return res.status(400).json({ error: problemaBanco, campo: 'swift_bic' });
+  const problemaBanco = bloqueoBancoSwift(b, userId);
+  if (problemaBanco) {
+    return res.status(400).json({ error: problemaBanco, campo: 'swift_bic', confirmable: true });
+  }
 
   // Normalizadores
   const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
@@ -1382,8 +1409,10 @@ export const updateMySupplier = async (req: Request, res: Response, opts?: { own
       };
       const problema = revisarAbaDeBancoUsa(quedaria) || revisarAbaFueraDeLugar(quedaria);
       if (problema) return res.status(400).json({ error: problema, campo: 'aba_routing' });
-      const problemaBanco = revisarBancoContraSwift(quedaria);
-      if (problemaBanco) return res.status(400).json({ error: problemaBanco, campo: 'swift_bic' });
+      const problemaBanco = bloqueoBancoSwift({ ...quedaria, swift_confirmado: b.swift_confirmado }, getAuthUserId(req));
+      if (problemaBanco) {
+        return res.status(400).json({ error: problemaBanco, campo: 'swift_bic', confirmable: true });
+      }
     }
     if (b.clabe !== undefined && String(b.clabe || '').trim() && !clabeValida(b.clabe)) {
       return res.status(400).json({ error: 'La CLABE debe tener 18 dígitos y pasar su dígito verificador.', campo: 'clabe' });
