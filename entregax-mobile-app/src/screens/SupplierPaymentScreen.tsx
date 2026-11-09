@@ -1460,7 +1460,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
           [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
           [/citibank|citi\b/i, ['CITI'], 'Citibank'],
-          [/ocbc/i, ['OCBC'], 'OCBC'],
+          // OCBC Wing Hang (Hong Kong) conserva el BIC de Wing Hang, WIHBHKHH, desde que OCBC la compro: el nombre cambio y el codigo no. Exigirle OCBC bloqueaba un beneficiario correcto (tarea 970).
+          // Va ANTES que la regla generica de OCBC para que el aviso, si
+          // llega a salir, nombre al banco como lo conoce el proveedor.
+          [/wing\s*hang/i, ['WIHB', 'OCBC'], 'OCBC Wing Hang'],
+          [/ocbc/i, ['OCBC', 'WIHB'], 'OCBC'],
           [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
           [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
           [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],

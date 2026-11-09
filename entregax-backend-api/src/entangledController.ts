@@ -1033,7 +1033,9 @@ const BANCOS_CONOCIDOS: Array<{ nombre: RegExp; bic: string[]; etiqueta: string 
   { nombre: /bank of america|bofa/i, bic: ['BOFA'], etiqueta: 'Bank of America' },
   { nombre: /jp\s*morgan|j\.?p\.?\s*morgan|chase/i, bic: ['CHAS'], etiqueta: 'JP Morgan Chase' },
   { nombre: /citibank|citi\b/i, bic: ['CITI'], etiqueta: 'Citibank' },
-  { nombre: /ocbc/i, bic: ['OCBC'], etiqueta: 'OCBC' },
+  // OCBC Wing Hang (Hong Kong) conserva el BIC de Wing Hang, WIHBHKHH, desde que OCBC la compro: el nombre cambio y el codigo no. Exigirle OCBC bloqueaba un beneficiario correcto (tarea 970).
+  { nombre: /wing\s*hang/i, bic: ['WIHB', 'OCBC'], etiqueta: 'OCBC Wing Hang' },
+  { nombre: /ocbc/i, bic: ['OCBC', 'WIHB'], etiqueta: 'OCBC' },
   { nombre: /dbs bank/i, bic: ['DHBK', 'DBSS'], etiqueta: 'DBS Bank' },
   { nombre: /chouzhou/i, bic: ['CZCB'], etiqueta: 'Zhejiang Chouzhou' },
   { nombre: /e\.?\s*sun/i, bic: ['ESUN'], etiqueta: 'E.Sun' },

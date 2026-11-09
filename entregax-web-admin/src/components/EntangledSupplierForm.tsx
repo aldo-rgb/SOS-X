@@ -156,7 +156,9 @@ export default function EntangledSupplierForm({
       [/bank of america|bofa/i, ['BOFA'], 'Bank of America'],
       [/jp\s*morgan|j\.?p\.?\s*morgan|chase/i, ['CHAS'], 'JP Morgan Chase'],
       [/citibank|citi\b/i, ['CITI'], 'Citibank'],
-      [/ocbc/i, ['OCBC'], 'OCBC'],
+      // OCBC Wing Hang (Hong Kong) conserva el BIC de Wing Hang, WIHBHKHH, desde que OCBC la compro: el nombre cambio y el codigo no. Exigirle OCBC bloqueaba un beneficiario correcto (tarea 970).
+      [/wing\s*hang/i, ['WIHB', 'OCBC'], 'OCBC Wing Hang'],
+      [/ocbc/i, ['OCBC', 'WIHB'], 'OCBC'],
       [/dbs bank/i, ['DHBK', 'DBSS'], 'DBS Bank'],
       [/chouzhou/i, ['CZCB'], 'Zhejiang Chouzhou'],
       [/e\.?\s*sun/i, ['ESUN'], 'E.Sun'],
