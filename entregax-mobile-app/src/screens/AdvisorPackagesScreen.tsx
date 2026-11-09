@@ -215,7 +215,17 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     return (svc === 'AIR_CHN_MX' || svc === 'TDI_EXPRESS') && instrCarrierKey === 'paquete_express';
   }, [instrShipment?.service_type, instrCarrierKey]);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
-  const [instrOcurreInfo, setInstrOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
+  // originalZip es el CP del CLIENTE y branch la sucursal sustituta. El backend
+  // los manda desde siempre y esta pantalla los tiraba: el aviso solo ensenaba
+  // el CP de la sucursal, asi que desde fuera parecia que el sistema tenia mal
+  // la direccion del cliente. El asesor reporto exactamente eso —"me pone un codigo
+  // postal 77580, cuando el real es el 77560"— y 77580 nunca fue del cliente
+  // (tarea 858). En la web ya se arreglo el 20-oct; aqui no, y aqui es donde el
+  // asesor lo ve.
+  const [instrOcurreInfo, setInstrOcurreInfo] = useState<{
+    usedZip: string; nearestBranch: boolean;
+    originalZip?: string | null; branchCode?: string | null; branchName?: string | null;
+  } | null>(null);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
   const [instrFacturaFiles, setInstrFacturaFiles] = useState<{ uri: string; name: string; mimeType?: string }[]>([]);
   const [instrGuiaFiles, setInstrGuiaFiles] = useState<{ uri: string; name: string; mimeType?: string }[]>([]);
@@ -441,7 +451,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       if (data.success) {
         setInstrPriceEstimate({ price: data.clientPrice, perBox: data.pricePerBox, boxes, days: data.estimatedDays || '2-4 días hábiles' });
         if (data.type === 'ocurre') {
-          setInstrOcurreInfo({ usedZip: data.usedZip, nearestBranch: !!data.nearestBranch });
+          setInstrOcurreInfo({
+            usedZip: data.usedZip,
+            nearestBranch: !!data.nearestBranch,
+            originalZip: data.originalZip || zipCode || null,
+            branchCode: data.branch?.branch || data.branch?.branchCode || null,
+            branchName: data.branch?.name || data.branch?.cityName || null,
+          });
         }
       }
     } catch { /* ignore */ }
@@ -1372,12 +1388,12 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                     {instrCarrierKey === 'paquete_express' && instrOcurreInfo && !instrPriceLoading && (
                       <View style={{ marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: '#E3F2FD', borderWidth: 1, borderColor: '#90CAF9' }}>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: '#1565C0', marginBottom: 4 }}>
-                          📦 Entrega Ocurre — CP {instrOcurreInfo.usedZip}
+                          📦 Entrega Ocurre — C.P. {instrOcurreInfo.usedZip}
                         </Text>
                         <Text style={{ fontSize: 12, color: '#555' }}>
                           {instrOcurreInfo.nearestBranch
-                            ? `El CP del cliente no tiene cobertura. Se usará la sucursal Paquete Express más cercana al CP ${instrOcurreInfo.usedZip}.`
-                            : `El cliente deberá recoger su paquete en la sucursal Paquete Express del CP ${instrOcurreInfo.usedZip}.`}
+                            ? `Paquete Express no entrega a domicilio en el C.P. ${instrOcurreInfo.originalZip || 'del cliente'} del cliente. La sucursal más cercana está en el C.P. ${instrOcurreInfo.usedZip}${instrOcurreInfo.branchCode ? ` — sucursal ${instrOcurreInfo.branchCode}` : ''}${instrOcurreInfo.branchName ? ` (${instrOcurreInfo.branchName})` : ''}. El cliente tendría que recogerlo ahí.`
+                            : `El cliente deberá recoger su paquete en la sucursal Paquete Express del C.P. ${instrOcurreInfo.usedZip}${instrOcurreInfo.branchName ? ` (${instrOcurreInfo.branchName})` : ''}.`}
                         </Text>
                       </View>
                     )}
