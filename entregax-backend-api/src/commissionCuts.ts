@@ -179,6 +179,15 @@ export function periodoPorDefecto(hoy = new Date()): { from: string; to: string 
 const FECHA_COBRABLE =
   `(COALESCE(
       ac.client_paid_at,
+      -- GREATEST contra created_at: una comision no puede volverse cobrable
+      -- ANTES de existir. Hay comisiones que se generaron despues del pago
+      -- —al regularizar guias viejas— y fecharlas por la orden las empujaba
+      -- meses hacia atras, mas lejos todavia del corte semanal en vez de mas
+      -- cerca. Medido sin este piso: 170 de PO Box y 108 de DHL se recorrian
+      -- hacia atras. GREATEST ignora los NULL, asi que cuando no hay orden
+      -- que amarre se queda en created_at, que es el comportamiento de antes.
+      GREATEST(
+        ac.created_at,
       -- X-Pay no escribe client_paid_at NUNCA: el cliente deposita por
       -- adelantado, asi que esa columna esta vacia en las 80 comisiones de
       -- X-Pay que existen. Sin ella el corte caia en created_at, que es el dia
@@ -205,6 +214,52 @@ const FECHA_COBRABLE =
           FROM entangled_payment_requests epr_f
          WHERE epr_f.id = ac.shipment_id
       ) END,
+      -- PKG y DHL: el dia en que se pago la orden QUE LA RESPALDA. Mismo
+      -- hueco que el de X-Pay —1,025 comisiones de DHL y 2,890 de PO Box no
+      -- tienen client_paid_at— y mismo efecto: 139 de PKG por $34,832.62 y 60
+      -- de DHL por $15,980.85 quedaron fechadas en una semana en la que
+      -- todavia no eran cobrables.
+      --
+      -- La orden tiene que ser DEL MISMO CLIENTE, y eso no es un adorno. El
+      -- amarre por package_ids @> shipment_id cruza de persona: una orden
+      -- UW-/AA_DHL guarda ids de dhl_shipments y una comision de PO Box
+      -- guarda ids de packages, y esos dos espacios de ids chocan. Al
+      -- revisarlo, 161 enlaces de PO Box y 42 de DHL apuntaban a la orden de
+      -- OTRO cliente; las 103 comisiones de PO Box que solo se sostienen en
+      -- un enlace asi tienen todas un dhl_shipments con su mismo id. Sin
+      -- este filtro, la fecha de cobro de un asesor saldria del dia en que
+      -- otro cliente pago lo suyo.
+      --
+      -- Con el amarre limpio casi no queda ambiguedad: de 2,917 comisiones de
+      -- PO Box solo 12 ven mas de una fecha y 3 separadas por mas de una
+      -- semana; en DHL, 4 y 2. Se toma la PRIMERA, que es la orden con la que
+      -- la comision se volvio cobrable.
+      CASE WHEN ac.shipment_type IN ('PKG', 'DHL') THEN (
+        SELECT MIN(pp_f.paid_at)
+          FROM pobox_payments pp_f
+         WHERE pp_f.status IN ('completed','paid')
+           AND pp_f.paid_at IS NOT NULL
+           AND pp_f.user_id = ac.client_id
+           AND (
+             (ac.shipment_type = 'PKG'
+              AND COALESCE(pp_f.payment_reference,'') NOT LIKE 'UW-%'
+              AND COALESCE(pp_f.service_type,'') <> 'AA_DHL'
+              AND (pp_f.package_ids @> to_jsonb(ac.shipment_id)
+                   OR pp_f.package_ids @> to_jsonb(
+                        (SELECT pk_f.master_id FROM packages pk_f WHERE pk_f.id = ac.shipment_id))
+                   OR pp_f.payment_reference = NULLIF(
+                        (SELECT pk2_f.payment_reference FROM packages pk2_f WHERE pk2_f.id = ac.shipment_id), '')))
+             OR (ac.shipment_type = 'DHL'
+                 AND (pp_f.payment_reference LIKE 'UW-%' OR pp_f.service_type = 'AA_DHL')
+                 AND (pp_f.package_ids @> to_jsonb(ac.shipment_id)
+                      OR EXISTS (SELECT 1 FROM dhl_shipments d_f
+                                  WHERE d_f.id = ac.shipment_id
+                                    AND d_f.user_id = pp_f.user_id
+                                    AND d_f.paid_at IS NOT NULL
+                                    AND ABS(EXTRACT(EPOCH FROM (pp_f.paid_at - d_f.paid_at))) < 5)))
+           )
+      ) END
+      ),
       ac.created_at
     ) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
 
