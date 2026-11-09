@@ -53,6 +53,24 @@ interface PaymentOrderRow {
   paid_at: string | Date | null;
   items_count: number;
   has_pdf: boolean;
+  /**
+   * Solo X-Pay: los tres documentos de la operacion. Existen desde siempre y
+   * el panel de administracion ya los enseña, pero esta pantalla —la que abre
+   * servicio a cliente— no los tenia, asi que para ver un comprobante habia
+   * que pedirle a alguien con acceso a Administracion que lo buscara. Son URL
+   * publicas de Cloudinary, no hay que firmarlas.
+   */
+  comprobante_proveedor_url?: string | null;
+  factura_url?: string | null;
+  comprobante_cliente_url?: string | null;
+  /**
+   * Solo X-Pay: lo que enseña "Ver detalles". Es a proposito el detalle
+   * OPERATIVO —quien recibe, en que banco, en que etapa va, con que fechas—
+   * y no lleva los porcentajes de costo, la comision del asesor ni la
+   * utilidad: eso vive en el panel de administracion, que pide nivel
+   * direccion, y esta pantalla la abre servicio a cliente.
+   */
+  xpay_detail?: Record<string, unknown>;
 }
 
 const SERVICE_LABELS: Record<Exclude<ServiceKey, 'ALL'>, string> = {
@@ -304,9 +322,39 @@ export const getPaymentOrdersHistory = async (
         -- Respaldo para lo creado antes de que se guardara el proveedor: se
         -- deduce del porcentaje cobrado contra el tarifario. Es flojo (solo
         -- mira proveedores activos), por eso va marcado aparte.
-        prov.provider_name AS provider_inferred
+        prov.provider_name AS provider_inferred,
+        -- Los documentos de la operacion: el comprobante del pago al
+        -- proveedor, la factura y el comprobante que subio el cliente.
+        r.comprobante_proveedor_url,
+        r.factura_url,
+        COALESCE(r.url_comprobante_cliente, r.op_comprobante_cliente_url) AS comprobante_cliente_url,
+        -- Detalle operativo para "Ver detalles" (sin cifras de margen).
+        r.entangled_transaccion_id,
+        r.referencia_proveedor,
+        r.servicio,
+        r.subservicio,
+        r.es_hibrida,
+        r.es_pesos,
+        r.estatus_factura,
+        r.estatus_proveedor,
+        r.comprobante_subido_at,
+        r.proveedor_pagado_at,
+        r.factura_emitida_at,
+        COALESCE(NULLIF(r.op_beneficiario_nombre, ''), r.sup_nombre_beneficiario) AS beneficiario_nombre,
+        r.sup_banco_nombre AS beneficiario_banco,
+        r.sup_numero_cuenta AS beneficiario_cuenta,
+        r.sup_swift_bic AS beneficiario_swift,
+        r.proveedor_moneda_enviada,
+        r.proveedor_monto_enviado,
+        r.monto_mxn_total,
+        r.tc_cliente_final,
+        r.cf_razon_social,
+        r.cf_rfc,
+        r.error_message,
+        a.full_name AS advisor_name
       FROM entangled_payment_requests r
       LEFT JOIN users u ON u.id = r.user_id
+      LEFT JOIN users a ON a.id = r.advisor_id
       LEFT JOIN entangled_providers pr ON pr.id = r.provider_id
       LEFT JOIN LATERAL (
         SELECT ep.name AS provider_name
@@ -458,6 +506,34 @@ export const getPaymentOrdersHistory = async (
         items_count: Number(r.items_count) || 1,
         provider_name: r.provider_name || null,
         provider_inferred: r.provider_inferred || null,
+        comprobante_proveedor_url: r.comprobante_proveedor_url || null,
+        factura_url: r.factura_url || null,
+        comprobante_cliente_url: r.comprobante_cliente_url || null,
+        xpay_detail: {
+          transaccion_id: r.entangled_transaccion_id || null,
+          referencia_proveedor: r.referencia_proveedor || null,
+          servicio: r.servicio || null,
+          subservicio: r.subservicio || null,
+          es_hibrida: r.es_hibrida === true,
+          es_pesos: r.es_pesos === true,
+          estatus_factura: r.estatus_factura || null,
+          estatus_proveedor: r.estatus_proveedor || null,
+          comprobante_subido_at: r.comprobante_subido_at || null,
+          proveedor_pagado_at: r.proveedor_pagado_at || null,
+          factura_emitida_at: r.factura_emitida_at || null,
+          beneficiario_nombre: r.beneficiario_nombre || null,
+          beneficiario_banco: r.beneficiario_banco || null,
+          beneficiario_cuenta: r.beneficiario_cuenta || null,
+          beneficiario_swift: r.beneficiario_swift || null,
+          proveedor_moneda_enviada: r.proveedor_moneda_enviada || null,
+          proveedor_monto_enviado: r.proveedor_monto_enviado != null ? Number(r.proveedor_monto_enviado) : null,
+          monto_mxn_total: r.monto_mxn_total != null ? Number(r.monto_mxn_total) : null,
+          tc_cliente_final: r.tc_cliente_final != null ? Number(r.tc_cliente_final) : null,
+          cf_razon_social: r.cf_razon_social || null,
+          cf_rfc: r.cf_rfc || null,
+          error_message: r.error_message || null,
+          advisor_name: r.advisor_name || null,
+        },
         has_pdf: false,
       });
     }

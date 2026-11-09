@@ -10,10 +10,15 @@ import {
   Box, Paper, Typography, Tabs, Tab, TextField, MenuItem, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   CircularProgress, Alert, InputAdornment, Stack, IconButton, Tooltip,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, Divider,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import VerifiedIcon from '@mui/icons-material/Verified';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -61,6 +66,12 @@ interface OrderRow {
   provider_name?: string | null;
   /** Solo X-Pay: deducido del porcentaje cobrado, cuando no hay dato guardado. */
   provider_inferred?: string | null;
+  /** Solo X-Pay: los tres documentos de la operación (columna Documentos). */
+  comprobante_proveedor_url?: string | null;
+  factura_url?: string | null;
+  comprobante_cliente_url?: string | null;
+  /** Solo X-Pay: detalle operativo de la operación (sin cifras de margen). */
+  xpay_detail?: Record<string, any>;
 }
 
 interface ApiResponse {
@@ -131,6 +142,9 @@ export default function PaymentOrdersHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ApiResponse | null>(null);
+  // Operación abierta en "Ver detalles". Se dibuja con lo que ya trae la fila,
+  // sin pedir nada más al backend.
+  const [detalle, setDetalle] = useState<OrderRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -290,6 +304,7 @@ export default function PaymentOrdersHistoryPage() {
                   <TableCell>Status</TableCell>
                   <TableCell>Pagado</TableCell>
                   <TableCell>Origen</TableCell>
+                  <TableCell align="center">Accesos</TableCell>
                   <TableCell align="center">PDF</TableCell>
                 </TableRow>
               </TableHead>
@@ -334,6 +349,48 @@ export default function PaymentOrdersHistoryPage() {
                           {origenLabel(r)}
                         </Typography>
                       </TableCell>
+                      {/* Documentos de la operación. Los mismos accesos que ya
+                          tiene el panel de administración: el comprobante del
+                          pago al proveedor —que es el que se pide—, la factura
+                          y el comprobante que subió el cliente. Antes esta
+                          pantalla no los traía y había que ir a pedirlos. */}
+                      <TableCell align="center">
+                        {(r.xpay_detail || r.comprobante_proveedor_url || r.factura_url || r.comprobante_cliente_url) ? (
+                          <Stack direction="row" spacing={0} justifyContent="center">
+                            {r.xpay_detail && (
+                              <Tooltip title="Ver detalles">
+                                <IconButton size="small" color="primary" onClick={() => setDetalle(r)}>
+                                  <InfoOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {r.comprobante_cliente_url && (
+                              <Tooltip title="Comprobante del cliente">
+                                <IconButton size="small" component="a"
+                                  href={r.comprobante_cliente_url} target="_blank" rel="noopener">
+                                  <OpenInNewIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {r.comprobante_proveedor_url && (
+                              <Tooltip title="Comprobante de pago al proveedor">
+                                <IconButton size="small" color="success" component="a"
+                                  href={r.comprobante_proveedor_url} target="_blank" rel="noopener">
+                                  <VerifiedIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {r.factura_url && (
+                              <Tooltip title="Factura">
+                                <IconButton size="small" color="primary" component="a"
+                                  href={r.factura_url} target="_blank" rel="noopener">
+                                  <ReceiptIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Stack>
+                        ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                      </TableCell>
                       <TableCell align="center">
                         {(r.has_pdf && (r.reference || r.folio)) ? (
                           <Tooltip title="Descargar orden en PDF">
@@ -352,6 +409,93 @@ export default function PaymentOrdersHistoryPage() {
           </TableContainer>
         )}
       </Paper>
+
+      {/* Ver detalles. Es el detalle OPERATIVO de la operación: quién recibe el
+          dinero, en qué banco, en qué etapa va y con qué fechas. No lleva
+          porcentajes de costo, comisión de asesor ni utilidad —eso vive en el
+          panel de administración, que pide nivel dirección, y esta pantalla la
+          abre servicio a cliente—. */}
+      <Dialog open={!!detalle} onClose={() => setDetalle(null)} maxWidth="sm" fullWidth>
+        {detalle && (() => {
+          const d = detalle.xpay_detail || {};
+          const carril = d.es_hibrida ? 'Híbrida' : (d.es_pesos ? 'En pesos' : 'Normal');
+          const campos: [string, any][] = [
+            ['Referencia', detalle.reference],
+            ['Cliente', [detalle.client_name, detalle.client_box_id].filter(Boolean).join(' · ')],
+            ['Asesor', d.advisor_name],
+            ['Monto de la operación', moneyFmt(detalle.amount, detalle.currency)],
+            ['Total pagado por el cliente', d.monto_mxn_total != null ? moneyFmt(d.monto_mxn_total, 'MXN') : null],
+            ['Tipo de cambio al cliente', d.tc_cliente_final != null ? String(d.tc_cliente_final) : null],
+            ['Beneficiario', d.beneficiario_nombre],
+            ['Banco del beneficiario', d.beneficiario_banco],
+            ['Cuenta / IBAN', d.beneficiario_cuenta],
+            ['SWIFT / BIC', d.beneficiario_swift],
+            ['Servicio', d.servicio === 'pago_con_factura' ? 'Pago con factura' : (d.servicio === 'pago_sin_factura' ? 'Pago sin factura' : d.servicio)],
+            ['Carril', carril],
+            ['Razón social a facturar', d.cf_razon_social],
+            ['RFC', d.cf_rfc],
+            ['Operado con', origenLabel(detalle)],
+            ['Creada', dateFmt(detalle.created_at)],
+            ['Comprobante del cliente', dateFmt(d.comprobante_subido_at)],
+            ['Pagado al proveedor', dateFmt(d.proveedor_pagado_at)],
+            ['Factura emitida', dateFmt(d.factura_emitida_at)],
+            ['Enviado al proveedor', d.proveedor_monto_enviado != null
+              ? `${d.proveedor_monto_enviado} ${d.proveedor_moneda_enviada || ''}`.trim() : null],
+            ['Referencia del proveedor', d.referencia_proveedor],
+            ['Error', d.error_message],
+          ];
+          return (
+            <>
+              <DialogTitle sx={{ pb: 1 }}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <Typography variant="h6" fontWeight={800}>{detalle.reference || '—'}</Typography>
+                  <Chip size="small" color={statusColor(detalle.status)} label={detalle.status_label} sx={{ fontWeight: 700 }} />
+                  {d.estatus_factura && <Chip size="small" variant="outlined" label={`Factura: ${d.estatus_factura}`} />}
+                  {d.estatus_proveedor && <Chip size="small" variant="outlined" label={`Proveedor: ${d.estatus_proveedor}`} />}
+                </Stack>
+              </DialogTitle>
+              <DialogContent dividers>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.2 }}>
+                  {campos.filter(([, v]) => v !== null && v !== undefined && v !== '' && v !== '—').map(([k, v]) => (
+                    <Box key={k}>
+                      <Typography variant="caption" color="text.secondary">{k}</Typography>
+                      <Typography variant="body2" fontWeight={600} sx={{ wordBreak: 'break-word' }}>{String(v)}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+                {(detalle.comprobante_proveedor_url || detalle.factura_url || detalle.comprobante_cliente_url) && (
+                  <>
+                    <Divider sx={{ my: 2 }} />
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {detalle.comprobante_cliente_url && (
+                        <Button size="small" variant="outlined" startIcon={<OpenInNewIcon />}
+                          component="a" href={detalle.comprobante_cliente_url} target="_blank" rel="noopener">
+                          Comprobante del cliente
+                        </Button>
+                      )}
+                      {detalle.factura_url && (
+                        <Button size="small" variant="outlined" startIcon={<ReceiptIcon />}
+                          component="a" href={detalle.factura_url} target="_blank" rel="noopener">
+                          Factura
+                        </Button>
+                      )}
+                      {detalle.comprobante_proveedor_url && (
+                        <Button size="small" variant="outlined" color="success" startIcon={<VerifiedIcon />}
+                          component="a" href={detalle.comprobante_proveedor_url} target="_blank" rel="noopener">
+                          Comprobante de pago al proveedor
+                        </Button>
+                      )}
+                    </Stack>
+                  </>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setDetalle(null)}>Cerrar</Button>
+              </DialogActions>
+            </>
+          );
+        })()}
+      </Dialog>
     </Box>
   );
 }
