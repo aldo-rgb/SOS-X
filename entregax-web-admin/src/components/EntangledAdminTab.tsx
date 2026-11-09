@@ -59,6 +59,14 @@ interface EntangledRow {
   updated_at?: string | null;
   // box_id del usuario (S1, S54, etc) — alimenta la columna Cliente
   client_box_id?: string | null;
+  // Con qué proveedor se operó. `provider_name` es el dato guardado al crear la
+  // operación; `provider_inferred` es la adivinanza vieja —cruza el % cobrado
+  // contra el tarifario— que solo acierta en parte y nunca puede nombrar a un
+  // proveedor inactivo. `empresa_facturadora` es la empresa que el proveedor
+  // asignó, y es lo único que queda de las operaciones viejas.
+  provider_name?: string | null;
+  provider_inferred?: string | null;
+  empresa_facturadora?: string | null;
 }
 
 const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
@@ -198,7 +206,8 @@ export default function EntangledAdminTab() {
                 <TableCell>Global</TableCell>
                 <TableCell align="center">Procesando</TableCell>
                 <TableCell>Factura</TableCell>
-                <TableCell>Proveedor</TableCell>
+                <TableCell>Estatus proveedor</TableCell>
+                <TableCell>Operado con</TableCell>
                 <TableCell>Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -346,6 +355,31 @@ export default function EntangledAdminTab() {
                   </TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_factura)} label={r.estatus_factura || '-'} /></TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_proveedor)} label={r.estatus_proveedor || '-'} /></TableCell>
+                  {/* Operado con: el proveedor de la operación. Esta pantalla es
+                      solo de dirección (el endpoint pide nivel DIRECTOR), que es
+                      la única donde el nombre del proveedor puede verse; en el
+                      panel del cliente y en el del asesor no aparece nunca.
+                      El dato guardado manda; si la operación es anterior a que
+                      se empezara a guardar, se muestra la adivinanza marcada
+                      como tal, y si tampoco hay, la empresa que facturó. */}
+                  <TableCell>
+                    {r.provider_name ? (
+                      <Chip size="small" color="default" label={r.provider_name}
+                            sx={{ fontWeight: 700 }} />
+                    ) : r.provider_inferred ? (
+                      <Tooltip title="Deducido del porcentaje cobrado contra el tarifario: no es el dato guardado.">
+                        <Chip size="small" variant="outlined" label={`${r.provider_inferred} (?)`} />
+                      </Tooltip>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">—</Typography>
+                    )}
+                    {r.empresa_facturadora && (
+                      <Typography variant="caption" color="text.secondary"
+                                  sx={{ display: 'block', maxWidth: 220, lineHeight: 1.2, mt: 0.3 }}>
+                        {r.empresa_facturadora}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <Tooltip title="Ver detalles">

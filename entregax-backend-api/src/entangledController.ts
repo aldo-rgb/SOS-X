@@ -686,11 +686,16 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              u.box_id AS client_box_id,
              a.full_name AS advisor_name,
              prov.provider_name AS provider_inferred,
+             pr.name AS provider_name,
+             (r.empresas_asignadas->0->'empresa'->>'razon_social') AS empresa_facturadora,
              (SELECT COALESCE(override_porcentaje_compra, 0) FROM entangled_providers
                WHERE is_active = true AND is_default = true ORDER BY id ASC LIMIT 1) AS costo_default_pct
       FROM entangled_payment_requests r
       LEFT JOIN users u ON r.user_id = u.id
       LEFT JOIN users a ON r.advisor_id = a.id
+      -- El proveedor REAL de la operacion. Antes solo se adivinaba (ver abajo);
+      -- desde la tarea del panel se guarda al crearla.
+      LEFT JOIN entangled_providers pr ON pr.id = r.provider_id
       -- 🔎 Inferir el proveedor (BTX/TRÉBOL) cruzando el % costo cobrado con la
       --    tabla de comisiones por servicio y carril (normal/híbrida/pesos).
       LEFT JOIN LATERAL (

@@ -1256,6 +1256,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         fd.append('conceptos', JSON.stringify(conceptosArr));
       }
       if (notas) fd.append('notas', notas);
+      // Con que proveedor se opera. Va como campo propio: el panel web lo
+      // mandaba enterrado dentro del JSON de notas, que el backend rearma
+      // de cero para ENTANGLED, asi que se perdia y la columna provider_id
+      // quedaba en NULL en todas las operaciones.
+      if (selectedProviderId) fd.append('provider_id', String(selectedProviderId));
       // Para pago sin factura: mandar cuenta de depósito para incluirla en WhatsApp de confirmación
       if (!requiereFactura && sinFacturaCuenta?.cuenta) {
         fd.append('cuenta_bancaria_sin_factura', JSON.stringify(sinFacturaCuenta.cuenta));

@@ -2122,6 +2122,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         },
       });
       fd.append('notas', notas);
+      // Con que proveedor se opera. Va como campo propio: el panel web lo
+      // mandaba enterrado dentro del JSON de notas, que el backend rearma
+      // de cero para ENTANGLED, asi que se perdia y la columna provider_id
+      // quedaba en NULL en todas las operaciones.
+      if (selectedProviderId) fd.append('provider_id', String(selectedProviderId));
 
       // Snapshots — se calculan ANTES del POST y se persisten en backend para
       // que la regeneración del PDF de instrucciones quede idéntica al original.

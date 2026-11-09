@@ -938,6 +938,26 @@ export const createPaymentRequestV2 = async (
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
     // Mobile lo manda como FormData; web también puede pasarlo en
     // body.beneficiario_nombre. Si no llega, queda NULL.
+    // ── Que proveedor se uso ────────────────────────────────────────────
+    // El panel YA elige proveedor y YA manda su id, pero enterrado dentro del
+    // JSON de `notas`, que aqui se reconstruye de cero para ENTANGLED y se
+    // tira. Resultado: las 146 operaciones que existen tienen provider_id en
+    // NULL y no hay forma de saber con quien se opero. El panel de
+    // administracion lo adivinaba cruzando el porcentaje cobrado contra el
+    // tarifario, y eso solo acertaba en 92 de 146 —y siempre decia BTX, porque
+    // la consulta solo mira proveedores activos y hoy BTX es el unico—.
+    // Aqui se guarda el dato de verdad. Se acepta como campo propio y, si no
+    // viene, se rescata de `notas`, que es por donde llega hoy.
+    const proveedorElegido = (() => {
+      const directo = Number((body as any).provider_id);
+      if (Number.isInteger(directo) && directo > 0) return directo;
+      try {
+        const n = typeof body.notas === 'string' ? JSON.parse(body.notas) : body.notas;
+        const desdeNotas = Number(n?.provider_id);
+        return Number.isInteger(desdeNotas) && desdeNotas > 0 ? desdeNotas : null;
+      } catch { return null; }
+    })();
+
     const beneficiarioNombre = body.beneficiario_nombre
       ? String(body.beneficiario_nombre).trim().slice(0, 200)
       : null;
@@ -954,6 +974,7 @@ export const createPaymentRequestV2 = async (
          instructions_snapshot,
          op_beneficiario_nombre,
          monto_mxn_base, monto_mxn_total, referencia_proveedor,
+         provider_id,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -966,6 +987,7 @@ export const createPaymentRequestV2 = async (
          $17::jsonb,
          $18,
          $23, $24, $25,
+         $26::int,
          'pendiente', $19, 'pendiente'
        ) RETURNING id`,
       [
@@ -994,6 +1016,7 @@ export const createPaymentRequestV2 = async (
         baseMxn,
         totalMxnFactura,
         referenciaProveedor,
+        proveedorElegido,
       ]
     );
     requestId = ins.rows[0].id;
