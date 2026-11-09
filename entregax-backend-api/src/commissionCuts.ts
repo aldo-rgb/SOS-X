@@ -177,7 +177,36 @@ export function periodoPorDefecto(hoy = new Date()): { from: string; to: string 
  * fecha un dia.
  */
 const FECHA_COBRABLE =
-  `(COALESCE(ac.client_paid_at, ac.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
+  `(COALESCE(
+      ac.client_paid_at,
+      -- X-Pay no escribe client_paid_at NUNCA: el cliente deposita por
+      -- adelantado, asi que esa columna esta vacia en las 80 comisiones de
+      -- X-Pay que existen. Sin ella el corte caia en created_at, que es el dia
+      -- en que se CAPTURO la solicitud —no el dia en que se pudo cobrar—, y
+      -- entre los dos pasan semanas: el dinero no sale al proveedor hasta que
+      -- la operacion se completa, y hasta ese momento ELEGIBLE la rechaza por
+      -- XPAY_COMPLETED_SQL.
+      --
+      -- Eso abre un hueco del que la comision no sale sola: la semana de su
+      -- created_at todavia no era cobrable, y la semana en que se volvio
+      -- cobrable ya no cae en el rango. Diez comisiones de X-Pay por
+      -- $34,327.65 quedaron ahi; nueve se pagaron a mano escogiendolas una por
+      -- una desde el Ledger —de ahi los cortes con periodos de 58, 74 y 109
+      -- dias, que no son rangos que alguien tecleo sino el minimo y el maximo
+      -- de lo que se selecciono—. Un asesor lo reporto asi: "las comisiones
+      -- aun aparecen por pagar, y no se han sumado al total de esta semana ni
+      -- de la anterior" (tarea 937, TKT-2026-3388).
+      --
+      -- La fecha correcta es el dia en que salio el pago al proveedor, que es
+      -- justo cuando la operacion pasa a 'completado'. updated_at queda de
+      -- respaldo para una operacion completada sin ese sello.
+      CASE WHEN ac.shipment_type = 'XPAY' THEN (
+        SELECT COALESCE(epr_f.proveedor_pagado_at, epr_f.updated_at)
+          FROM entangled_payment_requests epr_f
+         WHERE epr_f.id = ac.shipment_id
+      ) END,
+      ac.created_at
+    ) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date`;
 
 const rangoValido = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 
