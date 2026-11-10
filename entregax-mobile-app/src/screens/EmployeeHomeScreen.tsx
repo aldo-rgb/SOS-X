@@ -135,7 +135,19 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#FF9800',
     screen: 'VehicleInspection',
-    roles: [],
+    // Repartidor y monitoreo NO la necesitan aquí: ellos entran por "Mi Ruta
+    // del Día", que además les dice si ya la hicieron hoy. Por eso esta
+    // tarjeta estaba con roles vacíos — y un rol vacío no lo cumple nadie,
+    // porque el filtro es roles.includes(user.role).
+    //
+    // El problema es que bodega y mostrador NO tienen "Mi Ruta del Día", y
+    // también manejan unidades. Su única puerta a la inspección era un widget
+    // del Panel de Operación, y ese widget solo se pinta en sucursales de
+    // REPARTO (MTY y CDMX): en GDL, Hidalgo y Centro CC no hay por dónde
+    // entrar, aunque GDL tenga tres unidades activas. GDL llevaba cero
+    // inspecciones desde el 4-sep y CDMX se cae cada vez que ese panel no
+    // carga (tarea 1016, TKT-2026-3584; antes 845 y TKT-2026-3182).
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager'],
     requiresOnboarding: true,
   },
   {
