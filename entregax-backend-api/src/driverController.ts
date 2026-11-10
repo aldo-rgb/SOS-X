@@ -2653,6 +2653,33 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     }
                 }
 
+                // La etiqueta aérea de China termina con una letra que nuestro
+                // código NO tiene: la caja AIR2620185yodnH-001 viene rotulada
+                // "AIR2620185YODNH-001L" (la L del tipo de tarifa, Logo — las
+                // 13,925 cajas aéreas son tipo L). Esa letra sobrante hacía que
+                // la fase 1 contestara "guía no encontrada" con la caja correcta
+                // en la mano, y el operador terminaba capturándola de otro modo.
+                // Se quita solo si lo que queda empata con UNA guía: el empate
+                // exacto es la prueba de que la letra era de la etiqueta.
+                if (result.rows.length === 0 && /^[A-Z0-9-]+\d-?\d*[A-Z]$/.test(code)) {
+                    const sinLetra = code.slice(0, -1);
+                    const retry = await pool.query(
+                        `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                                COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                                COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                                p.national_tracking
+                           FROM packages p
+                           LEFT JOIN packages m ON m.id = p.master_id
+                          WHERE UPPER(p.tracking_internal) = $1 OR UPPER(COALESCE(p.child_no, '')) = $1
+                          LIMIT 2`,
+                        [sinLetra]
+                    );
+                    if (retry.rows.length === 1) {
+                        result.rows = retry.rows;
+                        console.log(`[paqHandoff] Letra de tarifa al final: ${code} → ${retry.rows[0].tracking_number}`);
+                    }
+                }
+
                 // Si aún no encontrado, LIKE fuzzy (para truncación al final)
                 if (result.rows.length === 0) {
                     const fuzzyRes = await pool.query(
@@ -2723,10 +2750,11 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     // paquete normal). El 'shipped' se marca al confirmar en el courier.
                     if (mode === 'cargar_unidad') {
                         if (d.status === 'out_for_delivery') {
-                            return res.json({
-                                success: true, phase: 'complete', mode, isDhl: true,
-                                packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'out_for_delivery',
-                                message: `✅ Ya estaba cargada a unidad (${d.national_carrier || carrier})`
+                            // Contestaba un éxito, así que la app la volvía a
+                            // sumar a la lista y la carga quedaba inflada.
+                            return res.status(400).json({
+                                error: `⚠️ ${dhlTracking} ya estaba cargada a unidad (${d.national_carrier || carrier})`,
+                                ayuda: 'Ya iba en la carga; no la cuentes otra vez. Sigue con la siguiente caja.',
                             });
                         }
                         await pool.query(
@@ -2837,6 +2865,18 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
 
             // Para cargar_unidad: marcar out_for_delivery en esta misma fase
             if (mode === 'cargar_unidad') {
+                // La misma caja escaneada dos veces se contaba dos veces: el
+                // servidor volvía a decir "Cargado a unidad" y la app la sumaba
+                // otra vez a la lista. Así se cerró una carga de 18 con 17 cajas
+                // reales. El aviso va como error a propósito: las versiones de
+                // la app que ya están en los celulares solo dejan de sumar la
+                // caja si la respuesta no es un éxito.
+                if (estado.includes('out_for_delivery') || estado.includes('in_transit')) {
+                    return res.status(400).json({
+                        error: `⚠️ ${pkg.tracking_number} ya estaba cargada a unidad`,
+                        ayuda: 'Ya iba en la carga; no la cuentes otra vez. Sigue con la siguiente caja.',
+                    });
+                }
                 const statusColumn = await getPackageStatusColumn();
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const hasLoadedAt = await hasPackageColumn('loaded_at');
@@ -2953,11 +2993,19 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             }
             // Candados que ya tenía DHL y aquí no existían.
             // 1) El código del paso 2 no puede ser una guía nuestra.
+            //
+            // Se pregunta también por el código SIN su última letra. La etiqueta
+            // aérea de China lleva al final la letra del tipo de tarifa, y por
+            // ese carácter de más el candado no reconocía nuestra propia
+            // etiqueta: una caja salió "vía Evisa Pre" con guía de paquetería
+            // "AIR2620185YODNH-001L", que es su propio rótulo y no se puede
+            // rastrear con nadie. Hay 16 cajas así guardadas.
+            const extSinLetra = /^[A-Z0-9-]+\d-?\d*[A-Z]$/.test(extTracking) ? extTracking.slice(0, -1) : extTracking;
             const esNuestra = await pool.query(
-                `SELECT 1 FROM packages WHERE UPPER(tracking_internal) = $1 OR UPPER(COALESCE(child_no,'')) = $1
+                `SELECT 1 FROM packages WHERE UPPER(tracking_internal) IN ($1, $2) OR UPPER(COALESCE(child_no,'')) IN ($1, $2)
                  UNION ALL
-                 SELECT 1 FROM dhl_shipments WHERE UPPER(COALESCE(secondary_tracking,'')) = $1 OR UPPER(COALESCE(inbound_tracking,'')) = $1
-                 LIMIT 1`, [extTracking]);
+                 SELECT 1 FROM dhl_shipments WHERE UPPER(COALESCE(secondary_tracking,'')) IN ($1, $2) OR UPPER(COALESCE(inbound_tracking,'')) IN ($1, $2)
+                 LIMIT 1`, [extTracking, extSinLetra]);
             if (esNuestra.rows.length > 0) {
                 return res.status(400).json({
                     error: `⚠️ ${extTracking} es una etiqueta de EntregaX, no la de la paquetería`,

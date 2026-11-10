@@ -120,6 +120,22 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const confirmedIdRef = useRef<number | string | null>(null);
   const confirmedTrackingRef = useRef<string>('');
   const enVueloRef = useRef(false);
+  // Espejo de la lista de procesados.
+  //
+  // El candado de "esta caja ya la escaneaste" preguntaba por el estado
+  // `completed`, y processCode se construye una sola vez (sus dependencias
+  // nunca cambian), así que esa copia veía la lista VACÍA para siempre: el
+  // candado no detuvo nunca a nadie. Una caja escaneada dos veces entraba dos
+  // veces y el contador cerraba 18 con 17 cajas reales. Con el ref el candado
+  // lee la lista de AHORA, y agregar pasa por un solo lugar que mantiene a las
+  // dos versiones de acuerdo.
+  const completedRef = useRef<CompletedPkg[]>([]);
+  const yaEstaProcesada = (id: number | string): boolean =>
+    completedRef.current.some(c => c.packageId === id);
+  const agregarProcesada = (item: CompletedPkg) => {
+    completedRef.current = [...completedRef.current, item];
+    setCompleted(completedRef.current);
+  };
   // Espejo de processCode. La camara lo llamaba ANTES de que estuviera
   // declarado (se declara mas abajo con const), y leer una const antes de su
   // declaracion revienta en JavaScript. Se usa el mismo recurso que ya usa
@@ -312,16 +328,16 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           // rama también atrapaba TODO lo DHL (`|| res.data.isDhl`), así que en
           // mostrador/recolección nunca se pedía la guía del courier y esa guía
           // no se guardaba. Ahora DHL respeta el phase que manda el backend.
-          if (completed.find(c => c.packageId === res.data.packageId)) {
-            showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);
+          if (yaEstaProcesada(res.data.packageId)) {
+            showFeedback('warn', `⚠️ ${res.data.tracking} ya la escaneaste; no se cuenta otra vez`);
             setTimeout(() => inputRef.current?.focus(), 200);
             return;
           }
-          setCompleted(prev => [...prev, {
+          agregarProcesada({
             packageId: res.data.packageId,
             tracking: res.data.tracking,
             externalTracking: res.data.tracking,
-          }]);
+          });
           if (res.data?.avisoCobro) {
             showFeedback('warn', `⚠️ ${res.data.tracking} — Salida registrada, falta cobrar el flete`, res.data.avisoCobro);
           } else {
@@ -331,16 +347,16 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           setTimeout(() => inputRef.current?.focus(), 100);
         } else if (mode === 'cargar_unidad') {
           // Verificar duplicado
-          if (completed.find(c => c.packageId === res.data.packageId)) {
-            showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);
+          if (yaEstaProcesada(res.data.packageId)) {
+            showFeedback('warn', `⚠️ ${res.data.tracking} ya la escaneaste; no se cuenta otra vez`);
             setTimeout(() => inputRef.current?.focus(), 200);
             return;
           }
           // Single scan complete
-          setCompleted(prev => [...prev, {
+          agregarProcesada({
             packageId: res.data.packageId,
             tracking: res.data.tracking,
-          }]);
+          });
           showFeedback('ok', `✅ ${res.data.tracking} — Cargado a unidad`);
           setManualCode('');
           setTimeout(() => inputRef.current?.focus(), 100);
@@ -370,11 +386,16 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           externalTracking: code.trim(),
         }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
-        setCompleted(prev => [...prev, {
-          packageId: destinoId,
-          tracking: destinoTracking,
-          externalTracking: code.trim(),
-        }]);
+        // Aquí nunca hubo candado: una caja que pasara dos veces por las dos
+        // fases quedaba dos veces en la lista. El envío ya se registró en el
+        // servidor, así que solo se evita contarla de nuevo.
+        if (!yaEstaProcesada(destinoId)) {
+          agregarProcesada({
+            packageId: destinoId,
+            tracking: destinoTracking,
+            externalTracking: code.trim(),
+          });
+        }
         // Si la guía iba "por cobrar" y salió por una paquetería prepagada, el
         // servidor devuelve el cargo que falta por cobrar: hay que verlo aquí,
         // no enterarse días después (TKT-2026-2709).
