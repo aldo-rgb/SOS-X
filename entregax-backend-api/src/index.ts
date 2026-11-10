@@ -10293,13 +10293,34 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             }
           }
 
-          // 1. Marcar pobox_payment como pagado
+          // 1. Marcar pobox_payment como pagado.
+          //    Queda escrito QUIEN la confirmo y CON QUE. Esta rama marcaba la
+          //    orden pagada sin tocar confirmed_by ni confirmation_notes —ni
+          //    guardaba las `notas` que el panel si manda—, asi que una orden
+          //    sin comprobante y sin log de pago quedaba pagada sin un solo
+          //    rastro de quien la cerro ni de que dinero la respalda. El resto
+          //    de los caminos (caja, auto-match bancario, autorizacion desde el
+          //    estado de cuenta) si lo escriben; faltaba aqui (tarea 995).
+          const respaldo: string[] = [];
+          if (hayComprobantes) respaldo.push(`${compPend.rows[0].n} comprobante(s) del cliente`);
+          if (Number(poboxPay.wallet_applied) > 0) respaldo.push(`saldo a favor $${Number(poboxPay.wallet_applied).toFixed(2)}`);
+          if (Number(poboxPay.credit_applied) > 0) respaldo.push(`credito $${Number(poboxPay.credit_applied).toFixed(2)}`);
+          const notaConfirm =
+            `Confirmado por ${adminName} via ${metodo_confirmacion}. Orden: $${montoPago.toFixed(2)}` +
+            (respaldo.length
+              ? ` \u00b7 Respaldo: ${respaldo.join(', ')}`
+              // Sin esta marca no habria forma de distinguir despues una orden
+              // cobrada de una que solo se marco pagada.
+              : ' \u00b7 \u26a0\ufe0f SIN COMPROBANTE NI PAGO REGISTRADO: se marco pagada a mano') +
+            (notas ? ` \u00b7 ${notas}` : '');
           await client.query(`
             UPDATE pobox_payments SET
               status = 'paid',
-              paid_at = CURRENT_TIMESTAMP
+              paid_at = CURRENT_TIMESTAMP,
+              confirmed_by = $2,
+              confirmation_notes = CONCAT_WS(' | ', NULLIF(confirmation_notes, ''), $3::text)
             WHERE id = $1
-          `, [poboxPay.id]);
+          `, [poboxPay.id, adminId ?? null, notaConfirm]);
 
           // 1b. 💳 Orden a CRÉDITO: al confirmar el comprobante, marcar el crédito
           //     como liquidado (pasa a Historial) y RESTAURAR el crédito del cliente.
