@@ -3107,8 +3107,26 @@ export const webhookOrdenesV2 = async (req: Request, res: Response): Promise<any
   // El contrato usa `orden_id` (= nuestro entangled_transaccion_id).
   const ordenId = payload.orden_id || payload.transaccion_id || null;
   if (!ordenId) {
-    await logWebhook(null, evento, payload, null, 'orden_id faltante');
-    return res.status(400).json({ error: 'orden_id requerido' });
+    // No todo lo que mandan por aqui es de UNA orden.
+    //
+    // El guard pedia orden_id antes de mirar el evento, asi que cualquier aviso
+    // general se iba con un 400 y nadie de este lado lo veia. Ya paso: 4 avisos
+    // de `capacidad.limitada` rechazados desde el 14-ago —nos estaban diciendo
+    // que su capacidad andaba corta y se contesto error las cuatro veces— y 2 de
+    // `panel.aviso`. Se mide en entangled_webhook_logs: process_error
+    // 'orden_id faltante'.
+    //
+    // Ahora el 400 se reserva para un evento que SI es de una orden y llego sin
+    // su id, que es un error de verdad. Lo demas se acepta con 200 y queda en el
+    // log; aceptar no es atender, y el log lo dice para que nadie lo lea como
+    // que ya se hizo algo con el aviso.
+    const esDeOrden = String(evento).toLowerCase().startsWith('orden.');
+    if (esDeOrden) {
+      await logWebhook(null, evento, payload, null, 'orden_id faltante');
+      return res.status(400).json({ error: 'orden_id requerido' });
+    }
+    await logWebhook(null, evento, payload, null, 'aviso general recibido — aceptado, sin accion de este lado');
+    return res.status(200).json({ ok: true, recibido: true, atendido: false });
   }
 
   try {
