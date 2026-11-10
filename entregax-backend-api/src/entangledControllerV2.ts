@@ -3090,6 +3090,212 @@ export const webhookPagoProveedorV2 = async (
 };
 
 // ===========================================================================
+// AVISOS DE PANEL (evento `panel.aviso`) — los redactan allá, los entregamos
+// por correo aquí.
+//
+// El aviso llega YA ESCRITO: asunto y cuerpo tal cual, para que cambiar una
+// palabra no dependa de un despliegue nuestro. Nosotros solo sabemos a qué
+// dirección va cada etiqueta: el aviso trae `destinatario` con una etiqueta
+// ("wallet", "wireusd") y el mapeo a correos vive de este lado, en
+// system_configurations.xpay_panel_aviso_emails. Ellos no nos mandan
+// direcciones ni las quieren tener.
+//
+// `aviso_id` es el candado contra duplicados: es único y estable, así que si
+// llega dos veces es un reintento suyo y NO debe salir un segundo correo. Por
+// eso el candado es un UNIQUE en la tabla y no un chequeo en memoria: dos
+// reintentos simultáneos pasarían un `if`, pero no pasan el índice.
+//
+// Un aviso que no se pudo entregar NO se descarta: queda guardado sin
+// `enviado_at` y el siguiente aviso que llegue vuelve a intentar los
+// pendientes. Así, cuando se carguen los correos que falten, lo atrasado sale
+// solo sin tener que pedírselos otra vez.
+// ===========================================================================
+
+let esquemaAvisosListo = false;
+const asegurarEsquemaAvisos = async (): Promise<void> => {
+  if (esquemaAvisosListo) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS xpay_panel_avisos (
+      id           SERIAL PRIMARY KEY,
+      aviso_id     TEXT NOT NULL UNIQUE,
+      destinatario TEXT NOT NULL,
+      tipo         TEXT,
+      referencia   TEXT,
+      asunto       TEXT NOT NULL,
+      cuerpo       TEXT NOT NULL,
+      link         TEXT,
+      payload      JSONB,
+      destinos     TEXT[],
+      enviado_at   TIMESTAMPTZ,
+      intentos     INTEGER NOT NULL DEFAULT 0,
+      ultimo_error TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  esquemaAvisosListo = true;
+};
+
+/** Los correos de cada etiqueta. Sin esto no hay a dónde entregar. */
+const correosDeEtiqueta = async (etiqueta: string): Promise<string[]> => {
+  const cfg = await pool.query(
+    `SELECT config_value FROM system_configurations
+      WHERE config_key = 'xpay_panel_aviso_emails' AND is_active = TRUE`);
+  const mapa = cfg.rows[0]?.config_value || {};
+  const lista = mapa?.[etiqueta];
+  return Array.isArray(lista) ? lista.map((x: any) => String(x).trim()).filter(Boolean) : [];
+};
+
+const escaparHtml = (t: string): string =>
+  String(t ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/**
+ * El correo con el texto EXACTO que mandaron.
+ *
+ * El cuerpo viaja con saltos de línea y, en los avisos de "wireusd", con texto
+ * en chino además del español. Se escapa y los saltos se vuelven <br>: ni se
+ * reescribe ni se le agrega nada que ellos no hayan puesto. SES sale en UTF-8
+ * en asunto, HTML y texto plano, así que el chino llega entero.
+ */
+const armarCorreoAviso = (a: { asunto: string; cuerpo: string; link?: string | null }) => {
+  const cuerpoHtml = escaparHtml(a.cuerpo).replace(/\n/g, '<br>');
+  const boton = a.link
+    ? `<p style="margin:24px 0 8px"><a href="${escaparHtml(a.link)}"
+         style="background:#F05A28;color:#fff;text-decoration:none;padding:12px 20px;
+                border-radius:8px;font-weight:700;display:inline-block">Entrar al panel</a></p>
+       <p style="margin:0;font-size:12px;color:#888">${escaparHtml(a.link)}</p>`
+    : '';
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      font-size:15px;line-height:1.6;color:#222;max-width:600px">
+      <p style="margin:0 0 16px">${cuerpoHtml}</p>${boton}
+      <hr style="border:0;border-top:1px solid #eee;margin:24px 0 12px">
+      <p style="margin:0;font-size:12px;color:#888">Aviso automático. No hace falta responder a este correo.</p>
+    </div>`;
+  const texto = a.cuerpo + (a.link ? `\n\n${a.link}` : '');
+  return { html, texto };
+};
+
+/** Entrega un aviso ya guardado. Devuelve true si salió al menos un correo. */
+const entregarAviso = async (row: any): Promise<boolean> => {
+  const destinos = await correosDeEtiqueta(String(row.destinatario));
+  if (destinos.length === 0) {
+    await pool.query(
+      `UPDATE xpay_panel_avisos
+          SET intentos = intentos + 1,
+              ultimo_error = $2
+        WHERE id = $1`,
+      [row.id, `Sin correos para la etiqueta "${row.destinatario}": cargar `
+        + `system_configurations.xpay_panel_aviso_emails. El aviso queda guardado y se reintenta.`]);
+    console.warn(`[XPAY aviso] ${row.aviso_id}: no hay correos para "${row.destinatario}". Queda pendiente.`);
+    return false;
+  }
+  const { sendEmail } = await import('./emailService');
+  const { html, texto } = armarCorreoAviso(row);
+  const fallidos: string[] = [];
+  for (const em of destinos) {
+    const r = await sendEmail(em, String(row.asunto), html, texto).catch((e: any) => ({ ok: false, error: e?.message }));
+    if (!r?.ok) fallidos.push(`${em}: ${(r as any)?.error || 'falló'}`);
+  }
+  const salieron = destinos.length - fallidos.length;
+  if (salieron > 0) {
+    await pool.query(
+      `UPDATE xpay_panel_avisos
+          SET enviado_at = NOW(), destinos = $2, intentos = intentos + 1,
+              ultimo_error = $3
+        WHERE id = $1`,
+      [row.id, destinos, fallidos.length ? fallidos.join(' | ') : null]);
+    console.log(`[XPAY aviso] ${row.aviso_id} entregado a ${salieron}/${destinos.length}`);
+    return true;
+  }
+  await pool.query(
+    `UPDATE xpay_panel_avisos SET intentos = intentos + 1, ultimo_error = $2 WHERE id = $1`,
+    [row.id, fallidos.join(' | ')]);
+  return false;
+};
+
+/** Lo que quedó pendiente de entregas anteriores, de lo más viejo a lo nuevo. */
+const reintentarAvisosPendientes = async (): Promise<number> => {
+  const p = await pool.query(
+    `SELECT * FROM xpay_panel_avisos
+      WHERE enviado_at IS NULL AND intentos < 20
+      ORDER BY id ASC LIMIT 25`);
+  let n = 0;
+  for (const row of p.rows) { if (await entregarAviso(row)) n++; }
+  return n;
+};
+
+/**
+ * Recibe un `panel.aviso`. Idempotente por `aviso_id`.
+ *
+ * Devuelve qué pasó para que quede en el log del webhook: un reintento suyo se
+ * reconoce y se contesta sin volver a mandar correo.
+ */
+type ResultadoAviso = { ok: boolean; duplicado?: boolean; entregado?: boolean; motivo?: string };
+
+export const procesarPanelAviso = async (payload: any): Promise<ResultadoAviso> => {
+  await asegurarEsquemaAvisos();
+  const avisoId = String(payload?.aviso_id ?? '').trim();
+  const etiqueta = String(payload?.destinatario ?? '').trim().toLowerCase();
+  const asunto = String(payload?.asunto ?? '').trim();
+  const cuerpo = String(payload?.cuerpo ?? '');
+  if (!avisoId) return { ok: false, motivo: 'aviso_id requerido' };
+  if (!etiqueta) return { ok: false, motivo: 'destinatario requerido' };
+  if (!asunto || !cuerpo) return { ok: false, motivo: 'asunto y cuerpo requeridos' };
+
+  const ins = await pool.query(
+    `INSERT INTO xpay_panel_avisos
+       (aviso_id, destinatario, tipo, referencia, asunto, cuerpo, link, payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     ON CONFLICT (aviso_id) DO NOTHING
+     RETURNING *`,
+    [avisoId, etiqueta, payload?.tipo ?? null, payload?.referencia ?? null,
+     asunto, cuerpo, payload?.link ?? null, JSON.stringify(payload ?? {})]);
+
+  if (ins.rows.length === 0) {
+    // Ya lo teníamos: es un reintento suyo. No sale un segundo correo.
+    console.log(`[XPAY aviso] ${avisoId} ya estaba registrado: reintento, no se reenvía.`);
+    return { ok: true, duplicado: true };
+  }
+
+  const entregado = await entregarAviso(ins.rows[0]);
+  // De paso, lo que se haya quedado atrás.
+  reintentarAvisosPendientes().catch((e: any) =>
+    console.warn('[XPAY aviso] reintento de pendientes:', e?.message));
+  return { ok: true, duplicado: false, entregado };
+};
+
+/**
+ * POST /api/entangled/webhook/avisos — el carril aparte que pidieron, para que
+ * los avisos de correo no se mezclen con los eventos de órdenes. Mientras no lo
+ * usen, el mismo evento sigue entrando por /webhook/ordenes.
+ */
+export const webhookAvisosV2 = async (req: Request, res: Response): Promise<any> => {
+  const raw: Buffer = ((req as any).rawBody as Buffer) || Buffer.from(JSON.stringify(req.body || {}));
+  const sig = (req.headers['x-entangled-signature'] || req.headers['x-signature']) as string | undefined;
+  const verify = verifyWebhookSignature(raw, sig);
+  const payload = parseRawJson(raw) || req.body || {};
+  const evento = payload.evento || 'panel.aviso';
+  if (!verify.ok) {
+    await logWebhook(null, evento, payload, null, verify.reason || 'firma');
+    return res.status(401).json({ error: verify.reason || 'No autorizado' });
+  }
+  if (String(evento).toLowerCase() !== 'panel.aviso') {
+    await logWebhook(null, evento, payload, null, 'este carril es solo para panel.aviso');
+    return res.status(400).json({ error: 'Este endpoint solo recibe panel.aviso' });
+  }
+  const r: ResultadoAviso = await procesarPanelAviso(payload)
+    .catch((e: any) => ({ ok: false, motivo: e?.message }));
+  if (!r.ok) {
+    await logWebhook(null, evento, payload, null, r.motivo || 'no se pudo procesar el aviso');
+    return res.status(400).json({ error: r.motivo || 'No se pudo procesar el aviso' });
+  }
+  await logWebhook(null, evento, payload, null,
+    r.duplicado ? 'reintento: ya estaba registrado, no se reenvio'
+      : r.entregado ? null : 'registrado; falta a donde entregarlo');
+  return res.status(200).json({ ok: true, duplicado: !!r.duplicado, entregado: !!r.entregado });
+};
+
+// ===========================================================================
 // POST /api/entangled/webhook/ordenes   (webhook_ordenes — dirigido a asesores)
 // Eventos: orden.cancelada (venció el congelamiento) y orden.cuenta.cambiada
 // (se apagó la cuenta de depósito de una orden pendiente y se reubicó).
@@ -3124,6 +3330,20 @@ export const webhookOrdenesV2 = async (req: Request, res: Response): Promise<any
     if (esDeOrden) {
       await logWebhook(null, evento, payload, null, 'orden_id faltante');
       return res.status(400).json({ error: 'orden_id requerido' });
+    }
+    // Un aviso de panel SI se atiende: se entrega por correo. Entra por aqui
+    // mientras no usen /webhook/avisos, que es el carril que pidieron.
+    if (String(evento).toLowerCase() === 'panel.aviso') {
+      const r: ResultadoAviso = await procesarPanelAviso(payload)
+        .catch((e: any) => ({ ok: false, motivo: e?.message }));
+      if (!r.ok) {
+        await logWebhook(null, evento, payload, null, r.motivo || 'no se pudo procesar el aviso');
+        return res.status(400).json({ error: r.motivo || 'No se pudo procesar el aviso' });
+      }
+      await logWebhook(null, evento, payload, null,
+        r.duplicado ? 'reintento: ya estaba registrado, no se reenvio'
+          : r.entregado ? null : 'registrado; falta a donde entregarlo');
+      return res.status(200).json({ ok: true, duplicado: !!r.duplicado, entregado: !!r.entregado });
     }
     await logWebhook(null, evento, payload, null, 'aviso general recibido — aceptado, sin accion de este lado');
     return res.status(200).json({ ok: true, recibido: true, atendido: false });

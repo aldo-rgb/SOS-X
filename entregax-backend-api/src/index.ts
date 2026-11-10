@@ -457,6 +457,7 @@ import {
   webhookFacturaGeneradaV2 as entangledWebhookFacturaV2,
   webhookPagoProveedorV2 as entangledWebhookProveedorV2,
   webhookOrdenesV2 as entangledWebhookOrdenesV2,
+  webhookAvisosV2 as entangledWebhookAvisosV2,
   rotateApiKeyAdmin as rotateEntangledApiKey,
   syncProveedoresFromRemote as syncEntangledProveedoresFromRemote,
   listClaveSatHistory as listEntangledClaveSatHistory,
@@ -6531,6 +6532,10 @@ app.post('/api/entangled/webhook/factura-generada', entangledWebhookFacturaV2);
 app.post('/api/entangled/webhook/pago-proveedor', entangledWebhookProveedorV2);
 // webhook_ordenes — orden.cancelada / orden.cuenta.cambiada (dirigido a asesores)
 app.post('/api/entangled/webhook/ordenes', entangledWebhookOrdenesV2);
+// panel.aviso — avisos de operacion que ellos redactan y nosotros entregamos
+// por correo. Carril aparte para no mezclarlos con los eventos de ordenes; el
+// mismo evento sigue entrando por /webhook/ordenes mientras no lo cambien.
+app.post('/api/entangled/webhook/avisos', entangledWebhookAvisosV2);
 
 // Webhooks legacy (v1) — siguen activos para compatibilidad mientras ENTANGLED
 // no haya migrado del todo. Si en producción ya están en v2, estas rutas
