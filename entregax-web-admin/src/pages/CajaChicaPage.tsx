@@ -38,15 +38,12 @@ import {
   Tooltip,
   Tabs,
   Tab,
-  Avatar,
-  Divider,
   Checkbox,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
   Add as AddIcon,
   Remove as RemoveIcon,
-  Search as SearchIcon,
   Receipt as ReceiptIcon,
   AccountBalance as AccountBalanceIcon,
   TrendingUp as TrendingUpIcon,
@@ -71,6 +68,7 @@ import {
   GridOn as GridOnIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import RecibirPagoDialog from '../components/RecibirPagoDialog';
 
 interface CajaChicaStats {
   saldo_actual: number;
@@ -280,25 +278,6 @@ const CajaChicaPage: React.FC = () => {
   const [_guiasPendientes, setGuiasPendientes] = useState<GuiaPendiente[]>([]);
 
   // Pago
-  const [montoRecibido, setMontoRecibido] = useState('');
-  const [_modoAsignacion, _setModoAsignacion] = useState<'automatico' | 'manual'>('automatico');
-  const [notasPago, setNotasPago] = useState('');
-  const [procesandoPago, setProcesandoPago] = useState(false);
-
-  // Búsqueda por referencia de pago
-  const [searchRef, setSearchRef] = useState('');
-  const [searchingRef, setSearchingRef] = useState(false);
-  const [searchRefError, setSearchRefError] = useState('');
-  const [refFound, setRefFound] = useState<{
-    referencia: string;
-    monto: number;
-    cliente: { id: number; nombre: string; email: string; box_id: string };
-    guias: Array<{ id: number; tracking: string; monto: number }>;
-    // Referencia CT-: el cliente deja efectivo para su cartera general, no
-    // paga guías. No hay adeudo, así que el monto lo teclea quien cobra.
-    es_fondeo_cartera?: boolean;
-    saldo_actual?: number;
-  } | null>(null);
 
   // Egreso
   const [egresoForm, setEgresoForm] = useState({
@@ -917,74 +896,6 @@ const CajaChicaPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Buscar por referencia de pago
-  const handleSearchByRef = async () => {
-    if (!searchRef.trim()) return;
-    setSearchingRef(true);
-    setSearchRefError('');
-    setRefFound(null);
-    try {
-      const response = await api.get('/caja-chica/buscar-referencia', { params: { ref: searchRef.trim() } });
-      if (response.data.found) {
-        setRefFound(response.data);
-        // En un cobro normal se precarga el adeudo de las guías. En un fondeo
-        // no hay adeudo: el cliente entrega lo que quiere y el campo arranca
-        // vacío para que se capture lo que realmente se recibió.
-        setMontoRecibido(response.data.es_fondeo_cartera ? '' : String(response.data.monto));
-      } else {
-        setSearchRefError('No se encontró ningún pago con esa referencia');
-      }
-    } catch (error: unknown) {
-      console.error('Error buscando referencia:', error);
-      const axiosError = error as { response?: { data?: { error?: string } } };
-      setSearchRefError(axiosError.response?.data?.error || 'Error al buscar la referencia');
-    } finally {
-      setSearchingRef(false);
-    }
-  };
-
-  // Confirmar pago encontrado por referencia
-  const handleConfirmRefPayment = async (confirmarDuplicado = false) => {
-    if (!refFound) return;
-    setProcesandoPago(true);
-    try {
-      const resp = await api.post('/caja-chica/confirmar-pago-referencia', {
-        referencia: refFound.referencia,
-        monto: parseMontoEs(montoRecibido),
-        notas: notasPago,
-        ...(confirmarDuplicado ? { confirmar_duplicado: true } : {}),
-      });
-      setSnackbar({
-        open: true,
-        message: refFound.es_fondeo_cartera
-          ? `✅ ${resp.data?.message || 'Fondeo acreditado a la cartera del cliente'}`
-          : `✅ Pago de ${formatCurrency(parseMontoEs(montoRecibido))} registrado correctamente`,
-        severity: 'success',
-      });
-      setPagoDialogOpen(false);
-      setRefFound(null);
-      setSearchRef('');
-      setMontoRecibido('');
-      setNotasPago('');
-      loadData();
-    } catch (error: unknown) {
-      console.error('Error confirmando pago:', error);
-      const axiosError = error as { response?: { status?: number; data?: { error?: string; message?: string; duplicado_posible?: boolean } } };
-      // El backend frena un fondeo idéntico al de hace unos minutos. Puede ser
-      // real -el cliente volvió y dejó otro tanto- así que se pregunta en vez
-      // de bloquear.
-      if (axiosError.response?.status === 409 && axiosError.response?.data?.duplicado_posible) {
-        setProcesandoPago(false);
-        if (window.confirm(`${axiosError.response.data.message}\n\n¿Abonarlo de todas formas?`)) {
-          handleConfirmRefPayment(true);
-        }
-        return;
-      }
-      setSnackbar({ open: true, message: axiosError.response?.data?.error || 'Error al confirmar pago', severity: 'error' });
-    } finally {
-      setProcesandoPago(false);
-    }
-  };
 
   // Registrar egreso
   const handleRegistrarEgreso = async () => {
@@ -1393,184 +1304,20 @@ const CajaChicaPage: React.FC = () => {
 
       {/* ============================================ */}
       {/* DIALOG: COBRAR A CLIENTE (Principal) */}
+      {/* El flujo vive en components/RecibirPagoDialog: la caja chica de cada
+          sucursal cobra exactamente igual y dos copias se habrían separado a
+          la primera corrección. Sin branchId el efectivo entra a Caja CC. */}
       {/* ============================================ */}
-      <Dialog
+      <RecibirPagoDialog
         open={pagoDialogOpen}
         onClose={() => {
           setPagoDialogOpen(false);
           setClienteSeleccionado(null);
           setGuiasPendientes([]);
-          setMontoRecibido('');
-          setSearchRef('');
-          setRefFound(null);
-          setSearchRefError('');
         }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
-          <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Box display="flex" alignItems="center" gap={1}>
-              <PersonIcon />
-              <Typography variant="h6">Recibir Pago</Typography>
-            </Box>
-            <IconButton onClick={() => setPagoDialogOpen(false)} sx={{ color: 'white' }}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          {/* Paso 1: Buscar por referencia de pago */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-              1. Ingresa la referencia de pago del cliente
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                fullWidth
-                label="Referencia de Pago"
-                placeholder="Ej: EF-0054-M7K9X2 · SAF-A3F19B02 para fondear cartera"
-                value={searchRef}
-                onChange={(e) => setSearchRef(e.target.value.toUpperCase())}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearchByRef()}
-                InputProps={{
-                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />,
-                }}
-                autoFocus
-              />
-              <Button
-                variant="contained"
-                onClick={handleSearchByRef}
-                disabled={searchingRef || !searchRef.trim()}
-                sx={{ minWidth: 120 }}
-              >
-                {searchingRef ? <CircularProgress size={24} /> : 'Buscar'}
-              </Button>
-            </Box>
-            {searchRefError && (
-              <Alert severity="error" sx={{ mt: 2 }}>{searchRefError}</Alert>
-            )}
-          </Box>
-
-          {/* Paso 2: Mostrar información del pago encontrado */}
-          {refFound && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                2. Información del Pago Encontrado
-              </Typography>
-              
-              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'success.50' }}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56 }}>
-                        {refFound.cliente.nombre.charAt(0)}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="h6">{refFound.cliente.nombre}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {refFound.cliente.box_id} • {refFound.cliente.email}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Box sx={{ textAlign: 'right' }}>
-                      {refFound.es_fondeo_cartera ? (
-                        <>
-                          <Typography variant="overline" color="text.secondary">Saldo actual en su cartera</Typography>
-                          <Typography variant="h4" color="success.main" fontWeight="bold">
-                            {formatCurrency(refFound.saldo_actual || 0)}
-                          </Typography>
-                        </>
-                      ) : (
-                        <>
-                          <Typography variant="overline" color="text.secondary">Monto a Cobrar</Typography>
-                          <Typography variant="h4" color="success.main" fontWeight="bold">
-                            {formatCurrency(refFound.monto)}
-                          </Typography>
-                        </>
-                      )}
-                      <Chip label={refFound.referencia} color="primary" size="small" sx={{ mt: 1 }} />
-                    </Box>
-                  </Grid>
-                </Grid>
-
-                {refFound.es_fondeo_cartera && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <strong>Fondeo de cartera general.</strong> No cobra guías: el efectivo se abona
-                    al saldo disponible del cliente y lo puede usar después en cualquier servicio.
-                    Captura abajo lo que realmente estás recibiendo.
-                  </Alert>
-                )}
-
-                {/* Guías incluidas */}
-                {refFound.guias && refFound.guias.length > 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="subtitle2" gutterBottom>Guías incluidas:</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {refFound.guias.map((g) => (
-                        <Chip 
-                          key={g.id} 
-                          label={`${g.tracking}: ${formatCurrency(g.monto)}`}
-                          size="small"
-                          variant="outlined"
-                        />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-              </Paper>
-
-              {/* Paso 3: Confirmar monto recibido */}
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                {refFound.es_fondeo_cartera ? '3. Efectivo recibido para su cartera' : '3. Confirmar Monto Recibido'}
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="Monto Recibido"
-                    type="text"
-                    inputMode="decimal"
-                    value={montoRecibido}
-                    onChange={(e) => setMontoRecibido(e.target.value)}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="Notas (opcional)"
-                    value={notasPago}
-                    onChange={(e) => setNotasPago(e.target.value)}
-                    placeholder="Ej: Pago en efectivo"
-                  />
-                </Grid>
-              </Grid>
-            </>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setPagoDialogOpen(false)}>Cancelar</Button>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={() => handleConfirmRefPayment()}
-            disabled={!refFound || procesandoPago || !montoRecibido}
-            startIcon={procesandoPago ? <CircularProgress size={20} /> : <CheckCircleIcon />}
-          >
-            {procesandoPago
-              ? 'Procesando...'
-              : refFound?.es_fondeo_cartera
-                ? `Abonar ${formatCurrency(parseMontoEs(montoRecibido) || 0)} a su cartera`
-                : `Registrar Pago de ${formatCurrency(parseMontoEs(montoRecibido) || 0)}`}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onDone={loadData}
+        onMessage={(message, severity) => setSnackbar({ open: true, message, severity })}
+      />
 
 
       {/* Dialog: Egreso */}

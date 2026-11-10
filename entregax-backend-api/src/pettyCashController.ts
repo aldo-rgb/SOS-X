@@ -63,7 +63,10 @@ const resolveBranchScope = async (
   };
 };
 
-const ensureBranchWallet = async (branchId: number, client = pool): Promise<number> => {
+// Exportada: el cobro en ventanilla (caja chica de la sucursal) necesita la
+// misma wallet, y crearla por su cuenta abriria una segunda para la misma
+// sucursal.
+export const ensureBranchWallet = async (branchId: number, client = pool): Promise<number> => {
   const existing = await client.query(
     `SELECT id FROM petty_cash_wallets WHERE owner_type='branch' AND owner_id=$1`,
     [branchId]

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ZonaSoltar from '../components/ZonaSoltar';
+import RecibirPagoDialog from '../components/RecibirPagoDialog';
 import {
   Box, Paper, Typography, Button, Card, CardContent, Grid, Tabs, Tab,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -26,7 +27,8 @@ import {
   Edit as EditIcon,
   LocalAtm as CajaCCIcon,
   AssignmentTurnedIn as SettleIcon,
-  Route as RouteBlockIcon
+  Route as RouteBlockIcon,
+  Payments as RecibirPagoIcon
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -280,6 +282,11 @@ export default function PettyCashHubPage() {
 
   // Toasts
   const [snack, setSnack] = useState<{ severity: 'success' | 'error'; msg: string } | null>(null);
+
+  // Recibir Pago en el mostrador de una sucursal. Es el mismo flujo de Caja CC
+  // —se busca la referencia de la cotización o la del cliente y se cobra—, con
+  // la diferencia de que el efectivo entra a la caja chica de esta sucursal.
+  const [cobroWallet, setCobroWallet] = useState<Wallet | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -868,6 +875,19 @@ export default function PettyCashHubPage() {
                     </Box>
                   </Tooltip>
                   <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      startIcon={<RecibirPagoIcon />}
+                      disabled={!w.branch_id || (w.currency || 'MXN').toUpperCase() !== 'MXN'}
+                      title={(w.currency || 'MXN').toUpperCase() !== 'MXN'
+                        ? 'Esta caja no está en pesos; el cobro se captura en MXN'
+                        : 'Cobrar una cotización o una referencia de cliente'}
+                      onClick={() => setCobroWallet(w)}
+                    >
+                      Recibir Pago
+                    </Button>
                     <Button size="small" variant="contained" startIcon={<SendIcon />} onClick={() => {
                       setAdvBranchId(w.branch_id || '');
                       openAdvanceDialog();
@@ -1308,6 +1328,16 @@ export default function PettyCashHubPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Dialog: Recibir Pago en el mostrador de la sucursal */}
+      <RecibirPagoDialog
+        open={!!cobroWallet}
+        onClose={() => setCobroWallet(null)}
+        branchId={cobroWallet?.branch_id ?? null}
+        branchName={cobroWallet?.owner_name || cobroWallet?.branch_name || null}
+        onDone={loadAll}
+        onMessage={(msg, severity) => setSnack({ severity, msg })}
+      />
 
       {/* Dialog: Anticipo Chofer */}
       <Dialog open={advOpen} onClose={() => !advBusy && setAdvOpen(false)} maxWidth="sm" fullWidth>

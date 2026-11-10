@@ -19,6 +19,56 @@ interface AuthRequest extends Request {
   };
 }
 
+/**
+ * El efectivo que se cobra en el mostrador de una sucursal NO vive en Caja CC:
+ * vive en la caja chica de esa sucursal, que es de donde sale su corte. Esta
+ * funcion mete el billete en esa caja y lo deja amarrado a la transaccion de
+ * caja que ya se creo, para que las dos puntas se puedan reconciliar.
+ *
+ * La transaccion de Caja CC se sigue creando siempre, porque es el ancla de la
+ * aplicacion del pago a las guias y del historial del cliente; lo que cambia es
+ * su categoria, que la saca del saldo de Caja CC para no contar el mismo
+ * billete dos veces (mismo criterio que ya existia para 'cobro_mostrador').
+ */
+export const registrarCobroEnCajaSucursal = async (
+  client: any,
+  args: { branchId: number; monto: number; concepto: string; cajaTxId: number; adminId: number },
+): Promise<{ walletId: number; movementId: number; currency: string }> => {
+  const { ensureBranchWallet } = await import('./pettyCashController');
+
+  const br = await client.query('SELECT id, name FROM branches WHERE id = $1', [args.branchId]);
+  if (!br.rows[0]) throw new Error('La sucursal no existe');
+
+  const walletId = await ensureBranchWallet(args.branchId, client);
+  const w = await client.query(
+    `SELECT COALESCE(currency, 'MXN') AS currency FROM petty_cash_wallets WHERE id = $1 FOR UPDATE`,
+    [walletId]);
+  const currency = String(w.rows[0]?.currency || 'MXN').toUpperCase();
+  // El cobro se captura en pesos. Meterlo tal cual a una caja en dolares
+  // —Mostrador Hidalgo TX— sumaria 570 dolares donde entraron 570 pesos.
+  if (currency !== 'MXN') {
+    throw new Error(
+      `La caja chica de ${br.rows[0].name} esta en ${currency} y este cobro viene en MXN. ` +
+      `Cobra desde Caja CC o registra el tipo de cambio.`);
+  }
+
+  // 'fund' es el unico tipo de entrada que acepta la tabla; la categoria es la
+  // que dice que esto fue un cobro a cliente y no un fondeo de la empresa.
+  const mov = await client.query(`
+    INSERT INTO petty_cash_movements (
+      wallet_id, movement_type, category, amount_mxn, status, concept,
+      branch_id, created_by, reviewed_by, reviewed_at, caja_chica_transaccion_id, currency
+    ) VALUES ($1, 'fund', 'cobro_cliente', $2, 'approved', $3, $4, $5, $5, CURRENT_TIMESTAMP, $6, 'MXN')
+    RETURNING id
+  `, [walletId, args.monto, args.concepto, args.branchId, args.adminId || null, args.cajaTxId]);
+
+  await client.query(
+    `UPDATE petty_cash_wallets SET balance_mxn = balance_mxn + $2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1`, [walletId, args.monto]);
+
+  return { walletId, movementId: mov.rows[0].id, currency };
+};
+
 // ============================================
 // OBTENER ESTADÍSTICAS DE CAJA CHICA
 // Ahora con soporte multi-moneda (USD/MXN)
@@ -38,7 +88,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
         AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
 
@@ -56,7 +106,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
         AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
@@ -76,7 +126,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
         AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
@@ -94,7 +144,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
         AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
@@ -1274,6 +1324,11 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
     const adminId = req.user?.id || 0;
     const adminName = req.user?.name || 'Sistema';
     
+    // Cobro en el mostrador de una sucursal: el efectivo entra a la caja chica
+    // de ESA sucursal, no a Caja CC. Sin branch_id se comporta como siempre.
+    const branchId = Number(req.body?.branch_id) || 0;
+    const enSucursal = branchId > 0;
+
     if (!referencia || !monto || monto <= 0) {
       res.status(400).json({ error: 'Referencia y monto son requeridos' });
       return;
@@ -1337,11 +1392,24 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
         const tx = await client.query(`
           INSERT INTO caja_chica_transacciones (
             tipo, monto, concepto, categoria, cliente_id, admin_id, admin_name,
-            saldo_despues_movimiento, notas, currency
-          ) VALUES ('ingreso', $1, $2, 'fondeo_cartera', $3, $4, $5, $6, $7, 'MXN')
+            saldo_despues_movimiento, notas, currency, branch_id
+          ) VALUES ('ingreso', $1, $2, $8, $3, $4, $5, $6, $7, 'MXN', $9)
           RETURNING id
         `, [monto, `Fondeo de cartera ${ref} — ${nombre}`, duenio.userId, adminId, adminName,
-            saldoCaja, notas || null]);
+            saldoCaja, notas || null,
+            enSucursal ? 'fondeo_cartera_mostrador' : 'fondeo_cartera',
+            enSucursal ? branchId : null]);
+
+        // El billete entra a la caja chica de la sucursal que lo recibio.
+        if (enSucursal) {
+          await registrarCobroEnCajaSucursal(client, {
+            branchId,
+            monto: parseFloat(String(monto)),
+            concepto: `Fondeo de cartera ${ref} — ${nombre}`,
+            cajaTxId: tx.rows[0].id,
+            adminId,
+          });
+        }
 
         const abono = await acreditarFondeoCartera(client, {
           userId: duenio.userId,
@@ -1399,21 +1467,68 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
     const clienteId = packagesResult.rows[0].user_id;
     const clienteBoxId = packagesResult.rows[0].cliente_box_id || '';
     
-    // Crear transacción de ingreso
-    const txResult = await pool.query(`
-      INSERT INTO caja_chica_transacciones (
-        tipo, monto, concepto, categoria, cliente_id, admin_id, admin_name, notas
-      ) VALUES (
-        'ingreso', $1, $2, 'pago_cliente', $3, $4, $5, $6
-      ) RETURNING id
-    `, [
-      monto,
-      `Pago Referencia: ${referencia}`,
-      clienteId,
-      adminId,
-      adminName,
-      notas || null
-    ]);
+    // Crear transacción de ingreso. Si se cobro en el mostrador de una
+    // sucursal, la categoria la saca del saldo de Caja CC —el efectivo esta en
+    // el cajon de la sucursal— y el billete se registra en su caja chica. Las
+    // dos escrituras del dinero van en UNA transaccion: dejar una sin la otra
+    // seria perder el cobro o contarlo dos veces.
+    const cobroClient = await pool.connect();
+    let txResult: any;
+    try {
+      await cobroClient.query('BEGIN');
+
+      // saldo_despues_movimiento es NOT NULL y este INSERT nunca lo mandaba:
+      // cobrar una referencia de guias tronaba con "violates not-null
+      // constraint" y no registraba nada. Por eso solo hay UNA transaccion
+      // 'pago_cliente' en toda la tabla, de marzo. Se calcula igual que en el
+      // fondeo de cartera, que si lo hacia bien.
+      const saldoPrevio = await cobroClient.query(`
+        SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) AS saldo
+          FROM caja_chica_transacciones
+         WHERE COALESCE(currency, 'MXN') = 'MXN'
+      `);
+      // Un cobro de mostrador no entra a Caja CC —el efectivo queda en el
+      // cajon de la sucursal—, asi que no mueve su saldo.
+      const saldoCajaCC = parseFloat(saldoPrevio.rows[0].saldo)
+        + (enSucursal ? 0 : parseFloat(String(monto)));
+
+      txResult = await cobroClient.query(`
+        INSERT INTO caja_chica_transacciones (
+          tipo, monto, concepto, categoria, cliente_id, admin_id, admin_name, notas,
+          branch_id, saldo_despues_movimiento, currency
+        ) VALUES (
+          'ingreso', $1, $2, $7, $3, $4, $5, $6, $8, $9, 'MXN'
+        ) RETURNING id
+      `, [
+        monto,
+        `Pago Referencia: ${referencia}`,
+        clienteId,
+        adminId,
+        adminName,
+        notas || null,
+        enSucursal ? 'cobro_mostrador' : 'pago_cliente',
+        enSucursal ? branchId : null,
+        saldoCajaCC,
+      ]);
+
+      if (enSucursal) {
+        await registrarCobroEnCajaSucursal(cobroClient, {
+          branchId,
+          monto: parseFloat(String(monto)),
+          concepto: `Cobro en mostrador — referencia ${referencia}`,
+          cajaTxId: txResult.rows[0].id,
+          adminId,
+        });
+      }
+      await cobroClient.query('COMMIT');
+    } catch (e: any) {
+      await cobroClient.query('ROLLBACK').catch(() => {});
+      console.error('[caja] cobro en sucursal:', e);
+      res.status(400).json({ error: e?.message || 'No se pudo registrar el cobro' });
+      return;
+    } finally {
+      cobroClient.release();
+    }
     
     const transaccionId = txResult.rows[0].id;
     
