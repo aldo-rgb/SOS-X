@@ -454,6 +454,58 @@ export async function generateXpayCommission(eprId: number): Promise<void> {
  * `db` puede ser el pool o un cliente de transacción (para correr dentro del abono).
  * Devuelve el total de comisión liberada (MXN) y cuántas guías se liberaron.
  */
+/**
+ * Libera las comisiones retenidas de una orden que se acaba de liquidar.
+ *
+ * Los tres lugares que liquidan una orden a credito —confirmacion en Cobranza,
+ * auto-match bancario y aprobacion de comprobante— soltaban las comisiones con
+ * `shipment_type = 'PKG'` fijo. Para una orden de DHL eso no libera nada: esas
+ * comisiones viven con shipment_type 'DHL'. Resultado: el credito se le devolvia
+ * al cliente pero la comision del asesor se quedaba retenida para siempre y
+ * nunca entraba al corte (TKT-2026-3547, tarea 1005).
+ *
+ * El tipo sale del SERVICIO ya resuelto de la orden, no de adivinar la tabla:
+ * los ids de package_ids COLISIONAN entre packages, dhl_shipments y
+ * maritime_orders, asi que soltar por id sin decir el tipo puede liberar la
+ * comision de otro asesor por un envio ajeno. Si el servicio no se pudo
+ * resolver NO se libera nada: mejor que una comision llegue tarde a que se
+ * pague la que no era.
+ */
+export async function liberarRetenidasDeOrden(
+  db: { query: (text: string, params?: any[]) => Promise<any> },
+  opts: { shipmentIds: number[]; service: string | null; orderRef?: string | null }
+): Promise<number> {
+  const ids = (opts.shipmentIds || []).map(Number).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) return 0;
+
+  const tipo = ({
+    dhl_liberacion: 'DHL',
+    maritimo: 'MAR',
+    po_box: 'PKG',
+    aereo: 'PKG',
+  } as Record<string, string>)[String(opts.service || '')] || null;
+
+  if (!tipo) {
+    console.warn(
+      `[CommissionService] No se liberaron comisiones de ${opts.orderRef || 'la orden'}: ` +
+      `servicio sin resolver (${opts.service ?? 'null'}). Se dejan retenidas a proposito.`);
+    return 0;
+  }
+
+  const r = await db.query(
+    `UPDATE advisor_commissions
+        SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+      WHERE shipment_type = $2 AND shipment_id = ANY($1)
+        AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+    [ids, tipo]
+  );
+  const n = r.rowCount || 0;
+  if (n > 0) {
+    console.log(`[CommissionService] 💧 ${n} comision(es) ${tipo} liberadas al liquidar ${opts.orderRef || ''}`);
+  }
+  return n;
+}
+
 export async function releaseCreditHeldCommissions(
   db: { query: (text: string, params?: any[]) => Promise<any> },
   userId: number,

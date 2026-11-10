@@ -16,6 +16,7 @@
 import { pool } from './db';
 import { expandDhlGroupIds } from './dhlGroup';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
+import { liberarRetenidasDeOrden } from './commissionService';
 import { resolveOrderService, classifyOrderIds } from './orderService';
 import { createNotification, createCustomNotification } from './notificationController';
 
@@ -368,15 +369,11 @@ const authorizeOneMatch = async (
         orderRef: order.payment_reference || order.id,
       });
       // Liberar comisiones retenidas de estas guías (el crédito ya se pagó).
-      if (packageIds.length > 0) {
-        await client.query(
-          `UPDATE advisor_commissions
-              SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
-            WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
-              AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
-          [packageIds]
-        );
-      }
+      await liberarRetenidasDeOrden(client, {
+        shipmentIds: packageIds,
+        service: svcKeyCredit,
+        orderRef: order.payment_reference,
+      });
       console.log(`↩️ [auto-match] Crédito reintegrado: $${orderAmount} servicio=${svcKeyCredit || 'global'} usuario=${order.user_id}`);
     }
 

@@ -8,6 +8,7 @@ import { Request, Response } from 'express';
 import { pool, asegurarColumna } from './db';
 import { markDhlGroupPaid } from './dhlGroup';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
+import { liberarRetenidasDeOrden } from './commissionService';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
@@ -1704,15 +1705,11 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
           orderRef: o.payment_reference || o.id,
         });
         // 💸 Liberar comisiones retenidas de estas guías (el crédito ya se pagó).
-        if (pkgIdsCredit.length > 0) {
-          await pool.query(
-            `UPDATE advisor_commissions
-                SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
-              WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
-                AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
-            [pkgIdsCredit]
-          );
-        }
+        await liberarRetenidasDeOrden(pool, {
+          shipmentIds: pkgIdsCredit,
+          service: svcKeyCredit,
+          orderRef: o.payment_reference,
+        });
       }
 
       // 🧾 Factura SOLO si el cliente la solicitó (requiere_factura). Para crédito
@@ -2157,15 +2154,11 @@ export async function liquidarOrdenAdicional(
       service: svcKey,
       orderRef: o.payment_reference || o.id,
     });
-    if (packageIds.length > 0) {
-      await pool.query(
-        `UPDATE advisor_commissions
-            SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
-          WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
-            AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
-        [packageIds]
-      );
-    }
+    await liberarRetenidasDeOrden(pool, {
+      shipmentIds: packageIds,
+      service: svcKey,
+      orderRef: o.payment_reference,
+    });
   }
 
   generateInvoiceForPoboxPaymentByRef(String(o.payment_reference || '')).catch((e: any) =>

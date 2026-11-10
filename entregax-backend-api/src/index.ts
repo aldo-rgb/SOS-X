@@ -64,6 +64,7 @@ import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCo
 import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
 import { miReferenciaDeFondeo, ensureFundingSchema, asignarDepositoACliente } from './walletFundingController';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
+import { liberarRetenidasDeOrden } from './commissionService';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { marcarSinComision, MOTIVO_SISTEMA_ANTERIOR } from './sinComision';
 import { translateTexts } from './translationController';
@@ -10347,16 +10348,13 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
               orderRef: poboxPay.payment_reference || poboxPay.id,
             });
             // 💸 Liberar las comisiones retenidas de estas guías: el crédito ya se
-            //    pagó, así que la comisión pasa de "en crédito" a cobrable.
-            if (packageIds.length > 0) {
-              await client.query(
-                `UPDATE advisor_commissions
-                    SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
-                  WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
-                    AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
-                [packageIds]
-              );
-            }
+            //    pagó, así que la comisión pasa de "en crédito" a cobrable. El
+            //    tipo sale del servicio de la orden; ver liberarRetenidasDeOrden.
+            await liberarRetenidasDeOrden(client, {
+              shipmentIds: packageIds,
+              service: svcKeyCredit,
+              orderRef: poboxPay.payment_reference,
+            });
           }
 
           // 2. Marcar paquetes como pagados
