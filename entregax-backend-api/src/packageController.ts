@@ -5363,6 +5363,62 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             }
         }
 
+        // ⚖️ Guard: una opcion con tope de peso NO se puede elegir para una caja
+        // que lo pasa.
+        //
+        // La guia prepagada de Estafeta es de 1 kilo y viene con el Kit de
+        // Bienvenida. La app la ofrecia en guias normales y se eligio para cajas
+        // de 4, 8, 11, 13, 17.9, 23.3 y 23.4 kg: 8 guias, 102.6 kg con flete de
+        // $99 (tarea 1003, TKT-2026-3544). El filtro ya se puso en la app, pero
+        // vive en el bundle: un telefono que no haya tomado la actualizacion OTA
+        // sigue mostrando la opcion, y los OTA se publican por runtime, asi que
+        // hay telefonos que no la reciben. El tope tiene que vivir aqui tambien.
+        //
+        // El catalogo ya trae max_weight_kg; lo que faltaba era que alguien lo
+        // respetara al guardar. Para una multipieza se mide la caja MAS PESADA,
+        // igual que en la app: la guia se compra por caja.
+        //
+        // Solo aplica a `packages` (PO Box y aereo China). Las maritimas viajan
+        // con id +100000 y las DHL con +300000, y no usan este catalogo.
+        if (!isPickup && packageType !== 'maritime' && packageType !== 'dhl' && idNum < 100000) {
+            const carrierKeyNorm = String(carrier || '').toLowerCase().replace(/[_\s-]+/g, '');
+            if (carrierKeyNorm) {
+                try {
+                    const topeRes = await pool.query(
+                        `SELECT name, max_weight_kg
+                           FROM carrier_service_options
+                          WHERE REPLACE(REPLACE(LOWER(carrier_key), '_', ''), ' ', '') = $1
+                            AND is_active = true
+                            AND COALESCE(max_weight_kg, 0) > 0
+                          LIMIT 1`,
+                        [carrierKeyNorm]
+                    );
+                    const tope = Number(topeRes.rows[0]?.max_weight_kg) || 0;
+                    if (tope > 0) {
+                        const pesoRes = await pool.query(
+                            `SELECT GREATEST(
+                                      COALESCE(p.weight, 0),
+                                      COALESCE((SELECT MAX(c.weight) FROM packages c WHERE c.master_id = p.id), 0)
+                                    ) AS peso
+                               FROM packages p WHERE p.id = $1`,
+                            [idNum]
+                        );
+                        const peso = Number(pesoRes.rows[0]?.peso) || 0;
+                        if (peso > tope) {
+                            const comoSeLlama = String(topeRes.rows[0]?.name || carrier);
+                            console.warn(`⛔ [assign-instructions] ${comoSeLlama} tope ${tope} kg vs caja ${peso} kg (paquete ${idNum}): rechazado`);
+                            return res.status(400).json({
+                                success: false,
+                                error: `Esa guia de ${comoSeLlama} es de ${tope} kg y esta caja pesa ${peso} kg. Elige otra paqueteria.`,
+                            });
+                        }
+                    }
+                } catch (topeErr: any) {
+                    console.warn('[assign-instructions] no se pudo validar el tope de peso:', topeErr?.message);
+                }
+            }
+        }
+
         // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
         const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase());
 
