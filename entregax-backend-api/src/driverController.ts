@@ -2433,11 +2433,18 @@ export const checkCarrierGuideAvailable = async (req: Request, res: Response): P
             LIMIT 5
         `, [normGuide]);
 
+        // Las cajas del MISMO embarque no cuentan: una guía multipieza está en
+        // el master y en todas sus cajas a propósito.
+        const delMismoEmbarque = (t: string): boolean => {
+            if (!excludeInternal) return false;
+            const raiz = (x: string) => x.toUpperCase().replace(/-\d{1,4}$/, '');
+            return raiz(t) === raiz(excludeInternal);
+        };
         const others = r.rows.filter((row: any) => {
             if (!excludeInternal) return true;
             const t = String(row.tracking_number || '').toUpperCase();
             const e = excludeInternal.toUpperCase();
-            return t !== e && t.replace(/-/g, '') !== e.replace(/-/g, '');
+            return t !== e && t.replace(/-/g, '') !== e.replace(/-/g, '') && !delMismoEmbarque(t);
         });
 
         if (others.length > 0) {
@@ -3012,14 +3019,23 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     ayuda: `Ya se validó ${caja}. Ahora escanea la etiqueta de ${nombrePaqueteria(carrier)} pegada en esa misma caja.`,
                 });
             }
-            // 2) Cada caja lleva su propia guía: la misma no puede quedar en dos.
+            // 2) Cada caja lleva su propia guía… salvo cuando el embarque entero
+            // viaja con UNA sola. Las guías multipieza existen y se generan así:
+            // al crear la guía de Paquete Express de un embarque, el mismo número
+            // queda escrito en el master y en todas sus cajas. Como este candado
+            // no miraba de qué embarque era la otra caja, rechazaba la guía desde
+            // la PRIMERA —chocaba con el master— y el embarque no podía salir.
+            // Ahora solo cuenta como repetida si la otra caja es de OTRO embarque,
+            // que es el error que el candado vino a atrapar.
             // Se omiten los marcadores genéricos viejos ("10PAQUETERIAEXTERNA"…)
             // que comparten cientos de cajas y no son guías de verdad.
             const esGuiaReal = !esGuiaGenerica(extTracking);
             if (esGuiaReal) {
                 const dup = await pool.query(
                     `SELECT tracking_internal FROM packages
-                      WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1 AND id <> $2
+                      WHERE UPPER(REGEXP_REPLACE(COALESCE(national_tracking,''), '\\s', '', 'g')) = $1
+                        AND id <> $2
+                        AND COALESCE(master_id, id) <> (SELECT COALESCE(master_id, id) FROM packages WHERE id = $2)
                       LIMIT 1`, [extTracking, confirmedId]);
                 if (dup.rows[0]) {
                     return res.status(400).json({

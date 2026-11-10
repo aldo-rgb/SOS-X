@@ -129,6 +129,18 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   // veces y el contador cerraba 18 con 17 cajas reales. Con el ref el candado
   // lee la lista de AHORA, y agregar pasa por un solo lugar que mantiene a las
   // dos versiones de acuerdo.
+  // Guía que le toca a esta caja cuando el embarque entero viaja con UNA sola.
+  //
+  // Sale de dos lados: la que la caja ya trae escrita (las guías multipieza se
+  // generan así — el mismo número queda en el master y en todas sus cajas) y la
+  // que se registró en esta sesión para otra caja del mismo embarque. Hace
+  // falta porque la etiqueta del courier va pegada en UNA caja: en las demás no
+  // hay nada que escanear, y antes de esto no había forma de capturarlas.
+  const [guiaSugerida, setGuiaSugerida] = useState<string>('');
+  const guiaPorEmbarque = useRef<Record<string, string>>({});
+  const raizEmbarque = (t: string): string =>
+    String(t || '').toUpperCase().trim().replace(/-\d{1,4}$/, '');
+
   const completedRef = useRef<CompletedPkg[]>([]);
   const yaEstaProcesada = (id: number | string): boolean =>
     completedRef.current.some(c => c.packageId === id);
@@ -240,6 +252,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setScanPhase('internal');
     setConfirmedPackageId(null);
     setConfirmedTracking('');
+    setGuiaSugerida('');
     setManualCode('');
     if (scanMode === 'scanner') setTimeout(() => inputRef.current?.focus(), 200);
     else setScannerActive(true);
@@ -369,6 +382,9 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           setConfirmedTracking(res.data.tracking);
           setScanPhase('external');
           setManualCode('');
+          const yaLaTrae = String(res.data.nationalTracking || '').trim();
+          const deSuEmbarque = guiaPorEmbarque.current[raizEmbarque(res.data.tracking)] || '';
+          setGuiaSugerida(yaLaTrae || deSuEmbarque);
           showFeedback('ok', `✅ ${res.data.tracking} — Ahora escanea guía de ${carrierLabel(carrier)}`);
           setTimeout(() => inputRef.current?.focus(), 300);
         }
@@ -396,6 +412,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
             externalTracking: code.trim(),
           });
         }
+        guiaPorEmbarque.current[raizEmbarque(destinoTracking)] = code.trim();
         // Si la guía iba "por cobrar" y salió por una paquetería prepagada, el
         // servidor devuelve el cargo que falta por cobrar: hay que verlo aquí,
         // no enterarse días después (TKT-2026-2709).
@@ -523,6 +540,20 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
               <MaterialIcons name="close" size={16} color="#999" />
             </TouchableOpacity>
           </View>
+        ) : null}
+        {scanPhase === 'external' && guiaSugerida ? (
+          <TouchableOpacity
+            style={styles.mismaGuiaBtn}
+            disabled={loading}
+            onPress={() => processCode(guiaSugerida)}
+          >
+            <MaterialIcons name="content-copy" size={16} color="#1976d2" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mismaGuiaTitulo}>Usar la guía del embarque</Text>
+              <Text style={styles.mismaGuiaCodigo}>{guiaSugerida}</Text>
+            </View>
+            <MaterialIcons name="arrow-forward" size={18} color="#1976d2" />
+          </TouchableOpacity>
         ) : null}
       </View>
 
@@ -787,6 +818,13 @@ const styles = StyleSheet.create({
   phaseDotActive: { backgroundColor: ORANGE },
   phaseLabel: { fontSize: 14, color: '#999' },
   phaseLabelActive: { color: ORANGE, fontWeight: '700' },
+  mismaGuiaBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8,
+    backgroundColor: '#E3F2FD', borderWidth: 1, borderColor: '#90CAF9',
+    borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10,
+  },
+  mismaGuiaTitulo: { fontSize: 12, fontWeight: '700', color: '#1976d2' },
+  mismaGuiaCodigo: { fontSize: 13, color: '#0D47A1', fontFamily: 'monospace' },
   confirmedBox: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, backgroundColor: '#E8F5E9', borderRadius: 8, padding: 8 },
   confirmedText: { flex: 1, fontSize: 13, fontWeight: '700', color: '#2E7D32', fontFamily: 'monospace' },
   scannerBox: { margin: 12, backgroundColor: '#fff', borderRadius: 12, padding: 20, alignItems: 'center', elevation: 1 },
