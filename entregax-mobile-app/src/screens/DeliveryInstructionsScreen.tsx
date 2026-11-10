@@ -418,15 +418,41 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
    * etiqueta del catálogo al guardar.
    */
   const [catalogPrepaid, setCatalogPrepaid] = useState<CarrierOption[]>([]);
+  // Prepagadas reservadas al Kit de Bienvenida. La guia Estafeta de $99 es de 1
+  // kilo y se compro para el kit; el panel web del cliente ya la escondia en
+  // guias normales y esta pantalla no, asi que el cliente la elegia para cajas
+  // de PO Box y de aereo de hasta 23 kg y pagaba $99 por un flete que cuesta
+  // mucho mas (TKT-2026-3544).
+  const SOLO_KIT = ['estafeta_pre'];
+  // La prepagada se cobra POR CAJA, asi que el limite de peso del catalogo se
+  // mide contra la caja mas pesada de la seleccion, no contra la suma.
+  const pesoMaxCaja = allPackages.reduce(
+    (max: number, p: any) => Math.max(max, Number(p?.weight) || 0), 0);
   useEffect(() => {
+    // El tipo de servicio sale del service_type de la caja. getMyPackages manda
+    // shipment_type: 'air' para TODO lo que vive en `packages` —PO Box y aereo
+    // de China por igual—, y 'air' no estaba en el mapa: caia al default
+    // 'usa_pobox' y a una caja de aereo se le ofrecia el catalogo de PO Box.
+    const svcDeCaja = String((pkg as any)?.service_type
+      || allPackages.find((p: any) => p?.service_type)?.service_type || '').toUpperCase();
     const svc = ({
+      POBOX_USA: 'usa_pobox', AIR_CHN_MX: 'china_air',
+      CHINA_SEA: 'china_sea', TDI_EXPRESS: 'tdi_express', AA_DHL: 'dhl',
+    } as Record<string, string>)[svcDeCaja] || ({
       china_air: 'china_air', china_sea: 'china_sea', maritime: 'china_sea',
       usa_pobox: 'usa_pobox', pobox: 'usa_pobox', usa: 'usa_pobox',
       tdi_express: 'tdi_express', dhl: 'dhl', national: 'dhl',
     } as Record<string, string>)[String(shipmentType || '')] || 'usa_pobox';
     (async () => {
       try {
-        const r = await fetch(`${API_URL}/api/carrier-options/by-service/${svc}`, {
+        // Se mandan peso y CP para que apliquen el limite de peso del catalogo
+        // (max_weight_kg) y las exclusiones por paqueteria del panel Cobertura.
+        // Sin ellos el backend devolvia todo y la app no los revisaba.
+        const qs = new URLSearchParams();
+        if (pesoMaxCaja > 0) qs.set('weight', String(pesoMaxCaja));
+        if (selectedZip) qs.set('zip', String(selectedZip));
+        const cola = qs.toString() ? `?${qs.toString()}` : '';
+        const r = await fetch(`${API_URL}/api/carrier-options/by-service/${svc}${cola}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const d = await r.json();
@@ -439,6 +465,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         const prepagadas: CarrierOption[] = (d?.data || [])
           .filter((c: any) => c.allows_collect !== true && c.carrier_type !== 'collect')
           .filter((c: any) => !yaEnLista.includes(String(c.carrier_key)))
+          .filter((c: any) => !SOLO_KIT.includes(String(c.carrier_key).toLowerCase()))
           .filter((c: any) => /^\$\s*[\d,]+(\.\d+)?\s*(mxn)?$/i.test(String(c.price_label || '').trim()))
           .map((c: any) => ({
             id: String(c.carrier_key),
@@ -451,7 +478,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         setCatalogPrepaid(prepagadas);
       } catch { setCollectCarriers([]); setCatalogPrepaid([]); }
     })();
-  }, [shipmentType, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipmentType, token, pesoMaxCaja, selectedZip]);
 
   const [selectedCarrier, setSelectedCarrier] = useState<string>(CARRIER_OPTIONS[0]?.id || localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
