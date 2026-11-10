@@ -3131,6 +3131,11 @@ const asegurarEsquemaAvisos = async (): Promise<void> => {
       ultimo_error TEXT,
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
+  // Un aviso se puede descartar sin entregarlo: pasa cuando ellos lo reenvian
+  // con otro aviso_id y el viejo ya no debe salir. Se marca, no se borra, para
+  // que quede por que no se entrego.
+  await pool.query(`ALTER TABLE xpay_panel_avisos ADD COLUMN IF NOT EXISTS descartado_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE xpay_panel_avisos ADD COLUMN IF NOT EXISTS descartado_motivo TEXT`);
   esquemaAvisosListo = true;
 };
 
@@ -3217,7 +3222,7 @@ const entregarAviso = async (row: any): Promise<boolean> => {
 const reintentarAvisosPendientes = async (): Promise<number> => {
   const p = await pool.query(
     `SELECT * FROM xpay_panel_avisos
-      WHERE enviado_at IS NULL AND intentos < 20
+      WHERE enviado_at IS NULL AND descartado_at IS NULL AND intentos < 20
       ORDER BY id ASC LIMIT 25`);
   let n = 0;
   for (const row of p.rows) { if (await entregarAviso(row)) n++; }
@@ -3254,6 +3259,11 @@ export const procesarPanelAviso = async (payload: any): Promise<ResultadoAviso> 
   if (ins.rows.length === 0) {
     // Ya lo teníamos: es un reintento suyo. No sale un segundo correo.
     console.log(`[XPAY aviso] ${avisoId} ya estaba registrado: reintento, no se reenvía.`);
+    return { ok: true, duplicado: true };
+  }
+  if (ins.rows[0].descartado_at) {
+    // No debería pasar —el INSERT es nuevo— pero si alguna vez se descarta y
+    // vuelve con el mismo id, se queda descartado.
     return { ok: true, duplicado: true };
   }
 
