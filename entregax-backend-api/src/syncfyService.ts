@@ -447,7 +447,25 @@ async function autoMatchTransaction(
   // caían al emparejamiento por monto.
   const searchText = `${description} ${reference}`;
   const { extraerReferencia } = await import('./referencePrefixes');
-  const extractedRef: string | null = await extraerReferencia(searchText);
+  let extractedRef: string | null = await extraerReferencia(searchText);
+
+  // Un fondeo cuya ficha perdió el prefijo `SAF-` pero conserva el hex del
+  // cliente es su fondeo igual. Sin esto el depósito se queda sin dueño y hay
+  // que asignarlo a mano: a uno de $80,000 le tomó 18 días y un ticket entre
+  // cuatro áreas (TKT-2026-3346). Ver buscarFondeoPorTexto: solo acepta un
+  // dueño único, nunca adivina entre dos.
+  if (!extractedRef) {
+    try {
+      const { buscarFondeoPorTexto } = await import('./walletFundingController');
+      const porHex = await buscarFondeoPorTexto(searchText);
+      if (porHex) {
+        extractedRef = porHex.reference;
+        console.log(`[syncfy] tx#${txId}: la ficha no trae el prefijo, pero el texto lleva el hex de ${porHex.reference}. Se trata como su fondeo.`);
+      }
+    } catch (e: any) {
+      console.warn(`[syncfy] tx#${txId}: no se pudo buscar fondeo por hex:`, e?.message);
+    }
+  }
 
   if (extractedRef) {
     // ── Fondeo de cartera general ──

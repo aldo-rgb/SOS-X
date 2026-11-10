@@ -162,6 +162,38 @@ export async function buscarReferenciaFondeo(ref: string): Promise<{ userId: num
 }
 
 /**
+ * Busca al dueño de un fondeo en el TEXTO del movimiento bancario, cuando la
+ * referencia llegó sin el prefijo.
+ *
+ * Al cliente se le da `SAF-` + 8 hex, y mientras deposite con la cadena
+ * completa el conciliador la reconoce sola. Pero la ficha de depósito en
+ * efectivo no siempre conserva el texto: un depósito de $80,000 del 23-oct
+ * llegó como `002222806AB3E8C` —el hex 06AB3E8C ahí, el `SAF-` perdido— y
+ * `esReferenciaDeFondeo` lo descartó por el prefijo. Nadie acreditó ese dinero
+ * en 18 días, con un ticket rebotando entre cuatro áreas, mientras los otros 16
+ * depósitos del mismo cliente —esos sí con el prefijo— se acreditaron solos
+ * entre 0 y 2 días (TKT-2026-3346, tarea 966).
+ *
+ * El hex son 4 bytes al azar y la columna es UNIQUE, así que como pista es más
+ * fuerte que el prefijo: 8 caracteres exactos de un espacio de 4,294,967,296.
+ * Aun así, si el texto empatara con DOS clientes no se adivina: se devuelve
+ * null y queda para Cobranza. Medido sobre todo el historial del estado de
+ * cuenta, ni un movimiento empata con más de uno.
+ */
+export async function buscarFondeoPorTexto(texto: string): Promise<{ userId: number; reference: string } | null> {
+  const t = String(texto || '').toUpperCase();
+  if (!t) return null;
+  await ensureFundingSchema();
+  const r = await pool.query(
+    `SELECT user_id, reference FROM wallet_funding_references
+      WHERE POSITION(SPLIT_PART(reference, '-', 2) IN $1) > 0`,
+    [t]
+  );
+  if (r.rows.length !== 1) return null;
+  return { userId: Number(r.rows[0].user_id), reference: String(r.rows[0].reference) };
+}
+
+/**
  * Acredita un depósito a la cartera general del cliente.
  *
  * Es todo el mecanismo: no hay orden que marcar pagada, ni guías, ni crédito
