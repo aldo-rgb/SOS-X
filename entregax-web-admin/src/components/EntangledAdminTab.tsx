@@ -207,7 +207,7 @@ export default function EntangledAdminTab() {
                 <TableCell align="center">Procesando</TableCell>
                 <TableCell>Factura</TableCell>
                 <TableCell>Estatus proveedor</TableCell>
-                <TableCell>Proveedor elegido</TableCell>
+                <TableCell>Operado con</TableCell>
                 <TableCell>Acciones</TableCell>
               </TableRow>
             </TableHead>

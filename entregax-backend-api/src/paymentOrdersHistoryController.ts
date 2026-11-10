@@ -307,16 +307,16 @@ export const getPaymentOrdersHistory = async (
         -- Con quien se opero. La columna "Origen" de esta pantalla mostraba el
         -- nombre interno de la tabla —"entangled"—, que ademas es la marca del
         -- proveedor y no debe circular. Aqui sale el proveedor de verdad.
-        -- OJO: "solicitada" NO dice por donde se fue la operacion. Se probo
-        -- etiquetar con ese evento y salio mal: marcaba operaciones que no
-        -- eran de ese carril. El evento es una ETAPA (aprobada y en proceso de
-        -- pago), no un proveedor. Hoy no hay forma de saber el carril: al
-        -- crear la solicitud no mandamos proveedor, el que ellos usan lo
-        -- eligen de su lado por pais destino, y ni su API ni sus webhooks lo
-        -- devuelven —se revisaron las 35 llaves de su respuesta—. Pedido
-        -- abierto con ellos para que lo incluyan. Mientras, aqui solo sale lo
-        -- que se eligio en el panel, y si no, la deduccion marcada con (?).
-        pr.name AS provider_name,
+        -- Por donde se fue la operacion: las HIBRIDAS las opera Sankie, que es
+        -- gente de BTX, no otro proveedor. El dato que lo dice es es_hibrida,
+        -- que ellos mandan en el payload y nosotros ya guardamos.
+        -- Antes se intento con el evento "solicitada" y salio mal: ese evento
+        -- es una ETAPA (aprobada y en proceso de pago) y lo recibe cualquier
+        -- operacion, hibrida o no. De las 147, 57 no hibridas lo tenian y se
+        -- estaban marcando como Sankie sin serlo.
+        -- Las anteriores a julio traen es_hibrida en NULL —el campo no existia—
+        -- y por eso salen sin carril; no significa que no lo hayan tenido.
+        CASE WHEN r.es_hibrida IS TRUE THEN 'BTX vía Sankie' ELSE pr.name END AS provider_name,
         -- Respaldo para lo creado antes de que se guardara el proveedor: se
         -- deduce del porcentaje cobrado contra el tarifario. Es flojo (solo
         -- mira proveedores activos), por eso va marcado aparte.

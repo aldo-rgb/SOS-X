@@ -686,16 +686,16 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              u.box_id AS client_box_id,
              a.full_name AS advisor_name,
              prov.provider_name AS provider_inferred,
-             -- OJO: "solicitada" NO dice por donde se fue la operacion. Se probo
-             -- etiquetar con ese evento y salio mal: marcaba operaciones que no
-             -- eran de ese carril. El evento es una ETAPA (aprobada y en proceso de
-             -- pago), no un proveedor. Hoy no hay forma de saber el carril: al
-             -- crear la solicitud no mandamos proveedor, el que ellos usan lo
-             -- eligen de su lado por pais destino, y ni su API ni sus webhooks lo
-             -- devuelven —se revisaron las 35 llaves de su respuesta—. Pedido
-             -- abierto con ellos para que lo incluyan. Mientras, aqui solo sale lo
-             -- que se eligio en el panel, y si no, la deduccion marcada con (?).
-             pr.name AS provider_name,
+             -- Por donde se fue la operacion: las HIBRIDAS las opera Sankie, que es
+             -- gente de BTX, no otro proveedor. El dato que lo dice es es_hibrida,
+             -- que ellos mandan en el payload y nosotros ya guardamos.
+             -- Antes se intento con el evento "solicitada" y salio mal: ese evento
+             -- es una ETAPA (aprobada y en proceso de pago) y lo recibe cualquier
+             -- operacion, hibrida o no. De las 147, 57 no hibridas lo tenian y se
+             -- estaban marcando como Sankie sin serlo.
+             -- Las anteriores a julio traen es_hibrida en NULL —el campo no existia—
+             -- y por eso salen sin carril; no significa que no lo hayan tenido.
+             CASE WHEN r.es_hibrida IS TRUE THEN 'BTX vía Sankie' ELSE pr.name END AS provider_name,
              (r.empresas_asignadas->0->'empresa'->>'razon_social') AS empresa_facturadora,
              (SELECT COALESCE(override_porcentaje_compra, 0) FROM entangled_providers
                WHERE is_active = true AND is_default = true ORDER BY id ASC LIMIT 1) AS costo_default_pct
