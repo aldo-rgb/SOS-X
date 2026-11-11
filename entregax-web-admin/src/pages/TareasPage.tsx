@@ -326,8 +326,15 @@ export default function TareasPage() {
   // ── Lo que pinta la matriz ────────────────────────────────────────────────
   const matrixCruzado = matrixScope === 'all';
   const matrixFuente: Task[] = matrixCruzado ? (matrixAllTasks || []) : tasks;
-  const esDe = (t: Task, uid: number) =>
-    Number(t.assignee_id) === uid || (t.participant_ids || []).map(Number).includes(uid);
+  // La matriz de alguien son las tareas de las que ESA PERSONA responde.
+  //
+  // Antes contaba tambien donde estaba nada mas involucrada, y como a quien
+  // lleva el tablero se le agrega a todo, elegirse a uno mismo devolvia el
+  // tablero completo: 17 de 17 abiertas en Error de Sistema, de las cuales 10
+  // son suyas de verdad. Una matriz que ensena todo no prioriza nada. Estar
+  // involucrado se sigue viendo en los avatares de la tarjeta y en el
+  // buscador, que si busca por involucrados.
+  const esDe = (t: Task, uid: number) => Number(t.assignee_id) === uid;
   // Las terminadas no se pintan en la matriz.
   //
   // La matriz es para ver en qué hay que trabajar, y en un tablero con meses
@@ -355,10 +362,12 @@ export default function TareasPage() {
     // El número de cada quien cuenta lo MISMO que se va a ver al elegirlo: sin
     // terminadas, salvo que se esté buscando.
     for (const x of matrixFuente.filter(coincideBusqueda).filter(y => !!searchQ || y.status !== 'completed')) {
-      const ids = new Set<number>();
-      if (x.assignee_id) ids.add(Number(x.assignee_id));
-      for (const pid of (x.participant_ids || [])) ids.add(Number(pid));
-      for (const id of ids) conteo.set(id, (conteo.get(id) || 0) + 1);
+      // Cuenta por responsable, igual que el filtro: el numero de al lado del
+      // nombre tiene que ser el mismo que se ve al elegirlo.
+      if (x.assignee_id) {
+        const id = Number(x.assignee_id);
+        conteo.set(id, (conteo.get(id) || 0) + 1);
+      }
     }
     // Y además TODO el equipo, aunque no tenga nada aquí.
     //
@@ -782,12 +791,12 @@ export default function TareasPage() {
                   return `${searchQ ? 'Resultados' : 'Tareas abiertas'} por cuadrante · ${donde}.${ocultas}`;
                 }
                 const quien = nombreDe(matrixPerson);
-                if (n === 0 && matrixTerminadasOcultas > 0) return `${quien} no tiene nada abierto en ${donde}.${ocultas}`;
+                if (n === 0 && matrixTerminadasOcultas > 0) return `${quien} no tiene nada abierto a su nombre en ${donde}.${ocultas}`;
                 // Cero aquí no quiere decir cero en todos lados, y leerlo así
                 // manda a recorrer los tableros de uno en uno.
-                if (n === 0) return `${quien} no tiene tareas en ${donde}.${matrixCruzado ? '' : ' Cambia Alcance a «Todos los tableros» para ver todo lo suyo.'}`;
+                if (n === 0) return `${quien} no tiene tareas a su nombre en ${donde}.${matrixCruzado ? '' : ' Cambia Alcance a «Todos los tableros» para ver todo lo suyo.'}`;
                 const palabra = searchQ ? 'resultado' : 'abierta';
-                return `Matriz de ${quien} · ${donde} · ${n} ${palabra}${n === 1 ? '' : 's'}.${ocultas}`;
+                return `Matriz de ${quien} · ${donde} · ${n} ${palabra}${n === 1 ? '' : 's'} a su nombre.${ocultas}`;
               })()}
             </Typography>
           )}
