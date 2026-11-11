@@ -985,6 +985,10 @@ export const listTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = t.id)::int AS comments,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
              (SELECT array_agg(u2.full_name ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
+             -- Los ids, en el MISMO orden que los nombres. Hacen falta para
+             -- filtrar el tablero por persona sin comparar nombres escritos a
+             -- mano, que es como se acaban perdiendo las tareas de alguien.
+             (SELECT array_agg(u2.id ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_ids,
              (SELECT json_agg(json_build_object('name', u2.full_name, 'photo', u2.profile_photo_url) ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_avatars,
              (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue,
              -- 🛑 DETENIDA: en curso y >3 días sin movimiento (cambios/comentarios/actividad).

@@ -182,7 +182,8 @@ interface Task {
   assignee_name?: string; due_at?: string; eisenhower: string; xpay_seguro?: string; status: string;
   created_at?: string; completed_at?: string;
   subtasks_total: number; subtasks_done: number; comments: number; overdue: boolean;
-  participants_count?: number; participant_names?: string[];
+  participants_count?: number; participant_names?: string[]; participant_ids?: number[];
+  board_id?: number;
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 
@@ -278,6 +279,23 @@ export default function TareasPage() {
   // Vista del tablero: 'columns' (Kanban) o 'matrix' (Eisenhower 2×2).
   const [view, setView] = useState<'columns' | 'matrix' | 'team'>('columns');
 
+  // ── Matriz Eisenhower de UNA persona ──────────────────────────────────────
+  //
+  // La matriz enseñaba el tablero completo y no había manera de ver la de
+  // alguien en particular, que es justo lo que se necesita para saber en qué
+  // está cada quien. Dos filtros sueltos, los dos en "todo" por defecto, que
+  // es exactamente lo que se veía antes:
+  //   · persona: toda la gente del tablero, o una
+  //   · alcance: solo este tablero, o todos (las tareas de una persona viven
+  //     repartidas entre Desarrollo, Marketing, Ventas… y verlas de a un
+  //     tablero no dice nada de su carga real)
+  // Ver la de OTROS es de administración; el resto sigue viendo la de siempre.
+  const puedeVerMatrizDeOtros = myRole === 'super_admin' || myRole === 'admin' || myRole === 'director';
+  const [matrixPerson, setMatrixPerson] = useState<number | 'all'>('all');
+  const [matrixScope, setMatrixScope] = useState<'board' | 'all'>('board');
+  const [matrixAllTasks, setMatrixAllTasks] = useState<Task[] | null>(null);
+  const [matrixAllLoading, setMatrixAllLoading] = useState(false);
+
   const board = boards.find(b => b.id === activeId) || null;
   const sections = board?.sections || [];
   const somedaySection = sections.find(s => s.is_someday) || null;
@@ -290,7 +308,8 @@ export default function TareasPage() {
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normSearch = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
   const searchQ = normSearch(searchText).trim();
-  const filteredTasks = !searchQ ? tasks : tasks.filter(t => {
+  const coincideBusqueda = (t: Task) => {
+    if (!searchQ) return true;
     const parts: string[] = [
       String(t.id),
       `t-${t.id}`,
@@ -301,7 +320,36 @@ export default function TareasPage() {
       sectionName(t.section_id) || '',
     ];
     return parts.some(p => normSearch(p).includes(searchQ));
-  });
+  };
+  const filteredTasks = tasks.filter(coincideBusqueda);
+
+  // ── Lo que pinta la matriz ────────────────────────────────────────────────
+  const matrixCruzado = matrixScope === 'all';
+  const matrixFuente: Task[] = matrixCruzado ? (matrixAllTasks || []) : tasks;
+  const esDe = (t: Task, uid: number) =>
+    Number(t.assignee_id) === uid || (t.participant_ids || []).map(Number).includes(uid);
+  const matrixTasks = matrixFuente
+    .filter(coincideBusqueda)
+    .filter(t => matrixPerson === 'all' || esDe(t, matrixPerson));
+  // La lista de personas sale de las tareas que hay a la vista, no del
+  // directorio entero: así el selector enseña a quien de verdad tiene trabajo
+  // en este alcance y no 40 nombres vacíos.
+  const nombreDe = (uid: number): string =>
+    users.find(u => u.id === uid)?.full_name
+    || matrixFuente.find(x => Number(x.assignee_id) === uid)?.assignee_name
+    || `Usuario ${uid}`;
+  const matrixPersonas = (() => {
+    const conteo = new Map<number, number>();
+    for (const x of matrixFuente.filter(coincideBusqueda)) {
+      const ids = new Set<number>();
+      if (x.assignee_id) ids.add(Number(x.assignee_id));
+      for (const pid of (x.participant_ids || [])) ids.add(Number(pid));
+      for (const id of ids) conteo.set(id, (conteo.get(id) || 0) + 1);
+    }
+    return Array.from(conteo.entries())
+      .map(([id, n]) => ({ id, n, name: nombreDe(id) }))
+      .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  })();
 
   const loadBoards = useCallback(async (preferId?: number) => {
     try {
@@ -334,6 +382,28 @@ export default function TareasPage() {
   }, []);
 
   useEffect(() => { loadBoards(); }, [loadBoards]);
+
+  // Alcance "todos los tableros": se piden una vez, al pedirlo. Es el mismo
+  // endpoint por tablero, así que la tarjeta llega con los mismos campos que
+  // en la vista normal y se pinta igual.
+  // El tablero personal queda fuera: las tareas personales no son de equipo y
+  // la vista de equipo también las excluye. La matriz de alguien es su trabajo,
+  // no su agenda.
+  const boardsMatriz = boards.filter(b => b.board_type !== 'personal');
+  const boardIdsKey = boardsMatriz.map(b => b.id).join(',');
+  useEffect(() => {
+    if (view !== 'matrix' || matrixScope !== 'all' || boardsMatriz.length === 0) return;
+    let cancelado = false;
+    setMatrixAllLoading(true);
+    Promise.all(boardsMatriz.map(b =>
+      axios.get(`${API_URL}/tasks?board_id=${b.id}`, H())
+        .then(r => ((r.data?.tasks || []) as Task[]))
+        .catch(() => [] as Task[])
+    ))
+      .then(listas => { if (!cancelado) setMatrixAllTasks(listas.flat()); })
+      .finally(() => { if (!cancelado) setMatrixAllLoading(false); });
+    return () => { cancelado = true; };
+  }, [view, matrixScope, boardIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); setActiveSection(null); } }, [activeId, loadTasks, loadAssignees]);
   useEffect(() => {
     axios.get(`${API_URL}/tasks/assignable-users`, H())
@@ -503,9 +573,15 @@ export default function TareasPage() {
   const isOperativo = board?.board_type === 'operativo';
 
   // Tarjeta de tarea (reutilizada en vista Columnas y Matriz).
-  const renderTaskCard = (t: Task) => {
+  // `mostrarTablero` solo lo manda la matriz cruzada. Ojo al llamarla desde un
+  // .map: hay que pasarle la tarea a mano, porque map manda el índice como
+  // segundo argumento y encendería la bandera sola.
+  const renderTaskCard = (t: Task, mostrarTablero = false) => {
     const tt = taskTime(t);
-    const secName = t.section_id ? sectionName(t.section_id) : null;
+    // El nombre de la sub-sección sale del tablero ACTIVO: en la matriz
+    // cruzada la tarea puede ser de otro y ese nombre no significaría nada.
+    const secName = (!mostrarTablero && t.section_id) ? sectionName(t.section_id) : null;
+    const boardName = mostrarTablero ? (boards.find(b => b.id === Number(t.board_id))?.name || null) : null;
     return (
       <Box key={t.id} onClick={() => setDetailId(t.id)}
         sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
@@ -515,6 +591,7 @@ export default function TareasPage() {
             sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
           {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
           {secName && <Chip label={`🗂️ ${secName}`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />}
+          {boardName && <Chip label={boardName} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E8EAF6', color: '#3949AB', fontWeight: 700 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>
           {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
@@ -644,7 +721,36 @@ export default function TareasPage() {
               ) : undefined,
             }}
           />
-          {view === 'matrix' && <Typography fontSize={12} color="text.secondary">Muestra todas las tareas por cuadrante de prioridad.</Typography>}
+          {view === 'matrix' && puedeVerMatrizDeOtros && (
+            <>
+              <FormControl size="small" sx={{ minWidth: 210 }}>
+                <InputLabel>Persona</InputLabel>
+                <Select label="Persona" value={matrixPerson}
+                  onChange={e => setMatrixPerson(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                  <MenuItem value="all">Todo el equipo</MenuItem>
+                  {matrixPersonas.map(p => (
+                    <MenuItem key={p.id} value={p.id}>{p.name} ({p.n})</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 185 }}>
+                <InputLabel>Alcance</InputLabel>
+                <Select label="Alcance" value={matrixScope}
+                  onChange={e => setMatrixScope(e.target.value as 'board' | 'all')}>
+                  <MenuItem value="board">Solo este tablero</MenuItem>
+                  <MenuItem value="all">Todos los tableros</MenuItem>
+                </Select>
+              </FormControl>
+              {matrixAllLoading && <CircularProgress size={16} />}
+            </>
+          )}
+          {view === 'matrix' && (
+            <Typography fontSize={12} color="text.secondary">
+              {matrixPerson === 'all'
+                ? `Todas las tareas por cuadrante${matrixCruzado ? ' · todos los tableros' : ''}.`
+                : `Matriz de ${nombreDe(matrixPerson)} · ${matrixCruzado ? 'todos los tableros' : (board?.name || 'este tablero')} · ${matrixTasks.length} tarea${matrixTasks.length === 1 ? '' : 's'}.`}
+            </Typography>
+          )}
         </Box>
       )}
 
@@ -739,7 +845,7 @@ export default function TareasPage() {
         // ── Vista MATRIZ EISENHOWER (2×2) — muestra TODAS las tareas ──
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           {QUADRANTS.map((q) => {
-            const qTasks = filteredTasks.filter(t => t.eisenhower === q.key).sort(porVencer);
+            const qTasks = matrixTasks.filter(t => t.eisenhower === q.key).sort(porVencer);
             return (
               <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 160 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -747,7 +853,7 @@ export default function TareasPage() {
                   <Chip label={qTasks.length} size="small" sx={{ height: 20 }} />
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {qTasks.map(renderTaskCard)}
+                  {qTasks.map(t => renderTaskCard(t, matrixCruzado))}
                   {qTasks.length === 0 && <Typography fontSize={12} color="text.disabled" sx={{ px: 0.5, py: 2, textAlign: 'center' }}>—</Typography>}
                 </Box>
               </Box>
@@ -774,7 +880,7 @@ export default function TareasPage() {
                     <Chip label={colTasks.length} size="small" sx={{ height: 20 }} />
                   </Box>
                   <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {colTasks.map(renderTaskCard)}
+                    {colTasks.map(t => renderTaskCard(t))}
                     {colTasks.length === 0 && <Typography fontSize={12} color="text.disabled" sx={{ px: 0.5, py: 2, textAlign: 'center' }}>—</Typography>}
                   </Box>
                 </Box>
