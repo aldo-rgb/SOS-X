@@ -2503,10 +2503,51 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${effectiveZip} en lugar de CP cliente ${pkg.zip_code}`);
     }
 
-    // Flag OCURRE: la etiqueta debe rotular "OCURRE" y usar la ciudad de la
-    // sucursal cuando el operador pidió Ocurre manual (ocurreZip) o cuando la
-    // dirección tiene el toggle is_ocurre encendido.
-    const isOcurreGuide = !!ocurreZipClean || pkg.addr_is_ocurre === true;
+    // ── El CP de la guía no puede salirse del CP del cliente a la callada ──
+    //
+    // Hay dos maneras EXPLÍCITAS de pedir Ocurre: el operador teclea el CP de
+    // la sucursal en el panel (`ocurreZip`) o la dirección trae el toggle
+    // `is_ocurre`. Y hay una tercera, implícita: `national_delivery_zip`, que
+    // es lo que guarda la asignación de instrucciones cuando el asesor acepta
+    // el aviso de "no hay cobertura a domicilio en el CP del cliente". Esa
+    // tercera no levantaba ninguna bandera, y de ahí salían dos problemas.
+    const cpDelCliente = String(pkg.zip_code || '').trim();
+    const cpPedidoAparte = !ocurreZipClean && pkg.addr_is_ocurre !== true;
+
+    // 1) Un CP de sucursal pegado de otro envío. La búsqueda de sucursal más
+    // cercana solo prueba ±10 a ±100 alrededor del CP del cliente, así que un
+    // CP a más de 100 de distancia no lo produjo esa búsqueda: se quedó pegado
+    // de otra caja. Hay 7 así, y dos de ellas mandaban a Tabasco cajas de León
+    // y de Colima. Un CP de otro estado no se usa jamás: manda el del cliente.
+    if (cpPedidoAparte && /^\d{5}$/.test(cpDelCliente) && /^\d{5}$/.test(String(effectiveZip || '').trim())
+        && Math.abs(parseInt(String(effectiveZip), 10) - parseInt(cpDelCliente, 10)) > 100) {
+      console.warn(`[PQTX-GEN] El CP de entrega ${effectiveZip} está demasiado lejos del cliente (${cpDelCliente}): `
+        + `ninguna sucursal cercana lo produjo. Se usa el del cliente.`);
+      effectiveZip = cpDelCliente;
+    }
+
+    // 2) Flag OCURRE: la etiqueta debe rotular "OCURRE" y usar la ciudad de la
+    // sucursal cuando se pidió Ocurre manual, cuando la dirección trae el
+    // toggle, o —y esto es lo que faltaba— cuando el CP que va a viajar en la
+    // guía NO es el del cliente.
+    //
+    // Un CP sustituido es siempre el de una sucursal: es la única manera que
+    // hay de pedirle Ocurre a Paquete Express, que no tiene campo para nombrar
+    // sucursal. Pero el flag solo miraba las dos puertas explícitas, así que
+    // por la tercera la guía salía con la calle y la colonia de la CASA del
+    // cliente y el CP de la sucursal. Ni domicilio ni Ocurre: una dirección
+    // real con el código postal de otro sector y sin el rótulo que le diría a
+    // la paquetería que se queda en mostrador. La paquetería rutea por CP.
+    //
+    // Es el caso de la tarea 858: 23 días de ticket creyendo que el sistema
+    // "leía mal" el CP del cliente. No lo leía mal; lo reemplazaba y dejaba el
+    // resto de la dirección intacto. Hay 32 cajas así, de 19 clientes.
+    const cpSustituido = !!cpDelCliente && String(effectiveZip || '').trim() !== cpDelCliente;
+    const isOcurreGuide = !!ocurreZipClean || pkg.addr_is_ocurre === true || cpSustituido;
+    if (cpSustituido && cpPedidoAparte) {
+      console.warn(`[PQTX-GEN] La guía viaja con el CP ${effectiveZip} y el cliente es ${cpDelCliente}: se rotula OCURRE. `
+        + `Si tenía que ir a domicilio, hay que quitarle el CP de entrega o usar otra paquetería.`);
+    }
 
     const addr: PqtxAddrCtx = {
       recipient_name: pkg.recipient_name,
