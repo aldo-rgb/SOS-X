@@ -240,24 +240,40 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
       await sugerirEnTicket(ticketId, v).catch((e) => console.error('[JUEZ] sugerencia:', e?.message));
     }
 
-    // Se reporta lo que es NUESTRO y hay que reparar: ERROR_SISTEMA y también
-    // CAPTURA. Lo segundo lo manda el propio proceso del juez —"un dato mal
-    // capturado casi siempre es una validación que falta"— y al medirlo contra
-    // casos reales resultó que ahí se le van varios: el cobro de impuesto por
-    // caja (TKT-2026-2620) lo llamó CAPTURA y era código nuestro multiplicando
-    // la nota.
+    // Se reporta a desarrollo lo que es NUESTRO y hay que REPARAR: ERROR_SISTEMA.
+    //
+    // CAPTURA estaba aquí también, con el argumento de que "un dato mal
+    // capturado casi siempre es una validación que falta". Al medirlo con las
+    // tareas que de verdad levantó, no se sostuvo: de las 15 que abrió, UNA
+    // terminó en código (la razón social que no empataba letra por letra con el
+    // SAT, tarea 642). Las otras 14 son guías recibidas con el casillero de
+    // otro cliente, pesos capturados mal en la recepción de China y un cliente
+    // que eligió "por cobrar" sin querer en su propia pantalla (TKT-2026-3604,
+    // tarea 1022): se cerraron corrigiendo el dato, sin tocar una línea. En dos
+    // de ellas quien las cerró escribió que Cajito las había abierto por error.
+    // Mientras tanto el ticket quedaba "en espera del equipo de desarrollo" y
+    // al cerrarse le contestaba al cliente "el error ya fue corregido", que no
+    // era cierto.
+    //
+    // Un dato que una persona capturó mal lo corrige una persona. Es el mismo
+    // criterio que ya se había tomado con OPERACION —"una guía que llegó a la
+    // bodega y nadie capturó no la arregla un programador"— así que va por esa
+    // misma puerta. Si al revisarlo resulta que fue el sistema el que grabó
+    // mal, Servicio a Cliente lo reporta con el botón del ticket y la tarea
+    // nace igual que siempre.
+    //
     // Preguntas del cliente que el sistema sí puede contestar: las atiende
     // Servicio a Cliente, con el hallazgo servido. NO se escalan como error.
     if (String(v.conclusion) === 'ACOMPANAR') {
       await notaParaServicioACliente(ticketId, v).catch((e) => console.error('[JUEZ] nota de acompañar:', e?.message));
     }
 
-    if (String(v.conclusion) === 'OPERACION') {
+    if (['OPERACION', 'CAPTURA'].includes(String(v.conclusion))) {
       // No se asigna solo: Servicio a Cliente decide a quién se lo manda.
       await notaDeOperacion(ticketId, v).catch((e) => console.error('[JUEZ] nota de operación:', e?.message));
     }
 
-    // Cajito a veces se contradice: etiqueta ERROR_SISTEMA o CAPTURA y en la
+    // Cajito a veces se contradice: etiqueta ERROR_SISTEMA y en la
     // misma explicación escribe que NO hay falla del sistema. Cuando eso pasa
     // le creemos a la explicación y no a la etiqueta: levantar la tarea manda a
     // desarrollo un caso que su propia investigación ya descartó, y deja al
@@ -269,7 +285,7 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
     // dice "no me deja asignar instrucciones" sigue siendo error nuestro,
     // porque ahí la explicación no se desdice.
     const SE_DESDICE = /\bno\s+(?:es\s+|fue\s+|hay\s+)?(?:una?\s+)?(?:falla|error)\s+(?:de|del)\s+sistema\b|\bno\s+es\s+un\s+error\s+nuestro\b|\bno\s+hay\s+nada\s+roto\b/i;
-    if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))
+    if (String(v.conclusion) === 'ERROR_SISTEMA'
         && SE_DESDICE.test(String(v.explicacion || ''))) {
       console.warn(
         `[JUEZ] ${v.folio}: concluyó ${v.conclusion} pero su explicación dice que no hay falla del sistema. ` +
@@ -279,7 +295,7 @@ const revisar = async (ticketId: number, origen: 'automatico' | 'boton'): Promis
       return g0.rows[0]?.c || null;
     }
 
-    if (['ERROR_SISTEMA', 'CAPTURA'].includes(String(v.conclusion))) {
+    if (String(v.conclusion) === 'ERROR_SISTEMA') {
       // El reporte lo levanta el sistema con el mismo camino del botón, para que
       // la tarea salga idéntica a la que crearía una persona.
       const { reportarErrorDeTicket } = await import('./supportController');
