@@ -143,9 +143,28 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
                 [JSON.stringify(detail), refundRowId]
             );
             console.error('❌ PayPal refund error:', detail);
+            // Lo que PayPal manda arriba es siempre la misma frase —"The
+            // requested action could not be performed, semantically incorrect,
+            // or failed business validation"— y el motivo de verdad viene
+            // abajo, en details[0].issue. Devolver solo la de arriba deja a
+            // quien aprieta el boton sin saber que paso ni que hacer: paso con
+            // el primer reembolso que se intento, que fallo por saldo en la
+            // cuenta de PayPal y en pantalla no se leia por ningun lado.
+            const issue = String(detail?.details?.[0]?.issue || '').toUpperCase();
+            const EN_CRISTIANO: Record<string, string> = {
+                REFUND_FAILED_INSUFFICIENT_FUNDS:
+                    'La cuenta de PayPal no tiene saldo para devolver este cobro. Hay que fondearla, o emitir el reembolso desde paypal.com, que si puede cargarlo a la cuenta de banco ligada.',
+                REFUND_TIME_LIMIT_EXCEEDED:
+                    'Ya pasaron los 180 dias que PayPal da para devolver un cobro. Este ya no se puede reembolsar: hay que devolverlo por otra via.',
+                CAPTURE_FULLY_REFUNDED: 'Ese cobro ya se devolvio completo.',
+                REFUND_AMOUNT_EXCEEDED: 'El monto es mayor de lo que queda por devolver de ese cobro.',
+                PAYER_ACCOUNT_RESTRICTED: 'La cuenta del cliente esta restringida en PayPal y no puede recibir el reembolso.',
+                TRANSACTION_REFUSED: 'PayPal rechazo la operacion. Revisa el cobro en paypal.com antes de reintentar.',
+            };
             return res.status(httpErr.response?.status || 500).json({
                 success: false,
-                error: detail?.message || 'Error reembolsando en PayPal',
+                error: EN_CRISTIANO[issue] || detail?.message || 'Error reembolsando en PayPal',
+                issue: issue || null,
                 details: detail?.details || null,
             });
         }

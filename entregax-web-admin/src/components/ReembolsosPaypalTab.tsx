@@ -74,7 +74,11 @@ export default function ReembolsosPaypalTab() {
       setElegida(null); setMotivo('');
       await buscar();
     } catch (e: any) {
-      setError(e?.response?.data?.error || 'PayPal rechazó el reembolso.');
+      // El codigo de PayPal (details[0].issue) se ensena junto al texto: sirve
+      // para buscarlo o para decirselo a soporte de PayPal tal cual.
+      const d = e?.response?.data;
+      const codigo = d?.issue || d?.details?.[0]?.issue;
+      setError([d?.error || 'PayPal rechazó el reembolso.', codigo ? `(${codigo})` : ''].filter(Boolean).join(' '));
     } finally { setEmitiendo(false); }
   };
 
