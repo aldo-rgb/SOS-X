@@ -87,7 +87,14 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
             body.amount = { value: Number(amount).toFixed(2), currency_code: refundCurrency };
         }
         if (noteToPayer) body.note_to_payer = String(noteToPayer).slice(0, 255);
-        if (reason) body.invoice_id = String(reason).slice(0, 64); // PayPal acepta invoice_id como referencia
+        // `reason` se guarda en NUESTRA tabla, no se le manda a PayPal.
+        //
+        // Antes viajaba como `invoice_id`, que es el numero de factura externo:
+        // PayPal lo ensena en el historial del pagador y lo trata como
+        // identificador, no como explicacion. Mandar ahi una frase recortada a
+        // 64 caracteres ensucia el estado de cuenta del cliente y arriesga que
+        // el reembolso se rechace por un id repetido. Lo que el cliente debe
+        // leer va en note_to_payer, que para eso es.
 
         // Idempotencia: PayPal recomienda PayPal-Request-Id único por intento.
         const requestId = `etx-refund-${captureId}-${Date.now()}`;
