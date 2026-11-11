@@ -1069,9 +1069,19 @@ export default function LoadingVanScreen({ navigation, route }: any) {
         const titleText = isOk ? '¡Cargado!' : isErr ? 'No se puede cargar' : 'Atención';
         const cleanMessage = String(feedback.message || '').replace(/[⚠️✅❌📦⛔ℹ️🎉]/g, '').trim();
         const e = feedback.errorData || {};
-        const hasPills = typeof e.isPaid === 'boolean'
-          || typeof e.hasPrintedLabel === 'boolean'
-          || typeof e.hasInstructions === 'boolean';
+        // Solo se pinta lo que SE EXIGE para ese servicio.
+        //
+        // Una caja aerea no pide pago ni etiqueta —esta asi a proposito— y aun
+        // asi salian las tres tachas en rojo. El repartidor leia "faltan tres
+        // cosas" y se iba a buscar un pago y una etiqueta que por politica no
+        // existen, cuando lo unico que la frenaba eran las instrucciones.
+        // `seExige` lo manda el servidor; si no viene (app vieja contra
+        // servidor viejo), se pintan las tres como antes.
+        const exige = e.seExige || { pago: true, etiqueta: true, instrucciones: true };
+        const pintaPago = typeof e.isPaid === 'boolean' && exige.pago !== false;
+        const pintaEtiqueta = typeof e.hasPrintedLabel === 'boolean' && exige.etiqueta !== false;
+        const pintaInstrucciones = typeof e.hasInstructions === 'boolean' && exige.instrucciones !== false;
+        const hasPills = pintaPago || pintaEtiqueta || pintaInstrucciones;
         return (
           <Animated.View
             pointerEvents="box-none"
@@ -1120,19 +1130,19 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                 {/* Pills de estado (sólo si el backend mandó banderas) */}
                 {hasPills ? (
                   <View style={styles.feedbackPillsRow}>
-                    {typeof e.isPaid === 'boolean' ? (
+                    {pintaPago ? (
                       <View style={[styles.feedbackPill, e.isPaid ? styles.feedbackPillOk : styles.feedbackPillFail]}>
                         <MaterialIcons name={e.isPaid ? 'check-circle' : 'cancel'} size={14} color={e.isPaid ? '#16A34A' : '#DC2626'} />
                         <Text style={[styles.feedbackPillText, { color: e.isPaid ? '#16A34A' : '#DC2626' }]}>Pago</Text>
                       </View>
                     ) : null}
-                    {typeof e.hasPrintedLabel === 'boolean' ? (
+                    {pintaEtiqueta ? (
                       <View style={[styles.feedbackPill, e.hasPrintedLabel ? styles.feedbackPillOk : styles.feedbackPillFail]}>
                         <MaterialIcons name={e.hasPrintedLabel ? 'check-circle' : 'cancel'} size={14} color={e.hasPrintedLabel ? '#16A34A' : '#DC2626'} />
                         <Text style={[styles.feedbackPillText, { color: e.hasPrintedLabel ? '#16A34A' : '#DC2626' }]}>Etiqueta</Text>
                       </View>
                     ) : null}
-                    {typeof e.hasInstructions === 'boolean' ? (
+                    {pintaInstrucciones ? (
                       <View style={[styles.feedbackPill, e.hasInstructions ? styles.feedbackPillOk : styles.feedbackPillFail]}>
                         <MaterialIcons name={e.hasInstructions ? 'check-circle' : 'cancel'} size={14} color={e.hasInstructions ? '#16A34A' : '#DC2626'} />
                         <Text style={[styles.feedbackPillText, { color: e.hasInstructions ? '#16A34A' : '#DC2626' }]}>Instrucciones</Text>

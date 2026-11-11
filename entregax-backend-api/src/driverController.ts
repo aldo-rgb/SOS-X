@@ -696,6 +696,7 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 ${packageBranchSql} as package_branch_id,
                 COALESCE(to_jsonb(p)->>'warehouse_location', to_jsonb(m)->>'warehouse_location') as warehouse_location,
                 COALESCE(to_jsonb(p)->>'service_type', to_jsonb(m)->>'service_type') as service_type,
+                COALESCE(to_jsonb(p)->>'user_id', to_jsonb(m)->>'user_id') as owner_user_id,
                 NULL::text as driver_name,
                 NULL::text as client_name,
                 NULL::text as client_email
@@ -781,6 +782,23 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         );
         const hasPrintedLabel = hasExternalLabel || (isLocalDelivery && hasInstructions);
 
+        // Caja sin cliente: nada de lo demas se puede cumplir.
+        //
+        // Sin dueno no hay a quien cobrarle, ni direccion que asignar, ni
+        // etiqueta que imprimir. Decirle al repartidor "falta pago, etiqueta e
+        // instrucciones" lo manda a buscar tres cosas que NADIE puede resolver
+        // desde la unidad: lo que falta es que alguien ligue la caja a su
+        // casillero. Hay 495 cajas aereas asi.
+        if (!pkg.owner_user_id) {
+            return res.status(400).json({
+                error: '⛔ Esta caja no tiene cliente asignado. No es cosa de pago ni de etiqueta: '
+                     + 'nadie puede darle instrucciones hasta que se ligue a un casillero. Avisa a CEDIS con esta guia.',
+                sinCliente: true,
+                hasInstructions: false,
+                barcode,
+            });
+        }
+
         const flags = await getLoadingFlags();
         const requirePayment = exigePago(flags, pkg.service_type);
         const requireLabel = exigeEtiqueta(flags, pkg.service_type);
@@ -792,7 +810,21 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             if (requireLabel && !hasPrintedLabel) {
                 missing.push(hasInstructions ? 'etiqueta impresa (la guía tiene instrucciones pero aún no se imprimió la etiqueta)' : 'instrucciones de entrega y etiqueta');
             }
-            const summary = `${isPaid ? '✅' : '❌'} Pago · ${hasPrintedLabel ? '✅' : '❌'} Etiqueta impresa · ${hasInstructions ? '✅' : '❌'} Instrucciones`;
+            // El resumen solo habla de lo que SE EXIGE para este servicio.
+            //
+            // Antes pintaba los tres siempre, asi que una caja aerea —a la que
+            // a proposito no se le exige pago ni etiqueta— salia con tres
+            // tachas rojas aunque lo unico que la frenara fueran las
+            // instrucciones. El repartidor se iba a buscar un pago y una
+            // etiqueta que por politica no existen. Lo que no se exige se dice
+            // "no aplica", no se tacha.
+            const marca = (seExige: boolean, cumple: boolean) =>
+                !seExige ? '➖' : (cumple ? '✅' : '❌');
+            const summary = [
+                `${marca(requirePayment, isPaid)} Pago`,
+                `${marca(requireLabel, hasPrintedLabel)} Etiqueta impresa`,
+                `${marca(requireInstrucciones, hasInstructions)} Instrucciones`,
+            ].join(' · ');
             return res.status(400).json({
                 error: `⚠️ Falta: ${missing.join(' y ')}. ${summary}.`,
                 paymentStatus: pkg.payment_status || 'pending',
@@ -800,6 +832,10 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 hasPrintedLabel,
                 hasInstructions,
                 missing,
+                // Para que la pantalla pinte en gris lo que no aplica en vez de
+                // en rojo: una tacha roja sobre algo que no se exige es una
+                // instruccion equivocada.
+                seExige: { pago: requirePayment, etiqueta: requireLabel, instrucciones: requireInstrucciones },
                 nationalCarrier: pkg.national_carrier || null,
                 isLocalDelivery,
                 barcode
