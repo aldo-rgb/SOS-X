@@ -494,8 +494,21 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
               {notifMessage}
             </Text>
             {/* El "Ver más" se decide por largo y no midiendo el render: es
-                predecible y no depende de la fuente ni del ancho del teléfono. */}
-            {String(notifMessage || '').length > 90 && (
+                predecible y no depende de la fuente ni del ancho del teléfono.
+                Eso sigue igual; lo que cambia es el corte.
+
+                Eran 90 caracteres, y un mensaje con SALTO DE LÍNEA se cortaba
+                mucho antes: "TKT-2026-3610 · 📋 Datos de incidencia:" y abajo
+                los datos ya van en el tercer renglón con 65 caracteres. Sin
+                botón no había forma de leerlo. Son 12,216 avisos con salto de
+                línea, 12,032 de ellos por debajo de los 90, casi todos los de
+                tickets. Es lo que reportó Jorge Campos (tarea 853).
+
+                Ahora basta un salto de línea, o pasar de 70 caracteres —que es
+                lo que entran en dos renglones en un teléfono angosto—. Si el
+                texto sí cabía, tocar "Ver más" no cambia nada y no se pierde
+                nada; no poder leer el aviso sí. */}
+            {(String(notifMessage || '').includes('\n') || String(notifMessage || '').length > 70) && (
               <Text
                 style={styles.verMas}
                 onPress={() => toggleExpandida(item.id)}
