@@ -387,6 +387,93 @@ function hasCap(caps: Set<string>, key: string): boolean {
   return caps.has('*') || caps.has(key);
 }
 
+/**
+ * El pendiente de UNA persona: el resumen, el reparto en la matriz y el detalle.
+ *
+ * Vivia dentro de `my_tasks`, amarrado a quien preguntaba. Juan preguntó cuáles
+ * eran las tareas urgentes de otra persona y Cajito no tuvo con qué contestar
+ * (CJD-2026-0050, tarea 1024): no existía la pregunta "las de fulano", solo "las
+ * mías". Ahora el cálculo es uno solo y las dos herramientas lo usan, para que
+ * la cuenta de alguien más salga con las mismas reglas que la propia —sobre
+ * todo la de qué le toca a quién, que es la que infla los urgentes si se mide
+ * mal—.
+ */
+async function resumenDeTareasDe(uid: number, incluirCompletadas: boolean): Promise<any> {
+
+      // Los estados reales son 'open', 'awaiting_confirmation' y 'completed'.
+      // Antes se filtraba por 'done', que no existe: no se ocultaba ninguna
+      // tarea terminada y el conteo de completadas siempre daba 0, así que a
+      // Aldo le salían como pendientes tareas que él mismo había cerrado.
+      const soloAbiertas = incluirCompletadas ? '' : `AND t.status <> 'completed'`;
+      const r = await pool.query(`
+        SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
+               t.due_at, t.created_at, t.completed_at,
+               t.assignee_id, t.created_by,
+               (t.status = 'awaiting_confirmation' AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> $1
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at))) AS espera_tu_respuesta,
+               c.full_name AS creada_por,
+               (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'completed') AS vencida,
+               (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
+          FROM tasks t
+          LEFT JOIN users c ON c.id = t.created_by
+         -- Soy responsable, o la asigné yo y ya está esperando MI confirmación.
+         WHERE (t.assignee_id = $1
+                OR (t.status = 'awaiting_confirmation' AND t.created_by = $1)
+                OR (t.status = 'awaiting_confirmation'
+                    AND EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $1)
+                    AND EXISTS (
+                SELECT 1 FROM task_comments cc
+                 WHERE cc.task_id = t.id AND cc.author_id <> $1
+                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
+                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at)))) ${soloAbiertas}
+         ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC
+         LIMIT 100`, [uid]);
+
+      const filas = r.rows;
+      const cuenta = (f: (x: any) => boolean) => filas.filter(f).length;
+      const terminada = (t: any) => t.status === 'completed';
+      // ¿Le toca a ESTA persona? Una tarea en espera ya la hizo el responsable:
+      // ahora le toca a quien la asignó. Contarla también al responsable inflaba
+      // los urgentes — a Aldo le decía 9 cuando le tocaban 2, porque sumaba siete
+      // que esperaban a Angel, Yliana o Ricardo.
+      const yo = Number(uid);
+      const meToca = (t: any) =>
+        t.status === 'awaiting_confirmation' ? (Number(t.created_by) === yo || t.espera_tu_respuesta === true)
+        : t.status === 'open' ? Number(t.assignee_id) === yo
+        : false;
+      return {
+        resumen: {
+          total: filas.length,
+          te_tocan: cuenta(meToca),
+          abiertas: cuenta((t) => !terminada(t)),
+          vencidas: cuenta((t) => t.vencida === true),
+          vencen_hoy: cuenta((t) => t.vence_hoy === true),
+          sin_fecha: cuenta((t) => !t.due_at && !terminada(t)),
+          esperan_tu_confirmacion: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) === yo),
+          esperan_a_otra_persona: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) !== yo),
+          completadas: cuenta(terminada),
+        },
+        // Solo lo que LE TOCA: las que esperan confirmación de otra persona no
+        // cuentan como urgentes suyas (siguen en `tareas`, marcadas).
+        por_matriz: {
+          fuego: cuenta((t) => t.eisenhower === 'fuego' && meToca(t)),
+          estrella: cuenta((t) => t.eisenhower === 'estrella' && meToca(t)),
+          delegar: cuenta((t) => t.eisenhower === 'delegar' && meToca(t)),
+          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && meToca(t)),
+        },
+        nota: 'Cuando digas cuántas tareas o urgentes tiene, usa por_matriz y te_tocan: solo cuentan las que le toca hacer o confirmar a esta persona. Las que esperan confirmación de alguien más no son suyas; si las mencionas, di a quién esperan.',
+        tareas: filas.map((t: any) => ({
+          id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower, matriz_etiqueta: etiquetaMatriz(t.eisenhower),
+          le_toca: meToca(t) ? 'a ti' : (t.status === 'awaiting_confirmation' ? `esperando a ${t.creada_por || 'quien la asignó'}` : 'a otra persona'),
+          vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
+          creada_por: t.creada_por,
+        })),
+      };
+}
+
 // --- Helpers de saneamiento (límites de filas, recorte de strings) ----------
 const MAX_ROWS = 25;
 function trimText(s: any, n = 400): any {
@@ -2190,78 +2277,93 @@ export const TOOLS: ToolDef[] = [
         incluir_completadas: { type: 'boolean', description: 'Incluir también las ya terminadas (por defecto no)' },
       },
     },
-    handler: async ({ incluir_completadas }, ctx) => {
-      // Los estados reales son 'open', 'awaiting_confirmation' y 'completed'.
-      // Antes se filtraba por 'done', que no existe: no se ocultaba ninguna
-      // tarea terminada y el conteo de completadas siempre daba 0, así que a
-      // Aldo le salían como pendientes tareas que él mismo había cerrado.
-      const soloAbiertas = incluir_completadas ? '' : `AND t.status <> 'completed'`;
-      const r = await pool.query(`
-        SELECT t.id, t.title, t.status, t.eisenhower, t.priority,
-               t.due_at, t.created_at, t.completed_at,
-               t.assignee_id, t.created_by,
-               (t.status = 'awaiting_confirmation' AND EXISTS (
-                SELECT 1 FROM task_comments cc
-                 WHERE cc.task_id = t.id AND cc.author_id <> $1
-                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
-                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at))) AS espera_tu_respuesta,
-               c.full_name AS creada_por,
-               (t.due_at IS NOT NULL AND t.due_at < NOW() AND t.status <> 'completed') AS vencida,
-               (t.due_at IS NOT NULL AND t.due_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date) AS vence_hoy
-          FROM tasks t
-          LEFT JOIN users c ON c.id = t.created_by
-         -- Soy responsable, o la asigné yo y ya está esperando MI confirmación.
-         WHERE (t.assignee_id = $1
-                OR (t.status = 'awaiting_confirmation' AND t.created_by = $1)
-                OR (t.status = 'awaiting_confirmation'
-                    AND EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $1)
-                    AND EXISTS (
-                SELECT 1 FROM task_comments cc
-                 WHERE cc.task_id = t.id AND cc.author_id <> $1
-                   AND cc.created_at > COALESCE((SELECT MAX(a.created_at) FROM task_activity a WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'), t.updated_at)
-                   AND NOT EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.author_id = $1 AND c2.created_at > cc.created_at)))) ${soloAbiertas}
-         ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC
-         LIMIT 100`, [ctx.userId]);
+    handler: async ({ incluir_completadas }, ctx) =>
+      resumenDeTareasDe(Number(ctx.userId), !!incluir_completadas),
+  },
 
-      const filas = r.rows;
-      const cuenta = (f: (x: any) => boolean) => filas.filter(f).length;
-      const terminada = (t: any) => t.status === 'completed';
-      // ¿Le toca a ESTA persona? Una tarea en espera ya la hizo el responsable:
-      // ahora le toca a quien la asignó. Contarla también al responsable inflaba
-      // los urgentes — a Aldo le decía 9 cuando le tocaban 2, porque sumaba siete
-      // que esperaban a Angel, Yliana o Ricardo.
-      const yo = Number(ctx.userId);
-      const meToca = (t: any) =>
-        t.status === 'awaiting_confirmation' ? (Number(t.created_by) === yo || t.espera_tu_respuesta === true)
-        : t.status === 'open' ? Number(t.assignee_id) === yo
-        : false;
+  // -------------------- TAREAS: las de OTRA persona --------------------
+  {
+    name: 'tareas_de_persona',
+    requiredCapability: 'cajito.read.tasks',
+    readOnly: true,
+    description: 'Las tareas de OTRA persona del equipo: cuántas trae abiertas, cuáles están vencidas y cómo se reparten en la matriz de Eisenhower (fuego=🔥 Urgente, estrella=⭐ Importante, delegar=🔄 Atención, eliminar=🗑️ Algún día). Úsala cuando pregunten por el pendiente de alguien con nombre y apellido: "qué tareas urgentes tiene Aldo Campos", "cuántas trae Ricardo", "en qué anda Juan". Para las tareas de quien te está preguntando usa my_tasks. Solo la pueden usar Dirección, Admin y Super Admin.',
+    parameters: {
+      type: 'object',
+      properties: {
+        persona: { type: 'string', description: 'Nombre de la persona, completo o en parte (ej. "Aldo Campos", "ricardo")' },
+        matriz: { type: 'string', description: 'Filtrar por cuadrante: fuego, estrella, delegar o eliminar. Vacío = todos.' },
+        incluir_completadas: { type: 'boolean', description: 'Incluir también las ya terminadas (por defecto no)' },
+      },
+      required: ['persona'],
+    },
+    handler: async ({ persona, matriz, incluir_completadas }, ctx) => {
+      // El pendiente de alguien más es información de mando. La capacidad
+      // `cajito.read.tasks` dice "ver mis tareas" y la tiene mucha gente; aquí
+      // se pide además el rol, igual que en el tablero de la web, donde la
+      // matriz de otra persona solo la abre Dirección o Administración.
+      const rol = String(ctx.role || '').toLowerCase();
+      if (!['super_admin', 'admin', 'director'].includes(rol)) {
+        return { error: 'Las tareas de otra persona solo las puede consultar Dirección o Administración. Las tuyas te las doy con gusto.' };
+      }
+      const q = String(persona || '').trim();
+      if (!q) return { error: 'Dime de quién: nombre completo o parte del nombre.' };
+
+      // Se busca entre el EQUIPO, no entre los clientes. Si empatan varios no
+      // se adivina: se devuelven para que la persona elija, porque contestar
+      // con el pendiente de otro Ricardo sería peor que no contestar.
+      const u = await pool.query(
+        `SELECT id, full_name, role FROM users
+          WHERE role <> 'client' AND COALESCE(is_active, true) = true
+            AND unaccent(LOWER(full_name)) LIKE unaccent(LOWER($1))
+          ORDER BY (LOWER(full_name) = LOWER($2)) DESC, full_name LIMIT 6`,
+        [`%${q}%`, q]
+      ).catch(async () => pool.query(
+        // Sin la extensión unaccent, se compara sin acentos a mano.
+        `SELECT id, full_name, role FROM users
+          WHERE role <> 'client' AND COALESCE(is_active, true) = true
+            AND LOWER(full_name) LIKE LOWER($1)
+          ORDER BY (LOWER(full_name) = LOWER($2)) DESC, full_name LIMIT 6`,
+        [`%${q}%`, q]
+      ));
+
+      if (u.rows.length === 0) return { error: `No encontré a nadie del equipo que se llame "${q}".` };
+      const exacto = u.rows.find((x: any) => String(x.full_name).toLowerCase() === q.toLowerCase());
+      if (!exacto && u.rows.length > 1) {
+        return {
+          varias_personas: true,
+          nota: 'Hay más de una persona con ese nombre. Pregúntale a quién se refiere.',
+          opciones: u.rows.map((x: any) => ({ nombre: x.full_name, rol: x.role })),
+        };
+      }
+      const quien = exacto || u.rows[0];
+
+      const base = await resumenDeTareasDe(Number(quien.id), !!incluir_completadas);
+      const cuadrante = String(matriz || '').trim().toLowerCase();
+      const CUADRANTES = ['fuego', 'estrella', 'delegar', 'eliminar'];
+      if (cuadrante && !CUADRANTES.includes(cuadrante)) {
+        return { error: `No conozco el cuadrante "${cuadrante}". Son: ${CUADRANTES.join(', ')}.` };
+      }
+      // "a ti" lo arma el calculo pensando en quien pregunta; aqui el sujeto es
+      // otra persona y dejarlo asi haria creer que la tarea es de quien lee.
+      const conNombre = (base.tareas as any[]).map((t: any) =>
+        t.le_toca === 'a ti' ? { ...t, le_toca: `a ${quien.full_name}` } : t);
+      const tareas = cuadrante ? conNombre.filter((t: any) => t.matriz === cuadrante) : conNombre;
+
       return {
-        resumen: {
-          total: filas.length,
-          te_tocan: cuenta(meToca),
-          abiertas: cuenta((t) => !terminada(t)),
-          vencidas: cuenta((t) => t.vencida === true),
-          vencen_hoy: cuenta((t) => t.vence_hoy === true),
-          sin_fecha: cuenta((t) => !t.due_at && !terminada(t)),
-          esperan_tu_confirmacion: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) === yo),
-          esperan_a_otra_persona: cuenta((t) => t.status === 'awaiting_confirmation' && Number(t.created_by) !== yo),
-          completadas: cuenta(terminada),
-        },
-        // Solo lo que LE TOCA: las que esperan confirmación de otra persona no
-        // cuentan como urgentes suyas (siguen en `tareas`, marcadas).
-        por_matriz: {
-          fuego: cuenta((t) => t.eisenhower === 'fuego' && meToca(t)),
-          estrella: cuenta((t) => t.eisenhower === 'estrella' && meToca(t)),
-          delegar: cuenta((t) => t.eisenhower === 'delegar' && meToca(t)),
-          eliminar: cuenta((t) => t.eisenhower === 'eliminar' && meToca(t)),
-        },
-        nota: 'Cuando digas cuántas tareas o urgentes tiene, usa por_matriz y te_tocan: solo cuentan las que le toca hacer o confirmar a esta persona. Las que esperan confirmación de alguien más no son suyas; si las mencionas, di a quién esperan.',
-        tareas: filas.map((t: any) => ({
-          id: t.id, titulo: t.title, estado: t.status, matriz: t.eisenhower, matriz_etiqueta: etiquetaMatriz(t.eisenhower),
-          le_toca: meToca(t) ? 'a ti' : (t.status === 'awaiting_confirmation' ? `esperando a ${t.creada_por || 'quien la asignó'}` : 'a otra persona'),
-          vence: t.due_at, vencida: t.vencida, vence_hoy: t.vence_hoy,
-          creada_por: t.creada_por,
-        })),
+        persona: { nombre: quien.full_name, rol: quien.role },
+        ...base,
+        // Dos numeros, porque no son lo mismo y confundirlos es decir de mas:
+        // `suyas` son las que le tocan a ella; `en_total` incluye las que ya
+        // hizo y esperan la confirmacion de alguien mas.
+        ...(cuadrante ? {
+          filtrado_por: etiquetaMatriz(cuadrante),
+          en_ese_cuadrante: {
+            suyas: Number((base.por_matriz as any)[cuadrante] || 0),
+            en_total: tareas.length,
+          },
+        } : {}),
+        tareas,
+        nota: `${base.nota} Son las tareas de ${quien.full_name}, no las de quien pregunta.`,
       };
     }
   },
