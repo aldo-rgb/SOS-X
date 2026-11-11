@@ -1498,14 +1498,29 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
 
     const { clientId } = req.params;
 
-    // Verificar que el cliente pertenece al asesor
+    // Verificar que el cliente es suyo, o de alguien de su equipo.
+    //
+    // La lista de clientes (`/advisor/clients?subAdvisorId=`) ya deja al lider
+    // ver los clientes de sus sub-asesores, pero esta pantalla solo aceptaba
+    // los suyos directos: el lider abria la cartera de un cliente que la misma
+    // app le acababa de listar y recibia "Cliente no pertenece a este asesor".
+    // Son 186 clientes, con 59 movimientos que el lider no podia ver.
     const clientCheck = await pool.query(
-      `SELECT id, full_name, email, box_id, 
-              COALESCE(wallet_balance, 0) as wallet_balance, 
-              COALESCE(has_credit, false) as has_credit, 
-              COALESCE(credit_limit, 0) as credit_limit, 
-              COALESCE(used_credit, 0) as used_credit 
-       FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) AND role = 'client'`,
+      `SELECT u.id, u.full_name, u.email, u.box_id,
+              COALESCE(u.wallet_balance, 0) as wallet_balance,
+              COALESCE(u.has_credit, false) as has_credit,
+              COALESCE(u.credit_limit, 0) as credit_limit,
+              COALESCE(u.used_credit, 0) as used_credit
+         FROM users u
+        WHERE u.id = $1 AND u.role = 'client'
+          AND (
+            u.advisor_id = $2 OR u.referred_by_id = $2
+            OR EXISTS (
+              SELECT 1 FROM users s
+               WHERE s.id = COALESCE(u.advisor_id, u.referred_by_id)
+                 AND (s.advisor_id = $2 OR s.referred_by_id = $2)
+            )
+          )`,
       [clientId, advisorId]
     );
     if (clientCheck.rows.length === 0) {

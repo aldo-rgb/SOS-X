@@ -358,6 +358,18 @@ interface ClientWallet {
     // cientos de miles consumidos (tarea 468).
     credito_por_servicio?: { servicio: string; limite: number; usado: number; disponible: number; bloqueado: boolean }[];
   };
+  /** Los movimientos de su cartera. El backend ya los mandaba; esta pantalla
+   *  no los pintaba, asi que el asesor veia el saldo y ningun historial. */
+  movimientos?: Array<{
+    id: number;
+    fecha: string;
+    tipo: string;
+    etiqueta: string;
+    monto: number;
+    saldo_despues: number | null;
+    concepto: string | null;
+    por_su_referencia: boolean;
+  }>;
 }
 
 // ─── Helpers ───
@@ -8274,6 +8286,66 @@ export default function DashboardAdvisor() {
                   </Typography>
                 </Paper>
               )}
+              {/* Historial de la cartera.
+                  La pregunta que abrio esto fue literal: "hay alguna manera
+                  donde se puedan ver los pagos que han sido aprobados"
+                  (TKT-2026-3572, tarea 1013). El cliente los ve en su app; el
+                  asesor, que es quien cobra y a quien le preguntan, veia aqui
+                  los saldos y ningun movimiento. */}
+              <Box sx={{ px: 2, pb: 2 }}>
+                <Typography variant="body2" fontWeight={800} sx={{ mb: 1 }}>
+                  Movimientos ({(walletData.movimientos || []).length})
+                </Typography>
+                {(walletData.movimientos || []).length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Todavía no hay movimientos en su cartera.
+                  </Typography>
+                ) : (
+                  <Box sx={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #EEE', borderRadius: 2 }}>
+                    {(walletData.movimientos || []).map((m) => {
+                      const entra = Number(m.monto) >= 0;
+                      return (
+                        <Box key={m.id} sx={{
+                          display: 'flex', alignItems: 'flex-start', gap: 1.5, px: 1.5, py: 1,
+                          borderBottom: '1px solid #F5F5F5',
+                        }}>
+                          <Box sx={{
+                            width: 8, height: 8, borderRadius: '50%', mt: 0.9, flexShrink: 0,
+                            bgcolor: entra ? '#2E7D32' : '#C62828',
+                          }} />
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                              <Typography variant="body2" fontWeight={700}>{m.etiqueta}</Typography>
+                              {/* Lo que el asesor pregunto: cuales entraron con SU referencia. */}
+                              {m.por_su_referencia && (
+                                <Chip size="small" label="CON SU REFERENCIA"
+                                  sx={{ height: 18, fontSize: 9, fontWeight: 700, color: '#E65100',
+                                        bgcolor: '#FFF3E0', border: '1px solid #FFCC80' }} />
+                              )}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              {new Date(m.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              {m.saldo_despues !== null
+                                ? ` · quedó en $${Number(m.saldo_despues).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                : ''}
+                            </Typography>
+                            {!!m.concepto && (
+                              <Typography variant="caption" color="text.secondary"
+                                sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {m.concepto}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Typography variant="body2" fontWeight={800}
+                            sx={{ color: entra ? '#2E7D32' : '#C62828', whiteSpace: 'nowrap' }}>
+                            {entra ? '+' : '-'}${Math.abs(Number(m.monto)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
             </>
           ) : (
             <Box sx={{ p: 4, textAlign: 'center' }}>
