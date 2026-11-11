@@ -328,9 +328,21 @@ export default function TareasPage() {
   const matrixFuente: Task[] = matrixCruzado ? (matrixAllTasks || []) : tasks;
   const esDe = (t: Task, uid: number) =>
     Number(t.assignee_id) === uid || (t.participant_ids || []).map(Number).includes(uid);
-  const matrixTasks = matrixFuente
+  // Las terminadas no se pintan en la matriz.
+  //
+  // La matriz es para ver en qué hay que trabajar, y en un tablero con meses
+  // encima lo cerrado entierra lo abierto: de las 187 de una sola persona en
+  // Desarrollo, la mayoría ya estaban hechas y había que bajar entre tachados
+  // para encontrar lo que sigue vivo. No se pierden: con texto en el buscador
+  // vuelven a salir, porque entonces se están buscando a propósito.
+  //
+  // Esto es de la MATRIZ, no de las columnas: ahí las terminadas viven en su
+  // propia columna y esconderlas la dejaría vacía.
+  const matrixDelFiltro = matrixFuente
     .filter(coincideBusqueda)
     .filter(t => matrixPerson === 'all' || esDe(t, matrixPerson));
+  const matrixTasks = searchQ ? matrixDelFiltro : matrixDelFiltro.filter(t => t.status !== 'completed');
+  const matrixTerminadasOcultas = matrixDelFiltro.length - matrixTasks.length;
   // La lista de personas sale de las tareas que hay a la vista, no del
   // directorio entero: así el selector enseña a quien de verdad tiene trabajo
   // en este alcance y no 40 nombres vacíos.
@@ -340,7 +352,9 @@ export default function TareasPage() {
     || `Usuario ${uid}`;
   const matrixPersonas = (() => {
     const conteo = new Map<number, number>();
-    for (const x of matrixFuente.filter(coincideBusqueda)) {
+    // El número de cada quien cuenta lo MISMO que se va a ver al elegirlo: sin
+    // terminadas, salvo que se esté buscando.
+    for (const x of matrixFuente.filter(coincideBusqueda).filter(y => !!searchQ || y.status !== 'completed')) {
       const ids = new Set<number>();
       if (x.assignee_id) ids.add(Number(x.assignee_id));
       for (const pid of (x.participant_ids || [])) ids.add(Number(pid));
@@ -756,13 +770,25 @@ export default function TareasPage() {
           )}
           {view === 'matrix' && (
             <Typography fontSize={12} color="text.secondary">
-              {matrixPerson === 'all'
-                ? `Todas las tareas por cuadrante${matrixCruzado ? ' · todos los tableros' : ''}.`
-                : matrixTasks.length === 0 && !matrixCruzado
-                  // Cero aquí no quiere decir cero en todos lados, y leerlo así
-                  // manda a recorrer los tableros de uno en uno.
-                  ? `${nombreDe(matrixPerson)} no tiene tareas en ${board?.name || 'este tablero'}. Cambia Alcance a «Todos los tableros» para ver todo lo suyo.`
-                  : `Matriz de ${nombreDe(matrixPerson)} · ${matrixCruzado ? 'todos los tableros' : (board?.name || 'este tablero')} · ${matrixTasks.length} tarea${matrixTasks.length === 1 ? '' : 's'}.`}
+              {(() => {
+                const donde = matrixCruzado ? 'todos los tableros' : (board?.name || 'este tablero');
+                const n = matrixTasks.length;
+                // Lo que se esconde se dice. Una tarea que desaparece sin aviso
+                // se lee como una tarea perdida.
+                const ocultas = matrixTerminadasOcultas > 0
+                  ? ` ${matrixTerminadasOcultas} terminada${matrixTerminadasOcultas === 1 ? '' : 's'} oculta${matrixTerminadasOcultas === 1 ? '' : 's'}; búscalas por nombre o número para verlas.`
+                  : '';
+                if (matrixPerson === 'all') {
+                  return `${searchQ ? 'Resultados' : 'Tareas abiertas'} por cuadrante · ${donde}.${ocultas}`;
+                }
+                const quien = nombreDe(matrixPerson);
+                if (n === 0 && matrixTerminadasOcultas > 0) return `${quien} no tiene nada abierto en ${donde}.${ocultas}`;
+                // Cero aquí no quiere decir cero en todos lados, y leerlo así
+                // manda a recorrer los tableros de uno en uno.
+                if (n === 0) return `${quien} no tiene tareas en ${donde}.${matrixCruzado ? '' : ' Cambia Alcance a «Todos los tableros» para ver todo lo suyo.'}`;
+                const palabra = searchQ ? 'resultado' : 'abierta';
+                return `Matriz de ${quien} · ${donde} · ${n} ${palabra}${n === 1 ? '' : 's'}.${ocultas}`;
+              })()}
             </Typography>
           )}
         </Box>
