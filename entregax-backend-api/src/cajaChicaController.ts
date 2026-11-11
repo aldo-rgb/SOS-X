@@ -69,6 +69,29 @@ export const registrarCobroEnCajaSucursal = async (
   return { walletId, movementId: mov.rows[0].id, currency };
 };
 
+/**
+ * Qué transacciones son dinero que de verdad está en Caja CC.
+ *
+ * `caja_chica_transacciones` es el libro donde se ancla TODO cobro a un
+ * cliente, porque de ahí cuelga la aplicación a sus guías y su historial. Pero
+ * no todo ese billete está en Caja CC: el cobrado en el mostrador de una
+ * sucursal vive en la caja chica de esa sucursal, de donde sale su corte, y el
+ * de PO Box tiene su propio control. Contarlo aquí es contar el mismo billete
+ * dos veces.
+ *
+ * Esto vivía repetido en cada consulta y se fue separando: el SALDO de la
+ * pantalla ya excluía lo ajeno, la LISTA de movimientos no —así que a Dirección
+ * le aparecían en verde, como ingreso suyo, los cobros de CDMX y GDL (tarea
+ * 983)— y el CORTE no excluía nada, así que al contar el efectivo iba a pedir
+ * $4,024,591.33 más de los que la misma pantalla decía tener. Ahora las tres
+ * preguntan lo mismo, en un solo lugar.
+ */
+export const esDineroDeCajaCC = (alias = ''): string => {
+  const p = alias ? `${alias}.` : '';
+  return `COALESCE(${p}categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
+        AND (${p}categoria = 'pago_proveedor' OR ${p}concepto NOT ILIKE '%PO Box%')`;
+};
+
 // ============================================
 // OBTENER ESTADÍSTICAS DE CAJA CHICA
 // Ahora con soporte multi-moneda (USD/MXN)
@@ -88,8 +111,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
-        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
+        AND ${esDineroDeCajaCC()}
     `);
 
     const saldoUSD = parseFloat(saldoUSDResult.rows[0].total_ingresos) - parseFloat(saldoUSDResult.rows[0].total_egresos);
@@ -106,8 +128,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
-        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
+        AND ${esDineroDeCajaCC()}
     `);
     
     const saldoMXN = parseFloat(saldoMXNResult.rows[0].total_ingresos) - parseFloat(saldoMXNResult.rows[0].total_egresos);
@@ -126,8 +147,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
-        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
+        AND ${esDineroDeCajaCC()}
     `);
     
     // Transacciones del día por moneda (MXN) - excluyendo PO Box y cobro_guias
@@ -144,8 +164,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
         -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
         -- también sería registrar el mismo billete dos veces.
-        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador', 'fondeo_cartera_mostrador')
-        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
+        AND ${esDineroDeCajaCC()}
     `);
     
     // Último corte por moneda
@@ -761,8 +780,7 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
         ) AS consolidaciones
       FROM caja_chica_transacciones t
       LEFT JOIN users u ON u.id = t.cliente_id
-      WHERE (t.categoria = 'pago_proveedor' OR t.concepto NOT ILIKE '%PO Box%')
-        AND COALESCE(t.categoria, '') <> 'cobro_guias'
+      WHERE ${esDineroDeCajaCC('t')}
     `;
     const params: (string | number)[] = [];
     let paramIndex = 1;
@@ -987,6 +1005,7 @@ export const realizarCorte = async (req: AuthRequest, res: Response): Promise<vo
           COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
         FROM caja_chica_transacciones
         WHERE created_at > $1 AND COALESCE(currency, 'USD') = 'USD'
+          AND ${esDineroDeCajaCC()}
       `, [fechaUltimoCorteUSD]);
       
       const ingresosUSD = parseFloat(movimientosUSD.rows[0].total_ingresos);
@@ -1035,6 +1054,7 @@ export const realizarCorte = async (req: AuthRequest, res: Response): Promise<vo
           COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
         FROM caja_chica_transacciones
         WHERE created_at > $1 AND currency = 'MXN'
+          AND ${esDineroDeCajaCC()}
       `, [fechaUltimoCorteMXN]);
       
       const ingresosMXN = parseFloat(movimientosMXN.rows[0].total_ingresos);
