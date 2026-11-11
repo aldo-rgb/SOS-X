@@ -171,7 +171,46 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
                     [intent.id]
                 );
                 const ids = pkgIds.rows.map((r: any) => Number(r.id));
+
+                // ¿Queda OTRO cobro vivo que cubra estas mismas guías?
+                //
+                // El motivo más común para reembolsar es justamente que al
+                // cliente se le cobró dos veces lo mismo: paga, no ve el cargo,
+                // vuelve a pagar. Devolver el segundo cobro NO deja la guía sin
+                // pagar —el primero sigue ahí—, pero esto la marcaba 'refunded'
+                // con el monto entero de vuelta en saldo_pendiente. O sea que
+                // la caja que el cliente ya recibió le volvía a aparecer
+                // debiendo lo mismo que acababa de recuperar (tarea 1014: dos
+                // capturas de $1,580.14 por la misma guía, con tres días de
+                // diferencia).
+                //
+                // Se revierte solo si no queda ningún otro cobro capturado y sin
+                // reembolsar que cubra esas guías.
+                let otroCobroVivo = false;
                 if (ids.length) {
+                    const otro = await pool.query(
+                        `SELECT i.id, i.capture_id
+                           FROM paypal_payment_intents i
+                          WHERE i.id <> $1
+                            AND i.status = 'captured'
+                            AND i.capture_id IS NOT NULL
+                            AND i.package_ids @> to_jsonb($2::int[])
+                            AND NOT EXISTS (
+                                  SELECT 1 FROM paypal_refunds r
+                                   WHERE r.capture_id = i.capture_id
+                                     AND r.status IN ('completed', 'pending'))
+                          LIMIT 1`,
+                        [intent.id, ids]
+                    );
+                    otroCobroVivo = otro.rows.length > 0;
+                    if (otroCobroVivo) {
+                        console.warn(
+                            `[PAYPAL-REFUND] ${captureId}: las guías ${ids.join(', ')} siguen cubiertas por el cobro ` +
+                            `${otro.rows[0].capture_id}. Se devuelve el dinero pero la guía NO se marca sin pagar.`);
+                    }
+                }
+
+                if (ids.length && !otroCobroVivo) {
                     await pool.query(
                         `UPDATE packages
                             SET payment_status = 'refunded',
@@ -184,7 +223,9 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
                     );
                 }
 
-                // Marcar logs de cobranza como reembolsados
+                // Estas dos sí van siempre: hablan del COBRO que se devolvió,
+                // no de la guía. Ese cobro quedó reembolsado aunque la guía
+                // siga pagada por otro.
                 await pool.query(
                     `UPDATE openpay_webhook_logs
                         SET estatus_procesamiento = 'reembolsado'
@@ -192,7 +233,6 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
                     [captureId]
                 ).catch(() => {});
 
-                // Marcar pobox_payments si aplica
                 await pool.query(
                     `UPDATE pobox_payments
                         SET status = 'refunded'
@@ -212,6 +252,54 @@ export const refundPayPalCapture = async (req: AuthRequest, res: Response): Prom
     } catch (error: any) {
         console.error('❌ Error refundPayPalCapture:', error.message);
         res.status(500).json({ error: 'Error procesando reembolso' });
+    }
+};
+
+/**
+ * GET /api/payments/paypal/captures?q=...
+ *
+ * Busca cobros de PayPal ya capturados para poder reembolsarlos. Sin esto el
+ * reembolso existía pero no había forma de llegar a él: hay que saberse de
+ * memoria un id de captura de 17 caracteres. Se busca por lo que la gente sí
+ * tiene a la mano —el casillero, la guía, la referencia PP- o el nombre del
+ * cliente— y cada resultado dice si ya se le devolvió algo.
+ */
+export const buscarCapturasPayPal = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const q = String((req.query as any).q || '').trim();
+        const limit = Math.min(parseInt(String((req.query as any).limit || '25'), 10) || 25, 100);
+        if (q.length < 3) return res.status(400).json({ error: 'Escribe al menos 3 caracteres.' });
+
+        const r = await pool.query(
+            `SELECT i.id, i.capture_id, i.paypal_order_id, i.payment_ref, i.amount, i.currency,
+                    i.service_type, i.status, i.captured_at, i.created_at, i.package_ids,
+                    u.id AS user_id, u.box_id, u.full_name,
+                    (SELECT COALESCE(json_agg(json_build_object(
+                              'id', r2.id, 'refund_id', r2.refund_id, 'monto', r2.amount,
+                              'estado', r2.status, 'fecha', r2.created_at)), '[]'::json)
+                       FROM paypal_refunds r2 WHERE r2.capture_id = i.capture_id) AS reembolsos,
+                    (SELECT COALESCE(json_agg(p.tracking_internal ORDER BY p.tracking_internal), '[]'::json)
+                       FROM packages p
+                      WHERE p.id IN (SELECT (jsonb_array_elements_text(i.package_ids))::int)) AS guias
+               FROM paypal_payment_intents i
+               LEFT JOIN users u ON u.id = i.user_id
+              WHERE i.capture_id IS NOT NULL
+                AND (i.capture_id ILIKE $1
+                     OR i.paypal_order_id ILIKE $1
+                     OR COALESCE(i.payment_ref, '') ILIKE $1
+                     OR COALESCE(u.box_id, '') ILIKE $1
+                     OR COALESCE(u.full_name, '') ILIKE $1
+                     OR EXISTS (SELECT 1 FROM packages p
+                                 WHERE p.id IN (SELECT (jsonb_array_elements_text(i.package_ids))::int)
+                                   AND p.tracking_internal ILIKE $1))
+              ORDER BY i.created_at DESC
+              LIMIT ${limit}`,
+            [`%${q}%`]
+        );
+        res.json({ capturas: r.rows });
+    } catch (err: any) {
+        console.error('buscarCapturasPayPal error:', err.message);
+        res.status(500).json({ error: 'Error al buscar cobros de PayPal' });
     }
 };
 

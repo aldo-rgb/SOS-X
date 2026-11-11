@@ -5723,9 +5723,10 @@ app.get('/api/payments/paypal/callback', handlePayPalPaymentCallback);
 import { handlePayPalWebhook } from './paypalWebhookController';
 app.post('/api/payments/paypal/webhook', handlePayPalWebhook);
 // PayPal refunds (director+)
-import { refundPayPalCapture, listPayPalRefunds } from './paypalRefundController';
+import { refundPayPalCapture, listPayPalRefunds, buscarCapturasPayPal } from './paypalRefundController';
 app.post('/api/payments/paypal/refund', authenticateToken, requireMinLevel(ROLES.DIRECTOR), paymentLimiter, refundPayPalCapture);
 app.get('/api/payments/paypal/refunds', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listPayPalRefunds);
+app.get('/api/payments/paypal/captures', authenticateToken, requireMinLevel(ROLES.DIRECTOR), buscarCapturasPayPal);
 
 // --- RUTA DE PRUEBA PARA CONFIRMAR PAGOS ---
 app.post('/api/payments/test/confirm', authenticateToken, testConfirmPayment);

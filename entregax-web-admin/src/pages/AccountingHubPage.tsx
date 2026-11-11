@@ -26,6 +26,8 @@ import MoveToInboxIcon from '@mui/icons-material/MoveToInbox';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import ContactsIcon from '@mui/icons-material/Contacts';
+import ReplayIcon from '@mui/icons-material/Replay';
+import ReembolsosPaypalTab from '../components/ReembolsosPaypalTab';
 import SyncIcon from '@mui/icons-material/Sync';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -336,6 +338,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           <Tab label="Cuentas por Pagar" icon={<PaidIcon />} iconPosition="start" />
           <Tab label="Movimientos Banco" icon={<AccountBalanceIcon />} iconPosition="start" />
           <Tab label="Directorio Fiscal" icon={<ContactsIcon />} iconPosition="start" />
+          <Tab label="Reembolsos PayPal" icon={<ReplayIcon />} iconPosition="start" />
         </Tabs>
 
         <Box sx={{ p: 2 }}>
@@ -346,6 +349,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           {tab === 4 && <AccountsPayableTab emitter={emitter} />}
           {tab === 5 && <BankMovementsTab emitter={emitter} />}
           {tab === 6 && <DirectorioFiscalTab />}
+          {tab === 7 && <ReembolsosPaypalTab />}
         </Box>
       </Paper>
     </Box>
