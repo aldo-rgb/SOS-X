@@ -1609,6 +1609,44 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
     const creditoUsado = creditoPorServicio.reduce((n: number, c: any) => n + c.usado, 0);
     const creditoLimite = creditoPorServicio.reduce((n: number, c: any) => n + c.limite, 0);
 
+    // Los movimientos de su cartera: qué pagos entraron con su referencia, qué
+    // se le abonó y qué se aplicó a su crédito.
+    //
+    // El dato existía y el cliente lo ve en su app, pero el asesor —que es
+    // quien cobra y a quien le preguntan— no tenía dónde verlo: este endpoint
+    // devolvía saldos y ningún movimiento. De ahí la pregunta "¿hay manera de
+    // ver los pagos aprobados con su referencia?" (TKT-2026-3572, tarea 1013).
+    const ETIQUETA: Record<string, string> = {
+      deposit_spei: 'Pago recibido',
+      deposit_cash: 'Pago recibido',
+      credit_settlement: 'Aplicado a su crédito',
+      refund: 'Devolución',
+      payment_wallet: 'Pagó con su saldo',
+    };
+    const mov = await pool.query(
+      `SELECT id, type::text AS tipo, amount, balance_after, description,
+              reference_type, reference_id, created_at
+         FROM financial_transactions
+        WHERE user_id = $1
+        ORDER BY created_at DESC, id DESC
+        LIMIT 60`, [clientId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const movimientos = mov.rows.map((m: any) => ({
+      id: Number(m.id),
+      fecha: m.created_at,
+      tipo: String(m.tipo),
+      // 'adjustment' es las dos cosas según el signo: un saldo a favor que se
+      // le abona, o una corrección que se le quita. Decirle "ajuste" a las dos
+      // deja al asesor sin saber cuál fue.
+      etiqueta: ETIQUETA[String(m.tipo)]
+        || (Number(m.amount) >= 0 ? 'Saldo a favor' : 'Ajuste a su contra'),
+      monto: Number(m.amount),
+      saldo_despues: m.balance_after === null ? null : Number(m.balance_after),
+      concepto: m.description || null,
+      // Un pago entrado por su referencia se reconoce por aquí.
+      por_su_referencia: String(m.reference_type || '') === 'wallet_funding',
+    }));
+
     res.json({
       cliente: {
         id: client.id,
@@ -1640,7 +1678,8 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
         credito_usado: creditoUsado,
         credito_limite: creditoLimite,
         credito_disponible: Math.max(0, creditoLimite - creditoUsado),
-      }
+      },
+      movimientos,
     });
   } catch (error) {
     console.error('Error fetching client wallet:', error);

@@ -127,6 +127,33 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
     days_to_expire?: number | null;
   };
   const [csfModal, setCsfModal] = useState(false);
+
+  // Cartera del cliente: su referencia de pago y lo que ha entrado con ella.
+  // Antes el asesor no tenía dónde verlo y tenía que preguntarlo por ticket.
+  const [payClient, setPayClient] = useState<Client | null>(null);
+  const [payModal, setPayModal] = useState(false);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payData, setPayData] = useState<any>(null);
+
+  const openPagos = async (client: Client) => {
+    setPayClient(client);
+    setPayModal(true);
+    setPayLoading(true);
+    setPayData(null);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${client.id}/wallet`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'No se pudo cargar');
+      setPayData(json);
+    } catch (e: any) {
+      Alert.alert('Cartera', e?.message || 'No se pudo cargar la cartera del cliente.');
+      setPayModal(false);
+    } finally {
+      setPayLoading(false);
+    }
+  };
   const [csfClient, setCsfClient] = useState<Client | null>(null);
   const [csfStatus, setCsfStatus] = useState<CsfStatus | null>(null);
   const [csfLoading, setCsfLoading] = useState(false);
@@ -721,6 +748,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#e8f5e9' }]} onPress={() => openCsfModal(item)}>
             <Ionicons name="document-text-outline" size={20} color="#2e7d32" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#fff3e0' }]} onPress={() => openPagos(item)}>
+            <Ionicons name="wallet-outline" size={20} color="#E65100" />
           </TouchableOpacity>
         </View>
       </View>
@@ -1553,6 +1583,121 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                 </ScrollView>
               </View>
             </View>
+          )}
+        </View>
+      </Modal>
+
+      {/* ── Cartera del cliente: su referencia y lo que ha entrado con ella ── */}
+      <Modal visible={payModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPayModal(false)}>
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Cartera de {payClient?.full_name?.split(' ')[0] || 'cliente'}</Text>
+            <TouchableOpacity onPress={() => setPayModal(false)}>
+              <Ionicons name="close" size={26} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          {payLoading ? (
+            <View style={{ padding: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color="#E65100" />
+            </View>
+          ) : !payData ? null : (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              {/* La referencia, para pasarsela al cliente sin buscarla */}
+              {payData?.cartera?.referencia_saf ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    Clipboard.setString(String(payData.cartera.referencia_saf));
+                    Alert.alert('Copiada', 'La referencia ya esta en el portapapeles.');
+                  }}
+                  style={{ backgroundColor: '#FFF3E0', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#FFCC80' }}
+                >
+                  <Text style={{ fontSize: 11, color: '#E65100', fontWeight: '700' }}>REFERENCIA DE PAGO (NO CAMBIA)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <Text style={{ fontSize: 20, fontWeight: '800', color: '#BF360C', fontFamily: 'monospace' }}>
+                      {payData.cartera.referencia_saf}
+                    </Text>
+                    <Ionicons name="copy-outline" size={18} color="#E65100" />
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#8D6E63', marginTop: 4 }}>
+                    Con esta referencia sus depositos se acreditan solos.
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={{ backgroundColor: '#FFF8E1', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <Text style={{ fontSize: 13, color: '#8D6E63' }}>
+                    Este cliente todavia no tiene referencia de pago. Pidela a Contabilidad.
+                  </Text>
+                </View>
+              )}
+
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                <View style={{ flex: 1, backgroundColor: '#E8F5E9', borderRadius: 12, padding: 12 }}>
+                  <Text style={{ fontSize: 11, color: '#2E7D32', fontWeight: '700' }}>SALDO A FAVOR</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1B5E20' }}>
+                    ${Number(payData?.cartera?.saldo_favor || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                {Number(payData?.cartera?.credito_limite || 0) > 0 && (
+                  <View style={{ flex: 1, backgroundColor: '#E3F2FD', borderRadius: 12, padding: 12 }}>
+                    <Text style={{ fontSize: 11, color: '#1565C0', fontWeight: '700' }}>CREDITO DISPONIBLE</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: '#0D47A1' }}>
+                      ${Number(payData?.cartera?.credito_disponible || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: '#546E7A' }}>
+                      de ${Number(payData?.cartera?.credito_limite || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#333', marginBottom: 8 }}>
+                Movimientos ({(payData?.movimientos || []).length})
+              </Text>
+
+              {(payData?.movimientos || []).length === 0 ? (
+                <Text style={{ fontSize: 13, color: '#999' }}>Todavia no hay movimientos en su cartera.</Text>
+              ) : (
+                (payData.movimientos as any[]).map((m) => {
+                  const entra = Number(m.monto) >= 0;
+                  return (
+                    <View key={m.id} style={{
+                      flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 10,
+                      borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+                    }}>
+                      <View style={{
+                        width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: entra ? '#E8F5E9' : '#FFEBEE',
+                      }}>
+                        <Ionicons name={entra ? 'arrow-down' : 'arrow-up'} size={15} color={entra ? '#2E7D32' : '#C62828'} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#333' }}>{m.etiqueta}</Text>
+                          {m.por_su_referencia && (
+                            <View style={{ backgroundColor: '#FFF3E0', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
+                              <Text style={{ fontSize: 9, color: '#E65100', fontWeight: '700' }}>CON SU REFERENCIA</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 11, color: '#777', marginTop: 1 }}>
+                          {new Date(m.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {m.saldo_despues !== null
+                            ? ` · quedo en $${Number(m.saldo_despues).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                            : ''}
+                        </Text>
+                        {!!m.concepto && (
+                          <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }} numberOfLines={2}>{m.concepto}</Text>
+                        )}
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: entra ? '#2E7D32' : '#C62828' }}>
+                        {entra ? '+' : '-'}${Math.abs(Number(m.monto)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
           )}
         </View>
       </Modal>
