@@ -3019,6 +3019,33 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     ayuda: `Ya se validó ${caja}. Ahora escanea la etiqueta de ${nombrePaqueteria(carrier)} pegada en esa misma caja.`,
                 });
             }
+            // 1.5) Dos códigos encimados en una sola lectura.
+            //
+            // El lector alcanza a meter la guía nuestra y la del courier en el
+            // mismo renglón, o lee dos veces la misma etiqueta, y lo que llega
+            // es "US-5700997849MTY01WE6652560001001" o el mismo código
+            // repetido. Guardado así, el enlace de rastreo lleva al cliente a
+            // una página que no existe: hay 111 guías con ese problema y la
+            // reportó Juan Segura con una caja que él mismo probó (tarea 850).
+            //
+            // No se adivina cuál de los dos era: se rechaza y se pide volver a
+            // escanear. Partirlo por nuestra cuenta sería inventar la guía con
+            // la que viaja la caja de un cliente.
+            const mitad = Math.floor(extTracking.length / 2);
+            const esDoble = extTracking.length >= 8 && extTracking.length % 2 === 0
+                && extTracking.slice(0, mitad) === extTracking.slice(mitad);
+            const traePegadaLaNuestra = /^(?:US-REPACK-\d+|US-\d{10}(?:-\d{1,4})?|(?:AIR|CN|TDX|LOG)[A-Z0-9]*-\d{1,4}).{8,}$/i
+                .test(extTracking);
+            if (esDoble || traePegadaLaNuestra) {
+                return res.status(400).json({
+                    error: `⚠️ Llegaron dos códigos pegados: ${extTracking}`,
+                    ayuda: esDoble
+                        ? 'Se leyó la misma etiqueta dos veces. Borra el campo y escanéala una sola vez.'
+                        : `La guía de ${caja} se metió junto con la de ${nombrePaqueteria(carrier)}. `
+                          + 'Borra el campo y escanea solo la etiqueta de la paquetería.',
+                });
+            }
+
             // 2) Cada caja lleva su propia guía… salvo cuando el embarque entero
             // viaja con UNA sola. Las guías multipieza existen y se generan así:
             // al crear la guía de Paquete Express de un embarque, el mismo número
