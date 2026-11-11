@@ -3344,24 +3344,62 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                 // El pago del cliente NO marca costing_paid (pago a proveedor).
             }
             try {
-                // payload_json es NOT NULL y este INSERT no la traía, así que
-                // siempre reventaba y el catch de abajo se lo tragaba: 10
-                // órdenes pagadas con monedero y cero rastros en la bitácora.
-                // Una orden liquidada con saldo no aparecía en la conciliación
-                // y parecía que nunca se pagó.
-                await client.query(
-                    `INSERT INTO openpay_webhook_logs (
-                        transaction_id, monto_recibido, monto_neto, concepto,
-                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type, payload_json
-                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'wallet', 'POBOX_USA', $5::jsonb)`,
+                // La orden YA tiene su renglón en la bitácora desde que se
+                // generó. Se cierra ESE, no se abre otro.
+                //
+                // Antes se insertaba uno nuevo con un folio inventado
+                // (`WALLET-<ref>`) y el original se quedaba en
+                // 'pending_payment' con el método con que nació —casi siempre
+                // transferencia, que Cobranza lee como SPEI—. Resultado: la
+                // misma orden aparecía dos veces, una pagada con saldo y otra
+                // pendiente por SPEI, y la que ve Contabilidad es la pendiente.
+                // De ahí el reporte "el pago con saldo a favor aparece por
+                // SPEI" (tarea 1006). Son 10 órdenes por $61,258.18.
+                //
+                // El patrón de cerrar el renglón en vez de duplicarlo ya existe
+                // en este mismo archivo para el pago con crédito; este camino
+                // era el único que se había quedado fuera.
+                //
+                // `monto_neto` NO se toca: el renglón nació con el total de la
+                // orden y `applied` es solo la parte que cubrió el saldo. En
+                // una orden mixta, pisarlo borraría lo que entró por otra vía.
+                const cerrado = await client.query(
+                    `UPDATE openpay_webhook_logs
+                        SET estatus_procesamiento = 'procesado',
+                            payment_method = 'wallet',
+                            tipo_pago = 'wallet',
+                            concepto = $2,
+                            fecha_pago = CURRENT_TIMESTAMP,
+                            processed_at = CURRENT_TIMESTAMP
+                      WHERE transaction_id = $1
+                        AND estatus_procesamiento = 'pending_payment'
+                      RETURNING id`,
                     [
-                        `WALLET-${order.payment_reference}`,
-                        applied,
+                        order.payment_reference,
                         `Pago PO Box (Saldo a favor) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
-                        userId,
-                        JSON.stringify({ origen: 'wallet_general', pobox_payment_id: orderId, packageIds: packageIds || [] }),
                     ]
                 );
+
+                // Solo si no había renglón que cerrar se abre uno. Pasa con las
+                // órdenes viejas, de antes de que la generación lo creara.
+                if (cerrado.rowCount === 0) {
+                    // payload_json es NOT NULL y este INSERT no la traía, así que
+                    // siempre reventaba y el catch de abajo se lo tragaba: 10
+                    // órdenes pagadas con monedero y cero rastros en la bitácora.
+                    await client.query(
+                        `INSERT INTO openpay_webhook_logs (
+                            transaction_id, monto_recibido, monto_neto, concepto,
+                            fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type, payload_json
+                         ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'wallet', 'POBOX_USA', $5::jsonb)`,
+                        [
+                            `WALLET-${order.payment_reference}`,
+                            applied,
+                            `Pago PO Box (Saldo a favor) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                            userId,
+                            JSON.stringify({ origen: 'wallet_general', pobox_payment_id: orderId, packageIds: packageIds || [] }),
+                        ]
+                    );
+                }
             } catch (logErr) {
                 console.warn('No se pudo registrar log wallet:', logErr);
             }
