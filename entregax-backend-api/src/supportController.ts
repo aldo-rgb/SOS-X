@@ -27,11 +27,61 @@ try {
   console.warn('⚠️ No se pudo crear directorio de uploads de soporte:', e);
 }
 
+/**
+ * Cuanto se puede adjuntar en UNA respuesta de soporte.
+ *
+ * El tope eran 10 archivos y lo que detenia de verdad no era el numero, era la
+ * memoria: estos adjuntos se arman en RAM antes de subirse a S3, asi que 10
+ * archivos de 50 MB son medio giga en el proceso. Subir el numero sin mas
+ * hubiera empeorado eso.
+ *
+ * Asi que ahora el numero manda menos y el peso manda mas: caben 30 archivos
+ * pero la respuesta completa no pasa de 200 MB. El caso real que lo pidio
+ * —TKT-2026-3601, tarea 1020— es alguien documentando un caso con fotos y
+ * videos cortos, que es justo lo que cabe. De 2,357 respuestas con adjuntos en
+ * toda la historia, solo 4 llegaron a tocar el tope de 10.
+ *
+ * El peor caso de memoria baja de 500 MB a ~250 MB (el tope mas el archivo que
+ * se estaba leyendo cuando se alcanzo), que es menos de lo que se gastaba
+ * antes.
+ */
+export const MAX_ADJUNTOS_RESPUESTA = 30;
+const MAX_BYTES_POR_ARCHIVO = 50 * 1024 * 1024;
+const MAX_BYTES_POR_RESPUESTA = 200 * 1024 * 1024;
+
+/**
+ * memoryStorage, pero llevando la cuenta de lo que va pesando la respuesta.
+ *
+ * Se revisa ANTES de empezar a leer cada archivo, no a media lectura: asi no
+ * hay que abortar un stream a medias, y como multer ya corta cada archivo en 50
+ * MB el excedente nunca pasa de uno.
+ */
+export const almacenConTopeTotal: multer.StorageEngine = {
+  _handleFile(req: any, file: any, cb: any) {
+    const yaVan: number = Number(req.__bytesAdjuntos || 0);
+    if (yaVan >= MAX_BYTES_POR_RESPUESTA) {
+      const err: any = new Error('LIMIT_TOTAL_SIZE');
+      err.code = 'LIMIT_TOTAL_SIZE';
+      cb(err);
+      return;
+    }
+    const trozos: Buffer[] = [];
+    let n = 0;
+    file.stream.on('data', (d: Buffer) => { trozos.push(d); n += d.length; });
+    file.stream.on('error', cb);
+    file.stream.on('end', () => {
+      req.__bytesAdjuntos = yaVan + n;
+      cb(null, { buffer: Buffer.concat(trozos), size: n });
+    });
+  },
+  _removeFile(_req: any, _file: any, cb: any) { cb(null); },
+};
+
 const multerUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: almacenConTopeTotal,
   // 50MB por archivo: un video de celular de unos segundos pesa mas de 20MB,
   // que era el tope anterior, y lo tiraba por tamano (ver nota del filtro).
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: MAX_BYTES_POR_ARCHIVO },
   fileFilter: (req, file, cb) => {
     // Imágenes (incl. HEIC/HEIF), VIDEO, PDF, Office (Word/Excel/PowerPoint),
     // CSV, XML y texto plano.
@@ -70,7 +120,7 @@ const multerUpload = multer({
     }
     cb(null, ok);
   }
-}).array('images', 10);
+}).array('images', MAX_ADJUNTOS_RESPUESTA);
 
 const wrapMulter = (req: Request, res: Response, next: Function) => {
   multerUpload(req, res, (err: any) => {
@@ -85,8 +135,13 @@ const wrapMulter = (req: Request, res: Response, next: Function) => {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ error: 'El archivo pesa más de 50 MB y no se pudo adjuntar. Si es un video, recórtalo y vuelve a intentar.' });
       }
+      if (err.code === 'LIMIT_TOTAL_SIZE') {
+        return res.status(413).json({
+          error: 'Todo junto pasa de 200 MB y no cabe en una sola respuesta. Manda los archivos en dos mensajes.',
+        });
+      }
       if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
-        return res.status(400).json({ error: 'Puedes adjuntar hasta 10 archivos por mensaje.' });
+        return res.status(400).json({ error: `Puedes adjuntar hasta ${MAX_ADJUNTOS_RESPUESTA} archivos por mensaje.` });
       }
       return res.status(400).json({ error: 'No se pudieron leer los archivos adjuntos. Intenta de nuevo.' });
     }

@@ -149,7 +149,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   // Jorge Gaona reportó en la tarea 338 que el teléfono no lo dejaba subir
   // varias fotos a la vez.
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const MAX_ADJUNTOS = 10;
+  // Lo mismo que acepta el servidor. Si se cambia alla, se cambia aqui: el
+  // aviso tiene que decir la verdad o el que lo lee deja de intentarlo.
+  const MAX_ADJUNTOS = 30;
   const scrollRef = useRef<ScrollView>(null);
   // Visor de imagen a pantalla completa + transferencia por departamento
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
