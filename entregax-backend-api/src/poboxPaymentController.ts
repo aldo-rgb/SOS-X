@@ -3412,6 +3412,30 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                 );
             }
         } else {
+            // Saldo que NO alcanzó a cubrir la orden: el resto llega por el
+            // método con que nació, así que ése se respeta. Pero la parte que
+            // ya se pagó con saldo tiene que decirse, o Contabilidad ve una
+            // orden pendiente por el total y nada que indique que una parte ya
+            // está cubierta con dinero que ya era nuestro (tarea 1006).
+            //
+            // Se escribe en el concepto, que es lo que la bitácora enseña. No
+            // se toca el método: cambiarlo diría que TODO entró por saldo.
+            const acumulado = (parseFloat(order.wallet_applied) || 0) + applied;
+            try {
+                await client.query(
+                    `UPDATE openpay_webhook_logs
+                        SET concepto = REGEXP_REPLACE(COALESCE(concepto, ''), ' \\(incluye .* de saldo a favor\\)$', '')
+                                       || $2
+                      WHERE transaction_id = $1
+                        AND estatus_procesamiento = 'pending_payment'`,
+                    [
+                        order.payment_reference,
+                        ` (incluye $${acumulado.toFixed(2)} de saldo a favor)`,
+                    ]
+                );
+            } catch (e: any) {
+                console.warn('[wallet] no se pudo anotar el saldo en la bitácora:', e?.message);
+            }
             await client.query('COMMIT');
         }
 
