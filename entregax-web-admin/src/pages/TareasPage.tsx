@@ -346,6 +346,16 @@ export default function TareasPage() {
       for (const pid of (x.participant_ids || [])) ids.add(Number(pid));
       for (const id of ids) conteo.set(id, (conteo.get(id) || 0) + 1);
     }
+    // Y además TODO el equipo, aunque no tenga nada aquí.
+    //
+    // La lista salía solo de las tareas a la vista, así que en un tablero donde
+    // alguien no tiene trabajo ese alguien simplemente no estaba. Eso no se lee
+    // como "no tiene tareas": se lee como que la pantalla lo perdió, y obliga a
+    // ir tablero por tablero para enterarse de que no hay nada. Ahora están
+    // todos, con su número al lado: primero los que tienen trabajo y al final
+    // los que van en (0), que al elegirlos enseñan la matriz vacía, que es la
+    // respuesta correcta a "¿qué trae esta persona aquí?".
+    for (const u of users) if (!conteo.has(u.id)) conteo.set(u.id, 0);
     return Array.from(conteo.entries())
       .map(([id, n]) => ({ id, n, name: nombreDe(id) }))
       .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
@@ -748,7 +758,11 @@ export default function TareasPage() {
             <Typography fontSize={12} color="text.secondary">
               {matrixPerson === 'all'
                 ? `Todas las tareas por cuadrante${matrixCruzado ? ' · todos los tableros' : ''}.`
-                : `Matriz de ${nombreDe(matrixPerson)} · ${matrixCruzado ? 'todos los tableros' : (board?.name || 'este tablero')} · ${matrixTasks.length} tarea${matrixTasks.length === 1 ? '' : 's'}.`}
+                : matrixTasks.length === 0 && !matrixCruzado
+                  // Cero aquí no quiere decir cero en todos lados, y leerlo así
+                  // manda a recorrer los tableros de uno en uno.
+                  ? `${nombreDe(matrixPerson)} no tiene tareas en ${board?.name || 'este tablero'}. Cambia Alcance a «Todos los tableros» para ver todo lo suyo.`
+                  : `Matriz de ${nombreDe(matrixPerson)} · ${matrixCruzado ? 'todos los tableros' : (board?.name || 'este tablero')} · ${matrixTasks.length} tarea${matrixTasks.length === 1 ? '' : 's'}.`}
             </Typography>
           )}
         </Box>
