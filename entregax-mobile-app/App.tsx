@@ -63,6 +63,7 @@ import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
 import ServicesGuideScreen from './src/screens/ServicesGuideScreen';
 import GuestTrackingScreen from './src/screens/GuestTrackingScreen';
 import SaldoFavorScreen from './src/screens/SaldoFavorScreen';
+import MisFacturasScreen from './src/screens/MisFacturasScreen';
 import SupplierPaymentScreen from './src/screens/SupplierPaymentScreen';
 import ExternalProviderTransitionScreen from './src/screens/ExternalProviderTransitionScreen';
 import ReferidosScreen from './src/screens/ReferidosScreen';
@@ -193,6 +194,7 @@ export type RootStackParamList = {
   ServicesGuide: { user: any; token: string };
   // Saldo a Favor y Referidos
   SaldoFavor: { user: any; token: string };
+  MisFacturas: { user: any; token: string };
   SupplierPayment: { user: any; token: string };
   ExternalProviderTransition: { user: any; token: string; target?: string; label?: string };
   Referidos: { user: any; token: string };
@@ -486,6 +488,16 @@ function App() {
               headerShown: true,
               headerTitle: 'Saldo a Favor',
               headerTintColor: '#0097A7',
+            }}
+          />
+          {/* Mis Facturas (CFDI con PDF y XML) */}
+          <Stack.Screen
+            name="MisFacturas"
+            component={MisFacturasScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Mis Facturas',
+              headerTintColor: '#D6521C',
             }}
           />
           {/* Pago a Proveedores (ENTANGLED) */}

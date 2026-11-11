@@ -72,6 +72,7 @@ type RootStackParamList = {
   MyAddresses: { user: any; token: string };
   MyPaymentMethods: { user: any; token: string };
   MyProfile: { user: any; token: string };
+  MisFacturas: { user: any; token: string };
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
   SupportChat: { user: any; token: string; mode?: 'ai' | 'human'; ticketId?: number };
@@ -1941,6 +1942,18 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Ionicons name="receipt-outline" size={24} color={BLACK} />
               <Text style={styles.menuItemText}>{t('profile.myPendingPayments')}</Text>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowMenu(false);
+                navigation.navigate('MisFacturas' as any, { user, token });
+              }}
+            >
+              <Ionicons name="document-attach-outline" size={24} color={BLACK} />
+              <Text style={styles.menuItemText}>{t('profile.myInvoices')}</Text>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
