@@ -2526,6 +2526,40 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       effectiveZip = cpDelCliente;
     }
 
+    // 1.5) Códigos postales donde SÍ entregan, aunque la cotizadora diga que no.
+    //
+    // La cotizadora de Paquete Express contesta "sin cobertura a domicilio"
+    // para algunos CP donde en los hechos sí entregan: la guía hecha a mano en
+    // su portal llega a la puerta. Lo comprobó Juan Segura generando una, y el
+    // asesor del caso llevaba meses emitiéndolas por fuera del sistema justo
+    // por eso (tarea 858).
+    //
+    // Cotizar y entregar son dos preguntas distintas, y dejábamos que la
+    // primera decidiera la segunda: sin tarifa, el envío se desviaba a
+    // sucursal. Aquí se corta esa cadena para los CP que ya se verificaron a
+    // mano. Es una lista, no una regla general: cada CP entra cuando alguien
+    // comprobó una entrega, y sale igual de fácil si deja de cumplirse.
+    //
+    // No toca el Ocurre pedido a propósito —el del panel o el toggle de la
+    // dirección—: ésos siguen mandando.
+    if (cpPedidoAparte && /^\d{5}$/.test(cpDelCliente) && String(effectiveZip || '').trim() !== cpDelCliente) {
+      try {
+        const cfg = await pool.query(
+          `SELECT config_value FROM system_configurations
+            WHERE config_key = 'pqtx_cp_entrega_a_domicilio' AND COALESCE(is_active, TRUE) LIMIT 1`);
+        const zips: string[] = Array.isArray(cfg.rows[0]?.config_value?.zips)
+          ? cfg.rows[0].config_value.zips.map((z: any) => String(z).trim())
+          : [];
+        if (zips.includes(cpDelCliente)) {
+          console.warn(`[PQTX-GEN] El CP ${cpDelCliente} está en la lista de "sí entregan a domicilio": `
+            + `se ignora la sucursal ${effectiveZip} y la guía va al domicilio del cliente.`);
+          effectiveZip = cpDelCliente;
+        }
+      } catch (e: any) {
+        console.warn('[PQTX-GEN] no se pudo leer la lista de CP con entrega:', e?.message);
+      }
+    }
+
     // 2) Flag OCURRE: la etiqueta debe rotular "OCURRE" y usar la ciudad de la
     // sucursal cuando se pidió Ocurre manual, cuando la dirección trae el
     // toggle, o —y esto es lo que faltaba— cuando el CP que va a viajar en la
