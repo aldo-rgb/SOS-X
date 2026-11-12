@@ -148,10 +148,15 @@ export default function SettingsPage() {
             setLocalReqInstrPobox(requireInstructionsToLoadPobox);
             if (!porServicioCargado.current) {
                 porServicioCargado.current = true;
+                // Lo que no venga del servidor se asume exigido, menos las
+                // instrucciones, que arrancan apagadas como los demas servicios.
+                const conDefault = (v: any, falta: boolean): SvcCarga => ({
+                    aereo: v?.aereo ?? falta, maritimo: v?.maritimo ?? falta, tdi_express: v?.tdi_express ?? falta,
+                });
                 setPorServicio({
-                    pago: requirePaymentByService,
-                    etiqueta: requireLabelByService,
-                    instrucciones: requireInstructionsByService,
+                    pago: conDefault(requirePaymentByService, true),
+                    etiqueta: conDefault(requireLabelByService, true),
+                    instrucciones: conDefault(requireInstructionsByService, false),
                 });
             }
             setLocalExternalSync(externalSyncEnabled);
@@ -346,11 +351,16 @@ export default function SettingsPage() {
             setTogglingAdvisorXpay(false);
         }
     };
-    // Excepciones por servicio: TDI Aéreo (guías AIR) y Marítimo.
-    const [porServicio, setPorServicio] = useState<Record<string, { aereo: boolean; maritimo: boolean }>>({
-        pago: { aereo: true, maritimo: true },
-        etiqueta: { aereo: true, maritimo: true },
-        instrucciones: { aereo: false, maritimo: false },
+    // Excepciones por servicio: TDI Aéreo (guías AIR), Marítimo y TDI Express.
+    //
+    // TDI Express se agrego despues: el servicio nacio en octubre y este panel
+    // ya existia, asi que heredaba en silencio "exige pago y etiqueta" sin que
+    // nadie pudiera cambiarlo (tarea 1027).
+    type SvcCarga = { aereo: boolean; maritimo: boolean; tdi_express: boolean };
+    const [porServicio, setPorServicio] = useState<Record<string, SvcCarga>>({
+        pago: { aereo: true, maritimo: true, tdi_express: true },
+        etiqueta: { aereo: true, maritimo: true, tdi_express: true },
+        instrucciones: { aereo: false, maritimo: false, tdi_express: false },
     });
     const [guardandoServicio, setGuardandoServicio] = useState<string | null>(null);
     // Los interruptores por servicio se leen del servidor UNA vez, al cargar.
@@ -359,7 +369,7 @@ export default function SettingsPage() {
     const porServicioCargado = useRef(false);
     const handleTogglePorServicio = async (
         requisito: 'pago' | 'etiqueta' | 'instrucciones',
-        servicio: 'aereo' | 'maritimo',
+        servicio: 'aereo' | 'maritimo' | 'tdi_express',
         checked: boolean,
     ) => {
         setGuardandoServicio(`${requisito}:${servicio}`);
@@ -367,7 +377,8 @@ export default function SettingsPage() {
         setPorServicio(p => ({ ...p, [requisito]: { ...antes, [servicio]: checked } }));
         try {
             await toggleLoadingRequirementByService(requisito, servicio, checked);
-            setSnackbar({ open: true, message: `${servicio === 'aereo' ? 'TDI Aéreo' : 'Marítimo'}: requisito ${checked ? 'activado' : 'desactivado'}`, severity: 'success' });
+            const nombre = servicio === 'aereo' ? 'TDI Aéreo' : servicio === 'maritimo' ? 'Marítimo' : 'TDI Express';
+            setSnackbar({ open: true, message: `${nombre}: requisito ${checked ? 'activado' : 'desactivado'}`, severity: 'success' });
         } catch (err: any) {
             setPorServicio(p => ({ ...p, [requisito]: antes }));
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
@@ -1173,7 +1184,7 @@ export default function SettingsPage() {
                                     Exigir el pago en estos servicios (si lo apagas, sus guías se cargan aunque no estén pagadas):
                                 </Typography>
                                 <Stack direction="row" spacing={2} flexWrap="wrap">
-                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo'], ['tdi_express', 'TDI Express (guías TDX)']] as const).map(([svc, etiqueta]) => (
                                         <FormControlLabel
                                             key={svc}
                                             control={
@@ -1224,7 +1235,7 @@ export default function SettingsPage() {
                                     Exigir la etiqueta en estos servicios (si lo apagas, sus guías se cargan sin etiqueta):
                                 </Typography>
                                 <Stack direction="row" spacing={2} flexWrap="wrap">
-                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo'], ['tdi_express', 'TDI Express (guías TDX)']] as const).map(([svc, etiqueta]) => (
                                         <FormControlLabel
                                             key={svc}
                                             control={
@@ -1277,7 +1288,7 @@ export default function SettingsPage() {
                                     Exigir instrucciones también en estos servicios (apagado = no se piden):
                                 </Typography>
                                 <Stack direction="row" spacing={2} flexWrap="wrap">
-                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo']] as const).map(([svc, etiqueta]) => (
+                                    {([['aereo', 'TDI Aéreo (guías AIR)'], ['maritimo', 'Marítimo'], ['tdi_express', 'TDI Express (guías TDX)']] as const).map(([svc, etiqueta]) => (
                                         <FormControlLabel
                                             key={svc}
                                             control={

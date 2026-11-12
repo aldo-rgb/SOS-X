@@ -16645,6 +16645,13 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const porServicio = (clave: string, porDefecto: boolean) => ({
       aereo: byKey[clave]?.aereo !== undefined ? byKey[clave].aereo === true : porDefecto,
       maritimo: byKey[clave]?.maritimo !== undefined ? byKey[clave].maritimo === true : porDefecto,
+      // TDI Express nacio despues de que se armo este panel, asi que no tenia
+      // interruptor: heredaba en silencio "exige pago y etiqueta" y nadie podia
+      // cambiarlo. Con 55 cajas TDX en CEDIS MTY, 29 no se podian cargar y 25
+      // de ellas por una etiqueta que ese servicio casi nunca genera (tarea
+      // 1027). Aqui solo aparece el interruptor; lo que exige o no, se decide
+      // en la pantalla.
+      tdi_express: byKey[clave]?.tdi_express !== undefined ? byKey[clave].tdi_express === true : porDefecto,
     });
     const requirePaymentByService = porServicio('require_payment_to_load_by_service', true);
     const requireLabelByService = porServicio('require_label_to_load_by_service', true);
@@ -17133,7 +17140,7 @@ app.post('/api/admin/system/loading-requirement-service-toggle', authenticateTok
     const requisito = String(req.body?.requisito || '').toLowerCase();
     const servicio = String(req.body?.service || '').toLowerCase();
     if (!CLAVES[requisito]) return res.status(400).json({ error: 'Requisito no válido: usa "pago", "etiqueta" o "instrucciones".' });
-    if (!['aereo', 'maritimo'].includes(servicio)) return res.status(400).json({ error: 'Servicio no válido: usa "aereo" o "maritimo".' });
+    if (!['aereo', 'maritimo', 'tdi_express'].includes(servicio)) return res.status(400).json({ error: 'Servicio no válido: usa "aereo", "maritimo" o "tdi_express".' });
     const enabled = req.body?.enabled === true;
     const userId = req.user?.userId || null;
     const { key, desc } = CLAVES[requisito]!;

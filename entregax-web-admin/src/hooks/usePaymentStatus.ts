@@ -22,9 +22,9 @@ interface PaymentStatusCache {
   advisor_xpay_enabled: boolean;
   require_payment_to_load: boolean;
   // Excepciones por servicio (hoy: TDI Aéreo y Marítimo).
-  require_payment_to_load_by_service?: { aereo: boolean; maritimo: boolean };
-  require_label_to_load_by_service?: { aereo: boolean; maritimo: boolean };
-  require_instructions_to_load_by_service?: { aereo: boolean; maritimo: boolean };
+  require_payment_to_load_by_service?: { aereo: boolean; maritimo: boolean; tdi_express?: boolean };
+  require_label_to_load_by_service?: { aereo: boolean; maritimo: boolean; tdi_express?: boolean };
+  require_instructions_to_load_by_service?: { aereo: boolean; maritimo: boolean; tdi_express?: boolean };
   require_label_to_load: boolean;
   require_instructions_to_load_pobox: boolean;
   external_sync_enabled: boolean;
@@ -190,9 +190,9 @@ export function usePaymentStatus() {
     advisorPaymentOrderEnabled: status.advisor_payment_order_enabled,
     advisorXpayEnabled: status.advisor_xpay_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
-    requirePaymentByService: status.require_payment_to_load_by_service || { aereo: true, maritimo: true },
-    requireLabelByService: status.require_label_to_load_by_service || { aereo: true, maritimo: true },
-    requireInstructionsByService: status.require_instructions_to_load_by_service || { aereo: false, maritimo: false },
+    requirePaymentByService: status.require_payment_to_load_by_service || { aereo: true, maritimo: true, tdi_express: true },
+    requireLabelByService: status.require_label_to_load_by_service || { aereo: true, maritimo: true, tdi_express: true },
+    requireInstructionsByService: status.require_instructions_to_load_by_service || { aereo: false, maritimo: false, tdi_express: false },
     requireLabelToLoad: status.require_label_to_load,
     requireInstructionsToLoadPobox: status.require_instructions_to_load_pobox,
     externalSyncEnabled: status.external_sync_enabled,
@@ -273,10 +273,10 @@ export async function toggleAdvisorInstructions(enabled: boolean): Promise<void>
 }
 
 /** Controla si se exige pago del cliente para cargar una guía a la unidad (solo Super Admin) */
-/** Prende o apaga un requisito de carga SOLO para un servicio (aereo | maritimo). */
+/** Prende o apaga un requisito de carga SOLO para un servicio. */
 export async function toggleLoadingRequirementByService(
   requisito: 'pago' | 'etiqueta' | 'instrucciones',
-  service: 'aereo' | 'maritimo',
+  service: 'aereo' | 'maritimo' | 'tdi_express',
   enabled: boolean,
 ): Promise<void> {
   await api.post('/admin/system/loading-requirement-service-toggle', { requisito, service, enabled });
