@@ -20,6 +20,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { isS3Configured, listS3Keys } from './s3Service';
+import { asegurarEsquemaCorrecciones } from './xpayCorrecciones';
 
 type ServiceKey =
   | 'ALL'
@@ -136,6 +137,9 @@ export const getPaymentOrdersHistory = async (
   res: Response
 ): Promise<any> => {
   try {
+    // Las columnas de correccion se leen abajo: tienen que existir aunque
+    // nadie haya marcado todavia una orden (tarea 874).
+    await asegurarEsquemaCorrecciones();
     const rawService = String(req.query.service || 'ALL').toUpperCase();
     const service = (VALID_SERVICES.includes(rawService as ServiceKey)
       ? (rawService as ServiceKey)
@@ -349,10 +353,19 @@ export const getPaymentOrdersHistory = async (
         r.cf_razon_social,
         r.cf_rfc,
         r.error_message,
-        a.full_name AS advisor_name
+        a.full_name AS advisor_name,
+        -- EN CORRECCION: la marca que le habilita al asesor arreglar los datos
+        -- bancarios de una orden que el cliente YA pago, sin cancelarla. Se
+        -- pone desde esta misma pantalla (tarea 874).
+        r.correccion_abierta,
+        r.correccion_numero,
+        r.correccion_motivo,
+        r.correccion_abierta_at,
+        marc.full_name AS correccion_marcada_por
       FROM entangled_payment_requests r
       LEFT JOIN users u ON u.id = r.user_id
       LEFT JOIN users a ON a.id = r.advisor_id
+      LEFT JOIN users marc ON marc.id = r.correccion_abierta_por
       LEFT JOIN entangled_providers pr ON pr.id = r.provider_id
       LEFT JOIN LATERAL (
         SELECT ep.name AS provider_name
@@ -531,6 +544,12 @@ export const getPaymentOrdersHistory = async (
           cf_rfc: r.cf_rfc || null,
           error_message: r.error_message || null,
           advisor_name: r.advisor_name || null,
+          correccion_abierta: r.correccion_abierta === true,
+          correccion_numero: Number(r.correccion_numero) || 0,
+          correccion_motivo: r.correccion_motivo || null,
+          correccion_abierta_at: r.correccion_abierta_at || null,
+          correccion_marcada_por: r.correccion_marcada_por || null,
+          comprobante_pagado: !!r.comprobante_subido_at,
         },
         has_pdf: false,
       });

@@ -51,6 +51,7 @@ import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import EditNoteIcon from '@mui/icons-material/EditNote';
 import { useTranslation } from 'react-i18next';
 
 /* ── X-Pay CSS keyframes injected once ── */
@@ -69,6 +70,7 @@ import jsPDF from 'jspdf';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
 import CsfPanel, { type CsfStatus } from './CsfPanel';
+import XpayCorreccionDialog from './XpayCorreccionDialog';
 import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
 
 import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, Card, CardContent } from '@mui/material';
@@ -118,6 +120,11 @@ interface EntangledRequest {
   proveedor_pagado_at: string | null;
   payment_deadline_at?: string | null;
   cancellation_fee_usd?: number | string;
+  // Orden marcada EN CORRECCION por Servicio a Cliente: habilita al asesor a
+  // arreglar los datos del beneficiario sin cancelarla (tarea 874).
+  correccion_abierta?: boolean;
+  correccion_numero?: number;
+  correccion_motivo?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -414,6 +421,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   );
 
   const [requests, setRequests] = useState<EntangledRequest[]>([]);
+  // Orden abierta para corregir sus datos bancarios (tarea 874).
+  const [corrigiendoId, setCorrigiendoId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2759,7 +2768,20 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         </TableCell>
                         {/* Estatus */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
+                          <Stack spacing={0.5} alignItems="flex-start">
+                            <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
+                            {/* La orden sigue en su etapa: la marca solo dice
+                                que hay datos bancarios por arreglar. */}
+                            {r.correccion_abierta && (
+                              <Tooltip title={r.correccion_motivo || 'Hay que corregir los datos del beneficiario'}>
+                                <Box sx={{ px: 0.9, py: 0.3, borderRadius: 1, bgcolor: 'rgba(123,31,162,0.15)', border: '1px solid rgba(123,31,162,0.5)' }}>
+                                  <Typography sx={{ color: '#ce93d8', fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.05em' }}>
+                                    EN CORRECCIÓN
+                                  </Typography>
+                                </Box>
+                              </Tooltip>
+                            )}
+                          </Stack>
                         </TableCell>
                         {/* Documento Fiscal — Factura PDF + XML */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
@@ -2873,6 +2895,27 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                   </Tooltip>
                                 ) : (
                                   <Typography sx={{ color: C.textFaint, fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
+                                )}
+                                {/* Corregir los datos del beneficiario. Solo
+                                    aparece con la marca puesta: sin ella, una
+                                    orden ya pagada no se toca (tarea 874). */}
+                                {r.correccion_abierta && (
+                                  <Tooltip title="Corregir los datos del beneficiario">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setCorrigiendoId(r.id)}
+                                      sx={{
+                                        color: '#ce93d8',
+                                        bgcolor: 'rgba(123,31,162,0.12)',
+                                        border: '1px solid rgba(123,31,162,0.45)',
+                                        borderRadius: 1,
+                                        p: 0.5,
+                                        '&:hover': { bgcolor: 'rgba(123,31,162,0.26)', borderColor: '#ce93d8' },
+                                      }}
+                                    >
+                                      <EditNoteIcon sx={{ fontSize: 16 }} />
+                                    </IconButton>
+                                  </Tooltip>
                                 )}
                                 {r.entangled_transaccion_id && !isTerminal && (
                                   <Tooltip title={t('entangled.actions.syncFromEntangled', 'Refrescar estado') as string}>
@@ -4835,6 +4878,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Corregir los datos del beneficiario de una orden ya pagada, sin
+          cancelarla. Solo se llega aquí con la marca puesta (tarea 874). */}
+      <XpayCorreccionDialog
+        open={corrigiendoId != null}
+        requestId={corrigiendoId}
+        onClose={() => { setCorrigiendoId(null); loadRequests(); }}
+        onSaved={() => { loadRequests(); loadSuppliers(); }}
+      />
       </Box>{/* end p:4 */}
     </Box>
   );

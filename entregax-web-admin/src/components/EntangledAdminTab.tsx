@@ -67,6 +67,11 @@ interface EntangledRow {
   provider_name?: string | null;
   provider_inferred?: string | null;
   empresa_facturadora?: string | null;
+  // Marcada EN CORRECCION: el asesor puede arreglar los datos del
+  // beneficiario sin cancelar la orden (tarea 874).
+  correccion_abierta?: boolean;
+  correccion_numero?: number;
+  correccion_motivo?: string | null;
 }
 
 const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
@@ -280,6 +285,15 @@ export default function EntangledAdminTab() {
                       <Typography variant="caption" sx={{ display: 'block', color: '#B07206', fontWeight: 700, mt: 0.25 }}>
                         aún admite comprobante
                       </Typography>
+                    )}
+                    {/* La orden sigue en su etapa: la marca solo dice que el
+                        asesor tiene abiertos los datos del beneficiario para
+                        arreglarlos (tarea 874). */}
+                    {r.correccion_abierta && (
+                      <Tooltip title={r.correccion_motivo || 'Hay datos del beneficiario por corregir'}>
+                        <Chip size="small" label="EN CORRECCIÓN"
+                          sx={{ display: 'flex', mt: 0.4, fontWeight: 800, fontSize: 10, bgcolor: '#7B1FA2', color: '#fff' }} />
+                      </Tooltip>
                     )}
                   </TableCell>
                   {/* Días procesando: empieza al recibir el comprobante del

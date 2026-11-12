@@ -513,6 +513,72 @@ export const notifyCancellationToEntangled = async (
 };
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/solicitud-pago/:id/correccion
+// ---------------------------------------------------------------------------
+// Una orden ya pagada por el cliente cuyos datos bancarios salieron mal se
+// corrige en vez de cancelarse (tarea 874). Este es el aviso: el proveedor
+// tiene que enterarse de que esa orden cambió para poder revisarla y reenviar
+// los datos buenos a la comercializadora.
+//
+// El aviso lleva el diff —campo, valor anterior, valor nuevo— y no solo la
+// version nueva: quien revisa del otro lado necesita ver contra que compara,
+// si no aprueba a ciegas. Y lleva numero de correccion consecutivo, para que
+// dos correcciones seguidas no se confundan.
+//
+// Ruta configurable con ENTANGLED_CORRECCION_PATH por si del otro lado la
+// montan en otro sitio, igual que la de cancelacion.
+// ---------------------------------------------------------------------------
+export interface EntangledCorreccionPayload {
+  correccion_numero: number;
+  referencia_xpay: string;
+  motivo: string | null;
+  proveedor_ya_pagado: boolean;
+  corregido_por: string | null;
+  divisa: string | null;
+  cambios: Array<{ campo: string; etiqueta: string; anterior: string; nuevo: string }>;
+  beneficiario: Record<string, string>;
+}
+
+export const notifyCorreccionToEntangled = async (
+  transaccionId: string,
+  payload: EntangledCorreccionPayload
+): Promise<{ ok: boolean; data?: any; error?: string; status?: number }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'No hay API key configurada para avisar al proveedor.' };
+  if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
+
+  const id = encodeURIComponent(transaccionId);
+  const rawCustomPath = process.env.ENTANGLED_CORRECCION_PATH;
+  // buildUrl ya prefija /api/v1: si la variable lo trae, se quita para no
+  // mandar /api/v1/api/v1/...
+  const customPath = rawCustomPath
+    ? rawCustomPath.replace(/^\/?(api\/v1|v1)\//i, '/')
+    : undefined;
+  const path = (customPath || '/solicitud-pago/:id/correccion').replace(':id', id);
+  const url = buildUrl(path);
+
+  try {
+    const res = await axios.post(url, { ...payload, origen: 'xpay' }, {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+    });
+    return { ok: true, data: res.data || {}, status: res.status };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const status = ax.response?.status;
+    const data = ax.response?.data as any;
+    const detalle = data?.error || data?.message || ax.message || 'Error al avisar la correccion';
+    // 404 aqui significa que del otro lado todavia no montan el endpoint. Se
+    // dice con todas sus letras para que no se confunda con "la orden no
+    // existe": la correccion YA quedo guardada de este lado.
+    const error = status === 404
+      ? 'El proveedor todavia no tiene habilitado el aviso de correcciones (404). La correccion quedo guardada; avisales por el canal de siempre y reintenta.'
+      : detalle + (status ? ' (HTTP ' + status + ')' : '');
+    console.warn('[XPAY-CORRECCION] aviso a', url, '->', status, detalle);
+    return status != null ? { ok: false, error, status } : { ok: false, error };
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Helper "batch fire-and-forget" para notificar a ENTANGLED sobre una lista
 // de request IDs internos que acabamos de cancelar. Se llama después de un
 // UPDATE ... SET estatus_global='cancelado' ... RETURNING id.

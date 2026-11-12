@@ -749,6 +749,13 @@ import {
   mensajeActivacionCliente,
 } from './promoActivacion';
 import {
+  abrirCorreccion,
+  cerrarCorreccion,
+  detalleCorreccion,
+  guardarCorreccion,
+  reenviarAvisoCorreccion,
+} from './xpayCorrecciones';
+import {
   getSequences,
   updateSequence,
   enrollInSequence,
@@ -6322,6 +6329,20 @@ app.get('/api/advisor/xpay/clients', authenticateToken, getAdvisorXpayClients);
 app.get('/api/advisor/xpay/payment-requests', authenticateToken, getAdvisorXpayRequests);
 app.post('/api/advisor/xpay/payment-requests', authenticateToken, entangledRequestUpload.single('comprobante'), createAdvisorXpayRequest);
 app.delete('/api/advisor/xpay/payment-requests/:id', authenticateToken, deleteAdvisorXpayRequest);
+
+// ✏️ Ordenes X-Pay EN CORRECCION (tarea 874)
+// Marcar y desmarcar lo hace Servicio a Cliente desde el Historial de Ordenes
+// de Pago, que es la pantalla donde ya ven estas ordenes; el permiso sale de
+// ese mismo panel para no abrirlo al rol completo.
+// Corregir lo hace el asesor dueño de la orden, y solo con la marca puesta.
+const puedeMarcarCorreccionXpay = requirePanelPermissionOrRoles(
+  'cs_payment_orders_history', ['super_admin', 'admin', 'director']
+);
+app.post('/api/admin/xpay/payment-requests/:id/correccion', authenticateToken, puedeMarcarCorreccionXpay, abrirCorreccion);
+app.delete('/api/admin/xpay/payment-requests/:id/correccion', authenticateToken, puedeMarcarCorreccionXpay, cerrarCorreccion);
+app.post('/api/admin/xpay/correcciones/:correccionId/reenviar', authenticateToken, puedeMarcarCorreccionXpay, reenviarAvisoCorreccion);
+app.get('/api/xpay/payment-requests/:id/correccion', authenticateToken, detalleCorreccion);
+app.put('/api/xpay/payment-requests/:id/correccion', authenticateToken, guardarCorreccion);
 // Libreta de proveedores del cliente, operada por su asesor
 app.get('/api/advisor/xpay/suppliers', authenticateToken, getAdvisorXpaySuppliers);
 app.post('/api/advisor/xpay/suppliers', authenticateToken, createAdvisorXpaySupplier);

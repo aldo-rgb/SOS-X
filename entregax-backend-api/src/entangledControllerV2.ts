@@ -52,6 +52,7 @@ import {
   notifyCancellationToEntangled,
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
+import { asegurarEsquemaCorrecciones } from './xpayCorrecciones';
 import { signRowFileUrls } from './entangledController';
 import { FacturamaClient } from './facturamaClient';
 
@@ -3977,6 +3978,9 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
       where = `r.advisor_id = $1`;
     }
     await asegurarReferenciaProveedor();
+    // Las columnas de correccion tienen que existir antes de leerlas: nadie
+    // garantiza que alguien ya haya marcado una orden (tarea 874).
+    await asegurarEsquemaCorrecciones();
     const r = await pool.query(
       `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
               -- Conceptos con descripción, para que el PDF muestre el concepto
@@ -4004,6 +4008,9 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
               (r.raw_response->>'factura_xml_url') AS factura_xml_url,
               r.comprobante_proveedor_url, r.proveedor_pagado_at,
               r.instructions_snapshot,
+              -- Orden marcada EN CORRECCION: es lo que le habilita al asesor
+              -- editar los datos del beneficiario sin cancelarla (tarea 874).
+              r.correccion_abierta, r.correccion_numero, r.correccion_motivo,
               u.full_name AS client_name, u.box_id AS client_box_id
          FROM entangled_payment_requests r
          LEFT JOIN users u ON u.id = r.user_id

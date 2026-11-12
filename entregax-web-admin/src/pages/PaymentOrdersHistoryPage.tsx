@@ -1,9 +1,15 @@
 // ============================================================================
-// HISTORIAL DE ÓRDENES DE PAGO — SOLO CONSULTA
+// HISTORIAL DE ÓRDENES DE PAGO
 // ----------------------------------------------------------------------------
 // Vista unificada de las órdenes de pago que viven distribuidas en varias
 // tablas del backend (PO Box, Marítimo, DHL, TDI Aéreo, TDI Express, X-Pay,
-// GEX). Solo lectura: filtra y consulta, no modifica nada.
+// GEX). Es de consulta, con una sola excepción: en X-Pay se puede marcar una
+// orden EN CORRECCIÓN (tarea 874).
+//
+// Esa marca no cambia la orden: habilita al asesor a arreglar los datos
+// bancarios del beneficiario de una orden que el cliente YA pagó, sin tener
+// que cancelarla. Vive aquí porque ésta es la pantalla donde servicio a
+// cliente ya ve las órdenes X-Pay, que es donde se entera del problema.
 // ============================================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -11,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   CircularProgress, Alert, InputAdornment, Stack, IconButton, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, Divider,
+  Snackbar,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
@@ -19,6 +26,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import EditNoteIcon from '@mui/icons-material/EditNote';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -145,6 +153,12 @@ export default function PaymentOrdersHistoryPage() {
   // Operación abierta en "Ver detalles". Se dibuja con lo que ya trae la fila,
   // sin pedir nada más al backend.
   const [detalle, setDetalle] = useState<OrderRow | null>(null);
+  // Marcar / desmarcar EN CORRECCIÓN (tarea 874). El motivo es obligatorio:
+  // es lo único que el asesor va a leer para saber qué arreglar.
+  const [marcando, setMarcando] = useState<OrderRow | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const [guardandoMarca, setGuardandoMarca] = useState(false);
+  const [avisoMarca, setAvisoMarca] = useState<{ sev: 'success' | 'error' | 'warning'; msg: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -175,6 +189,49 @@ export default function PaymentOrdersHistoryPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const marcarCorreccion = async () => {
+    if (!marcando || !motivo.trim()) return;
+    setGuardandoMarca(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/xpay/payment-requests/${marcando.id}/correccion`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo.trim() }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || 'No se pudo marcar');
+      setAvisoMarca({
+        sev: d.proveedor_ya_pagado ? 'warning' : 'success',
+        msg: d.aviso || 'Orden marcada. El asesor ya puede corregir los datos del beneficiario.',
+      });
+      setMarcando(null); setMotivo(''); setDetalle(null);
+      load();
+    } catch (e: any) {
+      setAvisoMarca({ sev: 'error', msg: e?.message || 'No se pudo marcar' });
+    } finally {
+      setGuardandoMarca(false);
+    }
+  };
+
+  const quitarCorreccion = async (r: OrderRow) => {
+    setGuardandoMarca(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/xpay/payment-requests/${r.id}/correccion`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || 'No se pudo quitar la marca');
+      setAvisoMarca({ sev: 'success', msg: 'Se quitó la marca de corrección.' });
+      setDetalle(null);
+      load();
+    } catch (e: any) {
+      setAvisoMarca({ sev: 'error', msg: e?.message || 'No se pudo quitar la marca' });
+    } finally {
+      setGuardandoMarca(false);
+    }
+  };
+
   const rows = data?.rows || [];
 
   return (
@@ -186,7 +243,7 @@ export default function PaymentOrdersHistoryPage() {
           <Box>
             <Typography variant="h6" fontWeight={700}>Historial de Órdenes de Pago</Typography>
             <Typography variant="caption" color="text.secondary">
-              Consulta unificada por servicio. Solo lectura — no modifica órdenes existentes.
+              Consulta unificada por servicio. Lo único que se cambia desde aquí es marcar una orden X-Pay en corrección.
             </Typography>
           </Box>
         </Stack>
@@ -341,7 +398,18 @@ export default function PaymentOrdersHistoryPage() {
                         <Typography variant="caption">{r.items_count || '—'}</Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip size="small" color={statusColor(r.status)} label={r.status_label} sx={{ fontWeight: 700 }} />
+                        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Chip size="small" color={statusColor(r.status)} label={r.status_label} sx={{ fontWeight: 700 }} />
+                          {/* La marca no reemplaza al estatus: la orden sigue
+                              en la etapa que iba, nomás con los datos del
+                              beneficiario abiertos para el asesor. */}
+                          {r.xpay_detail?.correccion_abierta && (
+                            <Tooltip title={String(r.xpay_detail?.correccion_motivo || 'En corrección')}>
+                              <Chip size="small" label="EN CORRECCIÓN"
+                                sx={{ fontWeight: 800, fontSize: 10, bgcolor: '#7B1FA2', color: '#fff' }} />
+                            </Tooltip>
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell><Typography variant="caption">{dateFmt(r.paid_at)}</Typography></TableCell>
                       <TableCell>
@@ -443,6 +511,10 @@ export default function PaymentOrdersHistoryPage() {
               ? `${d.proveedor_monto_enviado} ${d.proveedor_moneda_enviada || ''}`.trim() : null],
             ['Referencia del proveedor', d.referencia_proveedor],
             ['Error', d.error_message],
+            ['En corrección desde', d.correccion_abierta ? dateFmt(d.correccion_abierta_at) : null],
+            ['Marcada por', d.correccion_abierta ? d.correccion_marcada_por : null],
+            ['Qué hay que corregir', d.correccion_abierta ? d.correccion_motivo : null],
+            ['Correcciones hechas', Number(d.correccion_numero) > 0 ? String(d.correccion_numero) : null],
           ];
           return (
             <>
@@ -452,6 +524,9 @@ export default function PaymentOrdersHistoryPage() {
                   <Chip size="small" color={statusColor(detalle.status)} label={detalle.status_label} sx={{ fontWeight: 700 }} />
                   {d.estatus_factura && <Chip size="small" variant="outlined" label={`Factura: ${d.estatus_factura}`} />}
                   {d.estatus_proveedor && <Chip size="small" variant="outlined" label={`Proveedor: ${d.estatus_proveedor}`} />}
+                  {d.correccion_abierta && (
+                    <Chip size="small" label="EN CORRECCIÓN" sx={{ fontWeight: 800, bgcolor: '#7B1FA2', color: '#fff' }} />
+                  )}
                 </Stack>
               </DialogTitle>
               <DialogContent dividers>
@@ -489,13 +564,64 @@ export default function PaymentOrdersHistoryPage() {
                   </>
                 )}
               </DialogContent>
-              <DialogActions>
+              <DialogActions sx={{ justifyContent: 'space-between' }}>
+                {/* Marcar en corrección solo tiene sentido en X-Pay y cuando el
+                    cliente ya pagó: antes de eso la orden se cancela y se
+                    levanta de nuevo, que es más limpio (tarea 874). */}
+                <Box>
+                  {detalle.source === 'entangled' && (
+                    d.correccion_abierta ? (
+                      <Button size="small" color="secondary" disabled={guardandoMarca}
+                        onClick={() => quitarCorreccion(detalle)}>
+                        Quitar la marca de corrección
+                      </Button>
+                    ) : (d.comprobante_pagado && detalle.status !== 'cancelado') ? (
+                      <Button size="small" variant="outlined" startIcon={<EditNoteIcon />}
+                        onClick={() => { setMarcando(detalle); setMotivo(''); }}>
+                        Marcar en corrección
+                      </Button>
+                    ) : null
+                  )}
+                </Box>
                 <Button onClick={() => setDetalle(null)}>Cerrar</Button>
               </DialogActions>
             </>
           );
         })()}
       </Dialog>
+
+      {/* Marcar EN CORRECCIÓN. El motivo es obligatorio porque es lo único que
+          el asesor va a leer para saber qué dato está mal (tarea 874). */}
+      <Dialog open={!!marcando} onClose={() => setMarcando(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Marcar {marcando?.reference || 'la orden'} en corrección</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            El asesor va a poder arreglar los datos del beneficiario —banco, cuenta, SWIFT,
+            nombre, direcciones— sin cancelar la orden. Los montos, el tipo de cambio y las
+            comisiones no se tocan. Al guardar, el proveedor recibe el aviso con lo que cambió.
+          </Typography>
+          <TextField
+            autoFocus fullWidth multiline minRows={3} size="small"
+            label="¿Qué hay que corregir?"
+            placeholder="Ej.: el SWIFT no corresponde al banco; el proveedor mandó otra cuenta"
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            helperText="Lo lee el asesor en su aviso"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMarcando(null)}>Cancelar</Button>
+          <Button variant="contained" disabled={!motivo.trim() || guardandoMarca} onClick={marcarCorreccion}>
+            {guardandoMarca ? 'Marcando…' : 'Marcar en corrección'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={!!avisoMarca} autoHideDuration={8000} onClose={() => setAvisoMarca(null)}>
+        <Alert severity={avisoMarca?.sev || 'success'} onClose={() => setAvisoMarca(null)}>
+          {avisoMarca?.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

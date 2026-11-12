@@ -176,6 +176,11 @@ interface PaymentRequest {
   payment_deadline_at?: string | null;
   instructions_snapshot?: any;
   empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
+  // Marcada EN CORRECCION por Servicio a Cliente: habilita al asesor a
+  // arreglar los datos del beneficiario sin cancelarla (tarea 874).
+  correccion_abierta?: boolean;
+  correccion_numero?: number;
+  correccion_motivo?: string | null;
   created_at: string;
 }
 
@@ -395,6 +400,20 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     else if (calcDivisa === 'MXN') setCalcDivisa('USD');
   };
   const [chartTab, setChartTab] = useState<'usd' | 'rmb'>('usd');
+  // Correccion de los datos del beneficiario (tarea 874). Los campos y sus
+  // etiquetas los manda el backend: asi la lista de lo corregible vive en un
+  // solo lugar y no hay que publicar la app para cambiarla.
+  const [correccion, setCorreccion] = useState<{
+    requestId: number;
+    orden: any;
+    campos: Array<{ key: string; label: string; max: number | null }>;
+    valores: Record<string, string>;
+    original: Record<string, string>;
+    historial: any[];
+  } | null>(null);
+  const [correccionLoading, setCorreccionLoading] = useState(false);
+  const [correccionSaving, setCorreccionSaving] = useState(false);
+  const [correccionMsg, setCorreccionMsg] = useState<string | null>(null);
   const [rateHistory] = useState<Array<{ t: number; usd: number; rmb: number }>>(seedRateHistory);
 
   const loadRequests = useCallback(async () => {
@@ -463,6 +482,64 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       setSavedSuppliers(Array.isArray(data) ? data : []);
     } catch {}
   }, [token, isAdvisorMode, advisorClientId]);
+
+  const abrirCorreccion = useCallback(async (requestId: number) => {
+    setCorreccionLoading(true);
+    setCorreccionMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/api/xpay/payment-requests/${requestId}/correccion`, { headers: authHeaders });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || 'No se pudo abrir la corrección');
+      setCorreccion({
+        requestId,
+        orden: d.orden || null,
+        campos: d.campos || [],
+        valores: { ...(d.valores || {}) },
+        original: { ...(d.valores || {}) },
+        historial: d.historial || [],
+      });
+    } catch (e: any) {
+      Alert.alert('Corrección', e?.message || 'No se pudo abrir la corrección');
+    } finally {
+      setCorreccionLoading(false);
+    }
+  }, [authHeaders]);
+
+  const guardarCorreccion = useCallback(async () => {
+    if (!correccion) return;
+    // Solo viaja lo que de verdad cambio: asi el aviso al proveedor dice
+    // exactamente que se toco y nada mas.
+    const payload: Record<string, string> = {};
+    for (const c of correccion.campos) {
+      const nuevo = correccion.valores[c.key] || '';
+      if (nuevo !== (correccion.original[c.key] || '')) payload[c.key] = nuevo;
+    }
+    if (Object.keys(payload).length === 0) return;
+    setCorreccionSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/xpay/payment-requests/${correccion.requestId}/correccion`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || 'No se pudo guardar');
+      const partes = [`Corrección #${d.numero} guardada.`];
+      if (d.supplier_actualizado) partes.push('También se corrigió el proveedor guardado del cliente.');
+      partes.push(d.notificado
+        ? 'El proveedor ya tiene el aviso con los datos corregidos.'
+        : `El aviso al proveedor no salió: ${d.notificacion_error || 'error desconocido'}`);
+      setCorreccion(null);
+      setCorreccionMsg(null);
+      Alert.alert('Corrección guardada', partes.join(' '));
+      loadRequests();
+      loadSuppliers();
+    } catch (e: any) {
+      setCorreccionMsg(e?.message || 'No se pudo guardar');
+    } finally {
+      setCorreccionSaving(false);
+    }
+  }, [correccion, authHeaders, loadRequests, loadSuppliers]);
 
   // Comisiones XPAY → Cliente final (configuradas en el admin)
   const [clientCommissionCfg, setClientCommissionCfg] = useState<{
@@ -2376,6 +2453,27 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </View>
                 </View>
 
+                {/* La orden sigue en su etapa; la marca solo dice que hay
+                    datos del beneficiario por arreglar (tarea 874). */}
+                {r.correccion_abierta && (
+                  <View style={{ marginTop: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(123,31,162,0.5)', backgroundColor: 'rgba(123,31,162,0.12)' }}>
+                    <Text style={{ color: '#CE93D8', fontSize: 10, fontWeight: '900', letterSpacing: 1.1 }}>EN CORRECCIÓN</Text>
+                    {!!r.correccion_motivo && (
+                      <Text style={{ color: TEXT, fontSize: 12, marginTop: 4, lineHeight: 17 }}>{r.correccion_motivo}</Text>
+                    )}
+                    <TouchableOpacity
+                      style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: '#7B1FA2' }}
+                      onPress={() => abrirCorreccion(r.id)}
+                      disabled={correccionLoading}
+                    >
+                      {correccionLoading
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Ionicons name="create-outline" size={15} color="#fff" />}
+                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Corregir datos del beneficiario</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 <Text style={{ color: ORANGE, fontWeight: '900', fontSize: 22, marginTop: 8, letterSpacing: 0.3 }}>
                   {Number(r.op_monto).toLocaleString()} {r.op_divisa_destino}
                 </Text>
@@ -3942,6 +4040,122 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               <Text style={styles.docErrBtnTxt}>Entendido</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      </Modal>
+
+      {/* Corregir los datos del beneficiario de una orden que el cliente YA
+          pagó, sin cancelarla. Solo se llega aquí con la marca puesta por
+          Servicio a Cliente. Montos, tipo de cambio y comisiones no aparecen a
+          propósito: cambiarlos sería otra operación (tarea 874). */}
+      <Modal visible={!!correccion} animationType="slide" onRequestClose={() => setCorreccion(null)}>
+        <View style={{ flex: 1, backgroundColor: DARK }}>
+          <View style={{ paddingTop: 54, paddingHorizontal: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#fff', fontSize: 17, fontWeight: '900' }}>Corregir beneficiario</Text>
+              <Text style={{ color: TEXT_MUTED, fontSize: 12, marginTop: 2 }}>{correccion?.orden?.referencia || ''}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setCorreccion(null)} disabled={correccionSaving}>
+              <Ionicons name="close" size={26} color={TEXT_MUTED} />
+            </TouchableOpacity>
+          </View>
+
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {!!correccion?.orden?.motivo && (
+                <View style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(245,158,11,0.45)', backgroundColor: 'rgba(245,158,11,0.10)', marginBottom: 14 }}>
+                  <Text style={{ color: '#F59E0B', fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>QUÉ HAY QUE CORREGIR</Text>
+                  <Text style={{ color: TEXT, fontSize: 13, marginTop: 4, lineHeight: 19 }}>{correccion.orden.motivo}</Text>
+                  {!!correccion?.orden?.marcada_por && (
+                    <Text style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 4 }}>{correccion.orden.marcada_por}</Text>
+                  )}
+                </View>
+              )}
+              {/* Si el dinero ya salió, corregir significa pedir que lo manden
+                  de nuevo: hay que decirlo antes de que el asesor escriba. */}
+              {correccion?.orden?.proveedor_ya_pagado && (
+                <View style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(239,68,68,0.45)', backgroundColor: 'rgba(239,68,68,0.10)', marginBottom: 14 }}>
+                  <Text style={{ color: '#EF4444', fontSize: 12, lineHeight: 18 }}>
+                    El pago al proveedor ya salió. Corregir ahora significa pedirle que lo mande de nuevo a la cuenta buena.
+                  </Text>
+                </View>
+              )}
+              {!!correccionMsg && (
+                <View style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(239,68,68,0.45)', backgroundColor: 'rgba(239,68,68,0.10)', marginBottom: 14 }}>
+                  <Text style={{ color: '#EF4444', fontSize: 12, lineHeight: 18 }}>{correccionMsg}</Text>
+                </View>
+              )}
+
+              {(correccion?.campos || []).map((c) => {
+                const valor = correccion?.valores[c.key] || '';
+                const antes = correccion?.original[c.key] || '';
+                const cambio = valor !== antes;
+                return (
+                  <View key={c.key} style={{ marginBottom: 14 }}>
+                    <Text style={{ color: TEXT_MUTED, fontSize: 11, fontWeight: '700', marginBottom: 5, letterSpacing: 0.4 }}>
+                      {c.label.toUpperCase()}
+                    </Text>
+                    <TextInput
+                      value={valor}
+                      onChangeText={(txt) => setCorreccion((prev) => prev ? { ...prev, valores: { ...prev.valores, [c.key]: txt } } : prev)}
+                      maxLength={c.max || undefined}
+                      style={{
+                        borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                        color: '#fff', fontSize: 14,
+                        borderColor: cambio ? '#CE93D8' : 'rgba(255,255,255,0.14)',
+                        backgroundColor: cambio ? 'rgba(123,31,162,0.12)' : 'rgba(255,255,255,0.04)',
+                      }}
+                      placeholderTextColor={TEXT_DIM}
+                    />
+                    {cambio && (
+                      <Text style={{ color: TEXT_DIM, fontSize: 11, marginTop: 4 }}>Antes: {antes || '(vacío)'}</Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              {correccion?.orden?.tiene_beneficiario_guardado && (
+                <Text style={{ color: TEXT_MUTED, fontSize: 11, lineHeight: 17, marginTop: 4 }}>
+                  Este proveedor está guardado en la libreta del cliente: la corrección también lo
+                  arregla ahí, para que la próxima solicitud no vuelva a nacer con el dato malo.
+                </Text>
+              )}
+
+              {(correccion?.historial || []).length > 0 && (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={{ color: TEXT, fontSize: 13, fontWeight: '800', marginBottom: 8 }}>Correcciones anteriores</Text>
+                  {(correccion?.historial || []).map((h: any) => (
+                    <View key={h.id} style={{ padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', marginBottom: 8 }}>
+                      <Text style={{ color: '#CE93D8', fontSize: 11, fontWeight: '800' }}>
+                        Corrección #{h.numero} · {h.notificado_at ? 'avisada al proveedor' : 'aviso pendiente'}
+                      </Text>
+                      {(h.cambios || []).map((c: any, i: number) => (
+                        <Text key={i} style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 3 }}>
+                          {c.etiqueta}: {c.anterior || '(vacío)'} → {c.nuevo || '(vacío)'}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  paddingVertical: 13, borderRadius: 12,
+                  backgroundColor: correccionSaving ? 'rgba(123,31,162,0.5)' : '#7B1FA2',
+                }}
+                onPress={guardarCorreccion}
+                disabled={correccionSaving}
+              >
+                {correccionSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="paper-plane-outline" size={16} color="#fff" />}
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>Guardar y avisar al proveedor</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
