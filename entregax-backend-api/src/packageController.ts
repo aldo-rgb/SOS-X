@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 import { paqueteriaSinFlete } from './fleteNacional';
+import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from './cambioDeInstrucciones';
 
 // Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
 // se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
@@ -5334,6 +5335,42 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
 
         console.log(`📦 [Instrucciones Entrega] Usuario ${userId} (${userRole}) actualizando ${packageType}/${packageId}`);
         console.log(`   Carrier: ${carrier}, Costo: ${carrierCost}, Nombre: ${carrierName}`);
+
+        // 🔒 La etiqueta ya impresa manda.
+        //
+        // El domicilio ya viajo a la paqueteria: cambiarlo aqui solo cambia lo
+        // que ve nuestra pantalla, la caja sigue al domicilio viejo y el
+        // cliente cree que se corrigio. Ver `cambioDeInstrucciones.ts`.
+        // Cambiar a la MISMA direccion no se bloquea: eso no es un cambio.
+        if (noPuedeCambiarTrasEtiqueta(userRole)) {
+            const tabla = packageType === 'dhl' ? 'dhl_shipments'
+                        : packageType === 'maritime' ? 'maritime_orders'
+                        : 'packages';
+            const realId = packageType === 'dhl'
+                ? (idNum >= 300000 ? idNum - 300000 : idNum)
+                : packageType === 'maritime'
+                    ? (idNum >= 100000 ? idNum - 100000 : idNum)
+                    : idNum;
+            const colDir = tabla === 'packages' ? 'assigned_address_id' : 'delivery_address_id';
+            const etiquetada = await envioYaEtiquetado(tabla as any, realId);
+            if (etiquetada) {
+                const dirActual = await pool.query(
+                    `SELECT ${colDir} AS dir FROM ${tabla} WHERE id = $1`, [realId]
+                ).catch(() => ({ rows: [] as any[] }));
+                const mismaDireccion = deliveryAddressId
+                    && Number(dirActual.rows[0]?.dir) === Number(deliveryAddressId);
+                if (!mismaDireccion) {
+                    console.warn(`[Instrucciones Entrega] bloqueado: ${tabla}/${realId} ya etiquetada (${etiquetada.carrier || 's/carrier'})`);
+                    return res.status(409).json({
+                        success: false,
+                        etiquetaImpresa: true,
+                        guia: etiquetada.guia,
+                        carrier: etiquetada.carrier,
+                        error: LEYENDA_TICKET,
+                    });
+                }
+            }
+        }
 
         // Determinar si es Pick Up en sucursal.
         //

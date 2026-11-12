@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from './cambioDeInstrucciones';
 import { cobroDhlSql } from './dhlCosting';
 import { signS3UrlIfNeeded } from './s3Service';
 import { asegurarColumna } from './db';
@@ -2314,6 +2315,33 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     const { addressId, carrierKey, serviceKey, isCollect, wantsFacturaPaqueteria, nationalDeliveryZip } = req.body;
     const files = (req as any).files as Record<string, Express.Multer.File[]> | undefined;
     if (!uid || !addressId) return res.status(400).json({ error: 'uid y addressId requeridos' });
+
+    // 🔒 La etiqueta ya impresa manda, tambien aqui.
+    //
+    // El asesor asigna instrucciones por el mismo embarque que el cliente, por
+    // otra puerta. Si la guia ya salio etiquetada, cambiar el destino desde
+    // aqui tampoco mueve la caja (tarea 1030). Admin y direccion no entran en
+    // el candado: son quienes reetiquetan al atender el ticket.
+    if (noPuedeCambiarTrasEtiqueta((req as any).user?.role)) {
+      const kind = String(String(uid).split('-')[0] || '').toUpperCase();
+      const pid = parseInt(String(uid).slice(String(uid).indexOf('-') + 1), 10);
+      const tabla = kind === 'DHL' ? 'dhl_shipments' : kind === 'MAR' ? 'maritime_orders' : 'packages';
+      const colDir = tabla === 'packages' ? 'assigned_address_id' : 'delivery_address_id';
+      const etiquetada = await envioYaEtiquetado(tabla as any, pid);
+      if (etiquetada) {
+        const dirActual = await pool.query(
+          `SELECT ${colDir} AS dir FROM ${tabla} WHERE id = $1`, [pid]
+        ).catch(() => ({ rows: [] as any[] }));
+        if (Number(dirActual.rows[0]?.dir) !== Number(addressId)) {
+          return res.status(409).json({
+            error: LEYENDA_TICKET,
+            etiquetaImpresa: true,
+            guia: etiquetada.guia,
+            carrier: etiquetada.carrier,
+          });
+        }
+      }
+    }
 
     const isCollectBool = isCollect === 'true' || isCollect === true;
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;

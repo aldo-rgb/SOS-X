@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 import { pideOcurre } from './ocurreDeteccion';
 import { pool } from './db';
 import { AuthRequest } from './authController';
+import {
+  noPuedeCambiarTrasEtiqueta, enviosEtiquetadosConEstaDireccion,
+  CAMPOS_DE_DESTINO, LEYENDA_TICKET,
+} from './cambioDeInstrucciones';
 
 // ============================================================================
 // HELPER: Reasigna paquetes que dependen de una dirección antes de eliminarla
@@ -710,6 +714,46 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
             colony, city, state, zip_code, phone, reference, reception_hours, default_for_service, is_ocurre,
             ocurre_branch_code, ocurre_branch_zip
         } = req.body;
+
+        // 🔒 Esta direccion ya viaja en una etiqueta impresa.
+        //
+        // Es la puerta silenciosa: no se toca el envio, se le cambia el piso
+        // debajo. La guia ya salio con el domicilio viejo y el cliente ve el
+        // nuevo en su app, asi que da por hecho que se corrigio (TKT-2026-3600,
+        // tarea 1030). Solo se frena lo que mueve la caja: el telefono, la
+        // referencia, el horario y el alias se siguen pudiendo corregir.
+        if (noPuedeCambiarTrasEtiqueta((authReq.user as any)?.role)) {
+            const actual = await pool.query(
+                `SELECT street, exterior_number, neighborhood, city, state, zip_code
+                   FROM addresses WHERE id = $1 AND user_id = $2`,
+                [addressId, userId]
+            ).catch(() => ({ rows: [] as any[] }));
+            const antes = actual.rows[0];
+            if (antes) {
+                const entrantes: Record<string, any> = {
+                    street, exterior_number, colony, city, state, zip_code,
+                };
+                const cambia = CAMPOS_DE_DESTINO.filter(c => {
+                    const v = entrantes[c.body];
+                    if (v === undefined || v === null) return false;
+                    return String(v).trim() !== String(antes[c.col] ?? '').trim();
+                });
+                if (cambia.length > 0) {
+                    const envios = await enviosEtiquetadosConEstaDireccion(Number(addressId), Number(userId));
+                    if (envios.length > 0) {
+                        const lista = envios.slice(0, 3).map(e => e.guia).filter(Boolean).join(', ');
+                        res.status(409).json({
+                            error: `No se puede cambiar ${cambia.map(c => c.label).join(', ')} de esta direccion: `
+                                 + `${envios.length === 1 ? 'una guia ya salio' : `${envios.length} guias ya salieron`} con ella`
+                                 + `${lista ? ` (${lista})` : ''}. ${LEYENDA_TICKET}`,
+                            etiquetaImpresa: true,
+                            guias: envios.map(e => e.guia),
+                        });
+                        return;
+                    }
+                }
+            }
+        }
 
         // Si asigna como default para un servicio, quitar ese default de otras direcciones
         if (default_for_service) {
