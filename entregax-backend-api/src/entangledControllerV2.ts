@@ -958,6 +958,27 @@ export const createPaymentRequestV2 = async (
       } catch { return null; }
     })();
 
+    // ── De que proveedor GUARDADO salio esta solicitud ──────────────────
+    // La columna `supplier_id` existe desde el principio y nunca se ha
+    // escrito: 0 de 153 solicitudes la traen. El panel si manda el dato, pero
+    // enterrado en `notas.proveedor_envio.supplier_id`, y aqui `notas` se
+    // rearma de cero para el proveedor y se tira —el mismo caso que tenia
+    // provider_id—.
+    //
+    // Sin ese vinculo no se puede corregir el beneficiario guardado cuando
+    // una orden sale con la cuenta equivocada: se arregla la orden y la
+    // siguiente vuelve a nacer con el dato malo, que es justo lo que pide
+    // evitar la tarea 874.
+    const proveedorGuardadoId = (() => {
+      const directo = Number((body as any).supplier_id);
+      if (Number.isInteger(directo) && directo > 0) return directo;
+      try {
+        const n = typeof body.notas === 'string' ? JSON.parse(body.notas) : body.notas;
+        const desdeNotas = Number(n?.proveedor_envio?.supplier_id ?? n?.supplier_id);
+        return Number.isInteger(desdeNotas) && desdeNotas > 0 ? desdeNotas : null;
+      } catch { return null; }
+    })();
+
     const beneficiarioNombre = body.beneficiario_nombre
       ? String(body.beneficiario_nombre).trim().slice(0, 200)
       : null;
@@ -974,7 +995,7 @@ export const createPaymentRequestV2 = async (
          instructions_snapshot,
          op_beneficiario_nombre,
          monto_mxn_base, monto_mxn_total, referencia_proveedor,
-         provider_id,
+         provider_id, supplier_id,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -987,7 +1008,7 @@ export const createPaymentRequestV2 = async (
          $17::jsonb,
          $18,
          $23, $24, $25,
-         $26::int,
+         $26::int, $27::int,
          'pendiente', $19, 'pendiente'
        ) RETURNING id`,
       [
@@ -1017,6 +1038,7 @@ export const createPaymentRequestV2 = async (
         totalMxnFactura,
         referenciaProveedor,
         proveedorElegido,
+        proveedorGuardadoId,
       ]
     );
     requestId = ins.rows[0].id;

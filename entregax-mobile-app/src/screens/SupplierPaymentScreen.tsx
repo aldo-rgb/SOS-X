@@ -1171,9 +1171,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       }
 
       // Persistir el supplier por separado (igual que antes) para tu base local
+      //
+      // El id del proveedor guardado se conserva: es lo que luego permite
+      // corregir el beneficiario guardado cuando una orden sale con la cuenta
+      // equivocada. Sin el, se arregla la orden y la siguiente vuelve a nacer
+      // con el dato malo (tarea 874).
+      let proveedorGuardadoId: number | null =
+        typeof selectedSupplierId === 'number' ? selectedSupplierId : null;
       if (selectedSupplierId === 'new' && saveSupplier) {
         try {
-          await fetch(
+          const rSup = await fetch(
             isAdvisorMode ? `${API_URL}/api/advisor/xpay/suppliers` : `${API_URL}/api/entangled/suppliers`,
             {
               method: 'POST',
@@ -1191,6 +1198,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               }),
             }
           );
+          const jSup = await rSup.json().catch(() => null);
+          const nuevoId = Number(jSup?.id ?? jSup?.supplier?.id ?? jSup?.data?.id);
+          if (Number.isInteger(nuevoId) && nuevoId > 0) proveedorGuardadoId = nuevoId;
         } catch {}
       }
 
@@ -1261,6 +1271,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       // de cero para ENTANGLED, asi que se perdia y la columna provider_id
       // quedaba en NULL en todas las operaciones.
       if (selectedProviderId) fd.append('provider_id', String(selectedProviderId));
+      // De que proveedor GUARDADO salio: la columna existia y nunca se escribia.
+      if (proveedorGuardadoId) fd.append('supplier_id', String(proveedorGuardadoId));
       // Para pago sin factura: mandar cuenta de depósito para incluirla en WhatsApp de confirmación
       if (!requiereFactura && sinFacturaCuenta?.cuenta) {
         fd.append('cuenta_bancaria_sin_factura', JSON.stringify(sinFacturaCuenta.cuenta));
