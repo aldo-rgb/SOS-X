@@ -28,6 +28,7 @@ import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import ContactsIcon from '@mui/icons-material/Contacts';
 import ReplayIcon from '@mui/icons-material/Replay';
 import ReembolsosPaypalTab from '../components/ReembolsosPaypalTab';
+import LiquidacionesPaypalTab from '../components/LiquidacionesPaypalTab';
 import SyncIcon from '@mui/icons-material/Sync';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -341,6 +342,8 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           <Tab label="Movimientos Banco" icon={<AccountBalanceIcon />} iconPosition="start" />
           <Tab label="Directorio Fiscal" icon={<ContactsIcon />} iconPosition="start" />
           <Tab label="Reembolsos PayPal" icon={<ReplayIcon />} iconPosition="start" />
+          {/* De quien es el dinero que PayPal deposita en bulto (tarea 1012). */}
+          <Tab label="Cobros PayPal" icon={<PaidIcon />} iconPosition="start" />
         </Tabs>
 
         <Box sx={{ p: 2 }}>
@@ -352,6 +355,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           {tab === 5 && <BankMovementsTab emitter={emitter} />}
           {tab === 6 && <DirectorioFiscalTab />}
           {tab === 7 && <ReembolsosPaypalTab />}
+          {tab === 8 && <LiquidacionesPaypalTab />}
         </Box>
       </Paper>
     </Box>

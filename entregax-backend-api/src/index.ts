@@ -1521,6 +1521,7 @@ import {
   bloquearMovimientoBancario,
   aplicarDepositoAOrden,
   buscarOrdenesParaDeposito,
+  listarLiquidacionesPaypal,
   syncBankMovements,
 } from './accountingController';
 import {
@@ -5812,6 +5813,10 @@ app.post('/api/accounting/:emitterId/bank-movements/:id/bloqueo', authenticateTo
 // la vista en el estado de cuenta (tarea 892).
 app.get('/api/accounting/ordenes/buscar', authenticateToken,
   requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), buscarOrdenesParaDeposito);
+// Los cobros de PayPal agrupados como PayPal los liquida: de quien es cada
+// peso del bulto que llega (tarea 1012).
+app.get('/api/accounting/paypal/liquidaciones', authenticateToken,
+  requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), listarLiquidacionesPaypal);
 app.post('/api/accounting/bank-movements/:id/aplicar-a-orden', authenticateToken,
   requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), aplicarDepositoAOrden);
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);

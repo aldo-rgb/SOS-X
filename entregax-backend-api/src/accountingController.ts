@@ -2773,6 +2773,90 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
 };
 
 /**
+ * GET /api/accounting/paypal/liquidaciones?desde=&hasta=
+ *
+ * Los cobros de PayPal, agrupados por dia de captura: que clientes y que
+ * ordenes componen el dinero que PayPal liquida junto.
+ *
+ * Contabilidad ve el dinero de PayPal llegar en bulto y no tiene como saber de
+ * quien es: "esos pagos no se le asignan a un cliente porque son un total de
+ * varios pagos" (tarea 1012). El dato existe completo —las 256 capturas traen
+ * su cliente— pero no habia pantalla que lo enseñara agrupado como PayPal lo
+ * deposita.
+ *
+ * Esto NO concilia nada contra el banco a proposito: el deposito de PayPal no
+ * se puede reconocer en el estado de cuenta —ninguna linea lo menciona y el
+ * monto llega neto de comision—, asi que casar por monto seria adivinar, y
+ * adivinar aqui es colgarle a un cliente el deposito de otro.
+ */
+export const listarLiquidacionesPaypal = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const desde = String((req.query.desde as string) || '').trim();
+        const hasta = String((req.query.hasta as string) || '').trim();
+        const params: any[] = [];
+        const conds: string[] = [`ppi.status = 'captured'`, `ppi.captured_at IS NOT NULL`];
+        if (desde) { params.push(desde); conds.push(`(ppi.captured_at AT TIME ZONE 'America/Monterrey')::date >= $${params.length}::date`); }
+        if (hasta) { params.push(hasta); conds.push(`(ppi.captured_at AT TIME ZONE 'America/Monterrey')::date <= $${params.length}::date`); }
+
+        const r = await pool.query(`
+            SELECT ppi.id,
+                   TO_CHAR(ppi.captured_at AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS dia,
+                   ppi.captured_at, ppi.amount, ppi.currency,
+                   ppi.payment_reference, ppi.payment_order_id, ppi.capture_id,
+                   u.box_id, u.full_name,
+                   pp.status AS estado_orden, COALESCE(pp.facturada, FALSE) AS facturada,
+                   EXISTS (SELECT 1 FROM bank_entry_applications a
+                            WHERE a.reversed_at IS NULL
+                              AND (a.payment_order_id = ppi.payment_order_id
+                                   OR a.payment_reference = ppi.payment_reference)) AS ligado_a_banco
+              FROM paypal_payment_intents ppi
+              LEFT JOIN users u ON u.id = ppi.user_id
+              LEFT JOIN pobox_payments pp ON pp.id = ppi.payment_order_id
+             WHERE ${conds.join(' AND ')}
+             ORDER BY ppi.captured_at DESC
+             LIMIT 500`, params);
+
+        // Un renglon por dia: es como PayPal deposita.
+        const porDia = new Map<string, any>();
+        for (const x of r.rows) {
+            const dia = String(x.dia);
+            if (!porDia.has(dia)) porDia.set(dia, { dia, pagos: [], total: 0, clientes: new Set<string>(), facturadas: 0 });
+            const d = porDia.get(dia);
+            d.pagos.push({
+                id: Number(x.id),
+                hora: x.captured_at,
+                monto: Number(x.amount) || 0,
+                moneda: x.currency || 'MXN',
+                folio: x.payment_reference || null,
+                orden_id: x.payment_order_id ? Number(x.payment_order_id) : null,
+                casillero: x.box_id || null,
+                cliente: x.full_name || null,
+                facturada: !!x.facturada,
+                ligado_a_banco: !!x.ligado_a_banco,
+                sin_orden: !x.payment_order_id,
+            });
+            d.total += Number(x.amount) || 0;
+            if (x.box_id) d.clientes.add(String(x.box_id));
+            if (x.facturada) d.facturadas += 1;
+        }
+
+        const dias = [...porDia.values()].map((d: any) => ({
+            dia: d.dia,
+            pagos: d.pagos.length,
+            clientes: d.clientes.size,
+            total: Math.round(d.total * 100) / 100,
+            facturadas: d.facturadas,
+            detalle: d.pagos,
+        }));
+
+        return res.json({ success: true, dias });
+    } catch (e: any) {
+        console.error('listarLiquidacionesPaypal:', e);
+        res.status(500).json({ error: 'Error listando cobros de PayPal', message: e.message });
+    }
+};
+
+/**
  * GET /api/accounting/ordenes/buscar?q=
  *
  * Busca ordenes de pago por folio, casillero o nombre del cliente, para poder
