@@ -2773,6 +2773,146 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
 };
 
 /**
+ * GET /api/accounting/ordenes/buscar?q=
+ *
+ * Busca ordenes de pago por folio, casillero o nombre del cliente, para poder
+ * ligarles el deposito del banco. Dice de una vez si ya traen deposito, que es
+ * lo unico que importa al elegir.
+ */
+export const buscarOrdenesParaDeposito = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const q = String((req.query.q as string) || '').trim();
+        if (q.length < 2) return res.json({ ordenes: [] });
+        const r = await pool.query(`
+            SELECT p.id, p.payment_reference, p.amount, p.payment_method, p.status,
+                   TO_CHAR(p.paid_at AT TIME ZONE 'America/Monterrey', 'YYYY-MM-DD') AS pagado,
+                   u.box_id, u.full_name,
+                   COALESCE((SELECT SUM(a.monto_aplicado) FROM bank_entry_applications a
+                              WHERE a.reversed_at IS NULL
+                                AND (a.payment_order_id = p.id OR a.payment_reference = p.payment_reference)), 0)::numeric AS ya_respaldado
+              FROM pobox_payments p
+              LEFT JOIN users u ON u.id = p.user_id
+             WHERE p.status IN ('completed', 'paid')
+               AND (p.payment_reference ILIKE $1 OR u.box_id ILIKE $1 OR u.full_name ILIKE $1)
+             ORDER BY p.paid_at DESC NULLS LAST
+             LIMIT 20`, [`%${q}%`]);
+        return res.json({
+            ordenes: r.rows.map((x: any) => ({
+                id: Number(x.id),
+                referencia: x.payment_reference,
+                monto: Number(x.amount) || 0,
+                metodo: x.payment_method,
+                pagado: x.pagado,
+                casillero: x.box_id,
+                cliente: x.full_name,
+                ya_respaldado: Number(x.ya_respaldado) || 0,
+            })),
+        });
+    } catch (e: any) {
+        console.error('buscarOrdenesParaDeposito:', e);
+        res.status(500).json({ error: 'Error buscando ordenes', message: e.message });
+    }
+};
+
+/**
+ * POST /api/accounting/bank-movements/:id/aplicar-a-orden
+ * Body: { payment_order_id: number, monto?: number, nota?: string }
+ *
+ * Liga un deposito del estado de cuenta con la orden que pago.
+ *
+ * El timbrado exige que la transferencia este conciliada: si el deposito no
+ * esta ligado a la orden, la factura se niega con "no esta relacionada con un
+ * pago" aunque el dinero este a la vista en el estado de cuenta. Hasta ahora
+ * esa liga solo la hacia el automatico o la autorizacion en Cobranza, y cuando
+ * ninguno la hacia no habia forma de ligarla a mano: la orden se quedaba sin
+ * poder facturar (tarea 892, lo reporto Contabilidad).
+ *
+ * Esto NO mueve dinero ni marca pagada ninguna orden: solo deja escrito con
+ * que deposito se pago una orden que ya estaba pagada.
+ */
+export const aplicarDepositoAOrden = async (req: AuthRequest, res: Response): Promise<any> => {
+    const { ensureLedgerSchema, aplicarAbono, saldoDisponible } = await import('./bankEntryLedger');
+    const cx = await pool.connect();
+    try {
+        await ensureLedgerSchema();
+        const entryId = parseInt(String(req.params.id), 10);
+        const ordenId = parseInt(String(req.body?.payment_order_id ?? ''), 10);
+        const nota = String(req.body?.nota || '').trim().slice(0, 400) || null;
+        if (!Number.isFinite(entryId) || entryId <= 0) return res.status(400).json({ error: 'Movimiento invalido' });
+        if (!Number.isFinite(ordenId) || ordenId <= 0) return res.status(400).json({ error: 'Falta la orden.' });
+
+        await cx.query('BEGIN');
+
+        const o = await cx.query(
+            `SELECT id, payment_reference, amount, status, payment_method
+               FROM pobox_payments WHERE id = $1`, [ordenId]);
+        if (o.rows.length === 0) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'No encontre esa orden.' }); }
+        const orden = o.rows[0];
+        // Ligar un deposito a una orden que NO esta pagada seria cobrarla por
+        // aqui, y eso se hace en Cobranza, con su autorizacion.
+        if (!['completed', 'paid'].includes(String(orden.status))) {
+            await cx.query('ROLLBACK');
+            return res.status(409).json({
+                error: `Esa orden esta en "${orden.status}", no pagada. Cobrarla se hace desde Cobranza, autorizando su comprobante.`,
+            });
+        }
+
+        const yaRespaldado = Number((await cx.query(
+            `SELECT COALESCE(SUM(monto_aplicado), 0)::numeric AS n FROM bank_entry_applications
+              WHERE reversed_at IS NULL AND (payment_order_id = $1 OR payment_reference = $2)`,
+            [ordenId, orden.payment_reference])).rows[0].n) || 0;
+        const faltaPorRespaldar = Math.round((Number(orden.amount) - yaRespaldado) * 100) / 100;
+        if (faltaPorRespaldar <= 0) {
+            await cx.query('ROLLBACK');
+            return res.status(409).json({ error: 'Esa orden ya tiene su deposito ligado completo.' });
+        }
+
+        const saldo = await saldoDisponible(cx, entryId, true);
+        if (!saldo) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'No encontre ese movimiento bancario.' }); }
+        const pedido = Number(req.body?.monto);
+        const monto = Number.isFinite(pedido) && pedido > 0
+            ? Math.min(pedido, faltaPorRespaldar, saldo.disponible)
+            : Math.min(faltaPorRespaldar, saldo.disponible);
+        if (!(monto > 0)) {
+            await cx.query('ROLLBACK');
+            return res.status(409).json({
+                error: saldo.disponible <= 0
+                    ? 'Ese movimiento ya esta aplicado completo a otra(s) orden(es).'
+                    : 'No queda nada por ligar.',
+            });
+        }
+
+        const actorId = Number((req.user as any)?.userId || (req.user as any)?.id) || null;
+        const actorNombre = String((req.user as any)?.full_name || (req.user as any)?.nombre || '').trim() || null;
+        await aplicarAbono(cx, {
+            bankEntryId: entryId,
+            montoAplicado: monto,
+            origen: 'estado_cuenta',
+            paymentOrderId: ordenId,
+            paymentReference: orden.payment_reference || null,
+            aplicadoPor: actorId,
+            aplicadoPorNombre: actorNombre,
+            nota: nota || 'Ligado a mano desde Contabilidad > Bancos.',
+        });
+
+        await cx.query('COMMIT');
+        return res.json({
+            success: true,
+            monto,
+            orden: { id: Number(orden.id), referencia: orden.payment_reference, monto: Number(orden.amount) },
+            mensaje: `Se ligaron $${monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} del deposito a la orden `
+                   + `${orden.payment_reference || orden.id}. Ya se puede facturar.`,
+        });
+    } catch (e: any) {
+        await cx.query('ROLLBACK').catch(() => {});
+        console.error('aplicarDepositoAOrden:', e?.message || e);
+        return res.status(409).json({ error: e?.message || 'No se pudo ligar el deposito a la orden.' });
+    } finally {
+        cx.release();
+    }
+};
+
+/**
  * POST /api/accounting/:emitterId/bank-movements/:id/bloqueo
  * Body: { bloquear: boolean, motivo?: string }
  *

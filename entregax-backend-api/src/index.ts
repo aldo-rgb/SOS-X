@@ -1519,6 +1519,8 @@ import {
   deleteReceivedInvoice,
   listBankMovements,
   bloquearMovimientoBancario,
+  aplicarDepositoAOrden,
+  buscarOrdenesParaDeposito,
   syncBankMovements,
 } from './accountingController';
 import {
@@ -5805,6 +5807,13 @@ app.post('/api/accounting/:emitterId/bank-movements/sync', authenticateToken, sy
 // asignarlo a mano: quien puede mover el dinero puede detenerlo.
 app.post('/api/accounting/:emitterId/bank-movements/:id/bloqueo', authenticateToken,
   requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), bloquearMovimientoBancario);
+// Ligar a mano un deposito con la orden que pago. Sin esa liga el timbrado
+// niega la factura por "no relacionada con un pago", aunque el dinero este a
+// la vista en el estado de cuenta (tarea 892).
+app.get('/api/accounting/ordenes/buscar', authenticateToken,
+  requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), buscarOrdenesParaDeposito);
+app.post('/api/accounting/bank-movements/:id/aplicar-a-orden', authenticateToken,
+  requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), aplicarDepositoAOrden);
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente

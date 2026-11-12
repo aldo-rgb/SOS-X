@@ -2925,6 +2925,47 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   // la devolucion el dinero ya no esta. El sistema anterior lo traia (tarea 838).
   const [bloqueo, setBloqueo] = useState<{ mov: any; motivo: string; guardando: boolean } | null>(null);
 
+  // Ligar el deposito con la orden que pago.
+  //
+  // El timbrado exige que la transferencia este conciliada: sin esa liga la
+  // factura se niega con "no esta relacionada con un pago" aunque el dinero
+  // este a la vista aqui. Hasta ahora la liga solo la hacia el automatico o la
+  // autorizacion en Cobranza; cuando ninguno la hacia, no habia por donde
+  // (tarea 892).
+  const [aOrden, setAOrden] = useState<{ mov: any; orden: any | null; nota: string; guardando: boolean } | null>(null);
+  const [ordenes, setOrdenes] = useState<any[]>([]);
+  const [buscandoOrdenes, setBuscandoOrdenes] = useState(false);
+
+  const buscarOrdenes = async (texto: string) => {
+    const q = texto.trim();
+    if (q.length < 2) { setOrdenes([]); return; }
+    setBuscandoOrdenes(true);
+    try {
+      const r = await api.get('/accounting/ordenes/buscar', { params: { q } });
+      setOrdenes(Array.isArray(r.data?.ordenes) ? r.data.ordenes : []);
+    } catch { setOrdenes([]); }
+    finally { setBuscandoOrdenes(false); }
+  };
+
+  const confirmarAOrden = async () => {
+    const a = aOrden;
+    if (!a?.mov?.id || !a.orden?.id) return;
+    setAOrden({ ...a, guardando: true });
+    try {
+      const r = await api.post(`/accounting/bank-movements/${a.mov.id}/aplicar-a-orden`, {
+        payment_order_id: a.orden.id, nota: a.nota || undefined,
+      });
+      setError(null);
+      setNotice(r.data?.mensaje || 'Deposito ligado a la orden.');
+      setAOrden(null);
+      setOrdenes([]);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'No se pudo ligar el deposito a la orden');
+      setAOrden({ ...a, guardando: false });
+    }
+  };
+
   const confirmarBloqueo = async () => {
     const b = bloqueo;
     if (!b?.mov?.id) return;
@@ -3263,6 +3304,20 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                         </IconButton>
                       </Tooltip>
                     )}
+                    {/* Ligarlo con la orden que pago: es lo que desbloquea el
+                        timbrado de esa factura. */}
+                    {m.type === 'INFLOW' && !m.bloqueado_at && (
+                      <Tooltip title="Ligar este depósito con la orden que pagó (lo que pide facturación)">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => { setOrdenes([]); setAOrden({ mov: m, orden: null, nota: '', guardando: false }); }}
+                          sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0.2, mr: 0.5 }}
+                        >
+                          A orden
+                        </Button>
+                      </Tooltip>
+                    )}
                     {m.type === 'INFLOW' && m.match_status !== 'matched' && !m.bloqueado_at && (
                       <Tooltip title="Abonar este depósito a la cartera de un cliente (para los que llegaron sin referencia)">
                         <Button
@@ -3282,6 +3337,71 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           </Table>
         </Paper>
       )}
+
+      {/* ===== Ligar el depósito con la orden que pagó ===== */}
+      <Dialog open={!!aOrden} onClose={() => !aOrden?.guardando && setAOrden(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Ligar depósito con una orden</DialogTitle>
+        <DialogContent>
+          {aOrden?.mov && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#F5F5F5', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">Movimiento del banco</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {fmtDate(aOrden.mov.value_date)} · {fmt(parseFloat(aOrden.mov.amount))}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', color: 'text.secondary' }}>
+                {aOrden.mov.description || aOrden.mov.reference || ''}
+              </Typography>
+            </Box>
+          )}
+          <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+            No mueve dinero ni marca nada pagado: deja escrito <strong>con qué depósito se pagó</strong> una
+            orden que ya estaba pagada. Es lo que facturación pide para poder timbrar.
+          </Alert>
+          <Autocomplete
+            options={ordenes}
+            loading={buscandoOrdenes}
+            value={aOrden?.orden || null}
+            onChange={(_e, v) => aOrden && setAOrden({ ...aOrden, orden: v })}
+            onInputChange={(_e, v, motivo) => { if (motivo === 'input') buscarOrdenes(v); }}
+            getOptionLabel={(o: any) => (o ? `${o.referencia || o.id} — ${fmt(o.monto)} — ${o.casillero || ''} ${o.cliente || ''}` : '')}
+            isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
+            filterOptions={(x) => x}
+            noOptionsText="Escribe el folio, el casillero o el nombre"
+            renderOption={(props, o: any) => (
+              <li {...props} key={o.id}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    {o.referencia || o.id} · {fmt(o.monto)}
+                    {o.ya_respaldado > 0 && (
+                      <Chip size="small" label={`ya ligado ${fmt(o.ya_respaldado)}`}
+                        sx={{ ml: 1, height: 18, fontSize: 10 }} />
+                    )}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {o.casillero || ''} {o.cliente || ''} · {o.metodo || ''} · {o.pagado || 's/fecha'}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            renderInput={(params) => (
+              <TextField {...params} label="Orden" placeholder="Folio, casillero o nombre…" size="small" sx={{ mb: 2 }} />
+            )}
+          />
+          <TextField
+            label="Nota (opcional)"
+            placeholder="Por qué se ligó a mano"
+            fullWidth multiline rows={2} size="small"
+            value={aOrden?.nota || ''}
+            onChange={e => aOrden && setAOrden({ ...aOrden, nota: e.target.value })}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAOrden(null)} disabled={!!aOrden?.guardando}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmarAOrden} disabled={!aOrden?.orden || !!aOrden?.guardando}>
+            {aOrden?.guardando ? 'Ligando…' : 'Ligar a la orden'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ===== Apartar / liberar un movimiento del banco ===== */}
       <Dialog open={!!bloqueo} onClose={() => !bloqueo?.guardando && setBloqueo(null)} maxWidth="xs" fullWidth>
