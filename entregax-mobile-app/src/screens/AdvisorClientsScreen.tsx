@@ -319,6 +319,11 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [shipInstrServiceType, setShipInstrServiceType] = useState('china_air');
   const [shipInstrAddresses, setShipInstrAddresses] = useState<Record<string, any>>({});
   const [shipInstrLoading, setShipInstrLoading] = useState(false);
+  // Recordatorio para activar cuenta (tarea 869). El texto lo arma el backend:
+  // así la promoción se puede cambiar sin publicar una versión de la app.
+  const [activacionMsg, setActivacionMsg] = useState('');
+  const [activacionLoading, setActivacionLoading] = useState(false);
+  const [activacionAviso, setActivacionAviso] = useState('');
 
   const SHIP_INSTR_SERVICES = [
     { type: 'china_air', label: '✈️ Aéreo China' },
@@ -328,9 +333,41 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
     { type: 'mx_cedis',  label: '📍 DHL MTY' },
   ];
 
+  const sinActivar = (c: Client) => !c.is_verified && (c.total_packages || 0) === 0;
+
+  const cargarMensajeActivacion = async (clientId: number) => {
+    setActivacionLoading(true);
+    setActivacionAviso('');
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/clients/${clientId}/mensaje-activacion`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || 'No se pudo armar el mensaje');
+      setActivacionMsg(d.mensaje || '');
+      if (!d.aplica) {
+        setActivacionAviso(d.verificado
+          ? 'Este cliente ya se verificó: el recordatorio ya no aplica.'
+          : 'Este cliente ya tiene operaciones: el recordatorio ya no aplica.');
+      } else if (!d.promo_activa) {
+        setActivacionAviso('El mensaje va sin promoción: Dirección todavía no define cuál se ofrece.');
+      }
+    } catch (e: any) {
+      setActivacionMsg('');
+      setActivacionAviso(e?.message || 'No se pudo armar el mensaje');
+    } finally {
+      setActivacionLoading(false);
+    }
+  };
+
   const openShipInstr = async (client: Client) => {
     setShipInstrClient(client);
-    setShipInstrServiceType('china_air');
+    setActivacionMsg('');
+    setActivacionAviso('');
+    // Al que nunca arrancó le hace falta el recordatorio, no la dirección de
+    // bodega: el modal abre en esa pestaña.
+    if (sinActivar(client)) { setShipInstrServiceType('activacion'); cargarMensajeActivacion(client.id); }
+    else setShipInstrServiceType('china_air');
     setShipInstrModal(true);
     if (Object.keys(shipInstrAddresses).length === 0) {
       setShipInstrLoading(true);
@@ -761,6 +798,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
     { key: 'all', label: 'Todos' },
     { key: 'verified', label: 'Verificados' },
     { key: 'pending', label: 'Pendientes' },
+    // Se registraron y ahí se quedaron: ni verificación ni un solo envío.
+    // Antes no había forma de separarlos del resto (tarea 869).
+    { key: 'sin_activar', label: 'Sin activar' },
   ];
 
   return (
@@ -986,6 +1026,19 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             <Text style={{ fontSize: 11, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Tipo de servicio</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
+                {shipInstrClient && sinActivar(shipInstrClient) && (
+                  <TouchableOpacity
+                    onPress={() => { setShipInstrServiceType('activacion'); if (!activacionMsg) cargarMensajeActivacion(shipInstrClient.id); }}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                      backgroundColor: shipInstrServiceType === 'activacion' ? '#7B1FA2' : '#f0f0f0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: shipInstrServiceType === 'activacion' ? '#fff' : '#555' }}>
+                      📣 Activar cuenta
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {SHIP_INSTR_SERVICES.map((s) => (
                   <TouchableOpacity
                     key={s.type}
@@ -1003,7 +1056,32 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               </View>
             </ScrollView>
 
-            {shipInstrLoading ? (
+            {/* Recordatorio para activar cuenta: editable, porque el asesor
+                conoce a su cliente (tarea 869). */}
+            {shipInstrServiceType === 'activacion' ? (
+              activacionLoading ? (
+                <ActivityIndicator color="#7B1FA2" style={{ marginTop: 20 }} />
+              ) : (
+                <View>
+                  {!!activacionAviso && (
+                    <View style={{ backgroundColor: '#FFF3E0', borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                      <Text style={{ fontSize: 12, color: '#B45309' }}>{activacionAviso}</Text>
+                    </View>
+                  )}
+                  <TextInput
+                    multiline
+                    value={activacionMsg}
+                    onChangeText={setActivacionMsg}
+                    style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, minHeight: 170, fontSize: 14, color: '#222', textAlignVertical: 'top' }}
+                  />
+                  <Text style={{ fontSize: 11, color: '#999', marginTop: 6 }}>
+                    Puedes ajustarlo antes de enviarlo.
+                  </Text>
+                </View>
+              )
+            ) : null}
+
+            {shipInstrServiceType === 'activacion' ? null : shipInstrLoading ? (
               <ActivityIndicator color="#1976d2" style={{ marginTop: 20 }} />
             ) : shipInstrClient && (() => {
               const address = shipInstrAddresses[shipInstrServiceType];
@@ -1070,7 +1148,21 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
 
           {/* Actions */}
           <View style={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 10, borderTopWidth: 1, borderColor: '#eee' }}>
-            {shipInstrClient && shipInstrAddresses[shipInstrServiceType] && (
+            {shipInstrServiceType === 'activacion' && shipInstrClient && (
+              <TouchableOpacity
+                style={{ backgroundColor: activacionMsg.trim() ? '#25D366' : '#ccc', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                disabled={!activacionMsg.trim()}
+                onPress={() => {
+                  const tel = (shipInstrClient.phone || '').replace(/\D/g, '');
+                  const msg = encodeURIComponent(activacionMsg);
+                  Linking.openURL(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`);
+                }}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Enviar recordatorio</Text>
+              </TouchableOpacity>
+            )}
+            {shipInstrServiceType !== 'activacion' && shipInstrClient && shipInstrAddresses[shipInstrServiceType] && (
               <TouchableOpacity
                 style={{ backgroundColor: '#1976d2', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onPress={() => {
@@ -1084,7 +1176,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                 <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Copiar dirección</Text>
               </TouchableOpacity>
             )}
-            {shipInstrClient && (
+            {shipInstrServiceType !== 'activacion' && shipInstrClient && (
               <TouchableOpacity
                 style={{ backgroundColor: '#25D366', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onPress={() => {

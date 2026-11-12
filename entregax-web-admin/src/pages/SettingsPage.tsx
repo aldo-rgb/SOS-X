@@ -40,6 +40,7 @@ import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
 import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, toggleNotifCajaRecibida, toggleNotifPago, invalidatePaymentStatusCache, toggleLoadingRequirementByService } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
+import PromoActivacionManager from '../components/PromoActivacionManager';
 import NotificationSoundsManager from '../components/NotificationSoundsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
@@ -87,6 +88,8 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
+    // La promoción la decide Dirección, no solo sistemas.
+    const puedeVerPromoActivacion = ['super_admin', 'admin', 'director'].includes(currentUser?.role || '');
     const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, requirePaymentByService, requireLabelByService, requireInstructionsByService, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
@@ -1310,6 +1313,10 @@ export default function SettingsPage() {
                     </CardContent>
                 </Card>
             )}
+
+            {/* Promoción del recordatorio de activación (tarea 869).
+                La define Dirección/Comercial, no cada asesor. */}
+            {puedeVerPromoActivacion && <PromoActivacionManager />}
 
             {/* Identidad Visual / Logos (solo super_admin) */}
             {isSuperAdmin && <BrandAssetsManager />}

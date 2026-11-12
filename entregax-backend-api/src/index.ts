@@ -744,6 +744,11 @@ import {
   borrarMarca,
 } from './marcasRegistradasController';
 import {
+  obtenerPromoActivacion,
+  guardarPromoActivacion,
+  mensajeActivacionCliente,
+} from './promoActivacion';
+import {
   getSequences,
   updateSequence,
   enrollInSequence,
@@ -8114,6 +8119,13 @@ app.delete('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinL
 app.post('/api/admin/welcome-kit/products/upload-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitPhotoUpload.single('file'), uploadKitProductPhoto);
 const kitVideoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } }); // 60MB (video corto)
 app.post('/api/admin/welcome-kit/products/upload-video', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitVideoUpload.single('file'), uploadKitProductVideo);
+// 📣 Recordatorio para activar cuenta (tarea 869)
+// El asesor pide el mensaje ya armado para un cliente suyo; la promoción que
+// lo acompaña la define Dirección/Comercial y sale de la configuración.
+app.get('/api/advisor/clients/:clientId/mensaje-activacion', authenticateToken, mensajeActivacionCliente);
+app.get('/api/admin/promo-activacion', authenticateToken, obtenerPromoActivacion);
+app.put('/api/admin/promo-activacion', authenticateToken, requireMinLevel(ROLES.DIRECTOR), guardarPromoActivacion);
+
 // ™️ Catálogo de Marcas Registradas
 // Qué marcas sí podemos manejar y de quién son. Lo captura Servicio a Cliente;
 // consultarla la puede cualquiera con sesión, porque la pregunta "¿esta marca

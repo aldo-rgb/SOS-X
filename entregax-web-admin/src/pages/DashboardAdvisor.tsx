@@ -926,7 +926,12 @@ export default function DashboardAdvisor() {
 
   // Shipping instructions modal (send warehouse address + instructions to client)
   const [shipInstrOpen, setShipInstrOpen] = useState(false);
-  const [shipInstrClient, setShipInstrClient] = useState<{ id: number; name: string; boxId: string } | null>(null);
+  const [shipInstrClient, setShipInstrClient] = useState<{ id: number; name: string; boxId: string; phone?: string; sinActivar?: boolean } | null>(null);
+  // Recordatorio para activar cuenta (tarea 869): el texto lo arma el backend
+  // para que la promoción se pueda cambiar sin tocar la app.
+  const [activacionMsg, setActivacionMsg] = useState('');
+  const [activacionLoading, setActivacionLoading] = useState(false);
+  const [activacionAviso, setActivacionAviso] = useState('');
   const [shipInstrServiceType, setShipInstrServiceType] = useState<string>('');
   const [shipInstrAddresses, setShipInstrAddresses] = useState<Record<string, any>>({});
   const [shipInstrLoading, setShipInstrLoading] = useState(false);
@@ -2020,9 +2025,36 @@ export default function DashboardAdvisor() {
     { type: 'mx_cedis',   label: '📍 DHL Monterrey',  icon: '📍' },
   ];
 
+  const cargarMensajeActivacion = async (clientId: number) => {
+    setActivacionLoading(true);
+    setActivacionAviso('');
+    try {
+      const res = await api.get(`/advisor/clients/${clientId}/mensaje-activacion`);
+      setActivacionMsg(res.data.mensaje || '');
+      if (!res.data.aplica) {
+        setActivacionAviso(res.data.verificado
+          ? 'Este cliente ya se verificó: el recordatorio ya no aplica.'
+          : 'Este cliente ya tiene operaciones: el recordatorio ya no aplica.');
+      } else if (!res.data.promo_activa) {
+        setActivacionAviso('El mensaje va sin promoción: Dirección todavía no define cuál se ofrece.');
+      }
+    } catch (e: any) {
+      setActivacionMsg('');
+      setActivacionAviso(e?.response?.data?.error || 'No se pudo armar el mensaje');
+    } finally {
+      setActivacionLoading(false);
+    }
+  };
+
   const handleOpenShipInstr = async (c: AdvisorClient) => {
-    setShipInstrClient({ id: c.id, name: c.fullName, boxId: c.boxId || '' });
-    setShipInstrServiceType('china_air');
+    const sinActivar = !c.identityVerified && (c.totalPackages || 0) === 0;
+    setShipInstrClient({ id: c.id, name: c.fullName, boxId: c.boxId || '', phone: c.phone, sinActivar });
+    setActivacionMsg('');
+    setActivacionAviso('');
+    // Si el cliente es de los que nunca arrancaron, el recordatorio es lo
+    // primero que le hace falta, no la dirección de bodega.
+    if (sinActivar) { setShipInstrServiceType('activacion'); cargarMensajeActivacion(c.id); }
+    else setShipInstrServiceType('china_air');
     setShipInstrOpen(true);
     if (Object.keys(shipInstrAddresses).length === 0) {
       setShipInstrLoading(true);
@@ -3273,6 +3305,10 @@ export default function DashboardAdvisor() {
               <MenuItem value="verified">{t('advisor.verified')}</MenuItem>
               <MenuItem value="pending">{t('advisor.pendingReview')}</MenuItem>
               <MenuItem value="unverified">{t('advisor.unverified')}</MenuItem>
+              {/* Los que se registraron y ahí se quedaron: ni verificación ni
+                  un solo envío. Antes no había forma de sacarlos de la lista
+                  general y por eso nadie los seguía (tarea 869). */}
+              <MenuItem value="sin_activar">Sin activar (ni verificado ni un envío)</MenuItem>
             </Select>
           </FormControl>
           <Chip label={`${clientsTotal} ${t('advisor.totalLower')}`} variant="outlined" />
@@ -7866,6 +7902,21 @@ export default function DashboardAdvisor() {
             Tipo de servicio
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, mt: 0.5, mb: 2.5, flexWrap: 'wrap' }}>
+            {shipInstrClient?.sinActivar && (
+              <Button
+                variant={shipInstrServiceType === 'activacion' ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => { setShipInstrServiceType('activacion'); if (!activacionMsg) cargarMensajeActivacion(shipInstrClient.id); }}
+                sx={{
+                  textTransform: 'none',
+                  ...(shipInstrServiceType === 'activacion'
+                    ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }
+                    : { borderColor: '#CE93D8', color: '#7B1FA2' }),
+                }}
+              >
+                📣 Recordatorio para activar
+              </Button>
+            )}
             {SHIP_INSTR_SERVICES.map((s) => (
               <Button
                 key={s.type}
@@ -7884,8 +7935,26 @@ export default function DashboardAdvisor() {
             ))}
           </Box>
 
+          {/* Recordatorio para activar cuenta: el texto se puede ajustar antes
+              de mandarlo, porque el asesor conoce a su cliente (tarea 869). */}
+          {shipInstrServiceType === 'activacion' ? (
+            activacionLoading ? (
+              <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+            ) : (
+              <Box>
+                {activacionAviso && <Alert severity="info" sx={{ mb: 2 }}>{activacionAviso}</Alert>}
+                <TextField
+                  fullWidth multiline minRows={7} value={activacionMsg}
+                  onChange={(e) => setActivacionMsg(e.target.value)}
+                  label="Mensaje" size="small"
+                  helperText="Se manda por WhatsApp. Puedes ajustarlo antes de enviarlo."
+                />
+              </Box>
+            )
+          ) : null}
+
           {/* Contenido del servicio seleccionado */}
-          {shipInstrLoading ? (
+          {shipInstrServiceType === 'activacion' ? null : shipInstrLoading ? (
             <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={28} /></Box>
           ) : shipInstrServiceType && (() => {
             const address = shipInstrAddresses[shipInstrServiceType];
@@ -7980,7 +8049,21 @@ export default function DashboardAdvisor() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
           <Button onClick={() => setShipInstrOpen(false)} variant="outlined" size="small">Cerrar</Button>
-          {shipInstrServiceType && shipInstrAddresses[shipInstrServiceType] && (
+          {shipInstrServiceType === 'activacion' && (
+            <Button
+              variant="contained" size="small" startIcon={<WhatsAppIcon />}
+              disabled={!activacionMsg.trim()}
+              onClick={() => {
+                const tel = (shipInstrClient?.phone || '').replace(/\D/g, '');
+                const msg = encodeURIComponent(activacionMsg);
+                window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank');
+              }}
+              sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+            >
+              Enviar recordatorio
+            </Button>
+          )}
+          {shipInstrServiceType !== 'activacion' && shipInstrServiceType && shipInstrAddresses[shipInstrServiceType] && (
             <Button
               variant="contained"
               size="small"
@@ -7996,7 +8079,7 @@ export default function DashboardAdvisor() {
               Copiar dirección
             </Button>
           )}
-          {shipInstrClient?.boxId && (
+          {shipInstrServiceType !== 'activacion' && shipInstrClient?.boxId && (
             <Button
               variant="contained"
               size="small"

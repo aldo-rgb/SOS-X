@@ -102,7 +102,14 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         COUNT(DISTINCT CASE WHEN u.created_at >= NOW() - INTERVAL '7 days' THEN u.id END) as new_clients_7d,
         COUNT(DISTINCT CASE WHEN u.created_at >= NOW() - INTERVAL '30 days' THEN u.id END) as new_clients_30d,
         COUNT(DISTINCT CASE WHEN u.is_verified = true THEN u.id END) as verified_clients,
-        COUNT(DISTINCT CASE WHEN u.verification_status = 'unverified' THEN u.id END) as pending_verification
+        COUNT(DISTINCT CASE WHEN u.verification_status = 'unverified' THEN u.id END) as pending_verification,
+        -- Registrados que nunca se verificaron NI movieron nada (tarea 869)
+        COUNT(DISTINCT CASE WHEN u.is_verified = false
+                             AND LOWER(COALESCE(u.verification_status,'')) NOT IN ('verified','approved')
+                             AND ((SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id) +
+                                  (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id) +
+                                  (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id)) = 0
+                        THEN u.id END) as sin_activar
       FROM users u
       WHERE u.role = 'client'
         AND (u.advisor_id = $1 OR u.referred_by_id = $1)
@@ -270,6 +277,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         new30d: parseInt(clientStats.new_clients_30d) || 0,
         verified: parseInt(clientStats.verified_clients) || 0,
         pendingVerification: parseInt(clientStats.pending_verification) || 0,
+        sinActivar: parseInt(clientStats.sin_activar) || 0,
         active: parseInt(activeRes.rows[0]?.active_clients) || 0,
         dormant: parseInt(dormantRes.rows[0]?.dormant_clients) || 0,
       },
@@ -334,6 +342,14 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
       whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
     } else if (status === 'unverified') {
       whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
+    } else if (status === 'sin_activar') {
+      // Se registró, nunca terminó de verificarse y nunca movió nada: 425 de
+      // los 1,109 clientes. Ya dieron el primer paso y ahí se quedaron, y hoy
+      // no aparecen en ninguna lista, así que nadie los empuja (tarea 869).
+      whereClause += ` AND u.is_verified = false AND LOWER(COALESCE(u.verification_status,'')) NOT IN ('verified', 'approved')
+        AND ((SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id) +
+             (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id) +
+             (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id)) = 0`;
     }
 
     if (onlyInTransit === 'true') {
