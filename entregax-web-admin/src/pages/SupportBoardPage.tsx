@@ -209,6 +209,9 @@ interface SupportStats {
   /** De eso, lo que nadie ha comprobado todavía. */
   ai_unreviewed?: number;
   needs_human: number;
+  /** Los que traen un mensaje del cliente sin contestar: lo unico que de
+   *  verdad esta pendiente por atender (tarea 890). */
+  esperan_respuesta?: number;
   waiting_client: number;
   resolved: number;
   today_new: number;
@@ -1300,9 +1303,22 @@ export default function SupportBoardPage() {
       {/* Stats */}
       {stats && (
         <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+          {/* El numero grande es lo que ESPERA RESPUESTA NUESTRA.
+              Antes decia "Requieren atencion" y contaba todo lo abierto con mas
+              de 3 dias habiles: marcaba 17 cuando solo 1 esperaba respuesta
+              —9 esperaban al cliente y 7 estaban contestados, nada mas sin
+              cerrar—. Se entra a atender y no hay nada que hacer (tarea 890).
+              Lo viejo no se tira: va abajo, en chico y con su nombre. */}
           <Paper sx={{ p: 1.5, flex: '1 1 120px', textAlign: 'center', bgcolor: '#FFF3E0', borderTop: `3px solid ${ORANGE}` }}>
-            <Typography variant="h5" fontWeight="bold" color={ORANGE}>{stats.needs_human}</Typography>
-            <Typography variant="caption" color="text.secondary">Requieren atención</Typography>
+            <Typography variant="h5" fontWeight="bold" color={ORANGE}>
+              {stats.esperan_respuesta ?? stats.needs_human}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">Esperan respuesta</Typography>
+            {stats.esperan_respuesta !== undefined && stats.needs_human > stats.esperan_respuesta && (
+              <Typography variant="caption" sx={{ display: 'block', color: '#8D6E63', fontSize: 10 }}>
+                {stats.needs_human - stats.esperan_respuesta} abierto{stats.needs_human - stats.esperan_respuesta === 1 ? '' : 's'} sin cerrar
+              </Typography>
+            )}
           </Paper>
           {/* Antes decía "Con IA" y contaba solo las conversaciones VIVAS con
               Cajito. Marcaba 0 siempre, porque contesta y cierra en segundos:

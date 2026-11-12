@@ -40,6 +40,8 @@ import api from '../services/api';
 interface SupportStats {
   ai_handling: number;
   needs_human: number;
+  /** Los que esperan respuesta NUESTRA (tarea 890). */
+  esperan_respuesta: number;
   waiting_client: number;
   resolved: number;
   today_new: number;
@@ -176,6 +178,7 @@ export default function DashboardCustomerService({ onNavigateToSupport, onNaviga
       setStats({
         ai_handling: parseInt(raw.ai_handling) || 0,
         needs_human: parseInt(raw.needs_human) || 0,
+        esperan_respuesta: parseInt(raw.esperan_respuesta) || 0,
         waiting_client: parseInt(raw.waiting_client) || 0,
         resolved: parseInt(raw.resolved) || 0,
         today_new: parseInt(raw.today_new) || 0,
@@ -394,7 +397,7 @@ export default function DashboardCustomerService({ onNavigateToSupport, onNaviga
             caption={onNavigateToSupport ? 'Click para ver todos' : ' '}
             icon={<AssignmentIcon />}
             gradient={`linear-gradient(135deg, ${BRAND.orange} 0%, ${BRAND.orangeLight} 100%)`}
-            badge={stats?.needs_human ?? 0}
+            badge={stats?.esperan_respuesta ?? 0}
             onClick={onNavigateToSupport}
           />
         </Grid>
@@ -524,7 +527,7 @@ export default function DashboardCustomerService({ onNavigateToSupport, onNaviga
                 <WarningIcon sx={{ color: BRAND.red }} />
                 <Box>
                   <Typography variant="subtitle2" fontWeight={700} sx={{ color: BRAND.red }}>
-                    {stats?.needs_human ?? 0} Tickets requieren atención
+                    {stats?.esperan_respuesta ?? 0} Tickets esperan respuesta
                   </Typography>
                   <Typography variant="caption" color="text.secondary">Escalados, sin respuesta de agente</Typography>
                 </Box>

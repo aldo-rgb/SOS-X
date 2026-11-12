@@ -2242,6 +2242,26 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
                      WHERE EXTRACT(ISODOW FROM created_at::date + gs) < 6)
               ) > 3
           ) as needs_human,
+          -- De esos, los que de verdad esperan algo de NOSOTROS: traen un
+          -- mensaje del cliente posterior a nuestra ultima respuesta.
+          --
+          -- "Requieren atencion" contaba abiertos con mas de 3 dias habiles, y
+          -- eso no es lo mismo que pendiente por atender: de 17 que marcaba,
+          -- 16 no esperaban nada —9 estaban esperando al CLIENTE y 7 abiertos
+          -- con todo contestado, nada mas sin cerrar—. Contabilidad entraba al
+          -- panel, no encontraba nada que hacer y lo reporto como numero
+          -- fantasma (tarea 890).
+          COUNT(*) FILTER (
+            WHERE status <> 'resolved' AND COALESCE(ticket_status::text, '') <> 'finalizado' AND archived_at IS NULL
+              AND (SELECT COUNT(*) FROM ticket_messages m
+                    WHERE m.ticket_id = support_tickets.id
+                      AND COALESCE(m.sender_type, '') = 'client'
+                      AND m.created_at > COALESCE(
+                            (SELECT MAX(m2.created_at) FROM ticket_messages m2
+                              WHERE m2.ticket_id = support_tickets.id
+                                AND COALESCE(m2.sender_type, '') <> 'client'),
+                            TIMESTAMP '1970-01-01')) > 0
+          ) as esperan_respuesta,
           COUNT(*) FILTER (WHERE status = 'waiting_client' AND archived_at IS NULL) as waiting_client,
           -- Resueltos y Nuevos hoy EXCLUYEN los atendidos/resueltos por la IA (Cajito).
           --

@@ -178,7 +178,9 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           } else {
             openTickets = Number(supportData.ai_handling || 0) + Number(supportData.needs_human || 0) + Number(supportData.waiting_client || 0);
           }
-          escalatedTickets = Number(supportData.needs_human || 0);
+          // Lo que espera respuesta nuestra, no todo lo abierto con dias
+          // encima: ese numero mandaba a atender una bandeja vacia (tarea 890).
+          escalatedTickets = Number(supportData.esperan_respuesta ?? supportData.needs_human ?? 0);
         }
 
         // Cargar clientes activos
