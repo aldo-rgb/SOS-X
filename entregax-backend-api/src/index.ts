@@ -13426,8 +13426,12 @@ app.post('/api/admin/fleet/vehicles/:id/assign-driver', authenticateToken, requi
 
 // Documentos de vehículos
 app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVehicleDocuments);
-app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createDocument);
-app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateDocument);
+// Los documentos de la unidad —poliza, tenencia, tarjeta de circulacion— los
+// captura y renueva tambien Contabilidad: es quien paga el seguro y a quien le
+// toca su control. Veia el panel sin ninguna accion (tarea 891). El alta y la
+// baja de unidades siguen fuera de su alcance.
+app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), createDocument);
+app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), updateDocument);
 app.delete('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteDocument);
 
 // Mantenimiento

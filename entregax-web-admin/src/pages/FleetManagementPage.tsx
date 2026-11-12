@@ -317,15 +317,23 @@ export default function FleetManagementPage({ initialTab }: { initialTab?: numbe
   const isSuperAdmin = currentUserRole === 'super_admin';
   // Edición de vehículos: sólo admin y super_admin
   const canEditVehicle = ['super_admin', 'admin'].includes(currentUserRole);
-  // Costos visibles sólo para admin / super_admin / director
-  const canViewCost = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+  // Costos visibles sólo para admin / super_admin / director — y Contabilidad,
+  // que es quien paga la póliza: pedirle el control del seguro sin enseñarle
+  // cuánto cuesta no deja controlar nada (tarea 891).
+  const canViewCost = ['super_admin', 'admin', 'director', 'accountant'].includes(currentUserRole);
   // Roles que pueden ver el detalle (👁) de la unidad pero NO editar/eliminar
   const canViewVehicle = isSuperAdmin
     || currentUserRole === 'branch_manager'
     || currentUserRole === 'counter_staff'
-    || currentUserRole === 'customer_service';
+    || currentUserRole === 'customer_service'
+    // Contabilidad veía la lista con la columna de Acciones vacía: sin el ojo
+    // no llegaba al detalle, que es donde viven las pólizas.
+    || currentUserRole === 'accountant';
   // Puede gestionar documentos (pólizas, etc.) pero no editar el vehículo
-  const canManageDocs = canEditVehicle || ['customer_service', 'branch_manager'].includes(currentUserRole);
+  const canManageDocs = canEditVehicle || ['customer_service', 'branch_manager', 'accountant'].includes(currentUserRole);
+  // Registrar servicios de taller es otra cosa, y ahí Contabilidad no entra:
+  // el botón saldría y el servidor lo rechazaría.
+  const canManageMaintenance = canEditVehicle || ['customer_service', 'branch_manager'].includes(currentUserRole);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
@@ -1346,7 +1354,7 @@ export default function FleetManagementPage({ initialTab }: { initialTab?: numbe
                   Agregar Documento
                 </Button>
                 )}
-                {canManageDocs && (
+                {canManageMaintenance && (
                 <Button
                   variant="outlined"
                   startIcon={<BuildIcon />}
