@@ -367,6 +367,47 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
             });
         }
 
+        // De que servicio es lo que se esta cobrando.
+        //
+        // Antes esta orden nacia con service_type = 'POBOX_USA' a fuerza, aunque
+        // se estuviera cobrando una guia de DHL o una orden maritima: esta misma
+        // pantalla cobra los tres. Con la etiqueta equivocada, al pagar la orden
+        // se resolvia el servicio por otro camino, caia en 'aereo' -que tiene los
+        // pagos apagados- y el cobro se rechazaba sin decir por que (tarea 1035).
+        //
+        // revision.rows ya trae de que tabla salio cada cosa, y acotado al dueno,
+        // asi que el dato estaba aqui mismo: solo habia que usarlo.
+        const serviceTypeDb = (() => {
+            const tipos = new Set(
+                revision.rows.map((r: any) => {
+                    if (r.source === 'dhl') return 'AA_DHL';
+                    if (r.source === 'maritime') return 'SEA_CHN_MX';
+                    return String(r.service_type || 'POBOX_USA');
+                })
+            );
+            // Una orden con cosas de dos servicios no deberia existir; si pasa,
+            // se queda con el primero y queda el aviso en el log.
+            if (tipos.size > 1) {
+                console.warn('[pobox-paypal] la orden mezcla servicios:', Array.from(tipos).join(', '));
+            }
+            return Array.from(tipos)[0] || 'POBOX_USA';
+        })();
+        const servicioCobro = ({
+            POBOX_USA: 'po_box',
+            AIR_CHN_MX: 'aereo',
+            SEA_CHN_MX: 'maritimo',
+            AA_DHL: 'dhl_liberacion',
+            TDI_EXPRESS: 'terrestre_nacional',
+        } as Record<string, any>)[serviceTypeDb] || 'po_box';
+
+        // Servicio apagado en Ajustes del Sistema: no se cobra. Este camino no
+        // tenia el candado; el otro si. Ahora que el servicio es el de verdad,
+        // aplicarlo aqui deja de ser un riesgo y cierra el hueco.
+        {
+            const { bloqueadoPorServicio } = await import('./servicioHabilitado');
+            if (await bloqueadoPorServicio(res, serviceTypeDb, 'pago PayPal PO Box')) return;
+        }
+
         // Crear registro de pago en base de datos
         const paymentRef = generatePaymentReference('PP');
         
@@ -374,16 +415,20 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
                 payment_reference, status, requiere_factura, service_type, created_at
-            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', $6, 'POBOX_USA', CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', $6, $7, CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
+        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false, serviceTypeDb]);
 
         const paymentId = paymentResult.rows[0].id;
 
-        // Obtener credenciales de PayPal desde la BD
+        // Obtener credenciales de PayPal desde la BD.
+        // Cobra la empresa del servicio que se esta pagando, igual que en el
+        // resto de los cobros. Con 'po_box' fijo, una guia de DHL se cobraba
+        // con la empresa de PO Box. Si ese servicio no tiene PayPal, la propia
+        // funcion cae al primer emisor configurado, como siempre.
         let credentials: PayPalCredentials;
         try {
-            credentials = await getPaypalCredentials('po_box');
+            credentials = await getPaypalCredentials(servicioCobro);
         } catch (credError: any) {
             console.error('Error obteniendo credenciales PayPal:', credError.message);
             return res.status(500).json({ 

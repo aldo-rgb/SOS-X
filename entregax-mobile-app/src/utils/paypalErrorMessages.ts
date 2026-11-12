@@ -47,6 +47,8 @@ export interface PaypalErrorPayload {
   retryable?: boolean;
   detail?: string;
   error?: string;
+  /** Explicación en español que manda el backend cuando él frenó el cobro. */
+  message?: string;
 }
 
 export interface PaypalErrorDisplay {
@@ -57,14 +59,52 @@ export interface PaypalErrorDisplay {
   alreadyPaid: boolean;
 }
 
+/**
+ * ¿El backend nos dijo algo que una persona pueda leer?
+ *
+ * Muchas respuestas de error no traen `code` de PayPal porque el cobro ni
+ * siquiera llegó a PayPal: lo frenamos nosotros —un servicio apagado, una
+ * orden duplicada, datos fiscales incompletos— y la razón viaja en `message`.
+ *
+ * `error` suele ser una llave interna ("servicio_desactivado"), no un texto
+ * para el cliente, así que solo se usa si viene redactado como frase.
+ */
+function razonDelBackend(payload: PaypalErrorPayload | null | undefined): string | null {
+  const candidatos = [
+    (payload as any)?.message,
+    payload?.detail,
+    payload?.error,
+  ];
+  for (const c of candidatos) {
+    const txt = String(c || '').trim();
+    // Una llave interna no lleva espacios; una explicación sí.
+    if (txt.length >= 12 && /\s/.test(txt)) return txt;
+  }
+  return null;
+}
+
 export function buildPaypalErrorDisplay(payload: PaypalErrorPayload | null | undefined): PaypalErrorDisplay {
   const t = i18n.t.bind(i18n);
-  const errorKey = payload?.errorKey
-    || (payload?.code ? CODE_TO_KEY[String(payload.code).toUpperCase()] : undefined)
-    || 'pp.unknown';
+  const conocido = payload?.errorKey
+    || (payload?.code ? CODE_TO_KEY[String(payload.code).toUpperCase()] : undefined);
+  const errorKey = conocido || 'pp.unknown';
   const action = payload?.action || 'contact_support';
-  const message = t(errorKey, { defaultValue: payload?.error || payload?.detail || 'No pudimos procesar tu pago.' });
-  const actionLabel = t(`pp.action.${action}`, { defaultValue: '' });
+
+  // Cuando NO reconocemos el error de PayPal pero el backend sí explicó qué
+  // pasó, se enseña su explicación.
+  //
+  // Antes no: el catálogo tiene texto para 'pp.unknown', así que ganaba sobre
+  // el defaultValue y cualquier error sin código salía como "No pudimos
+  // procesar tu pago. Contacta a soporte." El cliente no sabía qué hacer y
+  // soporte tampoco, porque el motivo real no quedaba en ningún lado. Un
+  // cliente pasó una hora sin poder pagar su guía de DHL por eso (tarea 1035).
+  const razon = conocido ? null : razonDelBackend(payload);
+  const message = razon || t(errorKey, { defaultValue: 'No pudimos procesar tu pago.' });
+
+  // "Contacta a soporte" solo cuando de verdad no hay nada más que decir: si ya
+  // le explicamos el motivo, agregarlo nomás estorba.
+  const actionLabel = (razon && !payload?.action) ? '' : t(`pp.action.${action}`, { defaultValue: '' });
+
   return {
     title: t('common.error', { defaultValue: 'Error' }),
     message: actionLabel ? `${message}\n\n${actionLabel}` : message,

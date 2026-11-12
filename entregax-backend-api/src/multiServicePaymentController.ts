@@ -24,6 +24,7 @@ import {
   evaluatePaypalCapture,
   buildPaypalErrorResponse,
 } from './services/paypalErrors';
+import { resolverServicioDeCobro } from './servicioDeCobro';
 import { createInvoice } from './fiscalController';
 import { generateCommissionsForPackages } from './commissionService';
 
@@ -60,6 +61,17 @@ const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> =
 };
 
 // Determinar tipo de servicio a partir de los paquetes
+/**
+ * ⚠️ Resuelve mirando SOLO la tabla `packages` y sin saber de quién es la orden.
+ * Para un cobro de DHL o marítimo los ids son de OTRA tabla, y el mismo número
+ * existe ahí apuntando a un paquete de alguien más: entonces esto devuelve un
+ * servicio equivocado, y de remate su default es 'aereo', que es el servicio
+ * que hoy tiene los pagos apagados (tarea 1035).
+ *
+ * Donde hay dueño y referencia de la orden se usa resolverServicioDeCobro(),
+ * que busca en la tabla correcta. Esto se queda para los lugares que todavía
+ * no tienen ese dato a la mano.
+ */
 const getServiceTypeFromPackages = async (packageIds: number[]): Promise<ServiceType> => {
   const result = await pool.query(
     `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
@@ -724,8 +736,16 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
 
     const user = userResult.rows[0];
 
-    // Determinar tipo de servicio y obtener credenciales OpenPay
-    const serviceType = await getServiceTypeFromPackages(packageIds);
+    // Determinar tipo de servicio y obtener credenciales OpenPay. Mismo caso
+    // que PayPal: los ids de una orden de DHL o marítima no viven en
+    // `packages`, así que se resuelve por dueño y tabla (tarea 1035).
+    const resueltoTarjeta = await resolverServicioDeCobro({
+      userId,
+      ids: Array.isArray(packageIds) ? packageIds : [],
+      paymentOrderId,
+      paymentReference,
+    });
+    const serviceType = resueltoTarjeta.servicio || (await getServiceTypeFromPackages(packageIds));
     let credentials;
     try {
       credentials = await getOpenpayCredentials(serviceType);
@@ -746,21 +766,13 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
     const openpayBaseUrl = credentials.isSandbox ? OPENPAY_SANDBOX_URL : OPENPAY_PROD_URL;
     const openpayUrl = `${openpayBaseUrl}/${credentials.merchantId}/charges`;
 
-    // Registrar pago pendiente en financial_transactions
-    try {
-      await pool.query(`
-        INSERT INTO financial_transactions 
-        (user_id, type, amount, description, reference_id, reference_type, metadata, created_at)
-        VALUES ($1, 'payment', $2, $3, $4, 'openpay_card', $5, NOW())
-      `, [
-        userId, total, 
-        `Pago con tarjeta - ${packageIds.length} paquete(s)`,
-        paymentRef,
-        JSON.stringify({ packageIds, currency: currency || 'MXN', serviceType, invoiceRequired, invoiceData, paymentOrderId, paymentReference })
-      ]);
-    } catch (txErr: any) {
-      console.log('Note: financial_transactions insert:', txErr.message);
-    }
+    // Aqui se intentaba dejar el intento en financial_transactions, y nunca
+    // funciono: la columna `type` es un enum (deposit_spei, payment_wallet,
+    // credit_settlement...) que no acepta 'payment', asi que el INSERT siempre
+    // reventaba y el catch se lo tragaba. En toda la historia de la tabla hay
+    // cero renglones de pagos en linea. Se quita en vez de dejarlo fingiendo
+    // que registra: cuando un cobro falla, el rastro que sirve es el log y el
+    // intent, no una bitacora que nunca se escribio (tarea 1035).
 
     // Crear cargo con redireccionamiento en OpenPay
     const packageCount = packageIds.length;
@@ -849,11 +861,30 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     const userId = req.user?.userId;
     const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData, paymentOrderId, paymentReference } = req.body;
 
+    // De qué servicio es este cobro. Se resuelve UNA vez y se usa para las tres
+    // decisiones que dependen de ello: el candado de servicios apagados, con
+    // qué empresa se cobra y qué queda guardado en el intent (tarea 1035).
+    const resuelto = await resolverServicioDeCobro({
+      userId,
+      ids: Array.isArray(packageIds) ? packageIds : [],
+      paymentOrderId,
+      paymentReference,
+    });
+
     // 🔒 Servicio apagado en Ajustes del Sistema: no se cobra.
-    if (Array.isArray(packageIds) && packageIds.length) {
-      const svc = await getServiceTypeFromPackages(packageIds);
+    //    Si NO se pudo saber de qué servicio es, no se bloquea: frenar un cobro
+    //    por un servicio adivinado es peor que dejarlo pasar, y es exactamente
+    //    lo que dejaba a un cliente de DHL sin poder pagar.
+    if (resuelto.servicio || resuelto.serviceTypeDb) {
       const { bloqueadoPorServicio } = await import('./servicioHabilitado');
-      if (await bloqueadoPorServicio(res, svc, 'pago PayPal')) return;
+      // Se le pasa el service_type tal como vive en la BD: su tabla de llaves
+      // entiende las dos formas y ademas cubre TDI Express, que no tiene
+      // equivalente en los tipos de cobro.
+      if (await bloqueadoPorServicio(res, resuelto.serviceTypeDb || resuelto.servicio, 'pago PayPal')) return;
+    } else if (Array.isArray(packageIds) && packageIds.length) {
+      console.warn('[pago-paypal] no se pudo saber el servicio de la orden; se deja pasar', {
+        userId, packageIds, paymentOrderId, paymentReference,
+      });
     }
 
     console.log('📦 Creating PayPal payment:', {
@@ -920,9 +951,12 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     // Obtener credenciales de PayPal desde la BD
     let credentials: PayPalCredentials;
     try {
-      // Resolver empresa por servicio de los paquetes (multi-empresa)
-      const svcType = await getServiceTypeFromPackages(packageIds);
-      credentials = await getPaypalCredentials(svcType);
+      // La empresa que cobra es la del servicio de ESTA orden. Si no se pudo
+      // resolver, getPaypalCredentials() sin servicio cae al primer emisor con
+      // PayPal configurado, que es su comportamiento de siempre.
+      credentials = resuelto.servicio
+        ? await getPaypalCredentials(resuelto.servicio)
+        : await getPaypalCredentials();
     } catch (credError: any) {
       console.error('❌ Error obteniendo credenciales PayPal:', credError.message);
       const paymentId = `paypal_pending_${Date.now()}`;
@@ -936,21 +970,13 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
 
     const paymentRef = generatePaymentReference('PP');
 
-    // Registrar pago pendiente en financial_transactions
-    try {
-      await pool.query(`
-        INSERT INTO financial_transactions 
-        (user_id, type, amount, description, reference_id, reference_type, metadata, created_at)
-        VALUES ($1, 'payment', $2, $3, $4, 'paypal', $5, NOW())
-      `, [
-        userId, total,
-        `Pago con PayPal - ${packageIds.length} paquete(s)`,
-        paymentRef,
-        JSON.stringify({ packageIds, currency: currency || 'MXN', invoiceRequired, invoiceData, paymentOrderId, paymentReference })
-      ]);
-    } catch (txErr: any) {
-      console.log('Note: financial_transactions insert:', txErr.message);
-    }
+    // Aqui se intentaba dejar el intento en financial_transactions, y nunca
+    // funciono: la columna `type` es un enum (deposit_spei, payment_wallet,
+    // credit_settlement...) que no acepta 'payment', asi que el INSERT siempre
+    // reventaba y el catch se lo tragaba. En toda la historia de la tabla hay
+    // cero renglones de pagos en linea. Se quita en vez de dejarlo fingiendo
+    // que registra: cuando un cobro falla, el rastro que sirve es el log y el
+    // intent, no una bitacora que nunca se escribio (tarea 1035).
 
     // Obtener token de PayPal
     const token = await getPayPalToken(credentials);
@@ -1004,7 +1030,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
 
     // 🔐 Persistir el intent: fuente de verdad del monto y paquetes para el callback.
     try {
-      const svcType = await getServiceTypeFromPackages(packageIds);
+      const svcType = resuelto.servicio || (await getServiceTypeFromPackages(packageIds));
       await pool.query(
         `INSERT INTO paypal_payment_intents (
             paypal_order_id, payment_ref, user_id, package_ids, amount, currency,
@@ -1065,10 +1091,15 @@ export const createBranchPayment = async (req: AuthRequest, res: Response): Prom
     const { packageIds, paymentMethod, total, currency, company, invoiceRequired, invoiceData } = req.body;
 
     // 🔒 Servicio apagado en Ajustes del Sistema: no se genera la referencia.
+    //    Se resuelve por dueño y tabla; si no se puede saber, no se bloquea
+    //    (tarea 1035).
     if (Array.isArray(packageIds) && packageIds.length) {
-      const svc = await getServiceTypeFromPackages(packageIds);
-      const { bloqueadoPorServicio } = await import('./servicioHabilitado');
-      if (await bloqueadoPorServicio(res, svc, 'pago en sucursal')) return;
+      const r = await resolverServicioDeCobro({ userId, ids: packageIds });
+      const svc = r.serviceTypeDb || r.servicio;
+      if (svc) {
+        const { bloqueadoPorServicio } = await import('./servicioHabilitado');
+        if (await bloqueadoPorServicio(res, svc, 'pago en sucursal')) return;
+      }
     }
 
     console.log('📦 Creating branch payment reference:', {
