@@ -2206,6 +2206,95 @@ export const startHidalgoListasParaEnviarCron = () => {
 };
 
 /**
+ * CRON: avisa al ASESOR de las cajas aereas que llegaron sin instrucciones.
+ *
+ * Cada vez que aterriza una guia madre, CEDIS arma a mano la lista de suites
+ * sin instrucciones y pide por tarea que alguien avise a los asesores
+ * correspondientes (tarea 1018, dos guias madre con 194 cajas: 151 con
+ * instrucciones y 43 sin ellas). Esa lista ya existe en la base; lo que
+ * faltaba era que llegara sola a quien puede resolverla.
+ *
+ * Sin instrucciones la caja no se puede etiquetar ni cargar, asi que cada dia
+ * que pasa es un dia de bodega. Al medir habia 1,606 cajas aereas asi, de 85
+ * clientes.
+ *
+ * Se avisa UNA vez por caja y UN mensaje por asesor en cada corrida: veinte
+ * cajas no son veinte notificaciones. Las cajas sin cliente o sin asesor no
+ * entran: no hay a quien avisarle, y eso se arregla ligando el casillero.
+ */
+export const startAereoSinInstruccionesCron = () => {
+  const correr = async () => {
+    try {
+      await pool.query(
+        `ALTER TABLE packages ADD COLUMN IF NOT EXISTS aviso_sin_instrucciones_at TIMESTAMPTZ`
+      ).catch(() => {});
+
+      const r = await pool.query(`
+        SELECT p.id, u.box_id, u.full_name, u.advisor_id
+          FROM packages p
+          JOIN users u ON u.id = p.user_id
+         WHERE p.warehouse_location = 'china_air'
+           AND p.assigned_address_id IS NULL
+           AND p.master_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id)
+           AND p.status::text IN ('received_cdmx', 'received_mty', 'received')
+           AND p.delivered_at IS NULL
+           AND u.advisor_id IS NOT NULL
+           AND p.aviso_sin_instrucciones_at IS NULL
+         ORDER BY p.created_at ASC
+         LIMIT 400`);
+      if (r.rows.length === 0) return;
+
+      // Una entrada por asesor, con sus casilleros y cuantas cajas trae cada uno.
+      const porAsesor = new Map<number, { ids: number[]; suites: Map<string, number> }>();
+      for (const x of r.rows) {
+        const aid = Number(x.advisor_id);
+        if (!porAsesor.has(aid)) porAsesor.set(aid, { ids: [], suites: new Map() });
+        const e = porAsesor.get(aid)!;
+        e.ids.push(Number(x.id));
+        const suite = String(x.box_id || 's/casillero');
+        e.suites.set(suite, (e.suites.get(suite) || 0) + 1);
+      }
+
+      const { createCustomNotification } = await import('./notificationController');
+      const { sendPushToUsers } = await import('./pushService');
+      const avisados: number[] = [];
+
+      for (const [asesorId, e] of porAsesor) {
+        const n = e.ids.length;
+        // El casillero es lo accionable: el asesor sabe a quien llamarle.
+        const suites = [...e.suites.entries()].sort((a, b) => b[1] - a[1]);
+        const muestra = suites.slice(0, 3).map(([s, c]) => `${s} (${c})`).join(', ');
+        const resto = suites.length > 3 ? ` y ${suites.length - 3} casillero${suites.length - 3 === 1 ? '' : 's'} más` : '';
+        const titulo = `✈️ ${n} caja${n === 1 ? '' : 's'} sin instrucciones de entrega`;
+        const cuerpo = `${muestra}${resto}. Sin instrucciones no se pueden etiquetar ni cargar: `
+                     + 'pídeselas al cliente y regístralas.';
+        await createCustomNotification(
+          asesorId, titulo, cuerpo, 'warning', 'map-marker-off',
+          { screen: 'AdvisorClients' }, '/dashboard'
+        ).catch(() => {});
+        await sendPushToUsers([asesorId], {
+          title: titulo, body: cuerpo, data: { screen: 'AdvisorClients' },
+          notificationType: 'packages_without_instructions',
+        }).catch(() => {});
+        avisados.push(...e.ids);
+      }
+
+      await pool.query(
+        `UPDATE packages SET aviso_sin_instrucciones_at = NOW() WHERE id = ANY($1::int[])`,
+        [avisados]);
+      console.log(`✈️ [CRON] Aereo sin instrucciones: ${avisados.length} cajas, ${porAsesor.size} asesores avisados`);
+    } catch (e: any) {
+      console.error('❌ [CRON] Aereo sin instrucciones:', e?.message || e);
+    }
+  };
+  // Una vez al dia, en horario de oficina: es trabajo de llamarle al cliente,
+  // no una urgencia de las 6am.
+  cron.schedule('30 10 * * 1-6', correr, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Aereo sin instrucciones: 10:30am (lun-sab)');
+};
+
+/**
  * CRON: aviso diario a Contabilidad de los pagos que faltan por autorizar.
  *
  * El atraso no era pereza: estos comprobantes NO se ven en ninguna pantalla del
@@ -2426,6 +2515,7 @@ export const initCronJobs = () => {
   startComprobantesPorAutorizarCron();
   startCargosPorValidarCron();
   startHidalgoListasParaEnviarCron();
+  startAereoSinInstruccionesCron();
   startRecoveryCronJob();
   startTaskRemindersCron();
   startWaSequenceCron();
