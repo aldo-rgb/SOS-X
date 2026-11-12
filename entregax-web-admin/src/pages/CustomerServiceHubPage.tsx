@@ -35,6 +35,8 @@ import ChartbackManagementPage from './ChartbackManagementPage';
 import WelcomeKitPage from './WelcomeKitPage';
 import LeadRegistrationPage from './LeadRegistrationPage';
 import PaymentOrdersHistoryPage from './PaymentOrdersHistoryPage';
+import MarcasRegistradasPage from './MarcasRegistradasPage';
+import VerifiedIcon from '@mui/icons-material/Verified';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
@@ -61,6 +63,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'chartback': 'cs_chartback',
   'welcome_kit': 'cs_welcome_kit',
   'payment_orders_history': 'cs_payment_orders_history',
+  'marcas': 'cs_marcas',
 };
 
 interface User {
@@ -79,7 +82,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history' | 'descuentos' | 'cargos_validar';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history' | 'descuentos' | 'cargos_validar' | 'marcas';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -347,6 +350,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       bgColor: 'rgba(63, 81, 181, 0.1)',
     },
     {
+      key: 'marcas',
+      title: 'Catálogo de Marcas Registradas',
+      description: 'Qué marcas sí podemos manejar, de qué cliente son y con qué respaldo',
+      icon: <VerifiedIcon sx={{ fontSize: 40 }} />,
+      color: '#0EA5E9',
+      bgColor: 'rgba(14, 165, 233, 0.1)',
+    },
+    {
       key: 'payment_orders_history',
       title: 'Historial de Órdenes de Pago',
       description: 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo',
@@ -399,6 +410,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Typography>
         </Box>
         <CRMClientsPage canEdit={isSuperAdmin || userPermissions['cs_clients']?.can_edit === true} />
+      </Box>
+    );
+  }
+
+  if (activeView === 'marcas') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Catálogo de Marcas Registradas</Typography>
+        </Box>
+        <MarcasRegistradasPage />
       </Box>
     );
   }

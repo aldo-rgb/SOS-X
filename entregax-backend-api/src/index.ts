@@ -734,6 +734,16 @@ import {
   selectKitGift,
 } from './welcomeKitController';
 import {
+  listarMarcas,
+  buscarClienteMarca,
+  consultarMarca,
+  subirLogoMarca,
+  subirCartaImpi,
+  crearMarca,
+  actualizarMarca,
+  borrarMarca,
+} from './marcasRegistradasController';
+import {
   getSequences,
   updateSequence,
   enrollInSequence,
@@ -8104,6 +8114,21 @@ app.delete('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinL
 app.post('/api/admin/welcome-kit/products/upload-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitPhotoUpload.single('file'), uploadKitProductPhoto);
 const kitVideoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } }); // 60MB (video corto)
 app.post('/api/admin/welcome-kit/products/upload-video', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitVideoUpload.single('file'), uploadKitProductVideo);
+// ™️ Catálogo de Marcas Registradas
+// Qué marcas sí podemos manejar y de quién son. Lo captura Servicio a Cliente;
+// consultarla la puede cualquiera con sesión, porque la pregunta "¿esta marca
+// está permitida?" sale en bodega, en mostrador y al cotizar.
+const marcaLogoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const marcaCartaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.get('/api/admin/marcas-registradas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listarMarcas);
+app.get('/api/admin/marcas-registradas/buscar-cliente', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), buscarClienteMarca);
+app.get('/api/marcas-registradas/consultar', authenticateToken, consultarMarca);
+app.post('/api/admin/marcas-registradas/upload-logo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), marcaLogoUpload.single('file'), subirLogoMarca);
+app.post('/api/admin/marcas-registradas/upload-carta', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), marcaCartaUpload.single('file'), subirCartaImpi);
+app.post('/api/admin/marcas-registradas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), crearMarca);
+app.put('/api/admin/marcas-registradas/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), actualizarMarca);
+app.delete('/api/admin/marcas-registradas/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), borrarMarca);
+
 // 📱 Cliente: ver su kit pendiente y elegir su regalo (crea la guía USK)
 app.get('/api/welcome-kit/my-kit', authenticateToken, getMyKit);
 app.post('/api/welcome-kit/select-gift', authenticateToken, selectKitGift);
@@ -16317,7 +16342,8 @@ async function ensureRequiredColumns() {
         ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11),
         ('cs_payment_orders_history', 'Historial de Órdenes de Pago', 'customer_service', 'ReceiptLong', 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo', TRUE, 12),
         ('cs_cargos_validar', 'Cargos por Validar', 'customer_service', 'Gavel', 'Impuestos DHL que el sistema calculó y esperan visto bueno antes de cobrarse al cliente', TRUE, 13),
-        ('cs_descuentos',    'Descuentos Aplicados', 'customer_service', 'Percent', 'Cuánto se deja de cobrar, en qué guías y quién lo autoriza', TRUE, 14)
+        ('cs_descuentos',    'Descuentos Aplicados', 'customer_service', 'Percent', 'Cuánto se deja de cobrar, en qué guías y quién lo autoriza', TRUE, 14),
+        ('cs_marcas',        'Catálogo de Marcas Registradas', 'customer_service', 'Verified', 'Qué marcas sí podemos manejar, de qué cliente son y con qué respaldo', TRUE, 15)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,

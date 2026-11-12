@@ -57,6 +57,7 @@ import {
   UploadFile as UploadFileIcon,
   Sync as SyncIcon,
   CardGiftcard as CardGiftcardIcon,
+  Verified as VerifiedIcon,
   HeadsetMic as HeadsetMicIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -165,6 +166,7 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
   cs_legacy_clients: <UploadFileIcon />,
   cs_chartback: <SyncIcon />,
   cs_welcome_kit: <CardGiftcardIcon />,
+  cs_marcas: <VerifiedIcon />,
 };
 
 export default function UserPanelPermissionsPage() {
