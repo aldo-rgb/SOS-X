@@ -41,6 +41,8 @@ import ArchiveIcon from '@mui/icons-material/Archive';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import EmailIcon from '@mui/icons-material/Email';
 import SaveIcon from '@mui/icons-material/Save';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import axios from 'axios';
 import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
 import { useSoltarArchivos } from '../hooks/useSoltarArchivos';
@@ -2915,6 +2917,33 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   const [clientes, setClientes] = useState<any[]>([]);
   const [buscandoClientes, setBuscandoClientes] = useState(false);
 
+  // Apartar un deposito para que nadie lo ocupe.
+  //
+  // Direccion recibe la peticion de una devolucion por una cantidad importante
+  // dias antes de poder ejecutarla, y mientras tanto el deposito esta en esta
+  // lista como cualquier otro: cualquiera lo concilia o lo abona y cuando llega
+  // la devolucion el dinero ya no esta. El sistema anterior lo traia (tarea 838).
+  const [bloqueo, setBloqueo] = useState<{ mov: any; motivo: string; guardando: boolean } | null>(null);
+
+  const confirmarBloqueo = async () => {
+    const b = bloqueo;
+    if (!b?.mov?.id) return;
+    const apartando = !b.mov.bloqueado_at;
+    setBloqueo({ ...b, guardando: true });
+    try {
+      const r = await api.post(`/accounting/${emitter.id}/bank-movements/${b.mov.id}/bloqueo`, {
+        bloquear: apartando, motivo: b.motivo || undefined,
+      });
+      setError(null);
+      setNotice(r.data?.mensaje || (apartando ? 'Movimiento apartado.' : 'Movimiento liberado.'));
+      setBloqueo(null);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'No se pudo cambiar el bloqueo');
+      setBloqueo({ ...b, guardando: false });
+    }
+  };
+
   const buscarClientes = async (texto: string) => {
     const q = texto.trim();
     if (q.length < 2) { setClientes([]); return; }
@@ -2935,8 +2964,14 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
     if (!a?.mov?.id || !a.cliente?.id) return;
     setAsignar({ ...a, guardando: true });
     try {
+      // El id que lista esta pantalla es el del ESTADO DE CUENTA, no el de
+      // Syncfy. Mandarlo como `syncfy_transaction_id` hacia que el backend lo
+      // buscara en la columna equivocada y no encontrara ninguna fila: las
+      // 5,694 de la tabla contestaban "todavia no esta en el estado de cuenta"
+      // y el boton no servia nunca. Ninguna se asigno mal: simplemente ninguna
+      // se pudo asignar desde aqui.
       const r = await api.post('/admin/finance/asignar-deposito', {
-        syncfy_transaction_id: a.mov.id, user_id: a.cliente.id, nota: a.nota || undefined,
+        bank_entry_id: a.mov.id, user_id: a.cliente.id, nota: a.nota || undefined,
       });
       setError(null);
       setNotice(r.data?.mensaje || 'Depósito abonado a la cartera del cliente.');
@@ -3195,7 +3230,14 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                   <TableCell sx={{ fontWeight: 700, color: m.type === 'INFLOW' ? '#16a34a' : RED }}>
                     {m.type === 'OUTFLOW' ? '-' : '+'}{fmt(parseFloat(m.amount))}
                   </TableCell>
-                  <TableCell>{matchChip(m.match_status)}</TableCell>
+                  <TableCell>
+                    {m.bloqueado_at ? (
+                      <Tooltip title={`Apartado${m.bloqueado_por_nombre ? ` por ${m.bloqueado_por_nombre}` : ''}${m.bloqueo_motivo ? `: ${m.bloqueo_motivo}` : ''}`}>
+                        <Chip size="small" icon={<LockIcon sx={{ fontSize: 14 }} />} label="Apartado"
+                          sx={{ bgcolor: '#7c3aed', color: 'white', fontWeight: 700, '& .MuiChip-icon': { color: 'white' } }} />
+                      </Tooltip>
+                    ) : matchChip(m.match_status)}
+                  </TableCell>
                   <TableCell>
                     {m.matched_client ? (
                       <Box>
@@ -3209,7 +3251,19 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                       asignarlo le regalaría el depósito al cliente —el backend
                       lo rechaza, pero el botón no debe invitar a intentarlo. */}
                   <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                    {m.type === 'INFLOW' && m.match_status !== 'matched' && (
+                    {/* Apartar / liberar. Un movimiento apartado no se puede
+                        conciliar ni abonar desde ninguna pantalla. */}
+                    {m.match_status !== 'matched' && (
+                      <Tooltip title={m.bloqueado_at
+                        ? `Liberar${m.bloqueado_por_nombre ? ` (lo apartó ${m.bloqueado_por_nombre})` : ''}`
+                        : 'Apartar este movimiento para que nadie lo ocupe'}>
+                        <IconButton size="small" onClick={() => setBloqueo({ mov: m, motivo: '', guardando: false })}
+                          sx={{ color: m.bloqueado_at ? '#7c3aed' : '#9ca3af' }}>
+                          {m.bloqueado_at ? <LockIcon sx={{ fontSize: 18 }} /> : <LockOpenIcon sx={{ fontSize: 18 }} />}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {m.type === 'INFLOW' && m.match_status !== 'matched' && !m.bloqueado_at && (
                       <Tooltip title="Abonar este depósito a la cartera de un cliente (para los que llegaron sin referencia)">
                         <Button
                           size="small"
@@ -3228,6 +3282,52 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           </Table>
         </Paper>
       )}
+
+      {/* ===== Apartar / liberar un movimiento del banco ===== */}
+      <Dialog open={!!bloqueo} onClose={() => !bloqueo?.guardando && setBloqueo(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {bloqueo?.mov?.bloqueado_at ? 'Liberar movimiento' : 'Apartar movimiento'}
+        </DialogTitle>
+        <DialogContent>
+          {bloqueo?.mov && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#F5F5F5', borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {fmtDate(bloqueo.mov.value_date)} · {fmt(parseFloat(bloqueo.mov.amount))}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                {bloqueo.mov.description || bloqueo.mov.reference || ''}
+              </Typography>
+            </Box>
+          )}
+          {bloqueo?.mov?.bloqueado_at ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Lo apartó <strong>{bloqueo.mov.bloqueado_por_nombre || 'alguien'}</strong>
+              {bloqueo.mov.bloqueo_motivo ? <>: “{bloqueo.mov.bloqueo_motivo}”</> : null}.
+              Al liberarlo vuelve a quedar disponible para conciliar o abonar.
+            </Alert>
+          ) : (
+            <>
+              <Alert severity="warning" sx={{ mb: 2, py: 0.5 }}>
+                Mientras esté apartado, nadie puede conciliarlo ni abonarlo a un cliente.
+              </Alert>
+              <TextField
+                label="Por qué se aparta" placeholder="Devolución pedida, en revisión, pendiente de aclarar…"
+                fullWidth multiline rows={2} size="small" autoFocus
+                value={bloqueo?.motivo || ''}
+                onChange={e => bloqueo && setBloqueo({ ...bloqueo, motivo: e.target.value })}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setBloqueo(null)} disabled={!!bloqueo?.guardando}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmarBloqueo}
+            disabled={!!bloqueo?.guardando || (!bloqueo?.mov?.bloqueado_at && (bloqueo?.motivo || '').trim().length < 4)}
+            sx={{ bgcolor: '#7c3aed', '&:hover': { bgcolor: '#6d28d9' } }}>
+            {bloqueo?.guardando ? 'Guardando…' : (bloqueo?.mov?.bloqueado_at ? 'Liberar' : 'Apartar')}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ===== Abonar un depósito sin referencia a la cartera de un cliente ===== */}
       <Dialog open={!!asignar} onClose={() => !asignar?.guardando && setAsignar(null)} maxWidth="sm" fullWidth>

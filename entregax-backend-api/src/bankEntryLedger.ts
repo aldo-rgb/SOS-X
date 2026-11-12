@@ -81,6 +81,23 @@ export async function ensureLedgerSchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS syncfy_transaction_id INTEGER;
     CREATE INDEX IF NOT EXISTS idx_bse_syncfy_tx
       ON bank_statement_entries (syncfy_transaction_id);
+    -- Apartar un deposito para que nadie lo ocupe.
+    --
+    -- Contabilidad recibe la peticion de una devolucion por una cantidad
+    -- importante mucho antes de poder ejecutarla, y mientras tanto el deposito
+    -- esta en la lista como cualquier otro, listo para que alguien lo concilie
+    -- o lo abone a un cliente. Si eso pasa, el dinero ya no esta cuando llega
+    -- la devolucion. El sistema anterior lo traia; este no (tarea 838).
+    ALTER TABLE bank_statement_entries
+      ADD COLUMN IF NOT EXISTS bloqueado_at TIMESTAMP;
+    ALTER TABLE bank_statement_entries
+      ADD COLUMN IF NOT EXISTS bloqueado_por INTEGER;
+    ALTER TABLE bank_statement_entries
+      ADD COLUMN IF NOT EXISTS bloqueado_por_nombre VARCHAR(160);
+    ALTER TABLE bank_statement_entries
+      ADD COLUMN IF NOT EXISTS bloqueo_motivo TEXT;
+    CREATE INDEX IF NOT EXISTS idx_bse_bloqueado
+      ON bank_statement_entries (empresa_id) WHERE bloqueado_at IS NOT NULL;
   `);
   schemaLista = true;
 }
@@ -93,6 +110,10 @@ export type SaldoEntry = {
   fecha: string | null;
   concepto: string | null;
   referencia: string | null;
+  /** Apartado a mano por Contabilidad: no se puede ocupar hasta desbloquearlo. */
+  bloqueado_at: Date | null;
+  bloqueo_motivo: string | null;
+  bloqueado_por_nombre: string | null;
 };
 
 /**
@@ -109,7 +130,8 @@ export async function saldoDisponible(
   bloquear = false
 ): Promise<SaldoEntry | null> {
   const e = await client.query(
-    `SELECT id, abono, fecha, concepto, referencia
+    `SELECT id, abono, fecha, concepto, referencia,
+            bloqueado_at, bloqueo_motivo, bloqueado_por_nombre
        FROM bank_statement_entries
       WHERE id = $1
       ${bloquear ? 'FOR UPDATE' : ''}`,
@@ -137,6 +159,9 @@ export async function saldoDisponible(
     fecha: row.fecha ? fechaCorta(row.fecha) : null,
     concepto: row.concepto,
     referencia: row.referencia,
+    bloqueado_at: row.bloqueado_at || null,
+    bloqueo_motivo: row.bloqueo_motivo || null,
+    bloqueado_por_nombre: row.bloqueado_por_nombre || null,
   };
 }
 
@@ -177,6 +202,20 @@ export async function aplicarAbono(
   const saldo = await saldoDisponible(client, datos.bankEntryId, true);
   if (!saldo) throw new Error(`El movimiento bancario #${datos.bankEntryId} no existe.`);
   if (saldo.abono <= 0) throw new Error('Ese movimiento es un cargo, no un abono: no puede respaldar un pago.');
+  // Apartado: no se ocupa hasta que quien lo aparto lo libere.
+  //
+  // El candado va aqui y no en cada pantalla porque por aqui pasan todas: la
+  // conciliacion de Cobranza, la autorizacion de una orden y cualquier otra
+  // que ocupe el abono. Decir quien lo aparto y por que ahorra el recorrido de
+  // preguntar.
+  if (saldo.bloqueado_at) {
+    throw new Error(
+      `Ese movimiento del ${saldo.fecha} esta apartado`
+      + `${saldo.bloqueado_por_nombre ? ` por ${saldo.bloqueado_por_nombre}` : ''}`
+      + `${saldo.bloqueo_motivo ? `: ${saldo.bloqueo_motivo}` : ''}`
+      + '. Hay que desbloquearlo en Contabilidad > Bancos antes de usarlo.'
+    );
+  }
   // Tolerancia de un centavo por el redondeo del banco.
   if (monto > cents(saldo.disponible + 0.01)) throw new AbonoAgotadoError(saldo, monto);
 

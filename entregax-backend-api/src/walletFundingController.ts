@@ -458,10 +458,24 @@ export const asignarDepositoACliente = async (req: any, res: Response): Promise<
     await cx.query('BEGIN');
 
     const mv = await cx.query(
-      `SELECT id, fecha, concepto, referencia, abono, cargo, numero_cuenta
+      `SELECT id, fecha, concepto, referencia, abono, cargo, numero_cuenta,
+              bloqueado_at, bloqueado_por_nombre, bloqueo_motivo
          FROM bank_statement_entries WHERE id = $1 FOR UPDATE`, [bankEntryId]);
     if (mv.rows.length === 0) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'No encontré ese movimiento bancario.' }); }
     const m = mv.rows[0];
+
+    // Apartado por Contabilidad: no se abona a nadie hasta que lo liberen.
+    //
+    // Este camino no pasa por `aplicarAbono`, que es donde vive el candado para
+    // las conciliaciones, asi que el bloqueo se revisa tambien aqui (tarea 838).
+    if (m.bloqueado_at) {
+      await cx.query('ROLLBACK');
+      return res.status(409).json({
+        error: `Ese movimiento esta apartado${m.bloqueado_por_nombre ? ` por ${m.bloqueado_por_nombre}` : ''}`
+             + `${m.bloqueo_motivo ? `: ${m.bloqueo_motivo}` : ''}`
+             + '. Hay que liberarlo en Contabilidad > Bancos antes de abonarlo.',
+      });
+    }
     const monto = Number(m.abono) || 0;
     if (!(monto > 0)) {
       await cx.query('ROLLBACK');

@@ -2637,6 +2637,9 @@ export const deleteReceivedInvoice = async (req: AuthRequest, res: Response): Pr
  */
 export const listBankMovements = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
+        // Las columnas del bloqueo se crean aqui mismo la primera vez.
+        const { ensureLedgerSchema } = await import('./bankEntryLedger');
+        await ensureLedgerSchema();
         const userId = req.user?.userId || (req.user as any)?.id;
         const role = req.user?.role;
         const emitterId = parseInt(String(req.params.emitterId), 10);
@@ -2685,6 +2688,10 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                 m.matched_payment_id AS matched_payment_id,
                 m.matched_at  AS matched_at,
                 bse.banco     AS institution_name,
+                -- Apartado a mano: quien lo aparto, cuando y por que (tarea 838).
+                bse.bloqueado_at AS bloqueado_at,
+                bse.bloqueado_por_nombre AS bloqueado_por_nombre,
+                bse.bloqueo_motivo AS bloqueo_motivo,
                 NULL::text    AS matched_client,
                 NULL::text    AS matched_reference,
                 NULL::numeric AS matched_amount
@@ -2721,7 +2728,8 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                   COALESCE(SUM(bse.cargo) FILTER (WHERE bse.cargo IS NOT NULL), 0) AS out_total,
                   COUNT(*) FILTER (WHERE m.match_status = 'matched')::int AS matched_count,
                   COUNT(*) FILTER (WHERE m.match_status IS DISTINCT FROM 'matched')::int AS pending_count,
-                  COUNT(*) FILTER (WHERE m.match_status = 'unmatched')::int AS unmatched_count
+                  COUNT(*) FILTER (WHERE m.match_status = 'unmatched')::int AS unmatched_count,
+                  COUNT(*) FILTER (WHERE bse.bloqueado_at IS NOT NULL)::int AS blocked_count
                 FROM bank_statement_entries bse
                 LEFT JOIN LATERAL (
                     SELECT st.match_status
@@ -2736,7 +2744,7 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                 WHERE ${statsConds.join(' AND ')}
             `, statsParams);
         } catch {
-            stats = { rows: [{ in_count: 0, out_count: 0, in_total: 0, out_total: 0, matched_count: 0, pending_count: 0, unmatched_count: 0 }] } as any;
+            stats = { rows: [{ in_count: 0, out_count: 0, in_total: 0, out_total: 0, matched_count: 0, pending_count: 0, unmatched_count: 0, blocked_count: 0 }] } as any;
         }
 
         // Links activos: combina Belvo + Syncfy (para UI)
@@ -2761,6 +2769,87 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
     } catch (e: any) {
         console.error('listBankMovements:', e);
         res.status(500).json({ error: 'Error listando movimientos', message: e.message });
+    }
+};
+
+/**
+ * POST /api/accounting/:emitterId/bank-movements/:id/bloqueo
+ * Body: { bloquear: boolean, motivo?: string }
+ *
+ * Apartar un deposito para que nadie lo ocupe mientras se resuelve que se hace
+ * con el —tipicamente una devolucion pedida que todavia no se ejecuta—.
+ * Mientras este apartado, ninguna pantalla puede conciliarlo ni abonarlo: el
+ * candado vive en el ledger, por donde pasan todas (tarea 838, la pidio
+ * Direccion despues de que le pidieran una devolucion de una cantidad
+ * importante y el deposito quedara suelto en la lista).
+ */
+export const bloquearMovimientoBancario = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const { ensureLedgerSchema } = await import('./bankEntryLedger');
+        await ensureLedgerSchema();
+
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        const emitterId = parseInt(String(req.params.emitterId), 10);
+        const entryId = parseInt(String(req.params.id), 10);
+        if (!emitterId || !entryId) return res.status(400).json({ error: 'Movimiento invalido' });
+        const access = await checkEmitterAccess(userId!, role, emitterId);
+        if (!access.ok) return res.status(403).json({ error: 'Sin acceso' });
+
+        const bloquear = req.body?.bloquear !== false;
+        const motivo = String(req.body?.motivo || '').trim().slice(0, 400);
+        // Un bloqueo sin motivo es un movimiento detenido sin saber por quien ni
+        // para que: a los dos dias nadie se atreve a liberarlo.
+        if (bloquear && motivo.length < 4) {
+            return res.status(400).json({ error: 'Escribe por que se aparta este movimiento.' });
+        }
+
+        const actual = await pool.query(
+            `SELECT id, abono, fecha, bloqueado_at, bloqueado_por_nombre
+               FROM bank_statement_entries WHERE id = $1 AND empresa_id = $2`,
+            [entryId, emitterId]
+        );
+        if (actual.rows.length === 0) return res.status(404).json({ error: 'No encontre ese movimiento.' });
+        const mov = actual.rows[0];
+
+        if (bloquear) {
+            // Lo que ya se ocupo no se puede apartar: el dinero ya salio de ahi
+            // y decir "apartado" seria mentir.
+            const ocupado = await pool.query(
+                `SELECT COALESCE(SUM(monto_aplicado), 0)::numeric AS aplicado
+                   FROM bank_entry_applications WHERE bank_entry_id = $1 AND reversed_at IS NULL`,
+                [entryId]
+            );
+            if (Number(ocupado.rows[0].aplicado) > 0) {
+                return res.status(409).json({
+                    error: 'Ese movimiento ya esta aplicado a un pago, asi que no hay nada que apartar. '
+                         + 'Primero habria que revertir la aplicacion.',
+                });
+            }
+        }
+
+        const actorNombre = String((req.user as any)?.full_name || (req.user as any)?.nombre || '').trim() || null;
+        await pool.query(
+            bloquear
+                ? `UPDATE bank_statement_entries
+                      SET bloqueado_at = NOW(), bloqueado_por = $2, bloqueado_por_nombre = $3, bloqueo_motivo = $4
+                    WHERE id = $1`
+                : `UPDATE bank_statement_entries
+                      SET bloqueado_at = NULL, bloqueado_por = NULL, bloqueado_por_nombre = NULL, bloqueo_motivo = NULL
+                    WHERE id = $1`,
+            bloquear ? [entryId, userId || null, actorNombre, motivo] : [entryId]
+        );
+
+        return res.json({
+            success: true,
+            bloqueado: bloquear,
+            mensaje: bloquear
+                ? 'Movimiento apartado. Nadie puede conciliarlo ni abonarlo hasta que se libere.'
+                : 'Movimiento liberado. Vuelve a estar disponible.',
+        });
+    } catch (e: any) {
+        console.error('bloquearMovimientoBancario:', e);
+        res.status(500).json({ error: 'No se pudo cambiar el bloqueo', message: e.message });
     }
 };
 

@@ -1518,6 +1518,7 @@ import {
   importReceivedInvoiceToInventory,
   deleteReceivedInvoice,
   listBankMovements,
+  bloquearMovimientoBancario,
   syncBankMovements,
 } from './accountingController';
 import {
@@ -5800,6 +5801,10 @@ app.delete('/api/accounting/:emitterId/received-invoices/:invoiceId', authentica
 // Movimientos bancarios (Belvo) por empresa
 app.get('/api/accounting/:emitterId/bank-movements', authenticateToken, listBankMovements);
 app.post('/api/accounting/:emitterId/bank-movements/sync', authenticateToken, syncBankMovements);
+// Apartar un deposito para que nadie lo ocupe (tarea 838). Mismo nivel que
+// asignarlo a mano: quien puede mover el dinero puede detenerlo.
+app.post('/api/accounting/:emitterId/bank-movements/:id/bloqueo', authenticateToken,
+  requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), bloquearMovimientoBancario);
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente
