@@ -2311,13 +2311,31 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 tracking_internal  = $4 OR tracking_provider  = $4 OR
                 REPLACE(UPPER(tracking_internal),  '-', '') = $4 OR
                 REPLACE(UPPER(tracking_provider),  '-', '') = $4
+                -- La MISMA forma de reconocer la caja que usa la pantalla de
+                -- cargar.
+                --
+                -- Eran dos: cargar acepta tambien el child_no, la guia del
+                -- proveedor y el sufijo sin importar cuantos ceros traiga
+                -- (-1 = -001 = -0001); entregar solo probaba cuatro variantes
+                -- propias, y una de ellas rellena el sufijo a CUATRO digitos.
+                -- Una multipieza numerada con tres —TDX-...-001— se carga bien
+                -- y al entregarla contesta "paquete no encontrado o no esta
+                -- asignado a ti", con la caja ya en el domicilio (tarea 1028).
+                -- La caja es la misma; reconocerla tiene que ser lo mismo.
+                OR ${TRACKING_MATCH_SQL}
             ORDER BY
                 CASE
                     WHEN tracking_internal = $1 OR tracking_provider = $1 THEN 1
                     WHEN tracking_internal = $2 OR tracking_provider = $2 THEN 2
                     WHEN tracking_internal = $3 OR tracking_provider = $3 THEN 3
                     ELSE 4
-                END
+                END,
+                -- Las 5 piezas de una multipieza comparten la guia del
+                -- proveedor, asi que ese codigo empata entre todas: que no
+                -- gane una ya entregada ni la de otro chofer.
+                CASE WHEN ${DELIVERY_STATUS_SQL} = 'delivered' THEN 1 ELSE 0 END,
+                CASE WHEN (${ASSIGNED_DRIVER_SQL})::int = $5 THEN 0 ELSE 1 END,
+                p.id
             LIMIT 1
         `, [barcodeUpper, barcodeNormalized, barcodeCompact, barcodeNoHyphens, driverId]);
 
