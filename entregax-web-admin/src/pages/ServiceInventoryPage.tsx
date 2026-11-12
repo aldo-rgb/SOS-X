@@ -227,15 +227,19 @@ export default function ServiceInventoryPage() {
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
 
   // Modo sincronización: Soporte Técnico entra solo a decirle al sistema qué
-  // guías viejas ya se pagaron y salieron en el sistema anterior. Ve Marítimo y
-  // TDI Aéreo, y su única acción es marcar entregado o enviado. Esto es lo que
+  // guías viejas ya se pagaron y salieron en el sistema anterior. Ve Marítimo,
+  // TDI Aéreo y DHL, y su única acción es marcar entregado o enviado. Esto es lo que
   // se VE; el candado de verdad está en el backend, porque su nivel de rol ya
   // le alcanza para llamar a estas rutas aunque aquí se le escondan los botones.
   const modoSincronizacion = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'soporte_tecnico'; } catch { return false; }
   })();
+  // DHL se suma por las guías que los asesores mandaron mientras se terminaba
+  // de liberar el servicio en la app: salieron, pero nunca se marcaron como
+  // enviadas y siguen apareciendo pendientes (tarea 925).
+  const SERVICIOS_SINCRONIZABLES = ['tdi_aereo', 'maritimo', 'dhl'];
   const serviciosVisibles = modoSincronizacion
-    ? SERVICES.filter(s => s.key === 'tdi_aereo' || s.key === 'maritimo')
+    ? SERVICES.filter(s => SERVICIOS_SINCRONIZABLES.includes(s.key))
     : SERVICES;
 
   // Edición manual del costo de venta PO Box (solo super admin). Guarda el id de

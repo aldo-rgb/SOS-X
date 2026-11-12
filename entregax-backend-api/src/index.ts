@@ -17513,8 +17513,12 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
     }
 
     if (esSincronizador) {
-      if (service !== 'maritimo' && service !== 'tdi_aereo') {
-        return (res as any).status(403).json({ error: 'Solo puedes sincronizar Marítimo y TDI Aéreo.' });
+      // DHL entra aqui por las guias que los asesores mandaron mientras se
+      // terminaba de liberar el servicio en la app: salieron de verdad, pero
+      // aqui nunca se marcaron como enviadas (tarea 925). Son 222, todas entre
+      // el 30-jun y el 25-sep de 2026, paradas en "recibido en MTY".
+      if (service !== 'maritimo' && service !== 'tdi_aereo' && service !== 'dhl') {
+        return (res as any).status(403).json({ error: 'Solo puedes sincronizar Marítimo, TDI Aéreo y DHL.' });
       }
       if (safeNewStatus !== 'delivered' && safeNewStatus !== 'shipped') {
         return (res as any).status(403).json({ error: 'Solo puedes marcar las guías como entregado o enviado.' });
@@ -17534,7 +17538,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       // Marcar pagada es EXACTAMENTE lo que dispara la comisión, y no basta con
       // no generarla aquí: el backfill de comisiones barre todo lo pagado sin
       // comisión, así que meses después las generaría todas. Ver sinComision.ts.
-      const marcar = async (tipo: 'PKG' | 'MAR', ids: number[]) => {
+      const marcar = async (tipo: 'PKG' | 'MAR' | 'DHL', ids: number[]) => {
         for (const id of ids) {
           await marcarSinComision(pool, tipo, id, MOTIVO_SISTEMA_ANTERIOR, req.user?.userId ?? null);
         }
@@ -17548,6 +17552,13 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
             WHERE UPPER(tracking_internal) = UPPER($1)
                OR master_id IN (SELECT id FROM packages WHERE UPPER(tracking_internal) = UPPER($1))`, [guia]);
         await marcar('PKG', esp.rows.map((r: any) => r.id));
+      } else if (service === 'dhl') {
+        // DHL vive en dhl_shipments y su id choca con el de packages: una guia
+        // DHL marcada como PKG dejaria sin comision a un envio ajeno y al
+        // propio sin candado. El tipo tiene que ser 'DHL'.
+        const dh = await pool.query(
+          `SELECT id FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1`, [guia]);
+        await marcar('DHL', dh.rows.map((r: any) => r.id));
       } else {
         const pk = await pool.query(
           `SELECT id FROM packages
