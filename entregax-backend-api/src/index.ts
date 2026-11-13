@@ -66,7 +66,7 @@ import { miReferenciaDeFondeo, ensureFundingSchema, asignarDepositoACliente } fr
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { liberarRetenidasDeOrden } from './commissionService';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
-import { marcarSinComision, MOTIVO_SISTEMA_ANTERIOR } from './sinComision';
+import { marcarSinComision, MOTIVO_SISTEMA_ANTERIOR, esServicioSincronizable, SERVICIOS_SINCRONIZABLES } from './sinComision';
 import { translateTexts } from './translationController';
 import { 
   registerUser, 
@@ -3239,11 +3239,14 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
   try {
     const service = String(req.query.service || 'tdi_aereo');
     // Soporte Técnico entra a este panel solo para sincronizar con el sistema
-    // anterior, y eso vive en Marítimo y TDI Aéreo. El resto de los inventarios
-    // no le toca, y el filtro va aquí porque su nivel de rol ya pasa la ruta.
-    if (String(req.user?.role || '') === ROLES.SOPORTE_TECNICO
-        && service !== 'maritimo' && service !== 'tdi_aereo') {
-      return (res as any).status(403).json({ error: 'Solo tienes acceso a Marítimo y TDI Aéreo.' });
+    // anterior. El filtro va aquí porque su nivel de rol ya pasa la ruta, y la
+    // lista de servicios es la MISMA que usa el POST que guarda el cambio: aquí
+    // se había quedado sin DHL cuando allá sí se agregó, así que veía la
+    // pestaña pero cada búsqueda le volvía 403 (tarea 925).
+    if (String(req.user?.role || '') === ROLES.SOPORTE_TECNICO && !esServicioSincronizable(service)) {
+      return (res as any).status(403).json({
+        error: `Solo tienes acceso a los servicios que se sincronizan con el sistema anterior (${SERVICIOS_SINCRONIZABLES.join(', ')}).`,
+      });
     }
     const limit  = Math.min(5000, parseInt(String(req.query.limit  || '200')));
     const offset = parseInt(String(req.query.offset || '0'));
@@ -17395,6 +17398,12 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
          LIMIT 1`,
         [rawGuide]
       ).catch(() => ({ rows: [] as any[] }));
+      // Aqui NO se reintenta con el JJD de un envio DHL. Se probo: cuando el
+      // numero de 10 digitos no aparece alla, preguntar por su JJD devuelve la
+      // COTIZACION COMPLETA del cliente —24 guias en el caso que se midio—, y
+      // con ella los pagos del grupo entero. Darle a una guia suelta el pago de
+      // un consolidado ajeno es peor que no encontrarla. Rescataba 1 de cada 20
+      // (tarea 925).
       if (dbLookup.rows.length > 0 && dbLookup.rows[0].guia) {
         altGuideRaw = dbLookup.rows[0].guia as string;
         const altEnc = encodeURIComponent(altGuideRaw);
@@ -17601,7 +17610,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       // terminaba de liberar el servicio en la app: salieron de verdad, pero
       // aqui nunca se marcaron como enviadas (tarea 925). Son 222, todas entre
       // el 30-jun y el 25-sep de 2026, paradas en "recibido en MTY".
-      if (service !== 'maritimo' && service !== 'tdi_aereo' && service !== 'dhl') {
+      if (!esServicioSincronizable(service)) {
         return (res as any).status(403).json({ error: 'Solo puedes sincronizar Marítimo, TDI Aéreo y DHL.' });
       }
       if (safeNewStatus !== 'delivered' && safeNewStatus !== 'shipped') {

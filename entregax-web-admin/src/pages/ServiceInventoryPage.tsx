@@ -199,6 +199,11 @@ export default function ServiceInventoryPage() {
   const [rows, setRows] = useState<PackageRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  // Por que no se pudo cargar el inventario. Antes el error se tragaba y la
+  // tabla quedaba en "Sin resultados": un 403 por permisos se veia igual que un
+  // servicio vacio, y nadie —ni quien lo usa ni quien lo arregla— tenia como
+  // notar la diferencia (tarea 925).
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -383,7 +388,11 @@ export default function ServiceInventoryPage() {
       });
       setRows(r.data.rows || []);
       setTotal(r.data.total || 0);
-    } catch { setRows([]); setTotal(0); }
+      setLoadError('');
+    } catch (e: any) {
+      setRows([]); setTotal(0);
+      setLoadError(e?.response?.data?.error || e?.message || 'No se pudo cargar el inventario.');
+    }
     finally { setLoading(false); }
   }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter, syncFilter, instrFilter]);
 
@@ -1364,6 +1373,12 @@ export default function ServiceInventoryPage() {
         </Box>
       )}
 
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setLoadError('')}>
+          {loadError}
+        </Alert>
+      )}
+
       <Paper variant="outlined" sx={{ borderRadius: 2 }}>
         <Table size="small" stickyHeader>
           <TableHead>
@@ -1431,7 +1446,11 @@ export default function ServiceInventoryPage() {
             ) : displayRows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={showCostoCol ? 14 : 13} align="center" sx={{ py: 4, color: '#999' }}>
-                  {syncFilter ? 'Sin resultados para este filtro. Consulta EntregaX para ver el estado de sincronización.' : 'Sin resultados'}
+                  {loadError
+                    ? loadError
+                    : syncFilter
+                      ? 'Sin resultados para este filtro. Consulta EntregaX para ver el estado de sincronización.'
+                      : 'Sin resultados'}
                 </TableCell>
               </TableRow>
             ) : service === 'tdi_aereo' ? (

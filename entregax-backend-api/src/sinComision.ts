@@ -79,5 +79,23 @@ export async function marcarSinComision(
   );
 }
 
+/**
+ * Los servicios que Soporte Tecnico puede sincronizar con el sistema anterior.
+ *
+ * Vive aqui, en una sola lista, porque el permiso se revisa en DOS lugares: al
+ * LEER el inventario (GET /api/packages/service-inventory) y al ESCRIBIR el
+ * cambio (POST /api/packages/sync-from-entregax). Cuando se sumo DHL a la lista
+ * de escritura y no a la de lectura, Soporte Tecnico veia la pestana de DHL pero
+ * la busqueda le devolvia 403 y la pantalla mostraba "Sin resultados": el
+ * servicio parecia vacio cuando en realidad no lo dejaban entrar (tarea 925).
+ *
+ * Agregar un servicio aqui lo habilita en los dos lados a la vez.
+ */
+export const SERVICIOS_SINCRONIZABLES = ['maritimo', 'tdi_aereo', 'dhl'] as const;
+
+export function esServicioSincronizable(servicio: string): boolean {
+  return (SERVICIOS_SINCRONIZABLES as readonly string[]).includes(servicio);
+}
+
 export const MOTIVO_SISTEMA_ANTERIOR =
   'Sincronización con el sistema anterior: la guía ya se pagó y se envió allá.';
