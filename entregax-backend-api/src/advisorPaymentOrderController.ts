@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { clasificarIdsDeOrden } from './servicioDeCobro';
 import * as crypto from 'crypto';
 import { pool } from './db';
 import { markDhlGroupPaid } from './dhlGroup';
@@ -238,19 +239,30 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         u.box_id AS client_box_id,
         COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
         (
+          -- Las guias de la orden, buscadas en las tres tablas PERO solo las que
+          -- son del dueno de la orden. Los ids no dicen de que tabla salieron y
+          -- el mismo numero existe en las tres: sin este filtro, una orden de una
+          -- sola guia listaba tambien el paquete ajeno con ese id y se anunciaba
+          -- como "2 guias". Pasaba en 529 de 1690 ordenes (tarea 1036).
+          -- El paquete de PO Box puede venir sin user_id y solo con el casillero
+          -- escrito; ese tambien es suyo.
           SELECT COALESCE(jsonb_agg(tr.val), '[]'::jsonb)
           FROM (
             SELECT COALESCE(p.tracking_internal, p.id::text) AS val
               FROM packages p
              WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+               AND (p.user_id = pp.user_id
+                    OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(u.box_id)))
             UNION ALL
             SELECT COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS val
               FROM dhl_shipments ds
              WHERE ds.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+               AND ds.user_id = pp.user_id
             UNION ALL
             SELECT mo.ordersn AS val
               FROM maritime_orders mo
              WHERE mo.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+               AND mo.user_id = pp.user_id
           ) tr WHERE tr.val IS NOT NULL
         ) AS trackings,
         NULL AS notes,
@@ -946,9 +958,26 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         ).catch(() => ({ rows: [] as any[] }));
         svc = String(svcRes.rows[0]?.service_type || '').toUpperCase();
       }
-      if (svc === 'AA_DHL') dhlIds.push(...bareIds);
-      else if (svc === 'SEA_CHN_MX') marIds.push(...bareIds);
-      else pkgIds.push(...bareIds);
+      // De que tabla es cada id se decide por DE QUIEN ES, no por el servicio
+      // que la orden trae escrito. Ese campo puede estar mal —una orden de DHL
+      // nacio marcada 'POBOX_USA'— y entonces el id se iba a `packages`, donde
+      // ese mismo numero es el paquete de otro cliente: la cotizacion le mostro
+      // al cliente una guia ajena, con otro peso y otras medidas, y no pudo
+      // reconocer la suya para pagarla (tarea 1036).
+      const clasif = await clasificarIdsDeOrden((order as any).client_id, bareIds, svc);
+      pkgIds.push(...clasif.pkgIds);
+      dhlIds.push(...clasif.dhlIds);
+      marIds.push(...clasif.marIds);
+      if (clasif.sinDueno.length > 0) {
+        // No son de este cliente en ninguna tabla (guia borrada, cliente
+        // fusionado...). Ahi no hay a quien preguntarle: se deja el reparto de
+        // siempre, por el servicio de la orden, y queda el aviso en el log.
+        console.warn('[orden detalle] ids que no son del cliente', (order as any).client_id,
+          'en ninguna tabla:', clasif.sinDueno.join(', '), '- se reparten por el servicio', svc || '(ninguno)');
+        if (svc === 'AA_DHL') dhlIds.push(...clasif.sinDueno);
+        else if (svc === 'SEA_CHN_MX') marIds.push(...clasif.sinDueno);
+        else pkgIds.push(...clasif.sinDueno);
+      }
     }
 
     // Para packages: traer master + hijos con desglose POBOX (n_level, USD, MXN)

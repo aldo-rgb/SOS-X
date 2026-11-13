@@ -752,7 +752,13 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND apo.package_uids ? ('PKG-' || p.id::text) LIMIT 1),
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
-             AND pp.package_ids @> jsonb_build_array(p.id) LIMIT 1)
+             AND pp.package_ids @> jsonb_build_array(p.id)
+          -- La orden tiene que ser DEL MISMO CLIENTE que la guia. Los ids de
+          -- package_ids no dicen de que tabla son y el mismo numero existe en
+          -- packages, dhl_shipments y maritime_orders, asi que sin este filtro
+          -- una guia salia "en orden de pago" por la orden de otro cliente y el
+          -- asesor no la podia cobrar (tarea 1036).
+             AND pp.user_id = p.user_id LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(p.national_label_url, '') as national_label_url,
         COALESCE(p.national_shipping_cost, 0) as national_shipping_cost,
@@ -809,7 +815,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND apo.package_uids ? ('MAR-' || mo.id::text) LIMIT 1),
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
-             AND pp.package_ids @> jsonb_build_array(mo.id) LIMIT 1)
+             AND pp.package_ids @> jsonb_build_array(mo.id)
+             AND pp.user_id = mo.user_id LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(mo.national_label_url, '') as national_label_url,
         0::numeric as national_shipping_cost,
@@ -900,7 +907,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND apo.package_uids ? ('DHL-' || MIN(ds.id)::text) LIMIT 1),
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
-             AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
+             AND pp.package_ids @> jsonb_build_array(MIN(ds.id))
+             AND pp.user_id = u.id LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(MAX(ds.national_label_url), '') as national_label_url,
         -- Costo real de la paquetería nacional (suma de cajas del master).

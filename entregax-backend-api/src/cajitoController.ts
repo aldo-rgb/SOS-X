@@ -2106,32 +2106,52 @@ export const TOOLS: ToolDef[] = [
       if (!tk) return { error: 'Falta el tracking' };
 
       const pk = await pool.query(
-        `SELECT p.id, p.tracking_internal, p.master_id, p.is_master, p.status,
+        `SELECT p.id, p.user_id, p.tracking_internal, p.master_id, p.is_master, p.status,
                 COALESCE(p.saldo_pendiente,0) AS saldo_pendiente,
                 COALESCE(p.assigned_cost_mxn,0) AS costo, u.box_id, u.full_name AS cliente
            FROM packages p LEFT JOIN users u ON u.id = p.user_id
           WHERE UPPER(p.tracking_internal) = UPPER($1) LIMIT 1`, [tk]);
       const paquete = pk.rows[0] || null;
 
+      // DHL guarda sus guías en otra tabla; se busca ahí también.
+      const dhl = await pool.query(
+        `SELECT id, user_id, inbound_tracking, secondary_tracking, paid_at, status, total_cost_mxn
+           FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1 LIMIT 1`, [tk]);
+
       // La guía puede estar en package_ids como ella misma o a través de su
       // master: se buscan las dos rutas, si no una caja hija parece sin cobrar.
-      const ids = paquete ? [paquete.id, paquete.master_id].filter(Boolean) : [];
-      let ordenes: any[] = [];
-      if (ids.length > 0) {
+      //
+      // Y SIEMPRE acotado al dueño de la guía. Los ids de una orden no dicen de
+      // qué tabla son y el mismo número existe en packages, dhl_shipments y
+      // maritime_orders: sin ese filtro, a la guía de un cliente se le colgaba
+      // la orden de otro. Fue lo que le enseñó esta misma herramienta a Servicio
+      // a Cliente, y por ahí se fue la investigación del ticket (tarea 1036).
+      const buscarOrdenes = async (ids: number[], dueno: number | null) => {
+        const limpios = ids.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        if (limpios.length === 0 || !dueno) return [];
         const o = await pool.query(
           `SELECT payment_reference, status, amount, payment_method,
                   COALESCE(credit_settled,false) AS credito_liquidado,
                   paid_at, created_at
              FROM pobox_payments
-            WHERE package_ids ?| $1::text[] OR package_ids @> to_jsonb($2::int)
+            WHERE user_id = $2
+              AND (package_ids ?| $1::text[] OR package_ids @> to_jsonb($3::int))
             ORDER BY created_at DESC`,
-          [ids.map(String), Number(paquete?.id) || 0]);
-        ordenes = o.rows;
+          [limpios.map(String), dueno, limpios[0]]);
+        return o.rows;
+      };
+
+      let ordenes: any[] = [];
+      if (paquete) {
+        ordenes = await buscarOrdenes(
+          [paquete.id, paquete.master_id].filter(Boolean) as number[],
+          Number(paquete.user_id) || null);
       }
-      // DHL guarda sus guías en otra tabla; se busca ahí también.
-      const dhl = await pool.query(
-        `SELECT id, inbound_tracking, secondary_tracking, paid_at, status, total_cost_mxn
-           FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1 LIMIT 1`, [tk]);
+      // Una guía de DHL no vive en `packages`, así que por el camino de arriba
+      // nunca se le encontraba orden y salía como "sin cobrar" aunque la tuviera.
+      if (ordenes.length === 0 && dhl.rows[0]) {
+        ordenes = await buscarOrdenes([dhl.rows[0].id], Number(dhl.rows[0].user_id) || null);
+      }
 
       return {
         encontrada: !!paquete || dhl.rows.length > 0,

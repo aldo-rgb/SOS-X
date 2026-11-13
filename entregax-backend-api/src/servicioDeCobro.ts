@@ -55,6 +55,89 @@ export interface ServicioResuelto {
 
 const NADA: ServicioResuelto = { servicio: null, serviceTypeDb: null, origen: 'nada' };
 
+// ============================================================================
+// DE QUE TABLA ES CADA ID DE LA ORDEN (tarea 1036)
+// ============================================================================
+// La misma colision, pero del lado de lo que se VE. Una orden guarda ids sin
+// decir de que tabla son, y quien arma la cotizacion los mandaba a `packages`
+// salvo que el service_type guardado dijera otra cosa. Cuando ese campo estaba
+// mal —o vacio— el id caia en `packages` y ahi es el paquete de OTRO cliente:
+// la cotizacion le enseno al cliente una guia ajena, con otro peso y otras
+// medidas, y por eso no reconocio la suya y no pudo pagar.
+//
+// Aqui no se adivina por el service_type: se pregunta de quien es cada id en
+// cada tabla, y solo se acepta lo que de verdad es del dueno de la orden. El
+// service_type queda como desempate para el caso raro de que el mismo id sea
+// suyo en dos tablas.
+//
+// Los ids que no son de nadie conocido se devuelven aparte: ahi el que llama
+// decide, pero sabiendo que esta adivinando.
+// ============================================================================
+
+export interface IdsDeLaOrden {
+  pkgIds: number[];
+  dhlIds: number[];
+  marIds: number[];
+  /** No pertenecen al dueno de la orden en ninguna tabla. */
+  sinDueno: number[];
+}
+
+export async function clasificarIdsDeOrden(
+  userId: number | null | undefined,
+  ids: Array<number | string> | null | undefined,
+  servicioDeLaOrden?: string | null
+): Promise<IdsDeLaOrden> {
+  const lista = (ids || [])
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const out: IdsDeLaOrden = { pkgIds: [], dhlIds: [], marIds: [], sinDueno: [] };
+  const uid = Number(userId) || null;
+  if (lista.length === 0) return out;
+  if (!uid) { out.sinDueno = lista; return out; }
+
+  try {
+    // PO Box deja paquetes con user_id vacio y solo el casillero escrito, asi
+    // que esos tambien cuentan como del dueno.
+    const pk = await pool.query(
+      `SELECT p.id FROM packages p
+         LEFT JOIN users u ON u.id = $2
+        WHERE p.id = ANY($1::int[])
+          AND (p.user_id = $2
+               OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(u.box_id)))`,
+      [lista, uid]
+    );
+    const dh = await pool.query(
+      `SELECT id FROM dhl_shipments WHERE id = ANY($1::int[]) AND user_id = $2`, [lista, uid]);
+    const mo = await pool.query(
+      `SELECT id FROM maritime_orders WHERE id = ANY($1::int[]) AND user_id = $2`, [lista, uid]);
+
+    const enPkg = new Set(pk.rows.map((r: any) => Number(r.id)));
+    const enDhl = new Set(dh.rows.map((r: any) => Number(r.id)));
+    const enMar = new Set(mo.rows.map((r: any) => Number(r.id)));
+    const svc = String(servicioDeLaOrden || '').toUpperCase();
+
+    for (const id of lista) {
+      const donde = [enPkg.has(id) && 'pkg', enDhl.has(id) && 'dhl', enMar.has(id) && 'mar'].filter(Boolean) as string[];
+      if (donde.length === 0) { out.sinDueno.push(id); continue; }
+      let elegido = donde[0];
+      if (donde.length > 1) {
+        // El mismo id es suyo en dos tablas: ahi si manda el servicio de la orden.
+        const preferida = svc === 'AA_DHL' ? 'dhl' : svc === 'SEA_CHN_MX' ? 'mar' : 'pkg';
+        elegido = donde.includes(preferida) ? preferida : donde[0];
+        console.warn('[ids-de-la-orden] el id', id, 'es del cliente', uid, 'en', donde.join(' y '),
+          '- se toma', elegido, 'por el servicio', svc || '(ninguno)');
+      }
+      if (elegido === 'pkg') out.pkgIds.push(id);
+      else if (elegido === 'dhl') out.dhlIds.push(id);
+      else out.marIds.push(id);
+    }
+  } catch (e: any) {
+    console.warn('[ids-de-la-orden] no se pudo clasificar:', e?.message);
+    return { pkgIds: [], dhlIds: [], marIds: [], sinDueno: lista };
+  }
+  return out;
+}
+
 export async function resolverServicioDeCobro(opts: {
   userId?: number | null | undefined;
   ids?: Array<number | string> | null | undefined;
