@@ -144,6 +144,17 @@ export function usePaymentStatus() {
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
             require_instructions_to_load_pobox: data.require_instructions_to_load_pobox === true,
+            // Las excepciones POR SERVICIO del panel de Ajustes. El servidor las
+            // manda y aqui no se copiaban, asi que llegaban `undefined` y los
+            // getters pintaban su valor por omision: pago y etiqueta salian
+            // PRENDIDOS cuando en la base estaban apagados para aereo y
+            // maritimo, e instrucciones salia APAGADO cuando en la base estaba
+            // prendido. El panel ensenaba lo contrario de lo que obedece el
+            // escaneo del chofer: se exigian instrucciones a una caja aerea
+            // mientras la pantalla juraba que no se pedian.
+            require_payment_to_load_by_service: data.require_payment_to_load_by_service || undefined,
+            require_label_to_load_by_service: data.require_label_to_load_by_service || undefined,
+            require_instructions_to_load_by_service: data.require_instructions_to_load_by_service || undefined,
             external_sync_enabled: data.external_sync_enabled !== false,
             entregax_payment_query_enabled: data.entregax_payment_query_enabled === true,
             cajito_enabled: data.cajito_enabled === true,
