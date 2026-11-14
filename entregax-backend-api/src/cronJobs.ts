@@ -2229,8 +2229,16 @@ export const startAereoSinInstruccionesCron = () => {
         `ALTER TABLE packages ADD COLUMN IF NOT EXISTS aviso_sin_instrucciones_at TIMESTAMPTZ`
       ).catch(() => {});
 
+      // El asesor del cliente puede estar en advisor_id O en referred_by_id:
+      // el panel siempre lee los dos (`advisor_id = $1 OR referred_by_id = $1`)
+      // y aqui solo se miraba el primero. Los clientes que llegaron por
+      // referido quedaban fuera del aviso, y nadie se enteraba de sus cajas:
+      // la mitad de las cajas aereas varadas en Mexico sin instrucciones
+      // —329 de 659, y 328 de un solo casillero— nunca generaron una sola
+      // notificacion, mientras el repartidor las rebotaba en el CEDIS.
       const r = await pool.query(`
-        SELECT p.id, u.box_id, u.full_name, u.advisor_id
+        SELECT p.id, u.box_id, u.full_name,
+               COALESCE(u.advisor_id, u.referred_by_id) AS advisor_id
           FROM packages p
           JOIN users u ON u.id = p.user_id
          WHERE p.warehouse_location = 'china_air'
@@ -2239,7 +2247,7 @@ export const startAereoSinInstruccionesCron = () => {
            AND NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id)
            AND p.status::text IN ('received_cdmx', 'received_mty', 'received')
            AND p.delivered_at IS NULL
-           AND u.advisor_id IS NOT NULL
+           AND COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
            AND p.aviso_sin_instrucciones_at IS NULL
          ORDER BY p.created_at ASC
          LIMIT 400`);

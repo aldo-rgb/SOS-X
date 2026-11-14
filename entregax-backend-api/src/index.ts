@@ -15702,7 +15702,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p
         LEFT JOIN users u ON u.id = p.user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, p.box_id)))
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
           AND p.status = 'received'
@@ -15732,7 +15732,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p
         LEFT JOIN users u ON u.id = p.user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, p.box_id)))
         WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
           AND p.status IN ('received', 'in_transit', 'received_mty')
@@ -15744,22 +15744,47 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
                  COALESCE(u.full_name, lc.full_name, p.box_id)
         ORDER BY MIN(p.created_at) DESC LIMIT 200
       `),
-      // Aéreo Chino — shipping_mark es el box_id del cliente para clientes legacy
+      // Aereo Chino — sale de `packages`, que es donde vive la direccion.
+      //
+      // Antes se leia de `china_receipts` y por ahi no se podia ver lo que
+      // falta: el recibo de China no sabe de instrucciones (se tomaba
+      // national_tracking vacio como "sin instrucciones") y las cajas que
+      // crea la extraccion NO dejan recibo. De las 130 guias aereas que hoy
+      // estan en Mexico esperando instrucciones, solo 9 tenian recibo: la
+      // seccion mostraba 1,056 renglones viejos —926 de ellos sin una sola
+      // caja— y escondia justo las que frenan al repartidor en el CEDIS.
+      // Aqui se pregunta lo mismo que pregunta el escaneo del chofer:
+      // assigned_address_id vacio. Se agrupa por master como PO Box y TDI.
       safeQuery(`
-        SELECT cr.fno AS tracking,
-          COALESCE(u.box_id, lc.box_id, cr.shipping_mark) AS box_id,
-          COALESCE(u.full_name, lc.full_name, cr.shipping_mark) AS client_name,
-          COALESCE(adv.full_name, lc.asesor) AS asesor,
-          cr.status, cr.created_at,
-          cr.international_tracking AS guia_origen,
-          (cr.user_id IS NULL AND cr.shipping_mark IS NOT NULL) AS is_legacy
-        FROM china_receipts cr
-        LEFT JOIN users u ON u.id = cr.user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
-        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, cr.shipping_mark)))
-        WHERE cr.status NOT IN ('delivered', 'cancelled')
-          AND (cr.national_tracking IS NULL OR cr.national_tracking = '')
-        ORDER BY cr.created_at DESC LIMIT 200
+        SELECT
+          REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
+          COALESCE(u.box_id, lc.box_id, p.box_id) AS box_id,
+          COALESCE(u.full_name, lc.full_name, p.box_id) AS client_name,
+          COALESCE(MAX(adv.full_name), MAX(lc.asesor)) AS asesor,
+          MIN(p.status) AS status,
+          MIN(p.created_at) AS created_at,
+          COUNT(*) AS total_boxes,
+          MAX(COALESCE(p.tracking_provider, p.international_tracking)) AS guia_origen,
+          MAX(p.origin_carrier) AS origen_carrier,
+          BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
+        FROM packages p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, p.box_id)))
+        WHERE (p.service_type = 'AIR_CHN_MX' OR p.warehouse_location = 'china_air')
+          AND p.status::text NOT IN ('delivered', 'shipped', 'cancelled', 'lost')
+          AND p.delivery_address_id IS NULL
+          AND p.assigned_address_id IS NULL
+          AND p.master_id IS NULL
+          AND (p.user_id IS NOT NULL OR p.box_id IS NOT NULL)
+        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
+                 COALESCE(u.box_id, lc.box_id, p.box_id),
+                 COALESCE(u.full_name, lc.full_name, p.box_id)
+        -- Primero lo que YA esta en Mexico: son las que frenan al repartidor
+        -- en el CEDIS. Hay 345 guias y el tope es 200, asi que ordenar solo
+        -- por fecha dejaria fuera a las viejas, que son justo las varadas.
+        ORDER BY BOOL_OR(p.status::text IN ('received_cdmx','received_mty','received','ready_pickup')) DESC,
+                 MIN(p.created_at) DESC LIMIT 200
       `),
       // Marítimo China (LCL) — shipping_mark como fallback de box_id
       safeQuery(`
@@ -15773,7 +15798,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           (mo.user_id IS NULL AND mo.shipping_mark IS NOT NULL) AS is_legacy
         FROM maritime_orders mo
         LEFT JOIN users u ON u.id = mo.user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, mo.shipping_mark)))
         WHERE mo.status NOT IN ('delivered', 'cancelled')
           AND mo.delivery_address_id IS NULL
@@ -15791,7 +15816,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           (ds.user_id IS NULL AND (lc.id IS NOT NULL OR ds.box_id IS NOT NULL)) AS is_legacy
         FROM dhl_shipments ds
         LEFT JOIN users u ON u.id = ds.user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         LEFT JOIN legacy_clients lc
           ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, ds.box_id)))
         WHERE ds.status NOT IN ('delivered', 'cancelled')
@@ -15809,7 +15834,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
         FROM containers c
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         LEFT JOIN users u ON u.id = c.client_user_id
-        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         WHERE c.status NOT IN ('delivered', 'cancelled')
           AND c.delivery_address_id IS NULL
         ORDER BY c.created_at DESC LIMIT 200
