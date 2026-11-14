@@ -1107,7 +1107,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       // instrucciones en ese rato se quedaba sin forma de darlas nunca. Un
       // reempaque terminado es justo lo que está listo para decirle a dónde va.
       // (Reclamo de Sergio Omar Sánchez, S1202, ticket TKT-2026-2822.)
-      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup', 'reempacado'].includes(item.status)) ||
+      // 'received_cdmx' y 'received_china' son de AEREO CHINA, no de PO Box.
+      // Estan aqui porque getMyPackages manda TODO lo que vive en `packages`
+      // como shipment_type 'air' —PO Box y aereo por igual—, asi que una caja
+      // aerea cae en esta rama. Esta lista se escribio pensando en PO Box, que
+      // llega a MTY y nunca a CDMX, y por eso esos dos estados no estaban: al
+      // darle entrada en el CEDIS la caja dejaba de poder seleccionarse y al
+      // cliente se le iba el boton de instrucciones justo cuando mas falta
+      // hace. Eran 855 cajas de 46 clientes paradas en CDMX y 143 en China.
+      // Dar instrucciones no depende de si ya le dieron entrada.
+      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'received_cdmx', 'received_china', 'processing', 'ready_pickup', 'reempacado'].includes(item.status)) ||
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status)) ||
       (isChinaAir && ['received_origin', 'received_china', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
       (isDHL && ['received_mty'].includes(item.status)) ||
@@ -3188,8 +3197,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         // 'reempacado' no están— y con el tipo estricto TypeScript marcaba la
         // comparación como imposible aunque en producción sí ocurre.
         const estadoSeleccion = String(firstSelectedPkg?.status || '');
+        // Los mismos dos estados de aereo que en isSelectable, y por la misma
+        // razon: aqui se decide si el boton de abajo dice "Asignar
+        // Instrucciones". Si solo se agregaran alla, la caja se podria
+        // seleccionar y el boton seguiria sin aparecer.
         const isWarehouseSelection = isPOBoxUSA && (
-          ['received', 'in_transit', 'received_mty', 'reempacado'].includes(estadoSeleccion)
+          ['received', 'in_transit', 'received_mty', 'received_cdmx', 'received_china', 'reempacado'].includes(estadoSeleccion)
         );
 
         // 🚚 Pick Up en sucursal: ya tiene "instrucciones" (recoge el cliente, sin
