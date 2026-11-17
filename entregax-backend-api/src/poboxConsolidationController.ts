@@ -214,7 +214,7 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
       );
       const mtyBranchId = mtyBranch.rows[0]?.id || null;
 
-      await client.query(
+      const recibidasAhora = await client.query(
         `UPDATE packages
            SET status = 'received_mty',
                received_at = COALESCE(received_at, NOW()),
@@ -228,7 +228,8 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
            -- Si ya avanzó (ready_pickup, shipped, out_for_delivery, delivered,
            -- etc.) NO debemos retrocederle el estado al re-finalizar una
            -- consolidación parcial. Solo limpiamos los flags de faltante.
-           AND status::text IN ('in_transit', 'in_transit_mty', 'received', 'reception_failed')`,
+           AND status::text IN ('in_transit', 'in_transit_mty', 'received', 'reception_failed')
+         RETURNING id`,
         [scanned, mtyBranchId]
       );
 
@@ -259,22 +260,36 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
         [scanned]
       );
 
-      // Registrar en historial: tránsito previo + recepción en MTY
-      try {
-        await client.query(
-          `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
-           SELECT id, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
-             FROM packages WHERE id = ANY($1::int[])`,
-          [scanned, userId || null]
-        );
-        await client.query(
-          `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
-           SELECT id, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
-             FROM packages WHERE id = ANY($1::int[])`,
-          [scanned, userId || null, mtyBranchId]
-        );
-      } catch (e) {
-        console.warn('[pobox-consolidation] package_history insert falló (no bloqueante):', (e as any)?.message);
+      // Registrar en historial: tránsito previo + recepción en MTY.
+      //
+      // SOLO de las cajas que de verdad cambiaron de estado. El UPDATE de
+      // arriba ya se cuida de no retroceder una caja que ya avanzó, pero estos
+      // dos INSERT escribían sobre TODAS las escaneadas, así que al re-finalizar
+      // una consolidación parcial una caja ya entregada volvía a aparecer en su
+      // propio historial como "En ruta a MTY" y "Recibido en CEDIS MTY" con
+      // fecha de hoy. El cliente abría su guía y veía la caja de vuelta en la
+      // bodega; el asesor la veía como si siguiera en tránsito. Medido antes de
+      // esto: 3,665 líneas falsas, 92 de ellas en noviembre, y 167 guías
+      // entregadas cuyo último evento visible era "Recibido en CEDIS MTY"
+      // (tarea 1037). Hacia adelante: las líneas ya escritas no se tocan.
+      const idsRecibidos: number[] = recibidasAhora.rows.map((r: any) => Number(r.id));
+      if (idsRecibidos.length > 0) {
+        try {
+          await client.query(
+            `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+             SELECT x, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
+               FROM UNNEST($1::int[]) AS x`,
+            [idsRecibidos, userId || null]
+          );
+          await client.query(
+            `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+             SELECT x, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
+               FROM UNNEST($1::int[]) AS x`,
+            [idsRecibidos, userId || null, mtyBranchId]
+          );
+        } catch (e) {
+          console.warn('[pobox-consolidation] package_history insert falló (no bloqueante):', (e as any)?.message);
+        }
       }
 
       // Reflejar en branch_inventory para que aparezca en "Inventario por Sucursal"
@@ -308,7 +323,7 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
         const masterIds: number[] = masterRes.rows.map((r: any) => r.id);
         if (masterIds.length > 0) {
           // Solo subir el master cuando TODAS sus hijas estén received_mty
-          await client.query(
+          const mastersRecibidos = await client.query(
             `UPDATE packages m
                 SET status = 'received_mty',
                     received_at = COALESCE(m.received_at, NOW()),
@@ -322,26 +337,34 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
                   SELECT 1 FROM packages c2
                    WHERE c2.master_id = m.id
                      AND c2.status::text <> 'received_mty'
-                )`,
+                )
+              RETURNING m.id`,
             [masterIds, mtyBranchId]
           );
 
-          // Registrar en historial los masters que efectivamente cambiaron
+          // Registrar en historial los masters que efectivamente cambiaron.
+          // El filtro anterior era `status = 'received_mty'`, que también
+          // agarraba a los masters que YA estaban recibidos de antes y les
+          // volvía a escribir la recepción con fecha de hoy. Ahora se usa el
+          // RETURNING del UPDATE: solo los que cambiaron en esta pasada.
+          const idsMasters: number[] = mastersRecibidos.rows.map((r: any) => Number(r.id));
+          if (idsMasters.length > 0) {
           try {
             await client.query(
               `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
-               SELECT id, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
-                 FROM packages WHERE id = ANY($1::int[]) AND status::text = 'received_mty'`,
-              [masterIds, userId || null]
+               SELECT x, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
+                 FROM UNNEST($1::int[]) AS x`,
+              [idsMasters, userId || null]
             );
             await client.query(
               `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
-               SELECT id, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
-                 FROM packages WHERE id = ANY($1::int[]) AND status::text = 'received_mty'`,
-              [masterIds, userId || null, mtyBranchId]
+               SELECT x, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
+                 FROM UNNEST($1::int[]) AS x`,
+              [idsMasters, userId || null, mtyBranchId]
             );
           } catch (e) {
             console.warn('[pobox-consolidation] package_history (master) insert falló:', (e as any)?.message);
+          }
           }
 
           if (mtyBranchId) {

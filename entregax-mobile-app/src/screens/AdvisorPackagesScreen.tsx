@@ -61,6 +61,9 @@ interface Shipment {
   international_tracking?: string | null;
   child_trackings?: string[];
   in_payment_order_ref?: string | null;
+  // Dias que la guia lleva sin moverse (null en maritimo y DHL, que no llevan
+  // historial de estados). Tarea 1037.
+  dias_sin_movimiento?: number | null;
 }
 
 interface AdvisorClient {
@@ -318,6 +321,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         international_tracking: s.internationalTracking ?? s.international_tracking ?? null,
         child_trackings: Array.isArray(s.childTrackings) ? s.childTrackings : [],
         in_payment_order_ref: s.in_payment_order_ref ?? s.inPaymentOrderRef ?? null,
+        dias_sin_movimiento: s.diasSinMovimiento ?? s.dias_sin_movimiento ?? null,
       }));
       setShipments(list);
     } catch (e) {
@@ -756,6 +760,22 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                     {STATUS_LABELS[item.status] || item.status}
                   </Text>
                 </View>
+                {/* Cuanto lleva la guia sin moverse. El estado dice DONDE quedo
+                    la caja, no desde cuando: una guia parada desde hace meses se
+                    veia igual que una que avanzo ayer (tarea 1037). */}
+                {item.status !== 'delivered' && (item.dias_sin_movimiento ?? 0) >= 30 && (
+                  <View style={{
+                    backgroundColor: (item.dias_sin_movimiento ?? 0) >= 90 ? '#FFEBEE' : '#FFF3E0',
+                    borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+                  }}>
+                    <Text style={{
+                      color: (item.dias_sin_movimiento ?? 0) >= 90 ? '#C62828' : '#E65100',
+                      fontSize: 10, fontWeight: '700',
+                    }}>
+                      {item.dias_sin_movimiento} d sin mover
+                    </Text>
+                  </View>
+                )}
                 {!selectionMode && (
                   item.is_unidentified ? (
                     <TouchableOpacity

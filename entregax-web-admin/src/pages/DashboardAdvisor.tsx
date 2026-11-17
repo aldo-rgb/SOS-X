@@ -235,6 +235,9 @@ interface AdvisorShipment {
   nationalShippingCost: number;
   extraChargesTotal: number;
   extraChargesDesc?: string;
+  // Dias que la guia lleva sin moverse (null en marítimo y DHL, que no llevan
+  // historial de estados). Tarea 1037.
+  diasSinMovimiento?: number | null;
 }
 
 interface ShipmentStats {
@@ -244,6 +247,7 @@ interface ShipmentStats {
   missingInstructions: number;
   readyPickup: number;
   delivered: number;
+  sinMovimiento?: number;
 }
 
 interface CommissionRate {
@@ -584,7 +588,7 @@ export default function DashboardAdvisor() {
   // Shipments tab
   const [shipments, setShipments] = useState<AdvisorShipment[]>([]);
   const [shipmentsTotal, setShipmentsTotal] = useState(0);
-  const [_shipmentStats, setShipmentStats] = useState<ShipmentStats | null>(null);
+  const [shipmentStats, setShipmentStats] = useState<ShipmentStats | null>(null);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [shipmentFilter, setShipmentFilter] = useState<string>('all');
@@ -3809,6 +3813,16 @@ export default function DashboardAdvisor() {
             { key: 'in_transit',        label: '✈️ En Tránsito' },
             { key: 'ready_pickup',      label: '📦 Listo para recoger' },
             { key: 'delivered',         label: '✅ Entregados' },
+            // Las guias que llevan mas de un mes en el mismo estado se veian
+            // revueltas con las que si avanzan, asi que "En Tránsito" no decia
+            // nada: 5,798 de las 9,804 guias abiertas no se mueven desde hace
+            // mas de 60 dias. Aqui se pueden ver aparte (tarea 1037).
+            {
+              key: 'sin_movimiento',
+              label: shipmentStats?.sinMovimiento
+                ? `⏳ Sin movimiento (${shipmentStats.sinMovimiento})`
+                : '⏳ Sin movimiento',
+            },
           ].map(opt => (
             <Chip
               key={opt.key}
@@ -4009,6 +4023,22 @@ export default function DashboardAdvisor() {
                   </TableCell>
                   <TableCell align="center">
                     {getStatusLabel(s.status)}
+                    {/* Cuanto lleva la guia sin moverse. El estado solo dice
+                        DONDE quedo la caja, no desde cuando, y una guia parada
+                        hace meses se veia igual que una que avanzo ayer. */}
+                    {s.status !== 'delivered' && (s.diasSinMovimiento ?? 0) >= 30 && (
+                      <Tooltip title={`Sin movimiento desde hace ${s.diasSinMovimiento} días. El estado no ha cambiado en todo ese tiempo.`}>
+                        <Box sx={{ mt: 0.3 }}>
+                          <Chip
+                            size="small"
+                            label={`⏳ ${s.diasSinMovimiento} d`}
+                            color={(s.diasSinMovimiento ?? 0) >= 90 ? 'error' : 'warning'}
+                            variant="outlined"
+                            sx={{ height: 18, fontSize: '0.65rem' }}
+                          />
+                        </Box>
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Chip 

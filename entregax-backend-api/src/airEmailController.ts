@@ -1013,7 +1013,16 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
                 pkg_height = COALESCE($8, pkg_height),
                 single_volume = COALESCE($9, single_volume),
                 international_tracking = COALESCE($10, international_tracking),
-                status = 'in_transit',
+                -- Solo ADELANTE, nunca hacia atras. Esta extraccion corre cada vez
+                -- que llega (o se reprocesa) el manifiesto del MAWB, y reescribia
+                -- el estado a 'in_transit' sin mirar donde venia la caja: una caja
+                -- ya recibida en CDMX, ya enviada con la paqueteria o ya entregada
+                -- volvia a aparecer "en transito" para el cliente y para el asesor.
+                -- En la base quedan 332 retrocesos received_cdmx -> in_transit de
+                -- esa forma (tarea 1037). Hacia adelante: lo ya escrito no se toca.
+                status = CASE
+                  WHEN status::text IN ('received', 'received_china', 'processing', 'in_transit')
+                  THEN 'in_transit'::package_status ELSE status END,
                 carrier = COALESCE($11, carrier),
                 air_source = 'extraction',
                 updated_at = NOW()
@@ -1044,7 +1053,16 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
                 pkg_height = COALESCE($8, pkg_height),
                 single_volume = COALESCE($9, single_volume),
                 international_tracking = COALESCE($10, international_tracking),
-                status = 'in_transit',
+                -- Solo ADELANTE, nunca hacia atras. Esta extraccion corre cada vez
+                -- que llega (o se reprocesa) el manifiesto del MAWB, y reescribia
+                -- el estado a 'in_transit' sin mirar donde venia la caja: una caja
+                -- ya recibida en CDMX, ya enviada con la paqueteria o ya entregada
+                -- volvia a aparecer "en transito" para el cliente y para el asesor.
+                -- En la base quedan 332 retrocesos received_cdmx -> in_transit de
+                -- esa forma (tarea 1037). Hacia adelante: lo ya escrito no se toca.
+                status = CASE
+                  WHEN status::text IN ('received', 'received_china', 'processing', 'in_transit')
+                  THEN 'in_transit'::package_status ELSE status END,
                 carrier = COALESCE($11, carrier),
                 air_source = 'extraction',
                 air_route_id = $12,
@@ -1099,7 +1117,10 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               pkg_height = COALESCE(EXCLUDED.pkg_height, packages.pkg_height),
               single_volume = COALESCE(EXCLUDED.single_volume, packages.single_volume),
               international_tracking = COALESCE(EXCLUDED.international_tracking, packages.international_tracking),
-              status = 'in_transit',
+              -- Solo ADELANTE, nunca hacia atras (ver nota arriba, tarea 1037).
+              status = CASE
+                WHEN packages.status::text IN ('received', 'received_china', 'processing', 'in_transit')
+                THEN 'in_transit'::package_status ELSE packages.status END,
               air_source = 'extraction',
               air_route_id = COALESCE(packages.air_route_id, EXCLUDED.air_route_id),
               air_tariff_type = COALESCE(packages.air_tariff_type, EXCLUDED.air_tariff_type),

@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { DIAS_SIN_MOVIMIENTO, sqlDiasSinMovimiento, sqlSinMovimientoCombinado } from './guiasSinMovimiento';
 import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from './cambioDeInstrucciones';
 import { cobroDhlSql } from './dhlCosting';
 import { signS3UrlIfNeeded } from './s3Service';
@@ -762,7 +763,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         ) AS in_payment_order_ref,
         COALESCE(p.national_label_url, '') as national_label_url,
         COALESCE(p.national_shipping_cost, 0) as national_shipping_cost,
-        0::int as boxes_count
+        0::int as boxes_count,
+        -- Dias que la guia lleva sin moverse. El panel metia en "en transito"
+        -- guias que no se mueven desde hace meses, asi que el numero no decia
+        -- nada: 5,798 de las 9,804 no entregadas llevan mas de 60 dias en el
+        -- mismo estado. La definicion vive en guiasSinMovimiento.ts (tarea 1037).
+        ${sqlDiasSinMovimiento('p')} as dias_sin_movimiento
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -820,7 +826,11 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         ) AS in_payment_order_ref,
         COALESCE(mo.national_label_url, '') as national_label_url,
         0::numeric as national_shipping_cost,
-        COALESCE(NULLIF(mo.summary_boxes,0), NULLIF(mo.received_boxes,0), NULLIF(mo.goods_num,0), 1)::int as boxes_count
+        COALESCE(NULLIF(mo.summary_boxes,0), NULLIF(mo.received_boxes,0), NULLIF(mo.goods_num,0), 1)::int as boxes_count,
+        -- Maritimo lleva su propio historial (container_status_history) y no se
+        -- mide con la misma regla; NULL deja estas filas fuera del filtro sin
+        -- tener que enumerarlas.
+        NULL::int as dias_sin_movimiento
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -914,7 +924,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         -- Costo real de la paquetería nacional (suma de cajas del master).
         -- Antes estaba hardcodeado a 0 y por eso la columna "Flete Nac." salía "—".
         COALESCE(SUM(COALESCE(ds.national_cost_mxn, 0)), 0)::numeric as national_shipping_cost,
-        0::int as boxes_count
+        0::int as boxes_count,
+        -- DHL tampoco escribe en package_history.
+        NULL::int as dias_sin_movimiento
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       -- Guía con proceso especial y costo retenido: tampoco la ve el asesor,
@@ -1007,6 +1019,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     if (instructions === 'yes') outerConditions.push('has_instructions = true');
     if (instructions === 'no')  outerConditions.push("has_instructions = false AND status NOT IN ('delivered', 'shipped')");
     if (unidentified === 'true') outerConditions.push("(client_box_id IS NULL OR client_box_id = '') AND status != 'delivered'");
+    // Guias estancadas: sin movimiento real desde hace mas de DIAS_SIN_MOVIMIENTO
+    // dias y sin cerrar. Es un filtro NUEVO: no le quita nada a "en transito",
+    // solo permite verlas aparte en vez de revueltas con las que si avanzan.
+    if (filter === 'sin_movimiento') outerConditions.push(sqlSinMovimientoCombinado());
     const outerWhere = outerConditions.length > 0 ? `WHERE ${outerConditions.join(' AND ')}` : '';
 
     // Main data query with pagination
@@ -1030,7 +1046,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COUNT(CASE WHEN COALESCE(monto, 0) > 0 AND client_paid = false THEN 1 END) as awaiting_payment,
         COUNT(CASE WHEN has_instructions = false AND status NOT IN ('delivered', 'shipped') THEN 1 END) as missing_instructions,
         COUNT(CASE WHEN status = 'ready_pickup' THEN 1 END) as ready_pickup,
-        COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered
+        COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered,
+        COUNT(CASE WHEN ${sqlSinMovimientoCombinado()} THEN 1 END) as sin_movimiento
       FROM (
         ${pkgSelect}
         UNION ALL
@@ -1152,6 +1169,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         nationalShippingCost: parseFloat(s.national_shipping_cost) || 0,
         extraChargesTotal: extraChargesByShipment[String(s.id)] || 0,
         extraChargesDesc: extraChargesDescByShipment[String(s.id)] || '',
+        // Dias sin movimiento de la guia (null en marítimo y DHL, que no
+        // escriben en package_history). Tarea 1037.
+        diasSinMovimiento: s.dias_sin_movimiento != null ? Number(s.dias_sin_movimiento) : null,
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,
@@ -1160,7 +1180,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         missingInstructions: parseInt(statsRes.rows[0]?.missing_instructions) || 0,
         readyPickup: parseInt(statsRes.rows[0]?.ready_pickup) || 0,
         delivered: parseInt(statsRes.rows[0]?.delivered) || 0,
+        sinMovimiento: parseInt(statsRes.rows[0]?.sin_movimiento) || 0,
       },
+      // El umbral viaja con la respuesta para que el tablero no lo repita.
+      diasSinMovimientoUmbral: DIAS_SIN_MOVIMIENTO,
       total: parseInt(countRes.rows[0]?.total) || 0,
       page: parseInt(page),
       limit: parseInt(limit),
