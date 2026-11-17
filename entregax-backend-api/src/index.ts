@@ -13084,7 +13084,7 @@ app.post('/api/tdi-express/outbound/dispatch', authenticateToken, requireMinLeve
 app.get('/api/tdi-express/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiInTransit);
 app.patch('/api/tdi-express/:id/awb', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiAwb);
 // Recepción en CEDIS MTY: cambia status de received_china → received_mty
-app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: Request, res: Response) => {
+app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
   try {
     const { tracking } = req.body;
     if (!tracking) return res.status(400).json({ error: 'Tracking requerido' });
@@ -13238,13 +13238,36 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     const mtyBranchId = mtyBranch.rows[0]?.id || null;
 
     // Actualizar master y todos sus hijos
-    await pool.query(`
+    const recibidas = await pool.query(`
       UPDATE packages SET status = 'received_mty',
              current_branch_id = COALESCE($2::int, current_branch_id),
              updated_at = NOW()
       WHERE (id = $1 OR master_id = $1)
         AND service_type IN ('tdi_express','tdi_aereo')
+      RETURNING id
     `, [pkg.id, mtyBranchId]);
+
+    // 🧾 QUIEN la recibio. El trigger de `packages` ya escribe una linea de
+    // historial por el cambio de estado, pero sin autor: created_by queda en
+    // NULL porque el trigger no sabe quien apreto el boton. Resultado medido
+    // antes de esto: de las 61 recepciones en MTY de TDI Express, CERO tenian
+    // persona registrada, asi que la caja no tiene cadena de custodia y un
+    // reclamo de faltante no se puede rastrear hasta nadie (tarea 1054).
+    //
+    // Se escribe una linea aparte, con autor, igual que ya se hace al dar
+    // salida nacional. Hacia adelante: lo ya recibido no se reescribe.
+    try {
+      const ids = recibidas.rows.map((r: any) => Number(r.id));
+      if (ids.length > 0) {
+        await pool.query(
+          `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, created_at)
+           SELECT x, 'received_mty', $2, $3, $4, NOW() FROM UNNEST($1::int[]) AS x`,
+          [ids, `Recibido en CEDIS MTY por escaneo de ${norm}`, req.user?.userId || null, mtyBranchId]
+        );
+      }
+    } catch (e: any) {
+      console.warn('[tdi] no se pudo registrar quien recibio:', e?.message || e);
+    }
 
     // 🔁 Rollup: si se escaneó una caja hija y ya NO queda ninguna hermana
     // pendiente de recibir, marcar también el master como received_mty para
