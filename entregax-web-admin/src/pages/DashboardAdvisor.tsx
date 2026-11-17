@@ -4989,6 +4989,27 @@ export default function DashboardAdvisor() {
               const lockClientId  = lockedFirst?.clientId ?? null;
               const lockServiceType = lockedFirst?.serviceType ?? null;
 
+              // Guias que SI vienen del backend y SI estan en transito, pero que
+              // este modal esconde porque el Sistema de Pagos tiene apagado el
+              // cobro de su servicio. Sin esto el asesor leia "No hay guias en
+              // transito para este cliente" —que es falso— y abria un ticket
+              // creyendo que la guia se habia perdido (tarea 1057).
+              const ocultasPorPagoApagado = newOrderShipments.filter(s => {
+                if (s.clientPaid) return false;
+                const k = mapServiceKey(s.serviceType);
+                return !!k && !entregaxPaymentsByService[k];
+              });
+              const NOMBRE_SERVICIO: Record<string, string> = {
+                pobox: 'PO Box USA', maritimo: 'Marítimo', aereo: 'TDI Aéreo',
+                tdi_express: 'TDX / TDI Express', dhl: 'DHL',
+              };
+              const serviciosApagados = [...new Set(
+                ocultasPorPagoApagado
+                  .map(s => mapServiceKey(s.serviceType))
+                  .filter(Boolean)
+                  .map(k => NOMBRE_SERVICIO[k as string] || String(k))
+              )];
+
               const serviceLabel = (st: string) =>
                 /tdi.?express/i.test(st) || st === 'tdi_express' ? '🚚 TDX'
                 : /dhl/i.test(st) || st === 'AA_DHL'             ? '📦 DHL'
@@ -5033,7 +5054,11 @@ export default function DashboardAdvisor() {
                     <TableBody>
                       {filteredShipments.length === 0 && (
                         <TableRow><TableCell colSpan={9} align="center" sx={{ py: 3 }}>
-                          <Typography color="text.secondary" variant="caption">No hay guías en tránsito para este cliente</Typography>
+                          <Typography color="text.secondary" variant="caption">
+                          {ocultasPorPagoApagado.length > 0
+                            ? `Este cliente sí tiene ${ocultasPorPagoApagado.length} guía${ocultasPorPagoApagado.length === 1 ? '' : 's'} en tránsito, pero el cobro de ${serviciosApagados.join(' y ')} está apagado en el Sistema de Pagos: por eso no se puede generar la orden.`
+                            : 'No hay guías en tránsito para este cliente'}
+                        </Typography>
                         </TableCell></TableRow>
                       )}
                       {filteredShipments.map(s => {
