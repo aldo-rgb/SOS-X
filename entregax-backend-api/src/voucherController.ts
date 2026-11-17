@@ -1638,6 +1638,32 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       );
       const o = order.rows[0];
 
+      // 💸 COMISION DEL ASESOR.
+      //
+      // Aprobar un comprobante es una de las formas mas comunes de liquidar una
+      // orden —transferencia y efectivo pasan por aqui— y era la UNICA ruta de
+      // pago que no generaba la comision. La guia quedaba pagada, la orden
+      // cerrada, la factura emitida... y el asesor sin cobrar, sin ningun
+      // aviso: nadie se entera de una comision que no existe. Solo salia a la
+      // luz cuando el asesor contaba sus guias a mano y reclamaba (tarea 1044).
+      //
+      // Medido antes de este arreglo: desde agosto, 176 guias pagadas por esta
+      // via con asesor asignado se quedaron sin comision —55 de 55 en las
+      // ordenes de transferencia con comprobante, el 100%—, cerca de $23 mil
+      // de comision que nunca se calculo. Lo que las salvaba de vez en cuando
+      // era la conciliacion bancaria automatica, que si la genera y que a
+      // veces vuelve a tocar la misma orden segundos despues.
+      //
+      // Va DESPUES de marcar las guias pagadas (si no, el candado de
+      // `payment_status='paid'` del generador descarta la guia) y ANTES de
+      // marcar el credito liquidado: asi una orden a credito nace retenida y
+      // la libera el mismo `liberarRetenidasDeOrden` de abajo.
+      if (packageIds.length > 0) {
+        const { generateCommissionsForPackages } = await import('./commissionService');
+        await generateCommissionsForPackages(packageIds, { expectedUserId: o.user_id })
+          .catch((e: any) => console.error(`[approveVoucher] comisiones de ${o.payment_reference}:`, e?.message || e));
+      }
+
       // 🔗 Las otras órdenes que este MISMO depósito cubre. Van ANTES del
       // sobrante: cada una consume su parte del abono, y lo que quede después
       // es el sobrante de verdad. Al revés se acreditaba el excedente completo
@@ -2134,6 +2160,17 @@ export async function liquidarOrdenAdicional(
     }
   } catch (e: any) {
     console.error(`[VOUCHER] Orden ${o.payment_reference}: no se pudieron marcar las guías:`, e?.message || e);
+  }
+
+  // 💸 La comision tambien de ESTAS. Un solo deposito que cubre varias ordenes
+  // las liquida todas por aqui, y ninguna generaba comision: en el caso que
+  // destapo esto, un deposito cubrio cinco guias del mismo cliente y el asesor
+  // cobro una sola —y esa por casualidad, porque la conciliacion automatica
+  // volvio a tocar su orden un minuto despues— (tarea 1044).
+  if (packageIds.length > 0) {
+    const { generateCommissionsForPackages } = await import('./commissionService');
+    await generateCommissionsForPackages(packageIds, { expectedUserId: o.user_id })
+      .catch((e: any) => console.error(`[liquidarOrdenAdicional] comisiones de ${o.payment_reference}:`, e?.message || e));
   }
 
   if (String(o.payment_method || '').toLowerCase() === 'credit') {
