@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -39,7 +39,10 @@ WebBrowser.maybeCompleteAuthSession();
 
 // Types for navigation
 type RootStackParamList = {
-  MyPayments: { user: any; token: string; initialTab?: 'pending' | 'orders' | 'history' };
+  MyPayments: { user: any; token: string; initialTab?: 'pending' | 'orders' | 'history';
+    /** Orden que se abre sola en "Pagar en Linea": viene de elegir saldo a
+     *  favor al pagar, donde la orden se acaba de generar (tarea 1043). */
+    abrirPagoEnLineaOrdenId?: number };
 };
 
 // Iconos por servicio
@@ -124,7 +127,7 @@ const MyPaymentsScreen = () => {
     packages:     mLang === 'zh' ? '包裹：'          : mLang === 'en' ? 'Packages:'             : 'Paquetes:',
     pkgCount:     (n: number) => mLang === 'zh' ? `${n} 件` : mLang === 'en' ? `${n} package(s)` : `${n} paquete(s)`,
   };
-  const { user, token, initialTab } = route.params;
+  const { user, token, initialTab, abrirPagoEnLineaOrdenId } = route.params;
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -655,6 +658,19 @@ const MyPaymentsScreen = () => {
     loadServiceCredits();
     loadFiscalData();
   };
+
+  // El cliente eligio pagar con su saldo a favor: la orden ya se genero en la
+  // pantalla anterior y aqui se abre sola en Pagar en Linea, que es donde el
+  // saldo se aplica. Sin esto tendria que encontrarla el solo en la lista, que
+  // es justo el paso que nadie adivinaba (tarea 1043).
+  const ordenAutoAbierta = useRef(false);
+  useEffect(() => {
+    if (!abrirPagoEnLineaOrdenId || ordenAutoAbierta.current) return;
+    const orden = paymentOrders.find((o: any) => Number(o.id) === Number(abrirPagoEnLineaOrdenId));
+    if (!orden) return;
+    ordenAutoAbierta.current = true;
+    handlePayOnline(orden as any);
+  }, [abrirPagoEnLineaOrdenId, paymentOrders]);
 
   // ============ ONLINE PAY HELPERS (igual que web) ============
   const authHeaders = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };

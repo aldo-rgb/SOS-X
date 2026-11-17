@@ -49,7 +49,7 @@ const OPENPAY_RED = '#E11B1B';
 const CASH_YELLOW = '#F59E0B';
 
 // Tipos de método de pago
-type PaymentType = 'card' | 'paypal' | 'cash' | 'transfer';
+type PaymentType = 'card' | 'paypal' | 'cash' | 'transfer' | 'wallet';
 
 type RootStackParamList = {
   Home: { user: any; token: string };
@@ -82,6 +82,11 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   const [verifying, setVerifying] = useState(false);
   const [showCashInstructions, setShowCashInstructions] = useState(false);
   const [paymentReference, setPaymentReference] = useState<string | null>(null);
+  // Saldo a favor del cliente. Se puede aplicar desde siempre, pero SOLO
+  // despues de que la orden existe: Mis Pagos -> la orden -> Pagar en Linea.
+  // Aqui, que es donde decide como paga, no aparecia, y el que tenia dinero a
+  // favor concluia que no se podia usar y lo pedia por ticket (tarea 1043).
+  const [saldoAFavor, setSaldoAFavor] = useState(0);
   
   // 🧾 Estados para facturación
   const [requireInvoice, setRequireInvoice] = useState(false);
@@ -218,7 +223,23 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   useEffect(() => {
     loadFiscalData();
     loadCatalogos();
+    loadSaldoAFavor();
   }, []);
+
+  // Si no hay saldo —o la consulta falla— la opcion simplemente no se ofrece:
+  // nunca se le ensena un metodo que no va a poder usar.
+  const loadSaldoAFavor = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/wallet/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSaldoAFavor(Number(data?.wallet_balance) || 0);
+    } catch (error) {
+      console.error('Error loading saldo a favor:', error);
+    }
+  };
 
   const loadFiscalData = async () => {
     try {
@@ -368,7 +389,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   // ============ PAGO A CUENTA / TRANSFERENCIA ============
   // method 'cash' = Pago a cuenta (sin factura). 'transferencia' = Transferencia
   // bancaria (permite factura, se clasifica como Transferencia en cobranza).
-  const startCashPayment = async (method: 'cash' | 'transferencia' = 'cash') => {
+  const startCashPayment = async (
+    method: 'cash' | 'transferencia' = 'cash',
+    paraPagarConSaldo = false,
+  ) => {
     setLoading(true);
     try {
       const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
@@ -400,6 +424,17 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       const data = await res.json();
 
       if (data.success) {
+        // Saldo a favor: la orden se genera con ESTE mismo endpoint —no hay un
+        // alta aparte ni un cobro nuevo— y en vez de las instrucciones de
+        // deposito se abre directo el pago en linea de esa orden, que es donde
+        // el saldo se aplica. El dinero lo sigue moviendo /pay-internal con su
+        // validacion de saldo y su candado de guia ya pagada.
+        if (paraPagarConSaldo && data.paymentId) {
+          navigation.navigate('MyPayments' as any, {
+            user, token, initialTab: 'orders', abrirPagoEnLineaOrdenId: data.paymentId,
+          });
+          return;
+        }
         setPaymentReference(data.reference || reference);
         // Guardar info bancaria y de sucursal del backend
         if (data.bankInfo) {
@@ -514,7 +549,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   // Iniciar pago según el tipo seleccionado
   const handlePayment = () => {
     // Validar que si requiere factura, tenga datos fiscales completos
-    if (requireInvoice && selectedPaymentType !== 'cash') {
+    // 'wallet' va con 'cash': pagar con saldo a favor no emite CFDI, asi que
+    // pedirle los datos fiscales seria frenarlo por una factura que no existe.
+    if (requireInvoice && selectedPaymentType !== 'cash' && selectedPaymentType !== 'wallet') {
       if (!fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal) {
         Alert.alert(
           'Datos Fiscales Incompletos',
@@ -540,6 +577,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
         break;
       case 'transfer':
         startCashPayment('transferencia');
+        break;
+      case 'wallet':
+        startCashPayment('cash', true);
         break;
     }
   };
@@ -1073,6 +1113,31 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 onValueChange={(value) => setSelectedPaymentType(value as PaymentType)}
                 value={selectedPaymentType}
               >
+                {/* Opción: Saldo a favor. Va primero porque es dinero que el
+                    cliente ya tiene con nosotros: si alcanza, no hay nada que
+                    cobrarle afuera. Solo se ofrece para pago individual, igual
+                    que tarjeta y PayPal (tarea 1043). */}
+                {packages.length <= 1 && saldoAFavor > 0 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOption,
+                      selectedPaymentType === 'wallet' && styles.paymentOptionSelected,
+                    ]}
+                    onPress={() => setSelectedPaymentType('wallet')}
+                  >
+                    <View style={styles.paymentOptionRadio}>
+                      <RadioButton value="wallet" color={'#2E7D32'} />
+                    </View>
+                    <View style={[styles.paymentOptionIcon, { backgroundColor: '#2E7D3220' }]}>
+                      <Text style={styles.paymentEmoji}>💰</Text>
+                    </View>
+                    <View style={styles.paymentOptionInfo}>
+                      <Text style={styles.paymentOptionLabel}>Saldo a favor</Text>
+                      <Text style={styles.paymentOptionSublabel}>Disponible: ${saldoAFavor.toFixed(2)} MXN</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
                 {/* Tarjeta y PayPal solo disponibles para pago individual (1 guía) */}
                 {packages.length <= 1 && (
                 <>
@@ -1164,7 +1229,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           </Card>
 
           {/* 🧾 OPCIÓN DE FACTURA (Solo para tarjeta y PayPal) */}
-          {selectedPaymentType !== 'cash' && (
+          {selectedPaymentType !== 'cash' && selectedPaymentType !== 'wallet' && (
             <Card style={styles.card}>
               <Card.Content>
                 <View style={styles.invoiceHeader}>
@@ -1258,15 +1323,18 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   selectedPaymentType === 'paypal' && { backgroundColor: PAYPAL_BLUE },
                   selectedPaymentType === 'cash' && { backgroundColor: CASH_YELLOW },
                   selectedPaymentType === 'transfer' && { backgroundColor: '#1e88e5' },
+                  selectedPaymentType === 'wallet' && { backgroundColor: '#2E7D32' },
                 ]}
                 labelStyle={styles.payButtonLabel}
                 icon={(selectedPaymentType === 'cash' || selectedPaymentType === 'transfer') ? 'file-document' : 'credit-card'}
               >
                 {loading
                   ? 'Procesando...'
-                  : (selectedPaymentType === 'cash' || selectedPaymentType === 'transfer')
-                    ? 'Generar Orden de Pago'
-                    : `Pagar $${totalMXN.toFixed(2)} MXN`
+                  : selectedPaymentType === 'wallet'
+                    ? `Pagar $${totalMXN.toFixed(2)} con mi saldo`
+                    : (selectedPaymentType === 'cash' || selectedPaymentType === 'transfer')
+                      ? 'Generar Orden de Pago'
+                      : `Pagar $${totalMXN.toFixed(2)} MXN`
                 }
               </Button>
             )}
