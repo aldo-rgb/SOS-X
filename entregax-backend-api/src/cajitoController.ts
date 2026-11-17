@@ -3823,20 +3823,36 @@ export const TOOLS: ToolDef[] = [
         return v.length <= 4 ? '••••' : `••••${v.slice(-4)}`;
       };
 
-      const where: string[] = [];
-      const params: any[] = [];
-      if (f) { params.push(`%${f}%`); where.push(`e.referencia_pago ILIKE $${params.length}`); }
-      if (box) { params.push(box); where.push(`UPPER(TRIM(u.box_id)) = $${params.length}`); }
-      if (ase) {
-        // Por inicio de palabra, igual que en el resto: "Marcelo" no debe traer
-        // a quien lo lleve a media palabra.
-        const palabras = ase.split(/\s+/).filter(Boolean).map(w => '\\m' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        params.push(palabras);
-        where.push(`a.full_name ~* ALL($${params.length}::text[])`);
-      }
-
-      const r = await pool.query(
-        `SELECT e.referencia_pago, e.estatus_global, e.estatus_proveedor, e.estatus_factura,
+      // El folio se busca EXACTO primero.
+      //
+      // Esta busqueda era solo por subcadena, y un folio tecleado de menos
+      // devolvia la orden de otro como si fuera la que se pidio: "XP74299"
+      // —un digito corto— saca XP742997, con su cliente y su asesor. Las 156
+      // ordenes miden lo mismo (XP + 6 digitos), asi que cualquier recorte cae
+      // sobre la orden de alguien mas. Atribuirsela a quien no es manda al
+      // asesor equivocado a buscar un cliente que no es suyo, que es justo lo
+      // que levanto la tarea 942.
+      //
+      // La subcadena no se quita —sirve para buscar con el folio a medias— pero
+      // ya no se hace pasar por el folio pedido: se intenta exacto, y solo si no
+      // hay nada se cae a parecido, diciendolo.
+      const armar = (exacto: boolean) => {
+        const where: string[] = [];
+        const params: any[] = [];
+        if (f) {
+          if (exacto) { params.push(`XP${f}`); where.push(`UPPER(TRIM(e.referencia_pago)) = $${params.length}`); }
+          else { params.push(`%${f}%`); where.push(`e.referencia_pago ILIKE $${params.length}`); }
+        }
+        if (box) { params.push(box); where.push(`UPPER(TRIM(u.box_id)) = $${params.length}`); }
+        if (ase) {
+          // Por inicio de palabra, igual que en el resto: "Marcelo" no debe traer
+          // a quien lo lleve a media palabra.
+          const palabras = ase.split(/\s+/).filter(Boolean).map(w => '\\m' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          params.push(palabras);
+          where.push(`a.full_name ~* ALL($${params.length}::text[])`);
+        }
+        return {
+          sql: `SELECT e.referencia_pago, e.estatus_global, e.estatus_proveedor, e.estatus_factura,
                 e.op_monto, e.op_divisa_destino, e.monto_mxn_total,
                 e.sup_nombre_beneficiario, e.op_beneficiario_nombre,
                 e.sup_numero_cuenta, e.sup_banco_nombre,
@@ -3847,10 +3863,22 @@ export const TOOLS: ToolDef[] = [
            LEFT JOIN users u ON u.id = e.user_id
            LEFT JOIN users a ON a.id = e.advisor_id
           WHERE ${where.join(' OR ')}
-          ORDER BY e.created_at DESC LIMIT 15`, params);
+          ORDER BY e.created_at DESC LIMIT 15`,
+          params,
+        };
+      };
+
+      let porParecido = false;
+      let q = armar(true);
+      let r = await pool.query(q.sql, q.params);
+      if (r.rows.length === 0 && f) {
+        porParecido = true;
+        q = armar(false);
+        r = await pool.query(q.sql, q.params);
+      }
 
       if (r.rows.length === 0) {
-        const queBusque = f ? `con el folio ${f}` : box ? `del casillero ${box}` : `del asesor "${ase}"`;
+        const queBusque = f ? `con el folio XP${f}` : box ? `del casillero ${box}` : `del asesor "${ase}"`;
         return { ordenes: [], nota: `No encontré ninguna orden X-Pay ${queBusque}.` };
       }
       return {
@@ -3871,7 +3899,13 @@ export const TOOLS: ToolDef[] = [
           vence: x.payment_deadline_at,
           pagada_al_proveedor: x.proveedor_pagado_at,
         })),
-        nota: 'La cuenta va enmascarada a propósito; el número completo está en el panel de X-Pay. '
+        coincidencia: porParecido ? 'parecida' : 'exacta',
+        nota: (porParecido
+            ? `OJO: NO existe ninguna orden con el folio XP${f}. Esto que te devuelvo se PARECE al folio que pediste, `
+              + 'pero es OTRA orden, de otro cliente y de otro asesor. Dilo así: que el folio que te dieron no existe '
+              + 'y que esta es la que se le parece. No se la atribuyas a nadie como si fuera la pedida. '
+            : '')
+            + 'La cuenta va enmascarada a propósito; el número completo está en el panel de X-Pay. '
             + 'Para enrutar un reclamo, lo que importa es el ASESOR responsable.',
       };
     }
