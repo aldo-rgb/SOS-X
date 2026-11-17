@@ -1647,10 +1647,13 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       // aviso: nadie se entera de una comision que no existe. Solo salia a la
       // luz cuando el asesor contaba sus guias a mano y reclamaba (tarea 1044).
       //
-      // Medido antes de este arreglo: desde agosto, 176 guias pagadas por esta
+      // Medido antes de este arreglo: desde agosto, 79 guias pagadas por esta
       // via con asesor asignado se quedaron sin comision —55 de 55 en las
-      // ordenes de transferencia con comprobante, el 100%—, cerca de $23 mil
-      // de comision que nunca se calculo. Lo que las salvaba de vez en cuando
+      // ordenes de transferencia con comprobante, el 100%—, unos $8,268 de
+      // comision que nunca se calculo. (La primera cuenta dio 176 porque
+      // contaba como sin comision a las guias maestras: la comision de una
+      // maestra vive repartida en sus cajas hijas, no en ella.) Lo que las
+      // salvaba de vez en cuando
       // era la conciliacion bancaria automatica, que si la genera y que a
       // veces vuelve a tocar la misma orden segundos despues.
       //

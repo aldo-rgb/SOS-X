@@ -268,6 +268,10 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     const restante = Number(upd.rows[0]?.amount ?? 0);
     const yaDepositado = Number(orden.voucher_total) || 0;
     const quedoCubierta = (restante - yaDepositado) <= 0.009;
+    // Se guardan fuera del bloque para generar la comision DESPUES del COMMIT:
+    // el generador lee las guias ya marcadas pagadas, y hacerlo dentro de la
+    // transaccion le enseñaria el estado viejo.
+    let guiasLiquidadas: number[] = [];
     if (quedoCubierta) {
       await client.query(
         `UPDATE pobox_payments
@@ -284,6 +288,7 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
           return Array.isArray(raw) ? raw.map(Number).filter(Boolean) : [];
         } catch { return []; }
       })();
+      guiasLiquidadas = ids;
       if (ids.length > 0) {
         if (String(servicio).toUpperCase() === 'AA_DHL') {
           await markDhlGroupPaid(client, ids, { onlyUnpaid: true });
@@ -317,6 +322,23 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
     }
 
     await client.query('COMMIT');
+
+    // 💸 COMISION DEL ASESOR.
+    //
+    // Esta es la tercera bolsa con que se puede liquidar una orden —el saldo a
+    // favor POR SERVICIO— y tampoco generaba la comision. La orden quedaba
+    // cerrada, las guias pagadas y el rastro en la bitacora, pero el asesor sin
+    // cobrar y sin aviso. Una sola orden liquidada asi se llevo 46 guias
+    // (tarea 1044).
+    //
+    // Va despues del COMMIT, igual que en el monedero general: el generador
+    // exige que la guia ya este marcada pagada.
+    if (guiasLiquidadas.length > 0) {
+      const { generateCommissionsForPackages } = await import('./commissionService');
+      await generateCommissionsForPackages(guiasLiquidadas, { expectedUserId: Number(orden.user_id) || null })
+        .catch((e: any) => console.error(`[saldo-favor] comisiones de ${orden.payment_reference}:`, e?.message || e));
+    }
+
     res.json({
       success: true,
       aplicado: aplicar,
