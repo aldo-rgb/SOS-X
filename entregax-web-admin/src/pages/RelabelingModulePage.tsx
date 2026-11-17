@@ -1509,10 +1509,15 @@ ${body}
         // El tracking original suele incluir el sufijo `-NN` correspondiente al boxNumber.
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
         const baseTracking = reprintLabel.tracking.replace(/-\d{1,4}$/, '');
+        // El sufijo de caja NO siempre es de 4 dígitos: PO Box usa cuatro
+        // (US-XXXX-0001) pero el aéreo y TDI usan TRES (TDX-XXXX-001). Al
+        // reconstruir a cuatro a secas, la etiqueta salía con una guía que no
+        // existe —TDX-...-0001— y la pantalla de darle salida contestaba "guía
+        // no encontrada" con la caja en la mano (tarea 1028). Se respeta el
+        // ancho del sufijo que ya traía la guía; si no trae, se asume cuatro.
+        const anchoSufijo = (reprintLabel.tracking.match(/-(\d{1,4})$/)?.[1] || '0001').length;
         for (let i = from; i <= to; i++) {
-            // El sufijo de caja SIEMPRE es de 4 dígitos (US-XXXX-0001..0014). Antes
-            // se paddeaba a 2 (-14) y el escáner/sistema no lo leía como la guía real.
-            const suffix = String(i).padStart(4, '0');
+            const suffix = String(i).padStart(anchoSufijo, '0');
             labels.push({
                 ...reprintLabel,
                 boxNumber: i,

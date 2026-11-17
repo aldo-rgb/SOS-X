@@ -681,10 +681,15 @@ export default function RelabelingScreen({ route, navigation }: any) {
     const total = reprintLabel.totalBoxes;
     const from = Math.max(1, Math.min(total, Math.floor(parseInt(reprintFrom, 10) || 1)));
     const to = Math.max(from, Math.min(total, Math.floor(parseInt(reprintTo, 10) || from)));
-    const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
+    const baseTracking = reprintLabel.tracking.replace(/-\d{1,4}$/, '');
     const labels: LabelData[] = [];
+    // El ancho del sufijo depende del servicio: PO Box usa cuatro digitos
+    // (US-XXXX-0001) y el aereo/TDI usan TRES (TDX-XXXX-001). Reconstruir a
+    // cuatro imprimia una guia inexistente y la caja no se podia escanear
+    // para darle salida (tarea 1028).
+    const anchoSufijo = (reprintLabel.tracking.match(/-(\d{1,4})$/)?.[1] || '0001').length;
     for (let i = from; i <= to; i++) {
-      const suffix = String(i).padStart(4, '0');
+      const suffix = String(i).padStart(anchoSufijo, '0');
       labels.push({
         ...reprintLabel,
         boxNumber: i,

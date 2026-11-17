@@ -2656,6 +2656,42 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             );
             // Fuzzy: si el código está truncado (scanner cortó el último char), buscar con LIKE
             if (result.rows.length === 0 && code.length >= 6) {
+                // ── El sufijo con ceros de mas es la MISMA caja ──────────────
+                //
+                // Las guias aereas y TDI numeran la caja con TRES digitos
+                // (TDX-3935633809-001) y PO Box con CUATRO (US-...-0001). Lo
+                // unico que esta pantalla sabia hacer con un sufijo era
+                // rellenarlo a cuatro —la forma de PO Box—, asi que una
+                // etiqueta aerea o TDI reimpresa, que sale con -0001, no
+                // empataba con ninguna guia y contestaba "guia no encontrada"
+                // con la caja ya en la mano, lista para entregarse a la
+                // paqueteria (tarea 1028).
+                //
+                // Cargar y Confirmar Entrega ya la reconocen asi; darle salida
+                // era la unica de las tres que no. Son 6,782 cajas pendientes
+                // con sufijo de tres digitos (6,698 aereas y 84 TDI).
+                //
+                // Se normalizan los ceros a la izquierda del sufijo de los dos
+                // lados: -1, -001 y -0001 quedan iguales. Solo se acepta si
+                // empata con UNA sola guia.
+                const porCeros = await pool.query(
+                    `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                            COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                            COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                            p.national_tracking
+                       FROM packages p
+                       LEFT JOIN packages m ON m.id = p.master_id
+                      WHERE REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '-0+([0-9])', '-\\1', 'g')
+                            = REGEXP_REPLACE(UPPER($1), '-0+([0-9])', '-\\1', 'g')
+                      LIMIT 2`,
+                    [code]
+                );
+                if (porCeros.rows.length === 1) {
+                    result.rows = porCeros.rows;
+                    console.log(`[paqHandoff] Sufijo con ceros: ${code} → ${porCeros.rows[0].tracking_number}`);
+                }
+            }
+            if (result.rows.length === 0 && code.length >= 6) {
                 // Intentar reconstruir child tracking cuando el scanner trunca ceros del sufijo.
                 // Ej: US-4917481320-0001 compacto = US49174813200001 → scanner lee US491748132001
                 //     Después de normalizeCode → US-491748132001 (prefijo US + 12 dígitos)
