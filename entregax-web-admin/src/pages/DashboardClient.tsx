@@ -1370,7 +1370,7 @@ export default function DashboardClient() {
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch' | 'transfer'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch' | 'transfer' | 'wallet'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
   // Selección de tarjeta Openpay (guardada o nueva tokenizada)
   const [openpaySelection, setOpenpaySelection] = useState<OpenpaySelection>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -2448,16 +2448,14 @@ export default function DashboardClient() {
     loadVoucherList(order.id);
   };
 
-  // Abrir selector de pago en línea (Tarjeta / PayPal) desde Instrucciones
-  const openOnlinePayFromInstructions = () => {
-    if (!paymentInstructionsDialog) return;
-    const ref = paymentInstructionsDialog.reference;
-    const order = paymentOrders.find((o: any) => o.payment_reference === ref);
-    if (!order) {
-      setSnackbar({ open: true, message: 'No se encontró la orden. Recarga la página.', severity: 'warning' });
-      return;
-    }
-    setPaymentInstructionsDialog(null);
+  // Abrir el selector de pago en línea para UNA orden concreta.
+  //
+  // Antes este cuerpo vivía dentro de `openOnlinePayFromInstructions` y solo se
+  // podía llegar aquí desde el diálogo de Instrucciones. Al separarlo, el
+  // checkout puede mandar al cliente directo a sus métodos internos —saldo a
+  // favor y crédito— en cuanto se genera la orden (tarea 1043).
+  const abrirPagoEnLineaDeOrden = (order: any) => {
+    if (!order) return;
     setOnlinePayDialog({ open: true, order });
     // Verificar disponibilidad de OpenPay para este servicio
     const rawSvcType = String(order?.packages?.[0]?.service_type || order?.service_type || 'po_box');
@@ -2502,6 +2500,19 @@ export default function DashboardClient() {
     } else {
       setWalletPartial(null);
     }
+  };
+
+  // Abrir selector de pago en línea (Tarjeta / PayPal) desde Instrucciones
+  const openOnlinePayFromInstructions = () => {
+    if (!paymentInstructionsDialog) return;
+    const ref = paymentInstructionsDialog.reference;
+    const order = paymentOrders.find((o: any) => o.payment_reference === ref);
+    if (!order) {
+      setSnackbar({ open: true, message: 'No se encontró la orden. Recarga la página.', severity: 'warning' });
+      return;
+    }
+    setPaymentInstructionsDialog(null);
+    abrirPagoEnLineaDeOrden(order);
   };
 
   // Revertir crédito previamente aplicado (cuando pago externo no se completó o usuario decide quitarlo)
@@ -4406,7 +4417,9 @@ export default function DashboardClient() {
     };
 
     // Validar datos de facturación si es necesaria
-    if (requiresInvoice && selectedPaymentMethod !== 'branch') {
+    // 'wallet' va con 'branch': pagar con saldo a favor no emite CFDI, asi que
+    // pedirle los datos fiscales seria frenarlo por una factura que no existe.
+    if (requiresInvoice && selectedPaymentMethod !== 'branch' && selectedPaymentMethod !== 'wallet') {
       if (!effectiveInvoice.rfc || !effectiveInvoice.razon_social || !effectiveInvoice.email || !effectiveInvoice.codigo_postal || !effectiveInvoice.regimen_fiscal) {
         setSnackbar({ open: true, message: t('cd.snackbar.completeBilling'), severity: 'warning' });
         return;
@@ -4573,6 +4586,43 @@ export default function DashboardClient() {
           throw new Error(response.data.error || t('cd.snackbar.paypalCreateError'));
         }
         
+      } else if (selectedPaymentMethod === 'wallet') {
+        // Pagar con saldo a favor. La orden se genera con el MISMO endpoint que
+        // el efectivo —no hay un alta nueva ni un cobro nuevo— y enseguida se
+        // abre el diálogo de Pagar en Línea, que es donde el saldo se aplica
+        // desde siempre. El dinero lo sigue moviendo /pay-internal, con su
+        // propia validación de saldo y su candado de guía ya pagada.
+        const response = await api.post('/pobox/payment/cash/create', {
+          packageIds: selectedIds,
+          userId: JSON.parse(localStorage.getItem('user') || '{}').id,
+          totalAmount: total,
+          currency: 'MXN',
+          paymentMethod: 'cash',
+        });
+        if (!response.data?.success || !response.data?.paymentId) {
+          throw new Error(response.data?.error || response.data?.message || t('cd.snackbar.referenceError'));
+        }
+        const SVC_DB: Record<string, string> = {
+          china_air: 'AIR_CHN_MX',
+          china_sea: 'SEA_CHN_MX',
+          usa_pobox: 'POBOX_USA',
+          dhl: 'AA_DHL',
+        };
+        setPaymentModalOpen(false);
+        setSelectedPackageIds([]);
+        loadPaymentOrders();
+        // Si el backend reutilizó una orden que ya existía, es la misma guía y
+        // el mismo monto: llevarlo a pagarla es mejor que rebotarlo a la lista.
+        abrirPagoEnLineaDeOrden({
+          id: response.data.paymentId,
+          payment_reference: response.data.reference,
+          amount: response.data.amount,
+          currency: response.data.currency || 'MXN',
+          service_type: SVC_DB[predominantService] || 'POBOX_USA',
+          packages: [],
+          credit_applied: 0,
+          wallet_applied: 0,
+        });
       } else if (selectedPaymentMethod === 'branch' || selectedPaymentMethod === 'transfer') {
         // Pago a cuenta (sucursal/efectivo) o Transferencia bancaria — mismo
         // endpoint de Orden de Pago. La diferencia: transferencia permite
@@ -15239,6 +15289,25 @@ export default function DashboardClient() {
                   if (selectedCount <= 1 && !visibleMethods.some((m) => m.id === 'branch')) {
                     const cashMethod = paymentGatewayMethods.find((m) => m.id === 'branch');
                     if (cashMethod) visibleMethods.push(cashMethod);
+                  }
+
+                  // Saldo a favor. Se puede aplicar desde siempre, pero SOLO
+                  // despues de que la orden existe: Ordenes de Pago -> Pagar ->
+                  // Pagar en Linea. Aqui, que es donde el cliente decide como
+                  // paga, no aparecia, y el que tenia dinero a favor concluia
+                  // que no se podia usar y lo pedia por ticket (tarea 1043).
+                  // Esta tarjeta no inventa un cobro nuevo: genera la orden
+                  // igual que efectivo y abre ese mismo dialogo ya existente.
+                  const saldoAFavor = Number(walletStatus?.wallet_balance || 0);
+                  if (selectedCount <= 1 && saldoAFavor > 0 && !visibleMethods.some((m) => m.id === 'wallet')) {
+                    visibleMethods.unshift({
+                      id: 'wallet',
+                      name: 'Saldo a favor',
+                      description: `Disponible: ${formatCurrency(saldoAFavor)}`,
+                      icon: '\ud83d\udcb0',
+                      color: '#2E7D32',
+                      provider: 'EntregaX',
+                    });
                   }
 
                   return visibleMethods.map((method) => (
