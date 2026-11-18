@@ -11,6 +11,7 @@ import OpenAI from 'openai';
 import * as XLSX from 'xlsx';
 import { sendPushToRole } from './pushService';
 import { createCustomNotification } from './notificationController';
+import { casilleroSinAnotacion } from './boxLinkReconcile';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -957,6 +958,14 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
 
     for (const row of rows) {
       const clienteId = (row.cliente || '').trim().toUpperCase();
+      // El casillero que sirve para BUSCAR al cliente. China le pega el tipo de
+      // carga entre parentesis —'(普货)'— y con eso pegado no empata: la caja
+      // nace sin dueño, el asesor no la ve y tampoco se le puede poner tarifa
+      // propia, porque la busqueda de precio usa el mismo valor.
+      //
+      // El box_id se sigue guardando CRUDO: la anotacion dice si lleva bateria
+      // ('带电') o si va con declaracion aduanal ('报关件'), y eso no se tira.
+      const clienteBusqueda = casilleroSinAnotacion(clienteId) || clienteId;
       const guiaAir = row.guiaAir || row.noCaja || null;
       const isClienteS = clienteId.startsWith('S');
 
@@ -967,7 +976,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         if (clienteId) {
           const userRes = await client.query(
             'SELECT id FROM users WHERE UPPER(box_id) = $1 LIMIT 1',
-            [clienteId]
+            [clienteBusqueda]
           );
           if (userRes.rows.length > 0) {
             targetUserId = userRes.rows[0].id;
@@ -982,7 +991,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         const tipoNorm = (row.tipoNorm || row.tipo || 'G').toUpperCase().charAt(0);
         const tariffType = ['L', 'G', 'S', 'F'].includes(tipoNorm) ? tipoNorm : 'G';
         
-        const { pricePerKg, isCustom } = await getClientPrice(clienteId, tariffType, targetUserId);
+        const { pricePerKg, isCustom } = await getClientPrice(clienteBusqueda, tariffType, targetUserId);
         const weight = parseFloat(row.pesoKg) || 0;
         const salePrice = weight * pricePerKg;
 

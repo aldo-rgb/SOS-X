@@ -11,6 +11,24 @@
 // ============================================
 import { pool } from './db';
 
+/**
+ * China le pega al casillero el tipo de carga entre parentesis: '(普货)' es
+ * carga general, '(带电)' lleva bateria y '(报关件)' va con declaracion
+ * aduanal. El casillero real es lo de antes del parentesis.
+ *
+ * Devuelve el casillero limpio SOLO si lo que queda es exactamente S + digitos;
+ * si no, devuelve null y quien llama se queda con el valor crudo. No es un LIKE
+ * ni un prefijo: el resultado todavia tiene que empatar completo con un cliente.
+ */
+export function casilleroSinAnotacion(marca: string | null | undefined): string | null {
+  const limpio = String(marca || '')
+    .trim()
+    .replace(/[（(][^）)]*[）)]\s*$/, '')
+    .trim()
+    .toUpperCase();
+  return /^S[0-9]+$/.test(limpio) ? limpio : null;
+}
+
 export async function reconcileOrphanShipments(boxId?: string): Promise<Record<string, number>> {
   // Si se pasa boxId, limita el reconcile a ese casillero (p.ej. al registrarse).
   const filter = boxId ? 'AND UPPER(TRIM(u.box_id)) = UPPER(TRIM($1))' : '';
@@ -72,6 +90,27 @@ export async function reconcileOrphanShipments(boxId?: string): Promise<Record<s
     FROM users u
     WHERE p.user_id IS NULL AND u.role = 'client' AND TRIM(COALESCE(p.box_id,'')) <> ''
       AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id)) ${filter}
+  `);
+  // Las cajas traen la misma anotación que los recibos, y aquí nunca se
+  // contempló: el match exacto de arriba no empata con el casillero que trae
+  // el '(普货)' pegado, así que la caja se queda sin dueño, no sale en el
+  // panel del asesor ni en la app del
+  // cliente, y nadie le puede asignar instrucciones. Medido el 18-nov-2026: 50
+  // cajas aéreas así, 49 de ellas de un cliente que SÍ existe; la más vieja
+  // llevaba desde el 29-oct. Es la misma regla que ya corre para china_receipts
+  // desde la tarea 768, aplicada a packages.
+  //
+  // Verificado sobre las 20 marcas con paréntesis que hay hoy: cada una deja un
+  // casillero que empata con UN solo cliente, ninguna ambigua. Esa comprobación
+  // hay que rehacerla si algún día se afloja más la regla.
+  await run('packages_by_box_marca_anotada', `
+    UPDATE packages p SET user_id = u.id, updated_at = NOW()
+    FROM users u
+    WHERE p.user_id IS NULL AND u.role = 'client'
+      AND p.box_id ~ '[()（）]'
+      AND UPPER(TRIM(REGEXP_REPLACE(p.box_id, '[（(][^）)]*[）)]\\s*$', ''))) ~ '^S[0-9]+$'
+      AND UPPER(TRIM(REGEXP_REPLACE(p.box_id, '[（(][^）)]*[）)]\\s*$', ''))) = UPPER(TRIM(u.box_id))
+      ${filter}
   `);
   // Paquetes aéreos ligados a un receipt ya enlazado (no traen box_id propio).
   //
