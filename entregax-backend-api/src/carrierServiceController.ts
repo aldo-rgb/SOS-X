@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { isMtyMetroZip } from './mtyMetroController';
 import { getExcludedCarriersForZip } from './coverageController';
+import { filtrarPorCobrar, admitePorCobrar } from './porCobrarAereo';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -139,6 +140,17 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
         r.allows_collect !== true &&
         (r.carrier_key === 'local' || String(r.carrier_key || '').startsWith('entregax_'))
       );
+    }
+
+    // ✈️ Aéreo China: la entrega nacional ya va dentro del flete aéreo, así que
+    // las "por cobrar" no se ofrecen. La regla —y el porqué— viven en
+    // porCobrarAereo.ts; aquí solo se aplica, igual que la de TDX de arriba.
+    //
+    // El catálogo mapea EVISA, Tres Guerras y Paquete Express Por Cobrar a
+    // china_air, así que el portal del cliente las listaba y 137 guías aéreas
+    // salieron por cobrar pagando dos veces el mismo tramo (TKT-2026-3713).
+    if (!admitePorCobrar(String(serviceType))) {
+      result.rows = filtrarPorCobrar(String(serviceType), result.rows);
     }
 
     // 🚫 Exclusiones por paquetería: ocultar las paqueterías que NO entregan en

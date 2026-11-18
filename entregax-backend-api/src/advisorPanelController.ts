@@ -12,6 +12,7 @@ import { signS3UrlIfNeeded } from './s3Service';
 import { asegurarColumna } from './db';
 import { AEREO_PAID_ORDER_SQL, XPAY_COMPLETED_SQL, GEX_PAID_SQL } from './commissionController';
 import { isMtyMetroZip } from './mtyMetroController';
+import { esAereoChina, MOTIVO_SIN_POR_COBRAR } from './porCobrarAereo';
 
 // ─── Helper: asegurar que existan columnas de onboarding (idempotente) ───
 let _advisorColumnsEnsured = false;
@@ -2663,6 +2664,17 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
              FROM packages p WHERE p.id = $1`, [shipmentId, addressId]);
         const isAir = info.rows[0]?.is_air === true;
         const zip = info.rows[0]?.zip;
+
+        // ✈️ El aéreo China no sale por cobrar: esa entrega ya va dentro del
+        // flete aéreo —es la misma razón por la que, tres líneas más abajo,
+        // Paquete Express se cobra en $0— y volverla a cobrar en la puerta es
+        // cobrarla dos veces. La regla vive en porCobrarAereo.ts; el panel del
+        // cliente y el portal web tienen la misma. 11 guías aéreas salieron por
+        // cobrar desde aquí (TKT-2026-3713).
+        if (isCollectBool && esAereoChina(info.rows[0]?.service_type)) {
+          console.warn(`[Instrucciones asesor] por cobrar rechazado en aéreo: packages/${shipmentId}`);
+          return res.status(400).json({ error: MOTIVO_SIN_POR_COBRAR });
+        }
         const localish = ['local', 'entregax_local_mty', 'entregax_local', 'evisa_pre', 'evisapre']
           .includes(String(carrierKey || '').toLowerCase());
         if (isAir && localish && await isMtyMetroZip(zip)) {

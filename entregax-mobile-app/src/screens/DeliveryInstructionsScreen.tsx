@@ -195,6 +195,24 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   
   // Determinar tipo de envío para mostrar ícono correcto
   const shipmentType = (pkg as any).shipment_type;
+
+  // ✈️ ¿Es carga aérea China?
+  //
+  // No se puede preguntar por `shipment_type`: el backend publica TODA la tabla
+  // `packages` como 'air' —PO Box y aéreo por igual— y 'air' aquí significa PO
+  // Box USA. Por eso las tres reglas de abajo que decían `=== 'china_air'`
+  // nunca se cumplían en una guía aérea: se ofrecía "Por Cobrar" (que no aplica
+  // al aéreo), se ofrecía el Pick Up de Hidalgo TX (que es de PO Box) y se
+  // cobraba Paquete Express en vez de marcarlo incluido en el flete aéreo.
+  // 137 guías salieron por cobrar así (TKT-2026-3713).
+  //
+  // `service_type` sí viene con el valor real de la guía (AIR_CHN_MX), así que
+  // se pregunta por él primero y se deja `shipment_type` como respaldo.
+  const esAereoChina = (() => {
+    const v = String((pkg as any)?.service_type || '').toUpperCase();
+    if (v === 'AIR_CHN_MX' || v === 'TDI_AEREO') return true;
+    return shipmentType === 'china_air';
+  })();
   const getShipmentIcon = (): 'boat' | 'airplane' | 'car' | 'cube' => {
     if (shipmentType === 'maritime') return 'boat';
     if (shipmentType === 'china_air') return 'airplane';
@@ -252,8 +270,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   }
 
   // Pickup en Sucursal Hidalgo TX solo aplica a guías de PO Box USA
-  const isPOBoxUS = !shipmentType || ['air', 'usa', 'pobox', 'POBOX_USA', 'usa_pobox'].includes(shipmentType) ||
-    shipmentType.toLowerCase().includes('pobox') || shipmentType.toLowerCase().includes('usa');
+  const isPOBoxUS = !esAereoChina && (
+    !shipmentType || ['air', 'usa', 'pobox', 'POBOX_USA', 'usa_pobox'].includes(shipmentType) ||
+    shipmentType.toLowerCase().includes('pobox') || shipmentType.toLowerCase().includes('usa'));
 
   // 🗺️ Helpers de zona por código postal
   // - MTY metro (AMM): C.P. que empiezan en 64, 65, 66, 67
@@ -356,7 +375,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     // Disponibilidad por tipo de envío
     let available: CarrierOption[];
     if (shipmentType === 'maritime') available = [cdmx];
-    else if (shipmentType === 'china_air') available = [cdmx, mty];
+    else if (esAereoChina) available = [cdmx, mty];
     // 🇺🇸 PO Box USA: la carga llega a CEDIS MTY, así que SOLO aplica EntregaX
     // Local MTY (para destinos del AMM). Para destinos CDMX/otros va por paquetería
     // nacional (Paquete Express) — el mensajero local de CDMX NO puede recoger de MTY.
@@ -383,7 +402,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     ...localEntregaxOptions,
     // 💰 Paquete Express POR COBRAR — el destinatario paga al recibir
     //    NO aplica para paquetes aéreos (china_air)
-    ...(shipmentType !== 'china_air' ? [{
+    ...(!esAereoChina ? [{
       id: 'paquete_express_pc',
       name: 'Por Cobrar',
       price: 0,
@@ -557,7 +576,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   //    por lo que el costo se descuenta a 0 en el total a pagar.
   const getSelectedCarrierCost = (): number => {
     const carrier = carrierRates.find(c => c.id === selectedCarrier);
-    if (shipmentType === 'china_air' && selectedCarrier === 'paquete_express') return 0;
+    if (esAereoChina && selectedCarrier === 'paquete_express') return 0;
     const pricePerBox = carrier?.price || 0;
     return pricePerBox * getTotalBoxes();
   };
@@ -569,7 +588,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     return pricePerBox * getTotalBoxes();
   };
   const isCarrierIncludedInFreight = (): boolean =>
-    shipmentType === 'china_air' && selectedCarrier === 'paquete_express';
+    esAereoChina && selectedCarrier === 'paquete_express';
 
   // Obtener la moneda del carrier seleccionado
   const getSelectedCarrierCurrency = (): string => {
@@ -1187,6 +1206,19 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       if (!ok) return;
     }
 
+    // 🚚 Por cobrar sin elegir con cuál paquetería.
+    //
+    // El guardado mandaba `selectedCollect || 'pqtx_cod'`: al no escoger
+    // ninguna, la app decidía Paquete Express Por Cobrar sola y grababa el
+    // nombre literal "Por cobrar", que ya no es una marca. 58 guías quedaron
+    // así, y en la etiqueta impresa la paquetería tenía que adivinarse desde la
+    // configuración de la dirección (TKT-2026-3713). El portal web sí lo pedía.
+    if (selectedCarrier === 'paquete_express_pc' && !selectedCollect) {
+      setCollectExpanded(true);
+      Alert.alert('Falta la paquetería', 'Elige con cuál paquetería quieres que salga por cobrar.');
+      return;
+    }
+
     setSaving(true);
     let successCount = 0;
     let errors: string[] = [];
@@ -1197,7 +1229,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       // Ejemplo: guía A (1 caja) y guía B (8 cajas) con tarifa $400/caja:
       //   guía A → $400, guía B → $3200 (NO $3600 a cada una).
       const selectedCarrierObj = carrierRates.find(c => c.id === selectedCarrier);
-      const isIncludedInFreight = shipmentType === 'china_air' && selectedCarrier === 'paquete_express';
+      const isIncludedInFreight = esAereoChina && selectedCarrier === 'paquete_express';
       const pricePerBox = isIncludedInFreight ? 0 : (selectedCarrierObj?.price || 0);
 
       const getBoxesForPackage = (pkg: any): number => {
@@ -1800,7 +1832,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                         <Text style={[styles.carrierPriceFree, { color: '#E65100' }]}>POR COBRAR</Text>
                       ) : carrier.price === 0 ? (
                         <Text style={styles.carrierPriceFree}>GRATIS</Text>
-                      ) : shipmentType === 'china_air' && carrier.id === 'paquete_express' ? (
+                      ) : esAereoChina && carrier.id === 'paquete_express' ? (
                         <>
                           <Text style={[styles.carrierPrice, { textDecorationLine: 'line-through', color: '#999' }]}>
                             ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}

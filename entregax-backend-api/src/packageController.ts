@@ -9,6 +9,7 @@ import fs from 'fs';
 import axios from 'axios';
 import { paqueteriaSinFlete } from './fleteNacional';
 import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from './cambioDeInstrucciones';
+import { esAereoChina, MOTIVO_SIN_POR_COBRAR } from './porCobrarAereo';
 
 // Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
 // se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
@@ -5329,6 +5330,33 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         // va. La app solo mandaba 'paquete_express_pc' y no podía elegir entre
         // las de por cobrar del catálogo (TKT-2026-2385).
         const isCollectReq = req.body.isCollect === true || req.body.isCollect === 'true';
+
+        // ✈️ Por cobrar NO aplica al aéreo China: ese tramo ya está pagado dentro
+        // del flete aéreo y cobrarlo otra vez en la puerta es cobrarlo dos veces.
+        //
+        // La guardia existía solo en la pantalla de la app y comparaba contra
+        // `shipment_type === 'china_air'`, valor que esa guía nunca trae: la
+        // tabla `packages` se publica entera como 'air' (que aquí significa PO
+        // Box USA). Por eso nunca se cumplía. Se revisa contra el service_type
+        // REAL de la guía, que es el único dato que no depende de la pantalla.
+        //
+        // Solo se revisa cuando la guía vive en `packages`. Una DHL o una
+        // marítima tienen su propio id y podrían chocar con el de un paquete
+        // aéreo ajeno: revisarlas aquí bloquearía un por cobrar que sí es
+        // válido (es la misma colisión de ids del comentario de arriba).
+        if (isCollectReq && packageType !== 'dhl' && packageType !== 'maritime') {
+            try {
+                const svcR = await pool.query(
+                    `SELECT service_type FROM packages WHERE id = $1`, [idNum]);
+                if (svcR.rows.length > 0 && esAereoChina(svcR.rows[0].service_type)) {
+                    console.warn(`[Instrucciones Entrega] por cobrar rechazado en aéreo: packages/${idNum}`);
+                    return res.status(400).json({ success: false, error: MOTIVO_SIN_POR_COBRAR });
+                }
+            } catch (e: any) {
+                console.warn('[Instrucciones Entrega] no pude revisar el servicio:', e?.message);
+            }
+        }
+
         const nationalDeliveryZipMobile: string | null = ocurreZip ? String(ocurreZip).trim() : null;
         const userId = (req as any).user.userId;
         const userRole = (req as any).user.role;
@@ -8031,6 +8059,28 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     const addrId = parseInt(addressId, 10);
     const nationalDeliveryZip: string | null = ocurreZip ? String(ocurreZip).trim() : null;
     const isCollectBool = isCollect === 'true' || isCollect === true;
+
+    // ✈️ Misma regla que en assignDeliveryInstructions: el aéreo China no sale
+    // por cobrar porque esa entrega ya va incluida en el flete aéreo. Este es el
+    // camino del portal web, que nunca tuvo la guardia (porCobrarAereo.ts).
+    //
+    // Se busca en `packages` primero, que es la misma precedencia con la que
+    // este endpoint resuelve al dueño más abajo (packages → maritime_orders →
+    // dhl_shipments): si un id se resuelve como paquete para asignar, también
+    // se resuelve como paquete para revisar su servicio.
+    if (isCollectBool && Array.isArray(pkgIds) && pkgIds.length > 0) {
+      try {
+        const svcR = await pool.query(
+          `SELECT DISTINCT service_type FROM packages WHERE id = ANY($1::int[])`, [pkgIds]);
+        if (svcR.rows.some((r: any) => esAereoChina(r.service_type))) {
+          console.warn(`[Bulk Assign Delivery] por cobrar rechazado en aéreo: ${pkgIds.join(',')}`);
+          return res.status(400).json({ success: false, error: MOTIVO_SIN_POR_COBRAR });
+        }
+      } catch (e: any) {
+        console.warn('[Bulk Assign Delivery] no pude revisar el servicio:', e?.message);
+      }
+    }
+
     // El pick up llega con distintos nombres según el panel: 'pickup',
     // 'pickup_hidalgo', 'Pick Up Hidalgo TX'. Se reconocen todos.
     const _ckBulk = String(carrierService || '').toLowerCase().replace(/[\s-]+/g, '_');
