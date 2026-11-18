@@ -29,6 +29,48 @@ export function casilleroSinAnotacion(marca: string | null | undefined): string 
   return /^S[0-9]+$/.test(limpio) ? limpio : null;
 }
 
+/**
+ * Encuentra al dueño de una marca de embarque. Es la MISMA regla que usa el
+ * reconcile nocturno, pero en el momento en que la caja nace, para que no tenga
+ * que nacer huérfana y esperar a la madrugada.
+ *
+ * Reglas, en orden:
+ *   1) el casillero se limpia de la anotación de China antes de buscar;
+ *   2) el empate con el cliente es EXACTO (UPPER/TRIM), nunca parcial;
+ *   3) si no está en users, se busca en legacy_clients y solo sirve si ya fue
+ *      reclamado por un cliente registrado.
+ *
+ * El empate parcial ('LIKE %marca%') que había en los dos caminos de MJCustomer
+ * no solo fallaba: acertaba al cliente equivocado. Medido el 18-nov-2026 sobre
+ * los casilleros que existen hoy: 280 casilleros del sistema anterior caían en
+ * la cuenta de un cliente AJENO (uno de dos dígitos empataba con 102 clientes
+ * distintos), y en 48 casilleros vigentes había más de un candidato, así que ni
+ * siquiera el cliente correcto estaba garantizado — la consulta no llevaba
+ * ORDER BY, el ganador salía por suerte. Una caja en la cuenta equivocada es
+ * peor que una caja sin dueño: se la ve quien no debe, con la tarifa de otro.
+ */
+export async function duenoDeLaMarca(
+  db: { query: (sql: string, params?: any[]) => Promise<any> },
+  marca: string | null | undefined,
+): Promise<number | null> {
+  const cruda = String(marca || '').trim();
+  if (!cruda) return null;
+  const limpia = casilleroSinAnotacion(cruda) || cruda;
+
+  const u = await db.query(
+    'SELECT id FROM users WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1',
+    [limpia],
+  );
+  if (u.rows[0]) return u.rows[0].id;
+
+  const lc = await db.query(
+    `SELECT claimed_by_user_id FROM legacy_clients
+      WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) AND claimed_by_user_id IS NOT NULL LIMIT 1`,
+    [limpia],
+  );
+  return lc.rows[0]?.claimed_by_user_id ?? null;
+}
+
 export async function reconcileOrphanShipments(boxId?: string): Promise<Record<string, number>> {
   // Si se pasa boxId, limita el reconcile a ese casillero (p.ej. al registrarse).
   const filter = boxId ? 'AND UPPER(TRIM(u.box_id)) = UPPER(TRIM($1))' : '';

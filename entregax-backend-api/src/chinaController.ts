@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { createNotification } from './notificationController';
+import { duenoDeLaMarca, casilleroSinAnotacion } from './boxLinkReconcile';
 import crypto from 'crypto';
 import { sm2 } from 'sm-crypto';
 
@@ -180,11 +181,16 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         // Primero buscamos en users, luego en legacy_clients
         let userId = null;
         let userName = 'Sin asignar';
-        
+
+        // El casillero con el que se BUSCA va sin la anotacion que China le pega
+        // entre parentesis; el que se GUARDA sigue siendo el crudo, porque esa
+        // anotacion dice si lleva bateria o si va con declaracion aduanal.
+        const marcaBusqueda = casilleroSinAnotacion(payload.shippingMark) || payload.shippingMark;
+
         // Buscar en users primero
         const userCheck = await client.query(
             `SELECT id, full_name FROM users WHERE UPPER(box_id) = UPPER($1)`,
-            [payload.shippingMark]
+            [marcaBusqueda]
         );
         
         if (userCheck.rows.length > 0) {
@@ -197,7 +203,7 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                  FROM legacy_clients lc
                  LEFT JOIN users u ON lc.claimed_by_user_id = u.id
                  WHERE UPPER(lc.box_id) = UPPER($1)`,
-                [payload.shippingMark]
+                [marcaBusqueda]
             );
             
             if (legacyCheck.rows.length > 0) {
@@ -414,18 +420,23 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                 
                 await client.query(`
                     INSERT INTO packages 
-                    (tracking_internal, child_no, china_receipt_id, user_id, 
+                    (tracking_internal, child_no, china_receipt_id, user_id, box_id,
                      weight, dimensions, long_cm, width_cm, height_cm,
                      description, pro_name, customs_bno, trajectory_name,
                      single_volume, single_cbm, international_tracking,
                      etd, eta, service_type, warehouse_location, status,
                      air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff, air_price_assigned_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW())
                 `, [
                     trackingInternal,
                     item.childNo,
                     receiptId,
                     userId,
+                    // La caja nacia SIN casillero. Si el cliente no se encuentra en
+                    // ese momento —porque es del sistema anterior o se registra
+                    // despues— la caja queda huerfana y sin marca encima, asi que
+                    // el reconcile nocturno ya no tiene por donde recuperarla.
+                    payload.shippingMark || null,
                     item.weight,
                     dimensions,
                     item.long,
@@ -2260,12 +2271,16 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
             const shippingMark = order.shippingMark || 'UNKNOWN';
 
             // Buscar cliente por shipping mark
-            const userCheck = await client.query(
-                `SELECT id, full_name FROM users WHERE box_id = $1 OR box_id ILIKE $2`,
-                [shippingMark, `%${shippingMark}%`]
-            );
-            const userId = userCheck.rows.length > 0 ? userCheck.rows[0].id : null;
-            const userName = userCheck.rows.length > 0 ? userCheck.rows[0].full_name : 'Sin asignar';
+            // El empate parcial que habia aqui ('LIKE %marca%') no solo fallaba:
+            // acertaba al cliente EQUIVOCADO, y la consulta ni siquiera llevaba
+            // ORDER BY, asi que el ganador salia por suerte. duenoDeLaMarca pide
+            // empate exacto, limpia la anotacion de China y acepta al cliente del
+            // sistema anterior solo si ya reclamo su casillero.
+            const userId = await duenoDeLaMarca(client, shippingMark);
+            const nombreRes = userId
+                ? await client.query('SELECT full_name FROM users WHERE id = $1', [userId])
+                : null;
+            const userName = nombreRes?.rows[0]?.full_name || 'Sin asignar';
             
             console.log(`  → Cliente: ${userName} (${shippingMark})`);
 
@@ -2362,17 +2377,20 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
                         
                         await client.query(`
                             INSERT INTO packages 
-                            (tracking_internal, child_no, china_receipt_id, user_id, 
+                            (tracking_internal, child_no, china_receipt_id, user_id, box_id,
                              weight, dimensions, long_cm, width_cm, height_cm,
                              description, pro_name, customs_bno, trajectory_name,
                              single_volume, single_cbm, international_tracking,
                              etd, eta, service_type, warehouse_location, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
                         `, [
                             trackingInternal,
                             childNo,
                             receiptId,
                             userId,
+                            // 'UNKNOWN' es el relleno de esta funcion cuando la orden
+                            // no trae marca; guardarlo seria inventarle un casillero.
+                            shippingMark && shippingMark !== 'UNKNOWN' ? shippingMark : null,
                             item.weight,
                             dimensions,
                             item.long,
@@ -2929,13 +2947,16 @@ async function processCallbackPayload(
         await client.query('BEGIN');
         
         // 1. Buscar cliente por ShippingMark (box_id)
-        const userCheck = await client.query(
-            `SELECT id, full_name FROM users WHERE box_id = $1 OR box_id ILIKE $2`,
-            [payload.shippingMark, `%${payload.shippingMark}%`]
-        );
-        
-        const userId = userCheck.rows.length > 0 ? userCheck.rows[0].id : null;
-        const userName = userCheck.rows.length > 0 ? userCheck.rows[0].full_name : 'Sin asignar';
+        // El empate parcial que habia aqui ('LIKE %marca%') no solo fallaba:
+        // acertaba al cliente EQUIVOCADO, y la consulta ni siquiera llevaba
+        // ORDER BY, asi que el ganador salia por suerte. duenoDeLaMarca pide
+        // empate exacto, limpia la anotacion de China y acepta al cliente del
+        // sistema anterior solo si ya reclamo su casillero.
+        const userId = await duenoDeLaMarca(client, payload.shippingMark);
+        const nombreRes = userId
+            ? await client.query('SELECT full_name FROM users WHERE id = $1', [userId])
+            : null;
+        const userName = nombreRes?.rows[0]?.full_name || 'Sin asignar';
         
         console.log(`   → Cliente: ${userName} (ID: ${userId || 'N/A'})`);
         
