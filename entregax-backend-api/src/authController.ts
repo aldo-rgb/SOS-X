@@ -583,6 +583,8 @@ export interface AuthRequest extends Request {
 }
 
 // Definición de roles y sus permisos
+import { carrilDe } from './carrilDeMostrador';
+
 export const ROLES = {
     SUPER_ADMIN: 'super_admin',        // Jefe máximo - acceso total
     ADMIN: 'admin',                    // Administrador general
@@ -2225,8 +2227,19 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
 };
 
 // ============ DASHBOARD COUNTER STAFF (Mostrador) ============
-export const getCounterStaffDashboard = async (_req: Request, res: Response): Promise<void> => {
+export const getCounterStaffDashboard = async (req: Request, res: Response): Promise<void> => {
     try {
+        // 🏢 Cada mostrador ve SU cola, no la del pais.
+        //
+        // Este handler se servia con `_req`: tiraba el usuario y contaba sobre
+        // toda la empresa. Medido el 18-nov-2026, el mostrador de CDMX tenia
+        // enfrente 172 packing lists de Bodega China, 3 cajas TDI en China,
+        // 21 cajas PO Box en la bodega de Estados Unidos y las 7 entregas de
+        // mostrador de Hidalgo TX. Ni una fila suya.
+        //
+        // El carril va por la sucursal de quien entra, porque la caja no trae
+        // sucursal mientras sigue en la bodega de origen (carrilDeMostrador.ts).
+        const carril = await carrilDe(pool, req);
         // Stats de entregas
         const deliveryStatsResult = await pool.query(`
             SELECT 
@@ -2262,7 +2275,7 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
         // Stats TDI Express para bodega China: cajas listas para envío
         // (received_china con instrucciones) y guías pendientes de tracking DHL
         // (en tránsito sin AWB asignado).
-        const tdiStatsResult = await pool.query(`
+        const tdiStatsResult = carril.china ? await pool.query(`
             SELECT
               (SELECT COUNT(*) FROM packages c LEFT JOIN packages m ON m.id = c.master_id
                  WHERE c.air_source = 'tdi_express' AND COALESCE(c.is_master, false) = false
@@ -2273,13 +2286,13 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
                    AND (m.status::text = 'in_transit'
                         OR EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id AND c.status::text = 'in_transit'))
                    AND NULLIF(TRIM(COALESCE(m.international_tracking, '')), '') IS NULL) AS pdte_tracking
-        `);
+        `) : { rows: [{ listas_envio: 0, pdte_tracking: 0 }] };
         const tdiStats = tdiStatsResult.rows[0];
 
         // Lista de cajas TDI listas para envío a México (received_china CON
         // instrucciones) — para el panel de bodega China.
         let dhlReadyBoxes: any[] = [];
-        try {
+        if (carril.china) try {
             const dr = await pool.query(`
                 SELECT c.id, c.tracking_internal AS tracking, c.box_id,
                        u.full_name AS client_name,
@@ -2308,7 +2321,7 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
         // Bodega China: LOG marítimos "Recibido en China" pendientes de Packing List
         // y operaciones XPay híbridas en estado "solicitada" (pendientes de pago a proveedor).
         let bodegaChinaStats = { log_pdte_packing: 0, xpay_pdte_proveedor: 0 };
-        try {
+        if (carril.china) try {
             const bc = await pool.query(`
                 SELECT
                   (SELECT COUNT(*) FROM maritime_orders
@@ -2325,7 +2338,20 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
             console.warn('[getCounterStaffDashboard] bodega china stats:', e?.message);
         }
 
-        // Paquetes listos para entrega (ready_pickup)
+        // Paquetes listos para entrega (ready_pickup).
+        //
+        // Se acotan a la sucursal de quien pregunta. Las que siguen SIN
+        // sucursal son las que no han aterrizado en Mexico —hoy las 7 son de
+        // Hidalgo TX— y esas solo las ve el carril de PO Box. Una cuenta sin
+        // sucursal (o quien manda arriba de todas) sigue viendolas completas.
+        const pickupParams: any[] = [];
+        let pickupFiltro = '';
+        if (carril.branchId !== null) {
+            pickupParams.push(carril.branchId);
+            pickupFiltro = carril.usa
+                ? `AND (p.current_branch_id = $1 OR p.current_branch_id IS NULL)`
+                : `AND p.current_branch_id = $1`;
+        }
         const pendingDeliveriesResult = await pool.query(`
             SELECT 
                 p.id,
@@ -2348,9 +2374,10 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
             JOIN users u ON p.user_id = u.id
             WHERE p.status = 'ready_pickup'
             AND (p.is_master = true OR p.master_id IS NULL)
+            ${pickupFiltro}
             ORDER BY p.received_at DESC
             LIMIT 20
-        `);
+        `, pickupParams);
 
         res.json({
             success: true,

@@ -78,6 +78,10 @@ export default function OutboundControlPage() {
   const { i18n } = useTranslation();
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
+  // Por qué no hay nada que listar. Vacío y "no es tu cola" se veían igual,
+  // y el mostrador que no la trabaja leía "no hay paquetes listos" creyendo
+  // que la bodega iba al día.
+  const [motivoVacio, setMotivoVacio] = useState<string | null>(null);
   
   // Wizard de Salida
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -179,6 +183,7 @@ export default function OutboundControlPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPackages(res.data.packages || []);
+      setMotivoVacio(res.data.fuera_de_carril ? (res.data.motivo || null) : null);
     } catch (error) {
       console.error('Error al cargar paquetes:', error);
       // Fallback: usar endpoint existente
@@ -534,9 +539,11 @@ export default function OutboundControlPage() {
                   <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
                     <LocalShippingIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
-                      {i18n.language === 'es' 
-                        ? 'No hay paquetes listos para salida' 
-                        : 'No packages ready for dispatch'}
+                      {motivoVacio
+                        ? motivoVacio
+                        : i18n.language === 'es'
+                          ? 'No hay paquetes listos para salida'
+                          : 'No packages ready for dispatch'}
                     </Typography>
                   </TableCell>
                 </TableRow>

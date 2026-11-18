@@ -72,6 +72,11 @@ export default function POBoxExitScreen({ route, navigation }: any) {
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
 
+  // Por que no hay nada que listar. Esta cola es de Hidalgo TX y CEDIS MTY;
+  // al resto de los mostradores el backend les contesta `fuera_de_carril`.
+  // Sin esto, "no hay paquetes listos para salida" se leia como que la bodega
+  // iba al dia, cuando en realidad la cola es de otra sucursal.
+  const [motivoVacio, setMotivoVacio] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const scannerLockRef = useRef(false);
@@ -85,6 +90,7 @@ export default function POBoxExitScreen({ route, navigation }: any) {
       if (res.ok) {
         const data = await res.json();
         setPackages(data.packages || []);
+        setMotivoVacio(data.fuera_de_carril ? (data.motivo || null) : null);
       } else {
         const fallback = await fetch(`${API_URL}/api/packages`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -342,7 +348,7 @@ export default function POBoxExitScreen({ route, navigation }: any) {
         ) : packages.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="cube-outline" size={48} color="#999" />
-            <Text style={styles.emptyText}>No hay paquetes listos para salida</Text>
+            <Text style={styles.emptyText}>{motivoVacio || 'No hay paquetes listos para salida'}</Text>
           </View>
         ) : (
           packages.map((pkg) => (

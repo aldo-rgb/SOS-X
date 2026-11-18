@@ -10,6 +10,7 @@ import axios from 'axios';
 import { paqueteriaSinFlete } from './fleteNacional';
 import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from './cambioDeInstrucciones';
 import { esAereoChina, MOTIVO_SIN_POR_COBRAR } from './porCobrarAereo';
+import { carrilDe, FUERA_DE_CARRIL } from './carrilDeMostrador';
 
 // Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
 // se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
@@ -7672,8 +7673,24 @@ export const undoRepack = async (req: Request, res: Response): Promise<void> => 
 // ============================================
 // ENDPOINT: OBTENER PAQUETES LISTOS PARA SALIDA (PO BOX USA)
 // ============================================
-export const getOutboundReadyPackages = async (_req: Request, res: Response): Promise<void> => {
+export const getOutboundReadyPackages = async (req: Request, res: Response): Promise<void> => {
     try {
+        // 🚚 Esta cola es de PO Box: las cajas estan fisicamente en Hidalgo TX
+        // y aterrizan en CEDIS MTY. La pregunta llegaba con `_req` —sin mirar
+        // quien entraba— asi que los 8 mostradores del pais veian las mismas
+        // cajas, y el de CDMX tenia enfrente el boton para armarles la salida.
+        // Las cajas no traen sucursal mientras estan en la bodega de origen,
+        // por eso el filtro va por la sucursal de quien pregunta.
+        const carril = await carrilDe(pool, req);
+        if (!carril.usa) {
+            res.json({
+                packages: [],
+                require_instructions_to_load_pobox: false,
+                fuera_de_carril: true,
+                motivo: FUERA_DE_CARRIL,
+            });
+            return;
+        }
         // Leer toggle: requerir instrucciones asignadas (solo PO Box / US-) para aparecer en Control de Salidas.
         // Default FALSE para no romper instalaciones previas.
         let requireInstructions = false;

@@ -136,6 +136,10 @@ export default function DashboardCounterStaff() {
   // salida, así que el número y la lista nunca pueden discrepar de ella.
   const [listas, setListas] = useState<any[]>([]);
   const [listasOpen, setListasOpen] = useState(false);
+  // La cola de salidas PO Box es de Hidalgo TX y CEDIS MTY. Para el resto de
+  // los mostradores el backend contesta `fuera_de_carril`, y entonces el
+  // banner no se pinta: un cero permanente de trabajo ajeno solo estorba.
+  const [fueraDeCarril, setFueraDeCarril] = useState(false);
   const [receptionModalOpen, setReceptionModalOpen] = useState(false);
   const [entryWizardOpen, setEntryWizardOpen] = useState(false);
   const [bulkReceiveOpen, setBulkReceiveOpen] = useState(false);
@@ -400,7 +404,10 @@ export default function DashboardCounterStaff() {
 
   useEffect(() => {
     api.get('/packages/outbound-ready')
-      .then((r: any) => setListas(r.data?.packages || []))
+      .then((r: any) => {
+        setListas(r.data?.packages || []);
+        setFueraDeCarril(r.data?.fuera_de_carril === true);
+      })
       .catch(() => setListas([]));
   }, [activeView]);
 
@@ -646,12 +653,12 @@ export default function DashboardCounterStaff() {
         )}
       </Box>
 
-      {/* Guías listas para enviar.
+      {/* Guías listas para enviar. Solo para quien trabaja esa cola.
           Aparecer en la pantalla de salida no bastaba: entre las que llevan ahí
           semanas se pierde la que se volvió enviable hoy. Este widget pone el
           número enfrente y lleva directo a armar la consolidación.
           Una cuenta de TCG no arma salidas: no lo ve. */}
-      {!soloTcg && (
+      {!soloTcg && !fueraDeCarril && (
       <Paper
         onClick={() => listas.length > 0 && setListasOpen(true)}
         sx={{
