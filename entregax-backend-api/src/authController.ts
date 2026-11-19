@@ -577,8 +577,25 @@ const getWelcomeMessage = (role: string, name: string): string => {
 export interface AuthRequest extends Request {
     user?: {
         userId: number;
+        /**
+         * Alias de userId. El JWT solo trae userId, pero ~160 lugares del
+         * backend leen `req.user.id`, que venia SIEMPRE undefined: el campo
+         * "quien lo hizo" se guardaba en null, y donde el default era `|| 1`
+         * el movimiento quedaba firmado por la cuenta generica de
+         * administrador, que no es una persona.
+         *
+         * Por eso los cargos extra del 19-nov-2026 no tienen autor, y 35 de
+         * los ajustes financieros de los ultimos 60 dias tampoco: es el grupo
+         * mas grande, mas que cualquier persona identificada (tarea 1081).
+         *
+         * Se resuelve aqui, en el unico lugar por el que pasan todas las
+         * peticiones, en vez de corregir 160 llamadas una por una.
+         */
+        id: number;
         email: string;
         role: string;
+        /** Nombre real de quien pide. Tampoco viene en el JWT. */
+        full_name?: string | undefined;
     };
 }
 
@@ -729,10 +746,14 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
             role: string;
         };
 
+        // Nombre de quien pide, para firmar lo que haga. Sale de la consulta
+        // que esta validacion YA hacia, asi que no cuesta una consulta extra.
+        let nombreDeQuienPide: string | undefined;
+
         // Bloquear tokens de cuentas eliminadas, desactivadas o bloqueadas
         try {
             const r = await pool.query(
-                'SELECT deleted_at, is_active, is_blocked FROM users WHERE id = $1',
+                'SELECT deleted_at, is_active, is_blocked, full_name FROM users WHERE id = $1',
                 [decoded.userId]
             );
             if (r.rows.length === 0 || r.rows[0].deleted_at) {
@@ -747,12 +768,15 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
                 res.status(401).json({ error: 'Cuenta bloqueada. Contacta a soporte.', errorCode: 'ACCOUNT_BLOCKED' });
                 return;
             }
+            nombreDeQuienPide = r.rows[0].full_name || undefined;
         } catch {
             // Si la verificación falla por DB transitoria, dejamos pasar para no romper la app;
             // el endpoint específico volverá a validar.
         }
 
-        req.user = decoded;
+        // `id` y `full_name` no vienen en el JWT; se agregan aqui para que
+        // "quien lo hizo" quede firmado. Ver la nota en AuthRequest.
+        req.user = { ...decoded, id: decoded.userId, full_name: nombreDeQuienPide };
         next();
     } catch (error) {
         res.status(403).json({
