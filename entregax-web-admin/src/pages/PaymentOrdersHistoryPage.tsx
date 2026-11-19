@@ -426,7 +426,7 @@ export default function PaymentOrdersHistoryPage() {
                   <TableCell>Folio / Referencia</TableCell>
                   <TableCell>Cliente</TableCell>
                   <TableCell align="right">Monto</TableCell>
-                  <TableCell align="center">Piezas</TableCell>
+                  <TableCell align="center">Guías</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Pagado</TableCell>
                   <TableCell>Origen</TableCell>
@@ -467,16 +467,26 @@ export default function PaymentOrdersHistoryPage() {
                           {moneyFmt(r.amount, r.currency)}
                         </Typography>
                       </TableCell>
+                      {/* El desglose se abria con un numero azul y una flechita, y
+                          nadie lo encontraba: parecia un dato, no un boton. Ahora
+                          dice lo que hace. */}
                       <TableCell align="center">
                         {puedeDesglosar ? (
-                          <Tooltip title={abierta ? 'Ocultar guías' : 'Ver guías, peso e importe'}>
+                          <Tooltip title={abierta ? 'Ocultar el desglose' : 'Ver guías, peso e importe'}>
                             <Button
                               size="small"
+                              variant={abierta ? 'contained' : 'outlined'}
                               onClick={() => alternarDesglose(r, rowKey)}
                               endIcon={abierta ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                              sx={{ minWidth: 0, px: 0.75, py: 0, fontSize: 12, fontWeight: 700, color: '#1565C0', textTransform: 'none' }}
+                              sx={{
+                                py: 0, px: 1, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+                                textTransform: 'none', borderRadius: 1.5,
+                                ...(abierta
+                                  ? { bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' } }
+                                  : { color: '#1565C0', borderColor: '#90CAF9' }),
+                              }}
                             >
-                              {r.items_count}
+                              Ver {r.items_count}
                             </Button>
                           </Tooltip>
                         ) : (
