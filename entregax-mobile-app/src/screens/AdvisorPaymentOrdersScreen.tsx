@@ -116,7 +116,22 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   // Servicio real (era fijo "PO Box USA - Carga Aerea" incluso para DHL).
   const isDhlOp = items.some((it: any) => String(it.service_type || '').toUpperCase() === 'AA_DHL')
     || String((order as any).service_type_cfg || '').toUpperCase() === 'AA_DHL';
-  const svcLabel = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aerea';
+  // El servicio de la cotizacion se leia de un literal: cualquier orden que no
+  // fuera DHL decia "PO Box USA - Carga Aerea", aunque las quince guias fueran
+  // de carga aerea. Ahora sale de lo que la orden trae de verdad, con los
+  // nombres con los que la casa ya nombra sus servicios (tarea 1084).
+  const NOMBRE_SERVICIO: Record<string, string> = {
+    POBOX_USA: 'PO Box USA - Carga Aérea',
+    AIR_CHN_MX: 'TDI Aéreo',
+    TDI_EXPRESS: 'TDI Express',
+    SEA_CHN_MX: 'Marítimo',
+  };
+  const serviciosDeLaOrden = Array.from(new Set(
+    (items || []).map((i: any) => NOMBRE_SERVICIO[String(i.service_type || '').toUpperCase()])
+                 .filter(Boolean)));
+  const svcLabel = isDhlOp
+    ? 'DHL — Liberación y Envío Nacional'
+    : (serviciosDeLaOrden.length > 0 ? serviciosDeLaOrden.join(' + ') : 'PO Box USA - Carga Aérea');
 
   // En DHL la tabla abre el desglose en columnas, asi que lleva dos mas.
   const totalCols = isDhlOp ? 8 : 6;

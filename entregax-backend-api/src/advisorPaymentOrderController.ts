@@ -11,6 +11,26 @@ import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffe
 import { urlPublicaFactura, sqlUrlFactura } from './facturaArchivo';
 import { getRoleLevel, ROLES } from './authController';
 
+/**
+ * Como se nombra cada servicio en la columna "Paqueteria" de la cotizacion.
+ *
+ * Ahi iba el literal 'POBOX' para TODA caja que saliera de la tabla `packages`,
+ * sin mirar de que servicio era. Como las guias aereas y las de TDI Express
+ * tambien viven en esa tabla, una cotizacion de carga aerea le decia al cliente
+ * "POBOX" en los quince renglones (tarea 1084).
+ *
+ * Se usan los nombres con los que la casa ya nombra los servicios en sus
+ * paneles, no los nombres internos de la base.
+ */
+const ETIQUETA_DE_SERVICIO: Record<string, string> = {
+  POBOX_USA: 'PO Box',
+  AIR_CHN_MX: 'TDI Aéreo',
+  TDI_EXPRESS: 'TDI Express',
+  SEA_CHN_MX: 'Marítimo',
+};
+const etiquetaDeServicio = (st: any): string =>
+  ETIQUETA_DE_SERVICIO[String(st || '').toUpperCase()] || 'PO Box';
+
 const webBaseUrl = (): string => (process.env.FRONTEND_URL || 'https://entregax.app').replace(/\/$/, '');
 
 // Nombre de archivo/clave S3 determinístico para la cotización de una orden.
@@ -1046,6 +1066,15 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // Precio de una guia aerea en pesos. Solo aplica cuando la guia trae
         // air_sale_price (aereo/TDI); en PO Box viene vacio y da 0, que es lo
         // que la cadena de respaldo ya devolvia.
+        // Importe ya guardado en pesos. En una caja reempacada el precio bueno
+        // es assigned_cost_mxn (el reempaque completo); en las demas manda
+        // pobox_service_cost. Si los dos vienen vacios, el precio vive en
+        // dolares y lo convierte ventaAereaMxn.
+        const ventaGuardadaMxn = (g: any): number =>
+          (g.is_master && children.length > 0)
+            ? (parseFloat(g.assigned_cost_mxn) || parseFloat(g.pobox_service_cost) || parseFloat(g.saldo_pendiente) || 0)
+            : (parseFloat(g.pobox_service_cost) || parseFloat(g.assigned_cost_mxn) || parseFloat(g.saldo_pendiente) || 0);
+
         const ventaAereaMxn = (g: any): number => {
           const usd = parseFloat(g?.air_sale_price) || 0;
           if (usd <= 0) return 0;
@@ -1068,14 +1097,15 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           heightCm: parseFloat(m.pkg_height) || parseFloat(m.height_cm) || 0,
           is_master: m.is_master,
           total_boxes: m.total_boxes || (children.length || 1),
-          tipo: 'POBOX',
+          tipo: etiquetaDeServicio(m.service_type),
           venta_usd: parseFloat(m.pobox_venta_usd) || children.reduce((s: number, c: any) => s + (parseFloat(c.pobox_venta_usd) || 0), 0),
           // REPACK (master con hijas): se cobra el precio del reempaque completo
           // = assigned_cost_mxn ($1576.19), NO pobox_service_cost (costo interno).
           // Las hijas van adentro y NO se cobran por separado (venta_mxn = null).
-          venta_mxn: (m.is_master && children.length > 0)
-            ? (parseFloat(m.assigned_cost_mxn) || parseFloat(m.pobox_service_cost) || parseFloat(m.saldo_pendiente) || ventaAereaMxn(m))
-            : (parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || ventaAereaMxn(m)),
+          venta_mxn: ventaGuardadaMxn(m) || ventaAereaMxn(m),
+          // Dolares que hubo que convertir para este renglon. Se usa mas abajo
+          // para que el desglose sume EXACTO lo que cobra la orden.
+          air_usd: ventaGuardadaMxn(m) > 0 ? 0 : (parseFloat(m.air_sale_price) || 0),
           exchange_rate: parseFloat(tc) || 18.5,
           children: children.map((c: any) => ({
             id: c.id,
@@ -1169,6 +1199,39 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     // cliente al recibir". Sin ese dato la cotización simplemente omitía la
     // línea del envío nacional y el asesor la leía como un cobro faltante
     // (TKT-2026-2266: guía con Estafeta por cobrar y $0 de flete).
+    // El desglose tiene que SUMAR lo que cobra la orden.
+    //
+    // Los renglones aereos no traen su importe en pesos —el precio vive en
+    // dolares— asi que hay que convertirlos. Convertirlos con el tipo de cambio
+    // DE HOY no sirve: la orden se cotizo con el de SU dia, y el documento
+    // acabaria con unos renglones que suman una cosa y un "TOTAL A PAGAR" que
+    // dice otra. En una orden de 15 guias aereas la diferencia era de $1,547.44
+    // contra un total de $99,463.04, sin nada que la explicara.
+    //
+    // Asi que el tipo de cambio se saca de la propia orden: lo que queda por
+    // repartir, entre los dolares que hay que convertir. El sobrante del redondeo
+    // se carga al ultimo renglon para que cuadre al centavo. Si el numero que
+    // sale no es un tipo de cambio creible, se deja la conversion de siempre.
+    const renglonesEnDolares = items.filter((i: any) => (Number(i.air_usd) || 0) > 0);
+    if (renglonesEnDolares.length > 0) {
+      const dolares = renglonesEnDolares.reduce((a: number, i: any) => a + Number(i.air_usd), 0);
+      const yaEnPesos = items.reduce(
+        (a: number, i: any) => a + ((Number(i.air_usd) || 0) > 0 ? 0 : (Number(i.venta_mxn) || 0)), 0);
+      const porRepartir = montoBrutoOrden - yaEnPesos;
+      const tcDeLaOrden = dolares > 0 ? porRepartir / dolares : 0;
+      if (tcDeLaOrden > 5 && tcDeLaOrden < 50) {
+        let acumulado = 0;
+        renglonesEnDolares.forEach((i: any, idx: number) => {
+          const parte = idx === renglonesEnDolares.length - 1
+            ? +(porRepartir - acumulado).toFixed(2)
+            : +(Number(i.air_usd) * tcDeLaOrden).toFixed(2);
+          acumulado += parte;
+          i.venta_mxn = parte;
+        });
+      }
+    }
+    for (const i of items as any[]) delete i.air_usd;
+
     const cost_breakdown = {
       // `extra` es el NETO (cargos menos descuentos) y se conserva tal cual
       // porque ya lo consumen la app y el portal del cliente. Los dos campos

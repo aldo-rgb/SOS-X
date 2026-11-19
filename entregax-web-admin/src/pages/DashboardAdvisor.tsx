@@ -1298,7 +1298,22 @@ export default function DashboardAdvisor() {
     const creditoAplicado = Number(op.credit_applied) || 0;
 
     const isDhlOp = String(op?.service_type_cfg || '').toUpperCase() === 'AA_DHL';
-    const svcLabelOp = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
+    // El servicio de la cotizacion se leia de un literal: cualquier orden que no
+    // fuera DHL decia "PO Box USA - Carga Aerea", aunque las quince guias fueran
+    // de carga aerea. Ahora sale de lo que la orden trae de verdad, con los
+    // nombres con los que la casa ya nombra sus servicios (tarea 1084).
+    const NOMBRE_SERVICIO: Record<string, string> = {
+      POBOX_USA: 'PO Box USA - Carga Aérea',
+      AIR_CHN_MX: 'TDI Aéreo',
+      TDI_EXPRESS: 'TDI Express',
+      SEA_CHN_MX: 'Marítimo',
+    };
+    const serviciosDeLaOrden = Array.from(new Set(
+      (items || []).map((i: any) => NOMBRE_SERVICIO[String(i.service_type || '').toUpperCase()])
+                   .filter(Boolean)));
+    const svcLabelOp = isDhlOp
+      ? 'DHL — Liberación y Envío Nacional'
+      : (serviciosDeLaOrden.length > 0 ? serviciosDeLaOrden.join(' + ') : 'PO Box USA - Carga Aérea');
     const rows = items.length > 0 ? items : guideList.map((g) => ({ tracking: g, weight: 0, lengthCm: 0, widthCm: 0, heightCm: 0, tipo: '', total_boxes: 0, venta_mxn: 0, children: [] }));
     // En DHL la tabla abre el desglose en columnas, así que lleva dos más.
     const totalCols = isDhlOp ? 8 : 6;
