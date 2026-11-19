@@ -993,9 +993,36 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         
         const { pricePerKg, isCustom } = await getClientPrice(clienteBusqueda, tariffType, targetUserId);
         const weight = parseFloat(row.pesoKg) || 0;
-        const salePrice = weight * pricePerKg;
+        // PESO COBRABLE: el mayor entre el peso real y el volumetrico.
+        //
+        // El precio se calculaba solo sobre el peso real, asi que una caja
+        // grande y liviana se cobraba como si fuera chica. Medido el
+        // 20-nov-2026: de 3,584 guias aereas de 90 dias, 1,289 (36%) traen
+        // volumetrico mayor que su peso real, 5,449 kg de diferencia. TDI
+        // Express y maritimo ya cobran por el mayor de los dos; aereo no.
+        //
+        // Divisor 6000, que es el que usa China en el packing list —verificado:
+        // las 3,456 guias con medidas cuadran con 6000 y solo 2 con 5000— y el
+        // mismo con el que la operacion corrigio a mano el TKT-2026-3722. TDI
+        // se queda con su divisor IATA de 5000, no se toca aqui.
+        //
+        // OJO con la fuente: estas son las medidas que DECLARA China, y en el
+        // lote de ese ticket venian infladas (280 kg volumetricos declarados
+        // contra 182 kg reales al medirlas en CDMX). Donde vengan infladas,
+        // esto cobra de mas. El peso cobrable se guarda en
+        // air_chargeable_weight para que se vea de donde salio el cobro y se
+        // pueda corregir con la medicion de CEDIS por el camino de ajustes que
+        // ya existe. Aplica hacia adelante; no se recalcula nada guardado.
+        const largoCm = Number(row.largo) || 0;
+        const anchoCm = Number(row.ancho) || 0;
+        const altoCm = Number(row.alto) || 0;
+        const volumetrico = Number(row.volumen) || (largoCm * anchoCm * altoCm) / 6000;
+        const pesoCobrable = Math.max(weight, volumetrico > 0 ? volumetrico : 0);
+        const salePrice = pesoCobrable * pricePerKg;
 
-        console.log(`  → ${guiaAir}: ${clienteId} | ${weight}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)} (${isCustom ? 'CUSTOM' : 'GENERAL'})`);
+        console.log(`  → ${guiaAir}: ${clienteId} | real ${weight}kg / vol ${volumetrico.toFixed(2)}kg`
+          + ` → cobrable ${pesoCobrable.toFixed(2)}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)}`
+          + ` (${isCustom ? 'CUSTOM' : 'GENERAL'})`);
 
         // Buscar si ya existe una guía con el mismo child_no (puede haber llegado vía API con tracking diferente)
         const existingByChildNo = await client.query(
@@ -1081,6 +1108,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
                 air_is_custom_tariff = $16,
                 air_price_assigned_at = NOW(),
                 air_price_assigned_by = $17,
+                air_chargeable_weight = $18,
                 updated_at = NOW()
               WHERE id = $1
             `, [
@@ -1101,6 +1129,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               salePrice > 0 ? salePrice : null,
               isCustom,
               userId,
+              pesoCobrable > 0 ? pesoCobrable : null,
             ]);
           }
         } else {
@@ -1113,9 +1142,10 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               child_no, air_source,
               air_route_id, air_tariff_type, air_price_per_kg, air_sale_price,
               air_is_custom_tariff, air_price_assigned_at, air_price_assigned_by,
+              air_chargeable_weight,
               created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'extraction',
-                      $14, $15, $16, $17, $18, NOW(), $19, NOW(), NOW())
+                      $14, $15, $16, $17, $18, NOW(), $19, $20, NOW(), NOW())
             ON CONFLICT (tracking_internal) DO UPDATE SET
               user_id = COALESCE(EXCLUDED.user_id, packages.user_id),
               box_id = COALESCE(EXCLUDED.box_id, packages.box_id),
@@ -1135,6 +1165,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               air_tariff_type = COALESCE(packages.air_tariff_type, EXCLUDED.air_tariff_type),
               air_price_per_kg = COALESCE(packages.air_price_per_kg, EXCLUDED.air_price_per_kg),
               air_sale_price = COALESCE(packages.air_sale_price, EXCLUDED.air_sale_price),
+              air_chargeable_weight = COALESCE(packages.air_chargeable_weight, EXCLUDED.air_chargeable_weight),
               air_is_custom_tariff = COALESCE(packages.air_is_custom_tariff, EXCLUDED.air_is_custom_tariff),
               air_price_assigned_at = COALESCE(packages.air_price_assigned_at, EXCLUDED.air_price_assigned_at),
               air_price_assigned_by = COALESCE(packages.air_price_assigned_by, EXCLUDED.air_price_assigned_by),
@@ -1159,6 +1190,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
             salePrice > 0 ? salePrice : null,
             isCustom,
             userId,
+            pesoCobrable > 0 ? pesoCobrable : null,
           ]);
         }
 
