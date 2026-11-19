@@ -4650,18 +4650,34 @@ export default function DashboardAdvisor() {
                       const fmtDims = (l: number, w: number, h: number) =>
                         (Number(l) > 0 || Number(w) > 0 || Number(h) > 0) ? `${l}×${w}×${h} cm` : '—';
                       // Aplanar: cada item; si tiene hijas, mostrar las hijas con peso/medidas
-                      const rows: { tracking: string; weight: number; dims: string; nivel?: string | null; child?: boolean }[] = [];
+                      //
+                      // El desglose ya ensenaba guia, peso y medidas, pero NO el
+                      // importe de cada guia, que es la mitad de lo que se pidio
+                      // ("peso, costo etc"): para ver cuanto pesa cada guia dentro
+                      // de la orden habia que generar el PDF de la cotizacion. El
+                      // detalle ya traia el dato, nada mas no se mostraba (1084).
+                      //
+                      // Un importe vacio NO es un dato faltante: en una caja
+                      // reempacada se cobra el master completo y las hijas van
+                      // adentro sin precio propio.
+                      const importeDe = (x: any): number | null =>
+                        x?.venta_mxn === null || x?.venta_mxn === undefined ? null : (Number(x.venta_mxn) || 0);
+                      const rows: { tracking: string; weight: number; dims: string; importe: number | null; nivel?: string | null; child?: boolean }[] = [];
                       for (const it of items) {
                         const kids = Array.isArray(it.children) ? it.children : [];
                         if (kids.length > 0) {
-                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm) });
+                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm), importe: importeDe(it) });
                           for (const c of kids) {
-                            rows.push({ tracking: c.tracking, weight: Number(c.weight) || 0, dims: fmtDims(c.lengthCm, c.widthCm, c.heightCm), nivel: c.n_level, child: true });
+                            rows.push({ tracking: c.tracking, weight: Number(c.weight) || 0, dims: fmtDims(c.lengthCm, c.widthCm, c.heightCm), importe: importeDe(c), nivel: c.n_level, child: true });
                           }
                         } else {
-                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm) });
+                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm), importe: importeDe(it) });
                         }
                       }
+                      const sumaImportes = rows.reduce((a, r) => a + (r.importe || 0), 0);
+                      const pesoTotal = rows.reduce((a, r) => a + (r.child ? 0 : r.weight), 0);
+                      const dinero = (v: number) =>
+                        `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                       return (
                         <TableRow key={`${rowKey}-exp`}>
                           <TableCell colSpan={8} sx={{ pt: 0, pb: 1, bgcolor: '#FAFAFA' }}>
@@ -4678,6 +4694,7 @@ export default function DashboardAdvisor() {
                                       <TableCell>Guía / Tracking</TableCell>
                                       <TableCell align="center">Peso</TableCell>
                                       <TableCell align="center">Medidas</TableCell>
+                                      <TableCell align="right">Importe</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
@@ -4689,8 +4706,21 @@ export default function DashboardAdvisor() {
                                         </TableCell>
                                         <TableCell align="center">{r.weight > 0 ? `${r.weight.toFixed(1)} kg` : '—'}</TableCell>
                                         <TableCell align="center">{r.dims}</TableCell>
+                                        <TableCell align="right" sx={{ fontWeight: 600 }}>
+                                          {r.importe === null ? '—' : dinero(r.importe)}
+                                        </TableCell>
                                       </TableRow>
                                     ))}
+                                    <TableRow>
+                                      <TableCell sx={{ fontWeight: 700, border: 0 }}>Total</TableCell>
+                                      <TableCell align="center" sx={{ fontWeight: 700, border: 0 }}>
+                                        {pesoTotal > 0 ? `${pesoTotal.toFixed(1)} kg` : '—'}
+                                      </TableCell>
+                                      <TableCell sx={{ border: 0 }} />
+                                      <TableCell align="right" sx={{ fontWeight: 800, border: 0 }}>
+                                        {dinero(sumaImportes)}
+                                      </TableCell>
+                                    </TableRow>
                                   </TableBody>
                                 </Table>
                               ) : (

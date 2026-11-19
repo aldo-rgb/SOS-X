@@ -797,14 +797,27 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
           const dimsOf = (l?: number, w?: number, h?: number) =>
             (Number(l) > 0 || Number(w) > 0 || Number(h) > 0) ? `${l}×${w}×${h} cm` : '';
           // Aplanar: item; si tiene hijas, mostrar las hijas con peso/medidas
-          const rows: { tracking: string; weight: number; dims: string; nivel?: string | null; child?: boolean }[] = [];
+          //
+          // Faltaba el IMPORTE de cada guia, que es la mitad de lo que se pidio
+          // ("peso, costo etc"): para ver cuanto cuesta cada guia dentro de la
+          // orden habia que generar el PDF de la cotizacion. El detalle ya traia
+          // el dato —el PDF lo usa— nada mas no se mostraba en pantalla (1084).
+          //
+          // Importe vacio NO es dato faltante: en una caja reempacada se cobra el
+          // master completo y las hijas van adentro sin precio propio.
+          const importeDe = (x: any): number | null =>
+            x?.venta_mxn === null || x?.venta_mxn === undefined ? null : (Number(x.venta_mxn) || 0);
+          const dinero = (v: number) =>
+            `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const rows: { tracking: string; weight: number; dims: string; importe: number | null; nivel?: string | null; child?: boolean }[] = [];
           for (const it of items) {
             const kids = it.children || [];
-            rows.push({ tracking: it.tracking || '—', weight: Number(it.weight) || 0, dims: dimsOf((it as any).lengthCm, (it as any).widthCm, (it as any).heightCm) });
+            rows.push({ tracking: it.tracking || '—', weight: Number(it.weight) || 0, dims: dimsOf((it as any).lengthCm, (it as any).widthCm, (it as any).heightCm), importe: importeDe(it) });
             for (const c of kids) {
-              rows.push({ tracking: c.tracking || '—', weight: Number(c.weight) || 0, dims: dimsOf(c.lengthCm, c.widthCm, c.heightCm), nivel: c.n_level, child: true });
+              rows.push({ tracking: c.tracking || '—', weight: Number(c.weight) || 0, dims: dimsOf(c.lengthCm, c.widthCm, c.heightCm), importe: importeDe(c), nivel: c.n_level, child: true });
             }
           }
+          const sumaImportes = rows.reduce((a, r) => a + (r.importe || 0), 0);
           return (
             <View style={[styles.guidesExpanded, (detail?.loading || rows.length > 0) && styles.guidesDetailWrap]}>
               {detail?.loading ? (
@@ -817,6 +830,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                     </Text>
                     <Text style={styles.guideDetailMeta}>
                       {r.weight > 0 ? `${r.weight.toFixed(1)} kg` : '—'}{r.dims ? `  ·  ${r.dims}` : ''}
+                      {r.importe === null ? '' : `  ·  ${dinero(r.importe)}`}
                     </Text>
                   </View>
                 ))
@@ -826,6 +840,12 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                     <Text style={styles.guideChipText}>{t}</Text>
                   </View>
                 ))
+              )}
+              {!detail?.loading && rows.length > 0 && (
+                <View style={[styles.guideDetailRow, { borderTopWidth: 1, borderTopColor: '#E0E0E0' }]}>
+                  <Text style={[styles.guideDetailTracking, { fontWeight: '700' }]}>Total</Text>
+                  <Text style={[styles.guideDetailMeta, { fontWeight: '700' }]}>{dinero(sumaImportes)}</Text>
+                </View>
               )}
             </View>
           );
