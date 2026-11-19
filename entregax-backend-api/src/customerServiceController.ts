@@ -145,7 +145,7 @@ export async function ensureCargoExtraSchema() {
 
 // Actualiza el saldo_pendiente sumando cargos y restando descuentos.
 // Los ajustes en USD se convierten a MXN (los costos base están en MXN).
-async function actualizarSaldoGuia(tracking: string, servicio: string) {
+export async function actualizarSaldoGuia(tracking: string, servicio: string) {
   await ensureCargoExtraSchema();
   const tcUsd = await getUsdToMxnRate();
   // Calcular suma de ajustes (convirtiendo USD→MXN). Se EXCLUYEN los cargos que ya
@@ -166,11 +166,55 @@ async function actualizarSaldoGuia(tracking: string, servicio: string) {
   let trackingColumn = '';
   let costoExpr = '';
   
+  // Tipo de cambio con piso, para convertir el precio aereo (que esta en USD).
+  const tcBase = Number(tcUsd) > 0 ? Number(tcUsd) : 18.5;
+
+  // Guia que ya se cobro o ya se cerro: su saldo NO se vuelve a calcular.
+  //
+  // La formula de abajo resta `monto_pagado`, pero cuando el cliente paga por
+  // una orden, el pago queda en la orden y esa columna se queda en cero: la
+  // guia solo marca client_paid y payment_status='paid'. Asi que recalcularla
+  // le REVIVE la deuda a un cliente que ya pago. Medido el 20-nov-2026: de 37
+  // guias con ajuste a las que les cambiaba el saldo, 26 estaban pagadas o
+  // entregadas y les habria resucitado el cobro (tarea 1081).
+  //
+  // Esto tambien respeta la regla que ya opera la casa: un cargo sobre una
+  // guia YA pagada se cobra por una orden CEX aparte, no sumandolo al saldo.
+  //
+  // Solo se define para `packages`, que es donde se midio y donde se conocen
+  // las columnas; los demas servicios se quedan como estaban.
+  let yaCobradaExpr = 'FALSE';
+
   switch (servicio) {
     case 'package':
       tableName = 'packages';
       trackingColumn = 'tracking_internal';
-      costoExpr = 'COALESCE(assigned_cost_mxn, 0)';
+      // El costo base era SOLO assigned_cost_mxn. En aereo esa columna viene
+      // vacia —el precio del flete vive en air_sale_price, en DOLARES— y en
+      // varias de PO Box tambien, porque ahi vive en pobox_service_cost. Con el
+      // base en CERO, la formula de abajo (base + cargos - descuentos - pagado)
+      // dejaba el saldo siendo nada mas el ajuste: el flete desaparecia de la
+      // cuenta, y un descuento chico lo tumbaba a $0.00.
+      //
+      // Medido el 20-nov-2026: de las guias con algun ajuste activo, 29 de 52 de
+      // PO Box y 11 de 12 de aereo tenian el base en cero, y 31 de ellas
+      // quedaron mostrando que no se debia nada. Un lote de 10 guias aereas
+      // mostraba $12,498.34 MXN cuando le correspondian ~$82,160.74 (tarea
+      // 1081, TKT-2026-3722).
+      //
+      // assigned_cost_mxn se queda PRIMERO para no mover lo que ya funcionaba
+      // —en una caja reempacada ese es el precio bueno— y los respaldos solo
+      // entran cuando viene vacio. saldo_pendiente NO va en esta cadena a
+      // proposito: es justo el campo que se esta reescribiendo, y meterlo haria
+      // que cada ajuste se acumulara sobre si mismo.
+      costoExpr = `COALESCE(
+        NULLIF(assigned_cost_mxn, 0),
+        NULLIF(pobox_service_cost, 0),
+        NULLIF(air_sale_price, 0) * COALESCE(NULLIF(registered_exchange_rate, 0), ${tcBase}),
+        0)`;
+      yaCobradaExpr = `(COALESCE(client_paid, false) = true
+        OR COALESCE(payment_status, '') IN ('paid', 'condonado')
+        OR status::text IN ('delivered', 'cancelled', 'returned'))`;
       break;
     case 'dhl':
       tableName = 'dhl_shipments';
@@ -218,13 +262,20 @@ async function actualizarSaldoGuia(tracking: string, servicio: string) {
   // $15,204.45 en vez de $12,138.60). El saldo se reparte proporcional al costo
   // de cada caja para que la suma del envío sea la correcta.
   const baseResult = await pool.query(
-    `SELECT id, ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado
+    `SELECT id, ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado,
+            ${yaCobradaExpr} as ya_cobrada
      FROM ${tableName} WHERE ${whereExpr} ORDER BY id`,
     [tracking]
   );
 
   if (baseResult.rows.length > 0) {
-    const filas = baseResult.rows;
+    // Las ya cobradas se dejan intactas. Si TODAS lo estan, no hay nada que
+    // recalcular y el saldo se queda como quedo.
+    const filas = baseResult.rows.filter((r: any) => r.ya_cobrada !== true);
+    if (filas.length === 0) {
+      console.log(`[saldo] ${servicio} ${tracking}: ya cobrada, no se recalcula`);
+      return;
+    }
     const costoTotal = filas.reduce((s: number, r: any) => s + parseFloat(r.costo_base || 0), 0);
     const pagadoTotal = filas.reduce((s: number, r: any) => s + parseFloat(r.pagado || 0), 0);
     const saldoEnvio = Math.max(0,
