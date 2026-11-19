@@ -11,7 +11,7 @@
 // que cancelarla. Vive aquí porque ésta es la pantalla donde servicio a
 // cliente ya ve las órdenes X-Pay, que es donde se entera del problema.
 // ============================================================================
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import {
   Box, Paper, Typography, Tabs, Tab, TextField, MenuItem, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -27,6 +27,8 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import EditNoteIcon from '@mui/icons-material/EditNote';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -81,6 +83,32 @@ interface OrderRow {
   /** Solo X-Pay: detalle operativo de la operación (sin cifras de margen). */
   xpay_detail?: Record<string, any>;
 }
+
+/** Una guía dentro de la orden, como la devuelve el detalle. */
+interface DetalleItem {
+  tracking: string;
+  weight?: number | null;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+  venta_mxn?: number | null;
+  description?: string | null;
+  tipo?: string | null;
+  children?: DetalleItem[];
+}
+
+interface DetalleOrden {
+  loading: boolean;
+  items: DetalleItem[];
+  fallo?: boolean;
+}
+
+// De qué órdenes se puede abrir el desglose. Las de X-Pay ya tienen su propio
+// diálogo (que es operativo, no de guías) y las de garantía no traen guías.
+const FUENTE_DETALLE: Record<string, 'advisor' | 'client'> = {
+  advisor_payment_orders: 'advisor',
+  pobox_payments: 'client',
+};
 
 interface ApiResponse {
   success: boolean;
@@ -159,6 +187,47 @@ export default function PaymentOrdersHistoryPage() {
   const [motivo, setMotivo] = useState('');
   const [guardandoMarca, setGuardandoMarca] = useState(false);
   const [avisoMarca, setAvisoMarca] = useState<{ sev: 'success' | 'error' | 'warning'; msg: string } | null>(null);
+
+  // ── Desglose de la orden (tarea 1084) ──────────────────────────────────────
+  // La fila solo decía "N piezas" y un monto: para saber qué guías trae la
+  // orden, con qué peso y con qué importe, había que generar o abrir el PDF de
+  // la cotización, y el PDF solo existe si alguien ya lo compartió. Esto abre
+  // el mismo desglose que ya usa el asesor, aquí, sin generar nada.
+  //
+  // Es el PRECIO AL CLIENTE repartido por guía: el mismo monto que ya muestra
+  // la fila, desarmado. No trae costo interno, comisión ni utilidad — eso sigue
+  // viviendo en el panel de administración, como dice la nota de abajo.
+  const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
+  const [detalles, setDetalles] = useState<Record<string, DetalleOrden>>({});
+
+  const cargarDetalle = useCallback(async (r: OrderRow, rowKey: string) => {
+    const fuente = FUENTE_DETALLE[r.source];
+    if (!fuente) return;
+    setDetalles((prev) => ({ ...prev, [rowKey]: { loading: true, items: prev[rowKey]?.items || [] } }));
+    try {
+      const res = await fetch(
+        `${API_URL}/api/advisor/payment-orders/${r.id}/detail?source=${fuente}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) throw new Error(String(res.status));
+      const json = await res.json();
+      setDetalles((prev) => ({ ...prev, [rowKey]: { loading: false, items: json.items || [] } }));
+    } catch {
+      setDetalles((prev) => ({ ...prev, [rowKey]: { loading: false, items: [], fallo: true } }));
+    }
+  }, [token]);
+
+  const alternarDesglose = useCallback((r: OrderRow, rowKey: string) => {
+    setExpandidas((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else {
+        next.add(rowKey);
+        if (!detalles[rowKey]) void cargarDetalle(r, rowKey);
+      }
+      return next;
+    });
+  }, [detalles, cargarDetalle]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -368,8 +437,12 @@ export default function PaymentOrdersHistoryPage() {
               <TableBody>
                 {rows.map((r) => {
                   const tab = SERVICE_TABS.find((t) => t.key === r.service);
+                  const rowKey = `${r.source}-${r.id}`;
+                  const puedeDesglosar = !!FUENTE_DETALLE[r.source] && (r.items_count || 0) > 0;
+                  const abierta = expandidas.has(rowKey);
                   return (
-                    <TableRow key={`${r.source}-${r.id}`} hover>
+                    <Fragment key={rowKey}>
+                    <TableRow hover sx={{ '& td': { borderBottom: abierta ? 'none' : undefined } }}>
                       <TableCell><Typography variant="caption">{dateFmt(r.created_at)}</Typography></TableCell>
                       <TableCell>
                         <Chip
@@ -395,7 +468,20 @@ export default function PaymentOrdersHistoryPage() {
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        <Typography variant="caption">{r.items_count || '—'}</Typography>
+                        {puedeDesglosar ? (
+                          <Tooltip title={abierta ? 'Ocultar guías' : 'Ver guías, peso e importe'}>
+                            <Button
+                              size="small"
+                              onClick={() => alternarDesglose(r, rowKey)}
+                              endIcon={abierta ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              sx={{ minWidth: 0, px: 0.75, py: 0, fontSize: 12, fontWeight: 700, color: '#1565C0', textTransform: 'none' }}
+                            >
+                              {r.items_count}
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption">{r.items_count || '—'}</Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -470,6 +556,104 @@ export default function PaymentOrdersHistoryPage() {
                         ) : <Typography variant="caption" color="text.disabled">—</Typography>}
                       </TableCell>
                     </TableRow>
+                    {abierta && (() => {
+                      const det = detalles[rowKey];
+                      // Aplanar: el master y, debajo, sus hijas. Una caja
+                      // consolidada cobra el reempaque completo y sus hijas van
+                      // adentro sin importe propio, por eso el importe de una
+                      // hija puede venir vacío: no es un dato faltante.
+                      const lineas: Array<DetalleItem & { hija?: boolean }> = [];
+                      for (const it of det?.items || []) {
+                        lineas.push(it);
+                        for (const c of (Array.isArray(it.children) ? it.children : [])) {
+                          lineas.push({ ...c, hija: true });
+                        }
+                      }
+                      const medidas = (i: DetalleItem) => {
+                        const l = Number(i.lengthCm) || 0, w = Number(i.widthCm) || 0, h = Number(i.heightCm) || 0;
+                        return (l > 0 || w > 0 || h > 0) ? `${l}×${w}×${h} cm` : '—';
+                      };
+                      const suma = lineas.reduce((a, i) => a + (Number(i.venta_mxn) || 0), 0);
+                      return (
+                        <TableRow>
+                          <TableCell colSpan={11} sx={{ bgcolor: '#FAFAFA', pt: 0, pb: 1.5 }}>
+                            <Box sx={{ px: 2 }}>
+                              <Typography variant="caption" fontWeight={700} color="text.secondary"
+                                sx={{ display: 'block', mb: 0.5 }}>
+                                Guías de esta orden
+                              </Typography>
+                              {det?.loading ? (
+                                <Typography variant="caption" color="text.secondary">Cargando desglose…</Typography>
+                              ) : det?.fallo ? (
+                                <Typography variant="caption" color="error">
+                                  No se pudo cargar el desglose de esta orden.
+                                </Typography>
+                              ) : lineas.length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  Esta orden no tiene guías con detalle disponible.
+                                </Typography>
+                              ) : (
+                                <Table size="small"
+                                  sx={{ '& td, & th': { py: 0.25, fontSize: 12, borderBottom: '1px solid #EEE' } }}>
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Guía</TableCell>
+                                      <TableCell>Contenido</TableCell>
+                                      <TableCell align="center">Peso</TableCell>
+                                      <TableCell align="center">Medidas</TableCell>
+                                      <TableCell align="right">Importe</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {lineas.map((i, k) => (
+                                      <TableRow key={k} sx={i.hija ? { bgcolor: '#FFF8F0' } : undefined}>
+                                        <TableCell sx={{ fontFamily: 'monospace', pl: i.hija ? 3 : 1 }}>
+                                          {i.hija ? '↳ ' : ''}{i.tracking || '—'}
+                                        </TableCell>
+                                        <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {i.description || '—'}
+                                        </TableCell>
+                                        <TableCell align="center">
+                                          {Number(i.weight) > 0 ? `${Number(i.weight).toFixed(1)} kg` : '—'}
+                                        </TableCell>
+                                        <TableCell align="center">{medidas(i)}</TableCell>
+                                        <TableCell align="right" sx={{ fontWeight: 600 }}>
+                                          {i.venta_mxn == null ? '—' : moneyFmt(Number(i.venta_mxn) || 0, 'MXN')}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                    <TableRow>
+                                      <TableCell colSpan={4} align="right" sx={{ fontWeight: 700, border: 0 }}>
+                                        Suma de las guías
+                                      </TableCell>
+                                      <TableCell align="right" sx={{ fontWeight: 800, border: 0 }}>
+                                        {moneyFmt(suma, 'MXN')}
+                                      </TableCell>
+                                    </TableRow>
+                                    {Math.abs(suma - Number(r.amount || 0)) > 1 && (
+                                      <TableRow>
+                                        <TableCell colSpan={5} sx={{ border: 0, pt: 0 }}>
+                                          {/* La orden puede cobrar menos que la suma de sus guías
+                                              cuando se aplicó saldo a favor o línea de crédito, y
+                                              más cuando trae cargos extra. Se dice en lugar de
+                                              dejar dos números que no cuadran a la vista. */}
+                                          <Typography variant="caption" color="text.secondary">
+                                            La orden cobra {moneyFmt(Number(r.amount || 0), r.currency)}: la diferencia
+                                            contra la suma de las guías son cargos extra, descuentos, saldo a favor o
+                                            línea de crédito aplicados a la orden.
+                                          </Typography>
+                                        </TableCell>
+                                      </TableRow>
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              )}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()}
+                    </Fragment>
                   );
                 })}
               </TableBody>

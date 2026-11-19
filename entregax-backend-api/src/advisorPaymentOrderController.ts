@@ -9,6 +9,7 @@ import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffe
 
 // Dominio web público para enmascarar el enlace del PDF (entregax.app/orden-de-pago/…)
 import { urlPublicaFactura, sqlUrlFactura } from './facturaArchivo';
+import { getRoleLevel, ROLES } from './authController';
 
 const webBaseUrl = (): string => (process.env.FRONTEND_URL || 'https://entregax.app').replace(/\/$/, '');
 
@@ -75,6 +76,24 @@ const ensureTable = async () => {
 };
 
 const advisorId = (req: Request): number | null => (req as any).user?.userId ?? null;
+
+/**
+ * Quien puede abrir el detalle de CUALQUIER orden, no solo de las suyas.
+ *
+ * El detalle estaba amarrado al asesor dueno de la orden, y el Historial de
+ * Ordenes de Pago —que lo ve servicio a cliente y arriba— no tiene asesor: ahi
+ * la fila solo dice "N piezas" y un monto. Medido el 19-nov-2026: de 1,832
+ * ordenes de los ultimos 90 dias, NINGUNA pertenece a quien pidio esto, asi que
+ * el detalle le daba 404 en todas; y solo 554 tienen el PDF de la cotizacion
+ * guardado, o sea que en 1,278 no habia ninguna manera de ver que guias trae la
+ * orden, con que peso y con que costo (tarea 1084).
+ *
+ * El corte es el MISMO nivel que ya abre ese panel (servicio a cliente). No se
+ * ensancha quien ve la orden: a quien ya le aparece la fila con su monto, ahora
+ * tambien le abre el desglose. Un asesor sigue viendo solo lo suyo.
+ */
+const veTodasLasOrdenes = (req: Request): boolean =>
+  getRoleLevel((req as any).user?.role) >= getRoleLevel(ROLES.CUSTOMER_SERVICE);
 
 // Ventana para solicitar factura: 3 días después del pago.
 const INVOICE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
@@ -892,7 +911,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           COALESCE((SELECT pp2.wallet_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS wallet_applied,
           COALESCE((SELECT pp2.credit_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS credit_applied
         FROM advisor_payment_orders apo
-        WHERE apo.id = $1 AND apo.advisor_id = $2
+        WHERE apo.id = $1 AND ($4::bool OR apo.advisor_id = $2)
         UNION ALL
         SELECT
           pp.id, NULL AS folio, 'client' AS created_by,
@@ -910,11 +929,11 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           COALESCE(pp.credit_applied, 0) AS credit_applied
         FROM pobox_payments pp
         JOIN users u ON u.id = pp.user_id
-        WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
+        WHERE pp.id = $1 AND ($4::bool OR u.advisor_id = $2 OR u.referred_by_id = $2)
       ) o
       WHERE ($3::text IS NULL OR o.created_by = $3)
       LIMIT 1
-    `, [id, aid, source]);
+    `, [id, aid, source, veTodasLasOrdenes(req)]);
 
     if (orderRes.rowCount === 0) {
       return res.status(404).json({ error: 'Orden no encontrada' });
@@ -980,6 +999,26 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       }
     }
 
+    // Tipo de cambio aereo vigente: el MISMO que usa la columna Monto del panel
+    // del asesor, para que el desglose sume lo que la fila ya muestra.
+    //
+    // Hace falta porque el importe de una guia aerea salia en $0.00: la cadena
+    // de respaldo de abajo mira pobox_service_cost, assigned_cost_mxn y
+    // saldo_pendiente, y en aereo los tres vienen vacios —el precio vive en
+    // air_sale_price, que esta en DOLARES—. Medido el 19-nov-2026 sobre las
+    // ordenes de los ultimos 90 dias: 68 de 68 guias aereas quedaban en cero,
+    // contra 1,197 de 1,202 de PO Box que si traian importe (tarea 1084).
+    let tcAereo = 0;
+    try {
+      const tcRes = await pool.query(
+        `SELECT tipo_cambio_final FROM exchange_rate_config
+          WHERE servicio = 'tdi' AND estado = true LIMIT 1`
+      );
+      tcAereo = parseFloat(tcRes.rows[0]?.tipo_cambio_final) || 0;
+    } catch (e: any) {
+      console.warn('[payment-orders] no pude leer el tipo de cambio aereo:', e?.message);
+    }
+
     // Para packages: traer master + hijos con desglose POBOX (n_level, USD, MXN)
     const items: any[] = [];
     if (pkgIds.length > 0) {
@@ -1004,6 +1043,15 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       for (const m of masters) {
         const children = pkgRes.rows.filter((r: any) => r.master_id === m.id);
         const tc = parseFloat(m.registered_exchange_rate) || (children.find((c: any) => c.registered_exchange_rate) as any)?.registered_exchange_rate || 18.5;
+        // Precio de una guia aerea en pesos. Solo aplica cuando la guia trae
+        // air_sale_price (aereo/TDI); en PO Box viene vacio y da 0, que es lo
+        // que la cadena de respaldo ya devolvia.
+        const ventaAereaMxn = (g: any): number => {
+          const usd = parseFloat(g?.air_sale_price) || 0;
+          if (usd <= 0) return 0;
+          const tcGuia = parseFloat(g?.registered_exchange_rate) || tcAereo || parseFloat(String(tc)) || 18.5;
+          return usd * tcGuia;
+        };
         // REPACK (US-REPACK-*): UNA caja consolidada; sus hijas van adentro y NO se
         // cobran por separado (el master lleva el precio del reempaque). Multi-pieza
         // NORMAL (US-XXXX con -0001, -0002…): cada hija tiene su PROPIO costo y el
@@ -1026,8 +1074,8 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           // = assigned_cost_mxn ($1576.19), NO pobox_service_cost (costo interno).
           // Las hijas van adentro y NO se cobran por separado (venta_mxn = null).
           venta_mxn: (m.is_master && children.length > 0)
-            ? (parseFloat(m.assigned_cost_mxn) || parseFloat(m.pobox_service_cost) || parseFloat(m.saldo_pendiente) || 0)
-            : (parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || 0),
+            ? (parseFloat(m.assigned_cost_mxn) || parseFloat(m.pobox_service_cost) || parseFloat(m.saldo_pendiente) || ventaAereaMxn(m))
+            : (parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || ventaAereaMxn(m)),
           exchange_rate: parseFloat(tc) || 18.5,
           children: children.map((c: any) => ({
             id: c.id,
@@ -1037,7 +1085,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
             // REPACK → sin monto por hija (van dentro del master). Multi-pieza normal →
             // costo individual de la caja (pobox_service_cost).
-            venta_mxn: isRepack ? null : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || parseFloat(c.saldo_pendiente) || 0),
+            venta_mxn: isRepack ? null : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || parseFloat(c.saldo_pendiente) || ventaAereaMxn(c)),
             weight: parseFloat(c.weight) || 0,
             lengthCm: parseFloat(c.pkg_length) || parseFloat(c.long_cm) || 0,
             widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
