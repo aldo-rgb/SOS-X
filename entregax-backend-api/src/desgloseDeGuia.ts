@@ -47,7 +47,7 @@ export interface DesgloseDeGuia {
  * entre dólares no da un tipo de cambio. En el lote de la tarea 1081 esa cuenta
  * daba 23.21 y 29.34 sobre una cotización hecha a 18.40.
  */
-export function desgloseDeGuia(g: any, tc: number): DesgloseDeGuia {
+export function desgloseDeGuia(g: any, tc: number, mxnCobrado = 0): DesgloseDeGuia {
   const peso = num(g?.weight);
   const largo = num(g?.pkg_length) || num(g?.long_cm) || num(g?.length_cm);
   const ancho = num(g?.pkg_width) || num(g?.width_cm);
@@ -62,7 +62,22 @@ export function desgloseDeGuia(g: any, tc: number): DesgloseDeGuia {
     : (volGuardado > 0 ? volGuardado : (largo * ancho * alto) / DIVISOR_VOLUMETRICO_AEREO);
 
   const cobrable = num(g?.air_chargeable_weight) || (volumetrico > peso ? volumetrico : peso);
-  const usd = num(g?.air_sale_price) || num(g?.pobox_venta_usd);
+
+  // Los dólares del renglón son los que SE ESTÁN COBRANDO, no los que se
+  // guardaron al capturar.
+  //
+  // Sobre la guía viven también los cargos y descuentos que registra Servicio a
+  // Cliente —el más común, "Corrección de pesos y medidas", en dólares—, y el
+  // total del renglón ya los trae. La columna de dólares no: enseñaba
+  // `air_sale_price` pelón, así que una guía cobrada en $9,242.32 decía
+  // $334.08 USD, y ni multiplicando por el tipo de cambio daba el total. Juan
+  // lo leyó como un error y tenía razón (1086).
+  //
+  // Con el total en pesos y el tipo de cambio de la orden, los dólares salen de
+  // la división: es la misma cuenta que hace el cliente al revisar su
+  // cotización, y así el renglón siempre cuadra con lo que cobra.
+  const usdGuardado = num(g?.air_sale_price) || num(g?.pobox_venta_usd);
+  const usd = tc > 0 && mxnCobrado > 0 ? +(mxnCobrado / tc).toFixed(2) : usdGuardado;
 
   // El precio por kilo que se imprime es LA TARIFA, no una división.
   //
@@ -83,8 +98,15 @@ export function desgloseDeGuia(g: any, tc: number): DesgloseDeGuia {
   // ¿Sobre qué peso salió el cobro? Si la tarifa por kilo no explica el precio
   // con el peso cobrable, el peso que sí lo explica es este.
   const cuadraConCobrable = porKgTarifa <= 0 || Math.abs(porKgTarifa * cobrable - usd) < 0.5;
-  const pesoCobrado = !cuadraConCobrable && porKgTarifa > 0 && usd > 0
-    ? +(usd / porKgTarifa).toFixed(2)
+  const kgQueExplicaElCobro = porKgTarifa > 0 && usd > 0 ? usd / porKgTarifa : 0;
+  // La aclaración es para UN caso: la guía se cobró sobre el peso real teniendo
+  // volumétrico mayor. Si el renglón no cuadra por otra razón —un cargo o un
+  // descuento sobre la guía— el peso no tiene nada que ver y decir "cobrado
+  // sobre 23.4 kg" sería inventar; eso se explica en los renglones de la orden.
+  const seCobroSobreElReal = kgQueExplicaElCobro > 0
+    && Math.abs(kgQueExplicaElCobro - peso) < 0.15;
+  const pesoCobrado = !cuadraConCobrable && seCobroSobreElReal
+    ? +kgQueExplicaElCobro.toFixed(2)
     : 0;
 
   return {

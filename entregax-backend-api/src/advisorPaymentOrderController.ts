@@ -1111,8 +1111,12 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // sellado y la guia tampoco, queda en cero y mas abajo se deriva del
         // propio monto de la orden; si ni eso, sale en blanco (tarea 1086).
         const tcDeLaFila = tcSellado || parseFloat(m.registered_exchange_rate) || 0;
+        // Lo que cobra el renglon, en pesos. Se calcula ANTES del desglose
+        // porque el desglose abre justo ese importe: sus columnas tienen que
+        // sumar lo mismo que la fila enseña (1086).
+        const ventaMasterMxn = ventaGuardadaMxn(m) || ventaAereaMxn(m);
         items.push({
-          ...desgloseDeGuia(m, tcDeLaFila),
+          ...desgloseDeGuia(m, tcDeLaFila, ventaMasterMxn),
           id: m.id,
           tracking: m.tracking_internal,
           service_type: m.service_type,
@@ -1128,13 +1132,18 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           // REPACK (master con hijas): se cobra el precio del reempaque completo
           // = assigned_cost_mxn ($1576.19), NO pobox_service_cost (costo interno).
           // Las hijas van adentro y NO se cobran por separado (venta_mxn = null).
-          venta_mxn: ventaGuardadaMxn(m) || ventaAereaMxn(m),
+          venta_mxn: ventaMasterMxn,
           // Dolares que hubo que convertir para este renglon. Se usa mas abajo
           // para que el desglose sume EXACTO lo que cobra la orden.
           air_usd: ventaGuardadaMxn(m) > 0 ? 0 : (parseFloat(m.air_sale_price) || 0),
           exchange_rate: parseFloat(tc) || 18.5,
-          children: children.map((c: any) => ({
-            ...desgloseDeGuia({ ...c, service_type: c.service_type || m.service_type }, tcDeLaFila),
+          children: children.map((c: any) => {
+            const ventaHijaMxn = isRepack
+              ? 0
+              : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn)
+                 || parseFloat(c.saldo_pendiente) || ventaAereaMxn(c));
+            return ({
+            ...desgloseDeGuia({ ...c, service_type: c.service_type || m.service_type }, tcDeLaFila, ventaHijaMxn),
             id: c.id,
             tracking: c.tracking_internal,
             child_no: c.child_no,
@@ -1142,13 +1151,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
             // REPACK → sin monto por hija (van dentro del master). Multi-pieza normal →
             // costo individual de la caja (pobox_service_cost).
-            venta_mxn: isRepack ? null : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || parseFloat(c.saldo_pendiente) || ventaAereaMxn(c)),
+            venta_mxn: isRepack ? null : ventaHijaMxn,
             weight: parseFloat(c.weight) || 0,
             lengthCm: parseFloat(c.pkg_length) || parseFloat(c.long_cm) || 0,
             widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
             heightCm: parseFloat(c.pkg_height) || parseFloat(c.height_cm) || 0,
             description: c.description,
-          })),
+          });
+          }),
         });
       }
     }

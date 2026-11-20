@@ -1311,6 +1311,18 @@ export default function DashboardAdvisor() {
     const serviciosDeLaOrden = Array.from(new Set(
       (items || []).map((i: any) => NOMBRE_SERVICIO[String(i.service_type || '').toUpperCase()])
                    .filter(Boolean)));
+    // 🌎 El origen se leia de un literal: toda cotizacion decia "Estados
+    // Unidos", incluso una de carga aerea que sale de China (tarea 1086).
+    // Sale del mismo dato que el nombre del servicio: el service_type de
+    // las guias. Si la orden mezcla servicios, se nombran los dos.
+    const PAIS_DE_ORIGEN: Record<string, string> = {
+      POBOX_USA: 'Estados Unidos', AA_DHL: 'Estados Unidos',
+      AIR_CHN_MX: 'China', TDI_EXPRESS: 'China', SEA_CHN_MX: 'China', CHINA_SEA: 'China',
+    };
+    const origenDeLaOrden = Array.from(new Set(
+      (items || []).map((i: any) => PAIS_DE_ORIGEN[String(i.service_type || '').toUpperCase()])
+                   .filter(Boolean)));
+    const origenLabel = origenDeLaOrden.length > 0 ? origenDeLaOrden.join(' + ') : 'Estados Unidos';
     const svcLabelOp = isDhlOp
       ? 'DHL — Liberación y Envío Nacional'
       : (serviciosDeLaOrden.length > 0 ? serviciosDeLaOrden.join(' + ') : 'PO Box USA - Carga Aérea');
@@ -1483,7 +1495,7 @@ export default function DashboardAdvisor() {
         <div class="section-title">2. Detalle del Embarque</div>
         <div class="info-grid">
           <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">${svcLabelOp}</span></div>
-          <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
+          <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">${origenLabel}</span></div>
           <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">${destino ? `${destino}, México` : 'Por asignar'}</span></div>
           <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${rows.length} paquete(s)</span></div>
         </div>

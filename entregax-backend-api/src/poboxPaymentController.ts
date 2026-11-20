@@ -2412,10 +2412,17 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     // guías que ya no están o con cargos que no le corresponden.
                     if (t > 5 && t < 50) tcDerivado = t;
                 }
-                packages = packages.map((p: any) => ({
-                    ...p,
-                    ...desgloseDeGuia(p, tcSellado || Number(p.registered_exchange_rate) || tcDerivado),
-                }));
+                packages = packages.map((p: any) => {
+                    // El importe que esta fila enseña como Total: el desglose
+                    // abre ese mismo número, con la misma cadena de respaldo que
+                    // usan el portal y el PDF (1086).
+                    const ventaMxn = Number(p.venta_mxn) || Number(p.pobox_service_cost)
+                        || Number(p.saldo_pendiente) || Number(p.assigned_cost_mxn) || 0;
+                    return ({
+                        ...p,
+                        ...desgloseDeGuia(p, tcSellado || Number(p.registered_exchange_rate) || tcDerivado, ventaMxn),
+                    });
+                });
             }
 
             // service_type autoritativo (del log): permite al frontend ofrecer el

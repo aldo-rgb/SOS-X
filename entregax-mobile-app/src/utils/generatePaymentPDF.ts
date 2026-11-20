@@ -124,7 +124,33 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   const carrierLabel = (c: any): string => { const k = String(c || '').toLowerCase().trim(); if (!k) return '—'; return carrierNameMap[k] || String(c).replace(/[_-]+/g, ' ').replace(/\b\w/g, (mm: string) => mm.toUpperCase()); };
   // Servicio real (era fijo "PO Box USA - Carga Aérea" incluso para DHL).
   const isDhlQuote = (data.packages || []).some((p: any) => /DHL/i.test(String(p.service_type || p.servicio || p.shipment_type || '')) ) || String((data as any).service_type || '').toUpperCase() === 'AA_DHL';
-  const svcLabel = isDhlQuote ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
+  // 🌎 El origen se leia de un literal: toda cotizacion decia "Estados
+  // Unidos", incluso una de carga aerea que sale de China (tarea 1086).
+  // Sale del mismo dato que el nombre del servicio: el service_type de
+  // las guias. Si la orden mezcla servicios, se nombran los dos.
+  const PAIS_DE_ORIGEN: Record<string, string> = {
+    POBOX_USA: 'Estados Unidos', AA_DHL: 'Estados Unidos',
+    AIR_CHN_MX: 'China', TDI_EXPRESS: 'China', SEA_CHN_MX: 'China', CHINA_SEA: 'China',
+  };
+  const origenDeLaOrden = Array.from(new Set(
+    (data.packages || []).map((i: any) => PAIS_DE_ORIGEN[String(i.service_type || '').toUpperCase()])
+                 .filter(Boolean)));
+  const origenLabel = origenDeLaOrden.length > 0 ? origenDeLaOrden.join(' + ') : 'Estados Unidos';
+  // El servicio tambien salia de un literal: una orden de carga aerea decia
+  // "PO Box USA - Carga Aerea". Los otros tres documentos ya lo sacan del dato
+  // real; este se habia quedado (tareas 1084 y 1086).
+  const NOMBRE_SERVICIO: Record<string, string> = {
+    POBOX_USA: 'PO Box USA - Carga Aérea',
+    AIR_CHN_MX: 'TDI Aéreo',
+    TDI_EXPRESS: 'TDI Express',
+    SEA_CHN_MX: 'Marítimo',
+  };
+  const serviciosDeLaOrden = Array.from(new Set(
+    (data.packages || []).map((i: any) => NOMBRE_SERVICIO[String(i.service_type || '').toUpperCase()])
+                 .filter(Boolean)));
+  const svcLabel = isDhlQuote
+    ? 'DHL — Liberación y Envío Nacional'
+    : (serviciosDeLaOrden.length > 0 ? serviciosDeLaOrden.join(' + ') : 'PO Box USA - Carga Aérea');
   // Columnas de desglose de una guía DHL: importación, impuestos, envío y total.
   // La importación se saca restando, para que los renglones siempre sumen lo que
   // se está cobrando aunque el tipo de cambio traiga redondeos (tarea 282).
@@ -344,7 +370,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       </div>
       <div class="info-row">
         <span class="info-label">Origen:</span>
-        <span class="info-value">Estados Unidos</span>
+        <span class="info-value">${origenLabel}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Destino:</span>
