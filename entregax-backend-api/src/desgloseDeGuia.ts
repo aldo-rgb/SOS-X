@@ -26,6 +26,11 @@ export interface DesgloseDeGuia {
   peso_cobrable: number;
   costo_usd: number;
   precio_por_kg_usd: number;
+  /**
+   * El peso sobre el que de verdad se cobró, cuando NO es el cobrable.
+   * 0 cuando coinciden, que es lo que debe pasar de ahora en adelante.
+   */
+  peso_cobrado: number;
   tipo_tarifa: string | null;
   tc: number;
 }
@@ -59,17 +64,28 @@ export function desgloseDeGuia(g: any, tc: number): DesgloseDeGuia {
   const cobrable = num(g?.air_chargeable_weight) || (volumetrico > peso ? volumetrico : peso);
   const usd = num(g?.air_sale_price) || num(g?.pobox_venta_usd);
 
-  // El precio por kilo que se imprime es el que CUADRA con lo cobrado:
-  // cobrable × $/kg = USD, siempre. Las guías de antes se cobraron sobre el
-  // peso real, así que su $/kg impreso sale un poco por debajo de la tarifa
-  // —es lo que de verdad pagaron por kilo cobrable— y el renglón no se
-  // contradice solo. En Start Up el precio es plano y el por-kilo siempre fue
-  // informativo, igual que aquí.
+  // El precio por kilo que se imprime es LA TARIFA, no una división.
+  //
+  // Primero se imprimía el derivado —dólares entre peso cobrable— para que el
+  // renglón multiplicara exacto. Juan lo leyó como un error y tenía razón: en
+  // esa columna la casa lee la tarifa, y una guía con tarifa de $17.40 salía
+  // diciendo $12.71 porque se cobró sobre el peso real y no sobre el cobrable
+  // (1086).
+  //
+  // Con la tarifa impresa, una guía vieja no multiplica: $17.40 × 27.11 kg no
+  // da los $344.52 que se le cobraron. Eso NO se esconde: se dice en la letra
+  // chica, con el peso sobre el que de verdad se cobró. Hacia adelante el aéreo
+  // ya cobra por el cobrable, así que esa aclaración desaparece sola.
   const porKgTarifa = num(g?.air_price_per_kg);
-  const porKgReal = cobrable > 0 && usd > 0 ? usd / cobrable : 0;
-  const porKg = porKgTarifa > 0 && Math.abs(porKgTarifa * cobrable - usd) < 0.5
+  const porKg = porKgTarifa > 0
     ? porKgTarifa
-    : porKgReal;
+    : (cobrable > 0 && usd > 0 ? usd / cobrable : 0);
+  // ¿Sobre qué peso salió el cobro? Si la tarifa por kilo no explica el precio
+  // con el peso cobrable, el peso que sí lo explica es este.
+  const cuadraConCobrable = porKgTarifa <= 0 || Math.abs(porKgTarifa * cobrable - usd) < 0.5;
+  const pesoCobrado = !cuadraConCobrable && porKgTarifa > 0 && usd > 0
+    ? +(usd / porKgTarifa).toFixed(2)
+    : 0;
 
   return {
     peso_real: peso,
@@ -77,6 +93,9 @@ export function desgloseDeGuia(g: any, tc: number): DesgloseDeGuia {
     peso_cobrable: +cobrable.toFixed(2),
     costo_usd: +usd.toFixed(2),
     precio_por_kg_usd: esAereo ? +porKg.toFixed(2) : 0,
+    // Start Up es precio plano: no hay tarifa por kilo que cuadrar, así que
+    // tampoco hay nada que aclarar.
+    peso_cobrado: String(g?.air_tariff_type || '') === 'SU' ? 0 : pesoCobrado,
     tipo_tarifa: g?.air_tariff_type || null,
     tc: tc > 0 ? +tc.toFixed(4) : 0,
   };

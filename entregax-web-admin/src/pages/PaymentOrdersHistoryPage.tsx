@@ -101,6 +101,7 @@ interface DetalleItem {
   peso_real?: number | null;
   peso_volumetrico?: number | null;
   peso_cobrable?: number | null;
+  peso_cobrado?: number | null;
   tc?: number | null;
   tipo_tarifa?: string | null;
   children?: DetalleItem[];
@@ -603,6 +604,10 @@ export default function PaymentOrdersHistoryPage() {
                         Number(i.weight) > 0 ? Number(i.weight).toFixed(1) + ' kg real' : '',
                         Number(i.peso_volumetrico) > 0 ? Number(i.peso_volumetrico).toFixed(1) + ' kg vol' : '',
                         medidas(i) !== '—' ? medidas(i) : '',
+                        // La tarifa por kilo no explica el precio con el peso cobrable:
+                        // se dice sobre que peso se cobro (1086).
+                        Number(i.peso_cobrado) > 0
+                          ? 'cobrado sobre ' + Number(i.peso_cobrado).toFixed(1) + ' kg' : '',
                       ].filter(Boolean).join(' · ');
                       return (
                         <TableRow>

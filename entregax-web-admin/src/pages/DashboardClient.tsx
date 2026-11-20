@@ -2376,6 +2376,11 @@ export default function DashboardClient() {
       if (Number(p.length_cm) > 0 || Number(p.width_cm) > 0 || Number(p.height_cm) > 0) {
         partes.push(p.length_cm + '×' + p.width_cm + '×' + p.height_cm + ' cm');
       }
+      // Cuando la tarifa por kilo no explica el precio con el peso cobrable, el
+      // peso que sí lo explica se dice aquí: la columna enseña la tarifa y esta
+      // línea enseña sobre qué se cobró, en vez de dejar un renglón que no
+      // multiplica sin explicación (tarea 1086).
+      if (Number(p.peso_cobrado) > 0) partes.push('cobrado sobre ' + kgTxt(p.peso_cobrado));
       return partes.join(' · ');
     };
     const celdasAereo = (p: any): string => {

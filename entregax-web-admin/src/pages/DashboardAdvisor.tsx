@@ -1354,6 +1354,11 @@ export default function DashboardAdvisor() {
       if (Number(it.lengthCm) > 0 || Number(it.widthCm) > 0 || Number(it.heightCm) > 0) {
         partes.push(it.lengthCm + '×' + it.widthCm + '×' + it.heightCm + ' cm');
       }
+      // Cuando la tarifa por kilo no explica el precio con el peso cobrable, el
+      // peso que sí lo explica se dice aquí: la columna enseña la tarifa y esta
+      // línea enseña sobre qué se cobró, en vez de dejar un renglón que no
+      // multiplica sin explicación (tarea 1086).
+      if (Number(it.peso_cobrado) > 0) partes.push('cobrado sobre ' + kgTxt(it.peso_cobrado));
       return partes.join(' · ');
     };
     const celdasAereo = (it: any, chico = false): string => {
@@ -4744,13 +4749,14 @@ export default function DashboardAdvisor() {
                         tracking: string; weight: number; dims: string; importe: number | null;
                         nivel?: string | null; child?: boolean;
                         usd: number; porKg: number; cobrable: number; volumetrico: number;
-                        tc: number; startUp: boolean;
+                        cobrado: number; tc: number; startUp: boolean;
                       };
                       const partesDe = (x: any) => ({
                         usd: Number(x?.costo_usd) || 0,
                         porKg: Number(x?.precio_por_kg_usd) || 0,
                         cobrable: Number(x?.peso_cobrable) || 0,
                         volumetrico: Number(x?.peso_volumetrico) || 0,
+                        cobrado: Number(x?.peso_cobrado) || 0,
                         tc: Number(x?.tc) || 0,
                         startUp: String(x?.tipo_tarifa || '') === 'SU',
                       });
@@ -4806,6 +4812,9 @@ export default function DashboardAdvisor() {
                                               r.weight > 0 ? `${r.weight.toFixed(1)} kg real` : '',
                                               r.volumetrico > 0 ? `${r.volumetrico.toFixed(1)} kg vol` : '',
                                               r.dims !== '—' ? r.dims : '',
+                                              // La tarifa por kilo no explica el precio con el peso
+                                              // cobrable: se dice sobre que peso se cobro (1086).
+                                              r.cobrado > 0 ? `cobrado sobre ${r.cobrado.toFixed(1)} kg` : '',
                                             ].filter(Boolean).join(' · ') || '—'}
                                           </Typography>
                                         </TableCell>
