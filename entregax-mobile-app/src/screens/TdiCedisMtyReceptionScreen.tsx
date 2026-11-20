@@ -27,6 +27,15 @@ export default function TdiCedisMtyReceptionScreen({ route, navigation }: any) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err' | 'warn'; msg: string } | null>(null);
+  // Cajas del envio que se acaba de recibir. Escanear la guia del envio da por
+  // recibidas TODAS sus cajas sin que nadie las haya visto una por una; antes no
+  // se decia, y tampoco habia forma de saber como se llama cada caja para
+  // confirmarlas de a una (tarea 1094).
+  const [ultimoEnvio, setUltimoEnvio] = useState<{
+    cajas: number;
+    sinVerificar: boolean;
+    guias: Array<{ tracking: string; weight: string | number | null }>;
+  } | null>(null);
   const [received, setReceived] = useState<Received[]>([]);
   const inputRef = useRef<TextInput>(null);
 
@@ -50,9 +59,22 @@ export default function TdiCedisMtyReceptionScreen({ route, navigation }: any) {
             ...prev,
           ]);
         }
-        const extra = data.is_master && data.children_count > 0 ? ` (+${data.children_count} cajas)` : '';
-        setFeedback({ type: 'ok', msg: `✅ ${data.tracking} — Recibido MTY${extra}` });
+        // El aviso decia "(+5 cajas)" sumando el master como si fuera una caja,
+        // asi que un envio de 5 salia como 6. El master es el envio.
+        const cajas = Number(data.cajas) || 1;
+        const sinVerificar = !!data.recibio_todas_sin_verificar;
+        setUltimoEnvio({
+          cajas,
+          sinVerificar,
+          guias: Array.isArray(data.cajas_del_envio) ? data.cajas_del_envio : [],
+        });
+        const extra = cajas > 1 ? ` (${cajas} cajas)` : '';
+        setFeedback({
+          type: sinVerificar ? 'warn' : 'ok',
+          msg: `${sinVerificar ? '⚠️' : '✅'} ${data.tracking} — Recibido MTY${extra}`,
+        });
       } else {
+        setUltimoEnvio(null);
         const warn = !!data.already_received;
         setFeedback({ type: warn ? 'warn' : 'err', msg: `${warn ? '⚠️' : '❌'} ${data.error || 'Error al recibir'}` });
       }
@@ -121,7 +143,21 @@ export default function TdiCedisMtyReceptionScreen({ route, navigation }: any) {
           ]}>
             <Text style={[styles.fbText, { color: feedback.type === 'ok' ? GREEN : feedback.type === 'warn' ? '#B06B0C' : '#C0392B' }]}>
               {feedback.msg}
+              {ultimoEnvio?.sinVerificar ? (
+                '\n\nEscaneaste la guia del envio, asi que las ' + ultimoEnvio.cajas
+                + ' cajas quedaron recibidas sin verificarse una por una. Si quieres'
+                + ' confirmarlas de a una, escanea su guia:'
+              ) : ''}
             </Text>
+            {ultimoEnvio && ultimoEnvio.guias.length > 0 && (
+              <View style={styles.guiasCajas}>
+                {ultimoEnvio.guias.map((g) => (
+                  <Text key={g.tracking} style={styles.guiaCaja}>
+                    {g.tracking}{Number(g.weight) > 0 ? '  ·  ' + Number(g.weight).toFixed(1) + ' kg' : ''}
+                  </Text>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -165,6 +201,9 @@ const styles = StyleSheet.create({
   },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   feedback: { borderRadius: 10, padding: 14, borderWidth: 1 },
+  // Las guias de las cajas del envio, para poder confirmarlas de a una.
+  guiasCajas: { marginTop: 8, gap: 2 },
+  guiaCaja: { fontFamily: 'monospace', fontSize: 11.5, color: '#333' },
   fbOk: { backgroundColor: '#E4F0E7', borderColor: '#A5D6A7' },
   fbWarn: { backgroundColor: '#F6EAD3', borderColor: '#FFD8A8' },
   fbErr: { backgroundColor: '#F7E3E0', borderColor: '#F5B7B1' },

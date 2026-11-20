@@ -622,12 +622,35 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
 
     const created: { id: number; tracking: string; boxNumber: number }[] = [];
 
+    // Cuántos dígitos lleva el sufijo de la caja.
+    //
+    // TDI las numeraba con TRES (MASTER-001) y el resto de la casa usa CUATRO:
+    // PO Box y marítimo arman -0001, y el módulo del repartidor le dice al
+    // operador "escanea cada caja con el sufijo -0001 a -000N". Quien conoce la
+    // convención de la casa escaneaba mal en TDI y le salía que la guía no
+    // existe, así que terminaba escaneando el master —que recibe todas las
+    // cajas de un golpe, sin verificar ninguna— (TKT-2026-3776, tarea 1094).
+    //
+    // Hacia adelante se usan cuatro, como el resto. Las 84 hijas que ya existen
+    // con tres NO se reescriben: el escaneo acepta los dos rellenos. Si al
+    // master ya le habían puesto cajas con tres dígitos, las nuevas siguen con
+    // tres para que el envío no quede con dos formatos encima.
+    const hermanaPrevia = await client.query(
+      `SELECT tracking_internal FROM packages
+        WHERE master_id = $1 AND tracking_internal ~ '-[0-9]+$'
+        ORDER BY id ASC LIMIT 1`,
+      [masterId],
+    );
+    const sufijoPrevio = String(hermanaPrevia.rows[0]?.tracking_internal || '').match(/-(\d+)$/);
+    const digitosDelSufijo = sufijoPrevio?.[1] ? sufijoPrevio[1].length : 4;
+
     // Cantidad: agrega N cajas idénticas en un solo bloque (mismas medidas).
     for (let i = 0; i < qty; i++) {
       boxNumber++;
-      // Las cajas hijas se numeran como MASTER-001, MASTER-002… (mismo tracking que
-      // el master + sufijo), para que master e hijas se identifiquen como un solo envío.
-      const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(3, '0')}`;
+      // Las cajas hijas se numeran como MASTER-0001, MASTER-0002… (mismo tracking
+      // que el master + sufijo), para que master e hijas se identifiquen como un
+      // solo envío.
+      const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(digitosDelSufijo, '0')}`;
       const ins = await client.query(
         `INSERT INTO packages (
            tracking_internal, tracking_provider, is_master, master_id, box_number, child_no,

@@ -13103,6 +13103,23 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     // por apóstrofe/espacio (TDX'5894471122'001). Comparamos ignorando cualquier
     // separador para que "TDX'5894471122'001" == "TDX-5894471122-001".
     const compact = norm.replace(/[^A-Z0-9]/g, '');
+    // 🔢 El sufijo de la caja, sin los ceros de relleno.
+    //
+    // Las hijas de TDI se crearon con TRES digitos (TDX-…-001) y el resto de la
+    // casa usa CUATRO: PO Box y maritimo arman -0001, y el modulo del repartidor
+    // le dice al operador "escanea cada caja con el sufijo -0001 a -000N". Quien
+    // conoce la convencion de la casa escanea mal en TDI: CEDIS escaneo
+    // TDX-…-0001 de un envio de 5 cajas y le salio "no esta registrada en TDI
+    // Express", porque la comparacion ignora guiones pero no el cero de mas.
+    // Terminaron escaneando el master, que recibe las 5 de un golpe sin
+    // verificar ninguna (TKT-2026-3776, tarea 1094).
+    //
+    // Se compara tambien contra el sufijo sin ceros, de los dos lados, asi que
+    // -001, -0001 y -1 caen en la misma caja. Solo toca el ultimo grupo de
+    // digitos despues de un guion que ya venia precedido de otro grupo: el
+    // numero del master no se altera.
+    const sinRelleno = (t: string) => t.replace(/^(.+-\d+)-0*(\d+)$/, '$1-$2');
+    const canon = sinRelleno(norm);
     // Buscar por CUALQUIER identificador que traiga la caja fisica, no solo por
     // el TDX. Antes solo miraba tracking_internal, child_no y el AWB, asi que
     // la guia del proveedor (SY0023872) —que viene impresa en la caja y SI la
@@ -13133,9 +13150,14 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
           OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
           OR REGEXP_REPLACE(UPPER(COALESCE(p.national_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
+          -- Mismo codigo con otro relleno de ceros en el numero de caja.
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '^(.+-[0-9]+)-0*([0-9]+)$', '\\1-\\2') = $3
         )
       ORDER BY
         CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 0
+             -- La guia de la caja con otro relleno de ceros sigue siendo LA caja:
+             -- vale tanto como el match exacto y manda sobre el master.
+             WHEN REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '^(.+-[0-9]+)-0*([0-9]+)$', '\\1-\\2') = $3 THEN 0
              WHEN REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 1
              -- La guia del proveedor y la de origen identifican UNA caja; el AWB
              -- puede ser de varios clientes, asi que va al final.
@@ -13148,7 +13170,7 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       -- mas de un envio. Con 5, un envio de 5 cajas llenaba el cupo y el
       -- segundo cliente quedaba fuera, asi que la ambiguedad no se detectaba.
       LIMIT 50
-    `, [norm, compact]);
+    `, [norm, compact, canon]);
 
     // El AWB puede venir compartido: dos clientes distintos viajan en el mismo
     // waybill. Antes esto se resolvia con LIMIT 1 y se tomaba el de id mas bajo
@@ -13286,6 +13308,26 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       `, [pkg.master_id, mtyBranchId]);
     }
 
+    // Las guías de las cajas del envío, para que el operador VEA cuáles se
+    // dieron por recibidas y con qué guía puede confirmarlas una por una.
+    //
+    // Sin esta lista no había forma de saber el nombre de la caja: CEDIS lo
+    // adivinó (-0001 en vez de -001), le salió que no existe y acabó escaneando
+    // el master. El master recibe todas las cajas de un golpe: en 90 días TODAS
+    // las recepciones de TDI Express se hicieron así, nunca caja por caja, y si
+    // faltara una se registra como recibida igual (tarea 1094).
+    const masterId = pkg.is_master ? pkg.id : pkg.master_id;
+    let cajasDelEnvio: any[] = [];
+    if (masterId) {
+      const cj = await pool.query(
+        `SELECT tracking_internal AS tracking, box_number, weight, status::text AS status
+           FROM packages WHERE master_id = $1
+          ORDER BY box_number ASC NULLS LAST, id ASC`,
+        [masterId]
+      ).catch(() => ({ rows: [] as any[] }));
+      cajasDelEnvio = cj.rows;
+    }
+
     return res.json({
       success: true,
       id: pkg.id,
@@ -13294,6 +13336,14 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       client_box_id: pkg.client_box_id || '—',
       is_master: pkg.is_master,
       children_count: pkg.children_count,
+      // Cajas FÍSICAS del envío. El aviso decía "6 cajas actualizadas" en un
+      // envío de 5, porque sumaba el master como si fuera una caja: el master es
+      // el envío, las cajas son sus hijas.
+      cajas: pkg.is_master && pkg.children_count > 0 ? pkg.children_count : 1,
+      // Si se recibió por el master, se dieron por recibidas TODAS sus cajas sin
+      // haber verificado ninguna. El operador tiene que saberlo.
+      recibio_todas_sin_verificar: !!(pkg.is_master && pkg.children_count > 0),
+      cajas_del_envio: cajasDelEnvio,
       previous_status: pkg.status,
       new_status: 'received_mty',
     });
