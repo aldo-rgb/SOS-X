@@ -34,6 +34,18 @@ interface Awb {
   created_at: string | null;
 }
 
+// Un embarque que ya tiene cajas en el sistema pero cuyo manifiesto nadie ha
+// subido. No se puede recibir: sin el manifiesto no existe el registro de la AWB
+// y no hay a que escanear. Se ensena para que el almacen sepa POR QUE no esta,
+// en vez de reportarlo como que la pantalla no funciona (tarea 1072).
+interface EmbarqueSinManifiesto {
+  referencia: string;
+  total_packages: number;
+  clientes: number;
+  primera_caja: string | null;
+  kg: string | number | null;
+}
+
 interface Pkg {
   id: number;
   tracking_internal: string;
@@ -84,6 +96,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
   const [error, setError] = useState<string | null>(null);
 
   const [awbs, setAwbs] = useState<Awb[]>([]);
+  const [sinManifiesto, setSinManifiesto] = useState<EmbarqueSinManifiesto[]>([]);
   const [selected, setSelected] = useState<Awb | null>(null);
 
   const [packages, setPackages] = useState<Pkg[]>([]);
@@ -105,6 +118,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       setAwbs(data.awbs || []);
+      setSinManifiesto(data.sin_manifiesto || []);
     } catch (e: any) {
       setError(e.message || 'Error al cargar AWBs');
     } finally {
@@ -257,12 +271,56 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
         <ScrollView contentContainerStyle={{ padding: 12 }}>
           {loading ? (
             <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
-          ) : awbs.length === 0 ? (
+          ) : null}
+
+          {/* Embarques que llegaron pero cuyo manifiesto nadie subio. Van ARRIBA
+              porque son las cajas que el almacen tiene en la mano y no encuentra
+              en la pantalla: antes no salia ni la caja ni el motivo, y se
+              reportaba por ticket como que no sabian darle ingreso. */}
+          {!loading && sinManifiesto.length > 0 && (
+            <View style={styles.avisoBox}>
+              <View style={styles.avisoHead}>
+                <Ionicons name="document-attach-outline" size={18} color="#B45309" />
+                <Text style={styles.avisoTitle}>
+                  {sinManifiesto.length === 1 ? 'Un embarque espera' : sinManifiesto.length + ' embarques esperan'} su manifiesto
+                </Text>
+              </View>
+              <Text style={styles.avisoSub}>
+                Estas cajas ya están en el sistema, pero no se pueden recibir hasta que se
+                suba el manifiesto (AWB y packing list) de su embarque. No es un problema de
+                esta pantalla: repórtalo a quien carga los manifiestos.
+              </Text>
+              {sinManifiesto.map((e) => {
+                const dias = e.primera_caja
+                  ? Math.floor((Date.now() - new Date(e.primera_caja).getTime()) / 86400000)
+                  : null;
+                return (
+                  <View key={e.referencia} style={styles.avisoRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.avisoRef}>{e.referencia}</Text>
+                      <Text style={styles.avisoMeta}>
+                        {e.total_packages} {e.total_packages === 1 ? 'caja' : 'cajas'}
+                        {Number(e.clientes) > 0 ? '  ·  ' + e.clientes + (Number(e.clientes) === 1 ? ' cliente' : ' clientes') : ''}
+                        {Number(e.kg) > 0 ? '  ·  ' + Number(e.kg).toFixed(1) + ' kg' : ''}
+                      </Text>
+                    </View>
+                    {dias !== null && (
+                      <View style={[styles.dayChip, { backgroundColor: dias <= 3 ? '#F9A825' : RED }]}>
+                        <Text style={styles.dayChipText}>{dias} día{dias === 1 ? '' : 's'}</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {!loading && awbs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="airplane-outline" size={48} color="#999" />
               <Text style={styles.emptyText}>No hay AWBs pendientes de recepción</Text>
             </View>
-          ) : (
+          ) : !loading && (
             awbs.map((awb) => {
               const start = awb.flight_date || awb.created_at;
               const days = start ? Math.floor((Date.now() - new Date(start).getTime()) / 86400000) : null;
@@ -516,6 +574,14 @@ const styles = StyleSheet.create({
   errorBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', padding: 10, marginHorizontal: 12, marginTop: 10, borderRadius: 8 },
   errorText: { color: RED, flex: 1, fontWeight: '600' },
 
+  // Aviso de embarques sin manifiesto (tarea 1072).
+  avisoBox: { backgroundColor: '#FFF8E1', borderWidth: 1, borderColor: '#FFE082', borderRadius: 10, padding: 12, marginBottom: 12 },
+  avisoHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  avisoTitle: { fontSize: 13, fontWeight: '800', color: '#B45309', flex: 1 },
+  avisoSub: { fontSize: 11, color: '#8D6E12', lineHeight: 15, marginBottom: 8 },
+  avisoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#FFE082' },
+  avisoRef: { fontSize: 12.5, fontWeight: '700', color: '#000', fontFamily: 'monospace' },
+  avisoMeta: { fontSize: 10.5, color: '#8D6E12', marginTop: 1 },
   emptyState: { alignItems: 'center', padding: 40 },
   emptyText: { color: '#999', marginTop: 10 },
 

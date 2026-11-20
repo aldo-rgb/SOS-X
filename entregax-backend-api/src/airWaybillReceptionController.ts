@@ -71,7 +71,58 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
       ORDER BY ac.created_at DESC
     `);
 
-    res.json({ success: true, awbs: result.rows });
+    // ── Embarques que todavía no tienen manifiesto ──────────────────────────
+    //
+    // Una caja aérea sólo se puede recibir si su AWB existe en
+    // `air_waybill_costs`, y ese registro lo crea el manifiesto. Los 197
+    // manifiestos del año se subieron A MANO: si nadie sube el del embarque, la
+    // caja no aparece aquí y el almacén la tiene físicamente sin forma de
+    // meterla al sistema. Lo reportaban por ticket pensando que no sabían usar
+    // la pantalla, cuando lo que faltaba era el manifiesto (TKT-2026-3733,
+    // tarea 1072): al revisarlo eran 35 cajas de 12 clientes en cuatro
+    // embarques, una desde hacía un mes.
+    //
+    // No se inventa un registro de AWB: el número que la caja trae mientras no
+    // llega el manifiesto es el código interno de China (`LDM-…`), y darlo de
+    // alta crearía AWBs que no existen y que el manifiesto real dejaría
+    // huérfanas. Cuando se sube, la extracción empareja por la guía impresa y le
+    // escribe la MAWB de verdad. Así que aquí sólo se avisa.
+    const sinManifiesto = await pool.query(`
+      SELECT
+        p.international_tracking AS referencia,
+        COUNT(*)::int                       AS total_packages,
+        COUNT(DISTINCT p.user_id)::int      AS clientes,
+        MIN(p.created_at)                   AS primera_caja,
+        ROUND(SUM(COALESCE(p.weight, 0))::numeric, 2) AS kg
+      FROM packages p
+      WHERE p.service_type = 'AIR_CHN_MX'
+        AND COALESCE(p.international_tracking, '') <> ''
+        AND p.status::text IN (
+          'received_china', 'received_china_air', 'received_origin',
+          'in_transit', 'customs', 'processing'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM air_waybill_costs ac
+           WHERE ac.awb_number = p.international_tracking
+             AND COALESCE(ac.status, '') <> 'deleted'
+        )
+      GROUP BY p.international_tracking
+      -- Sólo embarques VIVOS. Sin esta ventana salían diez y seis eran de
+      -- febrero y marzo —incluido un número de contenedor marítimo con 49
+      -- cajas— que nadie va a recibir nunca: puro ruido en la pantalla del
+      -- almacén, que es justo lo que la ventana de 30 días de arriba evita para
+      -- las AWB rezagadas. Las guías viejas atoradas son otro problema
+      -- (tarea 1037), no uno de recepción.
+      HAVING MAX(p.created_at) > NOW() - INTERVAL '60 days'
+      ORDER BY MIN(p.created_at) ASC
+    `).catch((e: any) => {
+      // El aviso no puede tumbar la recepción: si falla, el almacén sigue
+      // trabajando con las AWB que sí tiene.
+      console.warn('✈️ [AWB-RX] no pude listar los embarques sin manifiesto:', e.message);
+      return { rows: [] as any[] };
+    });
+
+    res.json({ success: true, awbs: result.rows, sin_manifiesto: sinManifiesto.rows });
   } catch (error: any) {
     console.error('✈️ [AWB-RX] Error listando AWBs en tránsito:', error.message);
     res.status(500).json({ success: false, error: error.message });
