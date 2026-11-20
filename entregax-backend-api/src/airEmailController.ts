@@ -905,41 +905,24 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
     let countCajo = 0;
 
     // === FUNCIÓN HELPER PARA OBTENER PRECIO POR CLIENTE ===
-    async function getClientPrice(clienteId: string, tariffType: string, targetUserId: number | null): Promise<{pricePerKg: number, isCustom: boolean}> {
+    async function getClientPrice(clienteId: string, tariffType: string, targetUserId: number | null): Promise<{pricePerKg: number, isCustom: boolean, tipo?: string}> {
       if (!airRouteId) {
         return { pricePerKg: 0, isCustom: false };
       }
       
-      // 1. Buscar tarifa personalizada del cliente en air_client_tariffs
-      // Primero por user_id si existe
-      if (targetUserId) {
-        const customRes = await client.query(`
-          SELECT price_per_kg FROM air_client_tariffs 
-          WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
-          LIMIT 1
-        `, [targetUserId, airRouteId, tariffType]);
-        
-        if (customRes.rows.length > 0) {
-          return { pricePerKg: parseFloat(customRes.rows[0].price_per_kg), isCustom: true };
-        }
-      }
-      
-      // 2. Buscar por legacy_client_id si no encontramos por user_id
-      const legacyRes = await client.query(`
-        SELECT lc.id FROM legacy_clients lc WHERE UPPER(lc.box_id) = UPPER($1) LIMIT 1
-      `, [clienteId]);
-      
-      if (legacyRes.rows.length > 0) {
-        const legacyId = legacyRes.rows[0].id;
-        const customLegacyRes = await client.query(`
-          SELECT price_per_kg FROM air_client_tariffs 
-          WHERE legacy_client_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
-          LIMIT 1
-        `, [legacyId, airRouteId, tariffType]);
-        
-        if (customLegacyRes.rows.length > 0) {
-          return { pricePerKg: parseFloat(customLegacyRes.rows[0].price_per_kg), isCustom: true };
-        }
+      // 1. El acuerdo del cliente, buscado por casillero: cubre al usuario y al
+      //    cliente del sistema anterior con la misma llave. Puede venir como
+      //    NIVEL —y entonces el precio sigue al costo de la ruta en vez de
+      //    quedarse congelado— y puede MANDAR sobre el tipo que salio de la
+      //    descripcion de la mercancia: un cliente con trato Flat que manda
+      //    zapatos caia siempre en Logo y su Flat no se alcanzaba nunca
+      //    (tarea 1070).
+      const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+      const acuerdo = await resolverTarifaDeCliente(client, {
+        userId: targetUserId, boxId: clienteId, routeId: airRouteId, tipoSugerido: tariffType,
+      });
+      if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) {
+        return { pricePerKg: acuerdo.pricePerKg, isCustom: true, tipo: acuerdo.tipo };
       }
       
       // 3. Si no hay tarifa personalizada, usar tarifa general
@@ -989,9 +972,14 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         // === CALCULAR PRECIO DE VENTA ===
         // Determinar tipo de tarifa basado en el tipo de producto
         const tipoNorm = (row.tipoNorm || row.tipo || 'G').toUpperCase().charAt(0);
-        const tariffType = ['L', 'G', 'S', 'F'].includes(tipoNorm) ? tipoNorm : 'G';
-        
-        const { pricePerKg, isCustom } = await getClientPrice(clienteBusqueda, tariffType, targetUserId);
+        const tipoDelPacking = ['L', 'G', 'S', 'F'].includes(tipoNorm) ? tipoNorm : 'G';
+
+        const { pricePerKg, isCustom, tipo: tipoDelAcuerdo } =
+          await getClientPrice(clienteBusqueda, tipoDelPacking, targetUserId);
+        // El acuerdo del cliente manda sobre el tipo que trae el packing list:
+        // un cliente con trato Flat se cobra Flat aunque su mercancia clasifique
+        // como Logo (tarea 1070).
+        const tariffType = tipoDelAcuerdo || tipoDelPacking;
         const weight = parseFloat(row.pesoKg) || 0;
         // PESO COBRABLE: el mayor entre el peso real y el volumetrico.
         //
@@ -2192,6 +2180,12 @@ export async function getClientTariffs(req: AuthRequest, res: Response) {
         act.is_active,
         act.notes,
         act.created_at,
+        -- La REGLA guardada. La pantalla adivinaba el nivel comparando el precio
+        -- contra lo que daria cada uno; al moverse el costo de la ruta esa
+        -- adivinanza fallaba y al volver a guardar le cambiaba el precio al
+        -- cliente sin que nadie tocara su acuerdo (tarea 1070).
+        act.nivel,
+        COALESCE(act.tipo_forzado, FALSE) AS tipo_forzado,
         ar.code as route_code,
         ar.name as route_name,
         ar.origin_airport,
@@ -2304,6 +2298,15 @@ export async function saveClientTariffsBulk(req: AuthRequest, res: Response): Pr
     let saved = 0;
     for (const t of tariffs) {
       const { route_id, tariff_type, price_per_kg, notes } = t;
+      // El NIVEL es la regla ("general menos $1"), el precio es solo su
+      // resultado de hoy. Guardar los dos deja que el precio se recalcule al
+      // cotizar y siga al costo de la ruta, que se movio cuatro veces en un mes
+      // y convertia el descuento pactado en otro numero (tarea 1070).
+      const nivel = ['A', 'B', 'C'].includes(String(t.nivel || '').toUpperCase())
+        ? String(t.nivel).toUpperCase() : null;
+      // Y que el acuerdo pueda mandar sobre el tipo que sale de la descripcion
+      // de la mercancia: sin esto, la tarifa Flat no se alcanzaba nunca.
+      const tipoForzado = t.tipo_forzado === true;
       if (!route_id || !tariff_type || price_per_kg === undefined) continue;
       if (!['L', 'G', 'S', 'F'].includes(tariff_type)) continue;
 
@@ -2312,18 +2315,18 @@ export async function saveClientTariffsBulk(req: AuthRequest, res: Response): Pr
 
       if (user_id) {
         await pool.query(`
-          INSERT INTO air_client_tariffs (user_id, route_id, tariff_type, price_per_kg, notes, created_by, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, NOW())
+          INSERT INTO air_client_tariffs (user_id, route_id, tariff_type, price_per_kg, notes, created_by, nivel, tipo_forzado, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
           ON CONFLICT (user_id, route_id, tariff_type)
-          DO UPDATE SET price_per_kg = $4, notes = $5, updated_at = NOW()
-        `, [user_id, route_id, tariff_type, price, notes || null, createdBy]);
+          DO UPDATE SET price_per_kg = $4, notes = $5, nivel = $7, tipo_forzado = $8, updated_at = NOW()
+        `, [user_id, route_id, tariff_type, price, notes || null, createdBy, nivel, tipoForzado]);
       } else {
         await pool.query(`
-          INSERT INTO air_client_tariffs (legacy_client_id, route_id, tariff_type, price_per_kg, notes, created_by, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, NOW())
+          INSERT INTO air_client_tariffs (legacy_client_id, route_id, tariff_type, price_per_kg, notes, created_by, nivel, tipo_forzado, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
           ON CONFLICT (legacy_client_id, route_id, tariff_type)
-          DO UPDATE SET price_per_kg = $4, notes = $5, updated_at = NOW()
-        `, [legacy_client_id, route_id, tariff_type, price, notes || null, createdBy]);
+          DO UPDATE SET price_per_kg = $4, notes = $5, nivel = $7, tipo_forzado = $8, updated_at = NOW()
+        `, [legacy_client_id, route_id, tariff_type, price, notes || null, createdBy, nivel, tipoForzado]);
       }
       saved++;
     }

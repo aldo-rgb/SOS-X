@@ -32,23 +32,14 @@ export async function resolveAirPricePerKg(
         }
         if (!rid) return 0;
 
-        // 1. Tarifa personalizada por cliente (user_id directo, o legacy_client_id vía box_id)
+        // 1. Acuerdo del cliente: puede ser precio fijo o nivel sobre la general,
+        //    y puede mandar sobre el tipo de carga (tarea 1070).
         if (userId) {
-            const ub = await db.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
-            const boxId = ub.rows[0]?.box_id || null;
-            let legacyId: number | null = null;
-            if (boxId) {
-                const lc = await db.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [boxId]);
-                if (lc.rows[0]) legacyId = lc.rows[0].id;
-            }
-            const ct = await db.query(
-                `SELECT price_per_kg FROM air_client_tariffs
-                 WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
-                   AND route_id = $2 AND tariff_type = $3 AND is_active = true
-                 ORDER BY (user_id = $1) DESC LIMIT 1`,
-                [userId, rid, tariffType, legacyId]
-            );
-            if (ct.rows[0]?.price_per_kg) return parseFloat(ct.rows[0].price_per_kg);
+            const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+            const acuerdo = await resolverTarifaDeCliente(db, {
+                userId, routeId: rid, tipoSugerido: tariffType,
+            });
+            if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) return acuerdo.pricePerKg;
         }
         // 2. Tarifa general
         const gt = await db.query(
@@ -310,25 +301,25 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             let isStartup = false;
 
             // 1️⃣ ¿Cliente tiene tarifa custom para este tipo?
+            //
+            // El acuerdo puede MANDAR sobre el tipo que salio de la descripcion:
+            // un cliente con trato Flat que manda zapatos caia siempre en Logo y
+            // su tarifa Flat no se alcanzaba nunca -de las 14,667 guias aereas
+            // del sistema, CERO son Flat- (tarea 1070). Y si el acuerdo esta
+            // guardado como nivel, el precio se calcula ahora y sigue al costo de
+            // la ruta, en vez de quedarse congelado en el numero de aquel dia.
             let hasCustomTariff = false;
             if (airRouteId && userId) {
-                const userBoxRes = await client.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
-                const userBox = userBoxRes.rows[0]?.box_id || null;
-                let legacyId: number | null = null;
-                if (userBox) {
-                    const lcRes = await client.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [userBox]);
-                    if (lcRes.rows[0]) legacyId = lcRes.rows[0].id;
-                }
-                const customTariffRes = await client.query(`
-                    SELECT price_per_kg FROM air_client_tariffs
-                    WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
-                      AND route_id = $2 AND tariff_type = $3 AND is_active = true
-                    ORDER BY (user_id = $1) DESC LIMIT 1
-                `, [userId, airRouteId, tariffType, legacyId]);
-                if (customTariffRes.rows.length > 0) {
-                    pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+                const acuerdo = await resolverTarifaDeCliente(client, {
+                    userId, routeId: airRouteId, tipoSugerido: tariffType,
+                });
+                if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) {
+                    tariffType = acuerdo.tipo;
+                    pricePerKg = acuerdo.pricePerKg;
                     isCustomTariff = true;
                     hasCustomTariff = true;
+                    console.log(`   [tarifa] ${item.childNo}: ${acuerdo.origen}`);
                 }
             }
 
@@ -3129,15 +3120,17 @@ async function processCallbackPayload(
                     // If not startup, use per-kg pricing
                     if (!isStartup) {
                         if (airRouteId && userId) {
-                            const customTariffRes = await client.query(`
-                                SELECT price_per_kg FROM air_client_tariffs 
-                                WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
-                                LIMIT 1
-                            `, [userId, airRouteId, tariffType]);
-                            
-                            if (customTariffRes.rows.length > 0) {
-                                pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                            // Mismo acuerdo que en el ingreso directo: puede mandar
+                            // sobre el tipo y puede venir como nivel (tarea 1070).
+                            const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+                            const acuerdo = await resolverTarifaDeCliente(client, {
+                                userId, routeId: airRouteId, tipoSugerido: tariffType,
+                            });
+                            if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) {
+                                tariffType = acuerdo.tipo;
+                                pricePerKg = acuerdo.pricePerKg;
                                 isCustomTariff = true;
+                                console.log(`   [tarifa] ${childNo}: ${acuerdo.origen}`);
                             }
                         }
                         
