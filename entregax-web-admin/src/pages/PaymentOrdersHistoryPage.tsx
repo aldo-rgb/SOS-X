@@ -94,6 +94,16 @@ interface DetalleItem {
   venta_mxn?: number | null;
   description?: string | null;
   tipo?: string | null;
+  // De qué se compone el importe: dólares, precio por kilo, peso cobrable y el
+  // tipo de cambio con el que se cotizó la orden (tarea 1086).
+  costo_usd?: number | null;
+  precio_por_kg_usd?: number | null;
+  peso_real?: number | null;
+  peso_volumetrico?: number | null;
+  peso_cobrable?: number | null;
+  peso_cobrado?: number | null;
+  tc?: number | null;
+  tipo_tarifa?: string | null;
   children?: DetalleItem[];
 }
 
@@ -584,6 +594,21 @@ export default function PaymentOrdersHistoryPage() {
                         return (l > 0 || w > 0 || h > 0) ? `${l}×${w}×${h} cm` : '—';
                       };
                       const suma = lineas.reduce((a, i) => a + (Number(i.venta_mxn) || 0), 0);
+                      const sumaUsd = lineas.reduce((a, i) => a + (i.hija ? 0 : (Number(i.costo_usd) || 0)), 0);
+                      const dolares = (v: number) => v > 0
+                        ? '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : '—';
+                      // Peso real, volumétrico y medidas: de ahí sale el peso cobrable,
+                      // pero ninguno merece columna propia.
+                      const bajoLaGuia = (i: DetalleItem) => [
+                        Number(i.weight) > 0 ? Number(i.weight).toFixed(1) + ' kg real' : '',
+                        Number(i.peso_volumetrico) > 0 ? Number(i.peso_volumetrico).toFixed(1) + ' kg vol' : '',
+                        medidas(i) !== '—' ? medidas(i) : '',
+                        // La tarifa por kilo no explica el precio con el peso cobrable:
+                        // se dice sobre que peso se cobro (1086).
+                        Number(i.peso_cobrado) > 0
+                          ? 'cobrado sobre ' + Number(i.peso_cobrado).toFixed(1) + ' kg' : '',
+                      ].filter(Boolean).join(' · ');
                       return (
                         <TableRow>
                           <TableCell colSpan={11} sx={{ bgcolor: '#FAFAFA', pt: 0, pb: 1.5 }}>
@@ -609,40 +634,61 @@ export default function PaymentOrdersHistoryPage() {
                                     <TableRow>
                                       <TableCell>Guía</TableCell>
                                       <TableCell>Contenido</TableCell>
-                                      <TableCell align="center">Peso</TableCell>
-                                      <TableCell align="center">Medidas</TableCell>
+                                      <TableCell align="right">Costo USD</TableCell>
+                                      <TableCell align="right">USD / kg</TableCell>
+                                      <TableCell align="right">Peso cobrable</TableCell>
+                                      <TableCell align="right">T. cambio</TableCell>
                                       <TableCell align="right">Importe</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
                                     {lineas.map((i, k) => (
                                       <TableRow key={k} sx={i.hija ? { bgcolor: '#FFF8F0' } : undefined}>
-                                        <TableCell sx={{ fontFamily: 'monospace', pl: i.hija ? 3 : 1 }}>
-                                          {i.hija ? '↳ ' : ''}{i.tracking || '—'}
+                                        <TableCell sx={{ pl: i.hija ? 3 : 1 }}>
+                                          <Box component="span" sx={{ fontFamily: 'monospace' }}>
+                                            {i.hija ? '↳ ' : ''}{i.tracking || '—'}
+                                          </Box>
+                                          <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled', fontSize: '0.62rem' }}>
+                                            {bajoLaGuia(i) || '—'}
+                                          </Typography>
                                         </TableCell>
                                         <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                           {i.description || '—'}
                                         </TableCell>
-                                        <TableCell align="center">
-                                          {Number(i.weight) > 0 ? `${Number(i.weight).toFixed(1)} kg` : '—'}
+                                        <TableCell align="right">{dolares(Number(i.costo_usd) || 0)}</TableCell>
+                                        {/* Start Up es un precio PLANO por tramo de peso: el
+                                            por-kilo que saldría aquí es derivado. */}
+                                        <TableCell align="right">
+                                          {String(i.tipo_tarifa || '') === 'SU'
+                                            ? 'plano'
+                                            : (Number(i.precio_por_kg_usd) > 0 ? '$' + Number(i.precio_por_kg_usd).toFixed(2) : '—')}
                                         </TableCell>
-                                        <TableCell align="center">{medidas(i)}</TableCell>
+                                        <TableCell align="right">
+                                          {Number(i.peso_cobrable) > 0 ? `${Number(i.peso_cobrable).toFixed(1)} kg` : '—'}
+                                        </TableCell>
+                                        <TableCell align="right">
+                                          {Number(i.tc) > 0 ? '$' + Number(i.tc).toFixed(2) : '—'}
+                                        </TableCell>
                                         <TableCell align="right" sx={{ fontWeight: 600 }}>
                                           {i.venta_mxn == null ? '—' : moneyFmt(Number(i.venta_mxn) || 0, 'MXN')}
                                         </TableCell>
                                       </TableRow>
                                     ))}
                                     <TableRow>
-                                      <TableCell colSpan={4} align="right" sx={{ fontWeight: 700, border: 0 }}>
+                                      <TableCell colSpan={2} align="right" sx={{ fontWeight: 700, border: 0 }}>
                                         Suma de las guías
                                       </TableCell>
+                                      <TableCell align="right" sx={{ fontWeight: 700, border: 0 }}>
+                                        {dolares(sumaUsd)}
+                                      </TableCell>
+                                      <TableCell colSpan={3} sx={{ border: 0 }} />
                                       <TableCell align="right" sx={{ fontWeight: 800, border: 0 }}>
                                         {moneyFmt(suma, 'MXN')}
                                       </TableCell>
                                     </TableRow>
                                     {Math.abs(suma - Number(r.amount || 0)) > 1 && (
                                       <TableRow>
-                                        <TableCell colSpan={5} sx={{ border: 0, pt: 0 }}>
+                                        <TableCell colSpan={7} sx={{ border: 0, pt: 0 }}>
                                           {/* La orden puede cobrar menos que la suma de sus guías
                                               cuando se aplicó saldo a favor o línea de crédito, y
                                               más cuando trae cargos extra. Se dice en lugar de
