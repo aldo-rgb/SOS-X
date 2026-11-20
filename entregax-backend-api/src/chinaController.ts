@@ -285,6 +285,25 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             // Si la tiene, NO aplicar Startup (los clientes con tarifa personalizada usan per-kg siempre).
             // Sino, verificar Start Up para paquetes pequeños, luego tarifa general.
             const itemWeight = parseFloat(String(item.weight || 0)) || 0;
+
+            // PESO COBRABLE: lo que la caja ocupa de verdad en el avion. Una caja
+            // grande y liviana paga por su volumen, no por lo que marca la
+            // bascula. El volumetrico lo declara China en `singleVolume`
+            // (L x W x H / 6000, verificado contra 3,456 de 3,456 guias); si no
+            // viene en el payload se calcula igual.
+            //
+            // El cobro por kilo se hacia sobre el peso real y por ahi se cobraba
+            // de menos: en los ultimos 10 dias, de 458 precios aereos asignados,
+            // en 156 el volumetrico mandaba sobre el real y los 156 se cobraron
+            // por el real (tareas 1081 y 1086).
+            const volumetricoDeclarado = parseFloat(String(item.singleVolume || 0)) || 0;
+            const largoCm = parseFloat(String(item.long || 0)) || 0;
+            const anchoCm = parseFloat(String(item.width || 0)) || 0;
+            const altoCm = parseFloat(String(item.height || 0)) || 0;
+            const volumetrico = volumetricoDeclarado > 0
+                ? volumetricoDeclarado
+                : (largoCm * anchoCm * altoCm) / 6000;
+            const pesoCobrable = Math.max(itemWeight, volumetrico > 0 ? volumetrico : 0);
             let pricePerKg = 0;
             let isCustomTariff = false;
             let salePrice = 0;
@@ -314,6 +333,12 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             }
 
             // 2️⃣ Si NO tiene tarifa custom y peso ≤15kg → aplicar Startup
+            //
+            // El tramo se mide con el peso REAL a proposito, igual que el cobro
+            // (tdiExpressController) y que el cotizador (tarea 809): si aqui se
+            // midiera con el cobrable, lo cotizado y lo facturado dejarian de
+            // empatar. El Start Up es un precio PLANO: el peso cobrable no entra
+            // en su cuenta, solo se guarda para que se vea en la cotizacion.
             if (!hasCustomTariff && airRouteId && itemWeight > 0 && itemWeight <= 15) {
                 const startupRes = await client.query(`
                     SELECT price_usd FROM air_startup_tiers
@@ -341,10 +366,10 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                         pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
                     }
                 }
-                salePrice = itemWeight * pricePerKg;
+                salePrice = pesoCobrable * pricePerKg;
             }
             
-            console.log(`   📦 ${item.childNo}: ${tariffType} | ${itemWeight}kg ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+            console.log(`   📦 ${item.childNo}: ${tariffType} | ${itemWeight}kg real / ${pesoCobrable.toFixed(2)}kg cobrable ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
 
             if (existingPkg.rows.length > 0) {
                 // ACTUALIZAR caja existente (ej: cuando llega el billNo)
@@ -394,6 +419,7 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                             air_price_per_kg = $10,
                             air_sale_price = $11,
                             air_is_custom_tariff = $12,
+                            air_chargeable_weight = $13,
                             air_price_assigned_at = NOW(),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE child_no = $7
@@ -409,7 +435,8 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                         tariffType,
                         pricePerKg,
                         salePrice,
-                        isCustomTariff
+                        isCustomTariff,
+                        pesoCobrable > 0 ? pesoCobrable : null
                     ]);
                 }
                 packagesUpdated++;
@@ -425,8 +452,9 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                      description, pro_name, customs_bno, trajectory_name,
                      single_volume, single_cbm, international_tracking,
                      etd, eta, service_type, warehouse_location, status,
-                     air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff, air_price_assigned_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW())
+                     air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff,
+                     air_chargeable_weight, air_price_assigned_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, NOW())
                 `, [
                     trackingInternal,
                     item.childNo,
@@ -458,7 +486,8 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                     tariffType,
                     pricePerKg,
                     salePrice,
-                    isCustomTariff
+                    isCustomTariff,
+                    pesoCobrable > 0 ? pesoCobrable : null
                 ]);
                 packagesCreated++;
             }
@@ -3067,12 +3096,22 @@ async function processCallbackPayload(
                     
                     // Buscar precio: primero verificar Start Up, luego personalizada, luego general
                     const weight = parseFloat(String(item.weight || 0)) || 0;
+                    // Mismo peso cobrable que en el ingreso directo: el volumetrico
+                    // que declara China, o el que sale de las medidas (tarea 1086).
+                    const volDeclarado = parseFloat(String(item.singleVolume || 0)) || 0;
+                    const volumetrico = volDeclarado > 0
+                        ? volDeclarado
+                        : ((parseFloat(String(item.long || 0)) || 0)
+                           * (parseFloat(String(item.width || 0)) || 0)
+                           * (parseFloat(String(item.height || 0)) || 0)) / 6000;
+                    const pesoCobrable = Math.max(weight, volumetrico > 0 ? volumetrico : 0);
                     let pricePerKg = 0;
                     let isCustomTariff = false;
                     let salePrice = 0;
                     let isStartup = false;
                     
                     // Check Start Up tier (flat price by weight bracket, ≤15kg)
+                    // El tramo va por peso REAL, igual que el cobro y el cotizador.
                     if (airRouteId && weight > 0 && weight <= 15) {
                         const startupRes = await client.query(`
                             SELECT price_usd FROM air_startup_tiers
@@ -3113,10 +3152,10 @@ async function processCallbackPayload(
                                 pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
                             }
                         }
-                        salePrice = weight * pricePerKg;
+                        salePrice = pesoCobrable * pricePerKg;
                     }
                     
-                    console.log(`   📦 ${childNo}: ${tariffType} | ${weight}kg ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+                    console.log(`   📦 ${childNo}: ${tariffType} | ${weight}kg real / ${pesoCobrable.toFixed(2)}kg cobrable ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
                     
                     await client.query(`
                         INSERT INTO packages 
@@ -3125,8 +3164,9 @@ async function processCallbackPayload(
                          description, pro_name, customs_bno, trajectory_name,
                          single_volume, single_cbm, international_tracking,
                          etd, eta, service_type, warehouse_location, status,
-                         air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff, air_price_assigned_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW())
+                         air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff,
+                         air_chargeable_weight, air_price_assigned_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, NOW())
                     `, [
                         trackingInternal,       // $1
                         childNo,                // $2
@@ -3154,7 +3194,8 @@ async function processCallbackPayload(
                         tariffType,             // $24
                         pricePerKg,             // $25
                         salePrice,              // $26
-                        isCustomTariff          // $27
+                        isCustomTariff,         // $27
+                        pesoCobrable > 0 ? pesoCobrable : null // $28
                     ]);
                     packagesCreated++;
                 }
