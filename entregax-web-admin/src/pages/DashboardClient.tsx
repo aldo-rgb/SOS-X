@@ -1170,14 +1170,29 @@ export default function DashboardClient() {
         // Para TDX en zona metropolitana de MTY el backend oculta Paquete Express y
         // las "por cobrar" (solo queda EntregaX). Se manda tdx=1 + el CP de la
         // dirección seleccionada para que aplique la regla.
-        let qs = '';
-        if (selectedServiceType === 'tdi_express') {
-          const selAddr = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
-          const zip = String(selAddr?.zip_code || '').trim();
-          const params = new URLSearchParams({ tdx: '1' });
-          if (zip) params.set('zip', zip);
-          qs = `?${params.toString()}`;
-        }
+        // ⚖️ El PESO va en la consulta.
+        //
+        // El catálogo ya trae el tope de cada paquetería (`max_weight_kg`) y el
+        // backend ya filtra con él, pero el portal nunca mandaba el peso: sin
+        // ese dato el filtro no hace nada y la lista sale completa. Resultado:
+        // a un cliente con una caja de 23 kg se le ofrecía igual la guía
+        // prepagada de Estafeta —que es de 1 kilo— con su "$99" bien visible.
+        // La elegía, y después había que avisarle que su envío no procedía por
+        // ese monto. Ocho cajas de entre 2 y 23.4 kg salieron así antes de que
+        // el servidor lo bloqueara (TKT-2026-3716, tareas 1003 y 1065).
+        //
+        // Se manda la caja MÁS PESADA de la selección, que es el mismo criterio
+        // con el que el servidor valida al guardar: la guía se compra por caja.
+        const pesoMaxCaja = packages
+          .filter(p => selectedPackageIds.includes(p.id))
+          .reduce((max: number, p: any) => Math.max(max, Number(p.weight) || 0), 0);
+        const selAddr = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+        const zipSel = String(selAddr?.zip_code || '').trim();
+        const params = new URLSearchParams();
+        if (pesoMaxCaja > 0) params.set('weight', String(pesoMaxCaja));
+        if (zipSel) params.set('zip', zipSel);
+        if (selectedServiceType === 'tdi_express') params.set('tdx', '1');
+        const qs = params.toString() ? `?${params.toString()}` : '';
         const res = await fetch(`${API_URL}/api/carrier-options/by-service/${selectedServiceType}${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -1216,8 +1231,12 @@ export default function DashboardClient() {
       }
     };
     fetchCarrierOptions();
+  // La selección de cajas entra como dependencia —por valor, no por
+  // referencia— para que al cambiar de caja se vuelva a preguntar con el peso
+  // nuevo: una paquetería que no aplica a una caja pesada sí puede aplicar a
+  // la siguiente.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedServiceType, selectedDeliveryAddress]);
+  }, [selectedServiceType, selectedDeliveryAddress, selectedPackageIds.join(',')]);
 
   const getCarrierImageFallbackText = (carrierId: string, carrierName: string): string => {
     const id = String(carrierId || '').toLowerCase();
@@ -11073,6 +11092,20 @@ export default function DashboardClient() {
                                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, textAlign: 'center', lineHeight: 1.2 }}>
                                   ⏱ {service.description}
                                 </Typography>
+                                {/* La condición del servicio, visible desde el principio.
+                                    El catálogo la guarda —la guía prepagada de Estafeta dice
+                                    "Guía de 1 Kilo"— pero no se enseñaba en ninguna parte: el
+                                    cliente sólo veía el "$99", lo elegía, y después había que
+                                    avisarle que su envío no procedía por ese monto
+                                    (TKT-2026-3716, tarea 1065). */}
+                                {service.subtext && (
+                                  <Typography variant="caption" sx={{
+                                    mt: 0.25, textAlign: 'center', lineHeight: 1.2,
+                                    color: '#B45309', fontWeight: 600,
+                                  }}>
+                                    {service.subtext}
+                                  </Typography>
+                                )}
                               </Box>
                               <Box sx={{ flex: 1 }} />
                               <Box sx={{ textAlign: 'right' }}>
