@@ -148,10 +148,6 @@ interface ClientOption {
 }
 
 interface ClientTariff {
-    /** La REGLA guardada: 'A' | 'B' | 'C'. null = precio fijo, como antes. */
-    nivel?: string | null;
-    /** Este tipo manda sobre el que sale de la descripcion de la mercancia. */
-    tipo_forzado?: boolean;
     id: number;
     route_id: number;
     tariff_type: string;
@@ -212,11 +208,6 @@ export default function AirPricingPage() {
     // 🅰️🅱️🅲 Nivel A/B/C por ruta para el cliente seleccionado.
     // A = precio base, B = base - $1 USD/kg, C = base - $2 USD/kg.
     const [editingClientLevels, setEditingClientLevels] = useState<Record<number, 'A' | 'B' | 'C' | ''>>({});
-    // Tipo de carga que MANDA sobre el que sale de la descripcion de la
-    // mercancia. Sin esto, un cliente con trato Flat que manda zapatos caia
-    // siempre en Logo y su tarifa Flat no se alcanzaba nunca: de las 14,667
-    // guias aereas del sistema, CERO son Flat (tarea 1070).
-    const [editingTipoForzado, setEditingTipoForzado] = useState<Record<number, string>>({});
     const [clientTab, setClientTab] = useState(0); // 0 = buscar, 1 = ver clientes con tarifas
 
     // Price history dialog state
@@ -589,24 +580,10 @@ export default function AirPricingPage() {
 
                 // 🅰️🅱️🅲 Detectar nivel A/B/C por ruta inspeccionando el descuento
                 // promedio respecto al costo asignado (price_per_kg base) de cada tipo.
-                //
-                // El nivel ahora viene GUARDADO. Antes se adivinaba comparando el
-                // precio contra lo que daria cada nivel, y eso solo funciona si el
-                // costo de la ruta no se mueve: se movio cuatro veces en un mes, la
-                // adivinanza acertaba otro nivel y al volver a guardar le cambiaba
-                // el precio al cliente sin que nadie tocara su acuerdo (1070). La
-                // adivinanza queda solo para los acuerdos viejos, que no lo traen.
                 const levels: Record<number, 'A' | 'B' | 'C' | ''> = {};
-                const fijos: Record<number, string> = {};
                 for (const route of routes) {
                     const rTariffs = list.filter(t => t.route_id === route.id);
-                    fijos[route.id] = String(rTariffs.find(t => t.tipo_forzado === true)?.tariff_type || '');
                     if (rTariffs.length === 0) { levels[route.id] = ''; continue; }
-                    const guardado = String(rTariffs.find(t => t.nivel)?.nivel || '').toUpperCase();
-                    if (['A', 'B', 'C'].includes(guardado)) {
-                        levels[route.id] = guardado as 'A' | 'B' | 'C';
-                        continue;
-                    }
                     let bestLevel: 'A' | 'B' | 'C' | '' = '';
                     let bestDiff = Infinity;
                     for (const lv of CLIENT_LEVELS) {
@@ -626,7 +603,6 @@ export default function AirPricingPage() {
                     levels[route.id] = bestDiff <= 0.05 ? bestLevel : '';
                 }
                 setEditingClientLevels(levels);
-                setEditingTipoForzado(fijos);
             }
         } catch (error) {
             console.error('Error cargando tarifas del cliente:', error);
@@ -656,10 +632,7 @@ export default function AirPricingPage() {
             // 🅰️🅱️🅲 Construir tarifas a partir del nivel A/B/C elegido por ruta:
             // por cada ruta con nivel seleccionado, se generan 4 entradas (L/G/S/F)
             // = base_price - discount, omitiendo tipos sin precio base.
-            const tariffsToSave: {
-                route_id: number; tariff_type: string; price_per_kg: number;
-                nivel: string; tipo_forzado: boolean;
-            }[] = [];
+            const tariffsToSave: { route_id: number; tariff_type: string; price_per_kg: number }[] = [];
             for (const route of routes) {
                 const lv = editingClientLevels[route.id];
                 if (!lv) continue;
@@ -668,13 +641,7 @@ export default function AirPricingPage() {
                     const base = getEffectiveBasePrice(route, type);
                     if (base <= 0) continue; // sin precio base = no aplica
                     const price = Math.max(0, +(base - discount).toFixed(2));
-                    // Se manda el precio de hoy Y la regla que lo produjo. El precio
-                    // sirve para enseñarlo; la regla es la que se aplica al cotizar,
-                    // y por eso sigue al costo de la ruta en vez de congelarse.
-                    tariffsToSave.push({
-                        route_id: route.id, tariff_type: type, price_per_kg: price,
-                        nivel: lv, tipo_forzado: (editingTipoForzado[route.id] || '') === type,
-                    });
+                    tariffsToSave.push({ route_id: route.id, tariff_type: type, price_per_kg: price });
                 }
             }
 
@@ -1562,9 +1529,6 @@ export default function AirPricingPage() {
                                                 <strong>Selecciona el nivel de tarifa</strong> para cada ruta. El sistema aplica automáticamente el descuento sobre el costo asignado de cada tipo (L/G/S/F):
                                                 <br />· <strong>A</strong> = costo asignado · <strong>B</strong> = costo asignado − $1 USD/kg · <strong>C</strong> = costo asignado − $2 USD/kg.
                                                 <br />Deja en blanco para usar la tarifa estándar.
-                                                <br />· <strong>Toca un precio</strong> para fijar ese tipo de carga: toda la mercancía
-                                                del cliente en esa ruta se cobrará así, sin importar cómo venga descrita desde China.
-                                                Es lo que hace falta para que un trato <strong>Flat</strong> se respete.
                                             </Alert>
                                             <TableContainer component={Paper}>
                                                 <Table size="small">
@@ -1641,29 +1605,16 @@ export default function AirPricingPage() {
                                                                                         );
                                                                                     }
                                                                                     const finalPrice = Math.max(0, base - discount);
-                                                                                    // Tocar un precio fija ESE tipo para el cliente.
-                                                                                    // El tipo sale de la descripcion que manda China
-                                                                                    // ("logo", "zapato"...), asi que un cliente con
-                                                                                    // trato Flat caia siempre en Logo y su Flat no se
-                                                                                    // alcanzaba nunca (tarea 1070).
-                                                                                    const esFijo = (editingTipoForzado[route.id] || '') === type;
                                                                                     return (
                                                                                         <Chip
                                                                                             key={type}
-                                                                                            label={`${esFijo ? '🔒 ' : ''}${type}: $${finalPrice.toFixed(2)}`}
+                                                                                            label={`${type}: $${finalPrice.toFixed(2)}`}
                                                                                             size="small"
-                                                                                            clickable
-                                                                                            title={esFijo
-                                                                                                ? `Toda la carga de este cliente se cobra ${type}. Toca para quitarlo.`
-                                                                                                : `Fijar ${type} para toda la carga de este cliente en esta ruta`}
-                                                                                            onClick={() => setEditingTipoForzado(prev => ({
-                                                                                                ...prev, [route.id]: esFijo ? '' : type,
-                                                                                            }))}
                                                                                             sx={{
-                                                                                                bgcolor: esFijo ? t.color : t.bgColor,
-                                                                                                color: esFijo ? '#fff' : t.color,
+                                                                                                bgcolor: t.bgColor,
+                                                                                                color: t.color,
                                                                                                 fontWeight: 700,
-                                                                                                border: `${esFijo ? 2 : 1}px solid ${t.color}${esFijo ? '' : '40'}`,
+                                                                                                border: `1px solid ${t.color}40`,
                                                                                             }}
                                                                                         />
                                                                                     );

@@ -18,13 +18,6 @@ import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#FF6B35';
 
-interface CajaDelEnvio {
-    tracking: string;
-    box_number: number | null;
-    weight: string | number | null;
-    status: string;
-}
-
 interface ReceivedEntry {
     id: number;
     tracking: string;
@@ -32,12 +25,6 @@ interface ReceivedEntry {
     client_box_id: string;
     is_master: boolean;
     children_count: number;
-    // Cajas FISICAS del envio. El master es el envio, no una caja.
-    cajas: number;
-    // Se recibio por el master: se dieron por recibidas todas sus cajas sin
-    // haber verificado ninguna (tarea 1094).
-    recibio_todas_sin_verificar: boolean;
-    cajas_del_envio: CajaDelEnvio[];
     timestamp: string;
 }
 
@@ -78,9 +65,6 @@ export default function TdiCedisMtyPage({ onBack }: Props) {
                 client_box_id: res.data.client_box_id,
                 is_master: res.data.is_master,
                 children_count: res.data.children_count,
-                cajas: Number(res.data.cajas) || 1,
-                recibio_todas_sin_verificar: !!res.data.recibio_todas_sin_verificar,
-                cajas_del_envio: Array.isArray(res.data.cajas_del_envio) ? res.data.cajas_del_envio : [],
                 timestamp: new Date().toLocaleTimeString('es-MX'),
             };
             setLastSuccess(entry);
@@ -152,31 +136,10 @@ export default function TdiCedisMtyPage({ onBack }: Props) {
                 </Alert>
             )}
             {lastSuccess && (
-                <Alert severity={lastSuccess.recibio_todas_sin_verificar ? 'warning' : 'success'}
-                    icon={<CheckIcon />} sx={{ mb: 2 }}>
+                <Alert severity="success" icon={<CheckIcon />} sx={{ mb: 2 }}>
                     <strong>{lastSuccess.tracking}</strong> — {lastSuccess.client_name} ({lastSuccess.client_box_id})
-                    {lastSuccess.cajas > 1 && (
-                        <Chip label={`${lastSuccess.cajas} cajas`} size="small" color="success" sx={{ ml: 1 }} />
-                    )}
-                    {/* Escanear el master da por recibidas TODAS sus cajas sin que
-                        nadie las haya visto una por una. Antes no se decía: el aviso
-                        salía en verde y además contaba el master como caja, así que
-                        un envío de 5 decía "6 cajas actualizadas" (tarea 1094). */}
-                    {lastSuccess.recibio_todas_sin_verificar && (
-                        <Typography variant="body2" sx={{ mt: 0.5 }}>
-                            Escaneaste la guía del envío, así que las {lastSuccess.cajas} cajas quedaron
-                            recibidas sin verificarse una por una. Si quieres confirmarlas de a una,
-                            escanea su guía:
-                        </Typography>
-                    )}
-                    {lastSuccess.cajas_del_envio.length > 0 && (
-                        <Box sx={{ mt: 0.75, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {lastSuccess.cajas_del_envio.map((c) => (
-                                <Chip key={c.tracking} size="small" variant="outlined"
-                                    label={`${c.tracking}${Number(c.weight) > 0 ? ` · ${Number(c.weight).toFixed(1)} kg` : ''}`}
-                                    sx={{ fontFamily: 'monospace', fontSize: '0.68rem' }} />
-                            ))}
-                        </Box>
+                    {lastSuccess.is_master && lastSuccess.children_count > 0 && (
+                        <Chip label={`${lastSuccess.children_count + 1} cajas actualizadas`} size="small" color="success" sx={{ ml: 1 }} />
                     )}
                 </Alert>
             )}
@@ -194,7 +157,7 @@ export default function TdiCedisMtyPage({ onBack }: Props) {
                                     <Typography fontWeight={700} fontFamily="monospace">{r.tracking}</Typography>
                                     <Typography variant="caption" color="text.secondary">
                                         {r.client_name} · {r.client_box_id}
-                                        {r.cajas > 1 && ` · ${r.cajas} cajas`}
+                                        {r.is_master && r.children_count > 0 && ` · ${r.children_count + 1} cajas`}
                                     </Typography>
                                 </Box>
                                 <Box sx={{ textAlign: 'right' }}>
