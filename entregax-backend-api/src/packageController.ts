@@ -5626,7 +5626,9 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 } else {
                     // Entrega a domicilio - verificar si viene de Pick Up para recalcular costos
                     const currentPkg = await pool.query(
-                        `SELECT status, pobox_venta_usd, gex_total_cost, COALESCE(monto_pagado, 0) AS monto_pagado
+                        `SELECT status, pobox_venta_usd, gex_total_cost, COALESCE(monto_pagado, 0) AS monto_pagado,
+                                COALESCE(air_sale_price, 0) AS air_sale_price,
+                                COALESCE(registered_exchange_rate, 0) AS registered_exchange_rate
                            FROM packages WHERE id = $1`,
                         [packageId]
                     );
@@ -5638,7 +5640,27 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         const gexCost = parseFloat(currentPkg.rows[0]?.gex_total_cost) || 0;
                         const poboxMxn = poboxVentaUsd * tc;
                         const shippingCostMxn = parseFloat(carrierCost) || 0;
-                        const newTotalMxn = poboxMxn + gexCost + shippingCostMxn;
+                        // ⚠️ El total NO es solo PO Box.
+                        //
+                        // Esta cuenta estaba escrita como si toda guia fuera PO Box:
+                        // tomaba `pobox_venta_usd` y le sumaba GEX y flete nacional.
+                        // En una guia AEREA ese campo esta vacio, asi que el total
+                        // quedaba en el flete nacional a secas —o en CERO si no
+                        // llevaba— y al escribirse en `assigned_cost_mxn` y
+                        // `saldo_pendiente` borraba el flete aereo de la guia. Un
+                        // cliente puso sus instrucciones y tres cajas suyas de
+                        // ~$8,000 de flete quedaron debiendo $99, que era lo que
+                        // costaba su envio nacional (tarea 1072 / 1087).
+                        //
+                        // El flete del servicio se suma venga de donde venga: PO Box
+                        // en dolares por nivel, o aereo en `air_sale_price`. Una guia
+                        // trae uno u otro, nunca los dos, asi que sumarlos es seguro.
+                        // El aereo se convierte con el tipo de cambio REGISTRADO en
+                        // la guia; el `tc` de aqui es el de PO Box y no le toca.
+                        const aereoUsd = parseFloat(currentPkg.rows[0]?.air_sale_price) || 0;
+                        const tcAereo = parseFloat(currentPkg.rows[0]?.registered_exchange_rate) || tc;
+                        const aereoMxn = aereoUsd * tcAereo;
+                        const newTotalMxn = poboxMxn + aereoMxn + gexCost + shippingCostMxn;
                         // Lo que YA pagó por la maniobra de pick-up se le abona al
                         // nuevo total; antes el saldo se reescribía con el total
                         // completo y el cliente terminaba debiendo dos veces esos
@@ -5795,19 +5817,43 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
 
                         // Recalcular total: PO Box + GEX + envío nacional
                         const currentPkgData = await pool.query(
-                            'SELECT pobox_venta_usd, gex_total_cost, monto_pagado FROM packages WHERE id = $1',
+                            `SELECT pobox_venta_usd, gex_total_cost, monto_pagado,
+                                    COALESCE(air_sale_price, 0) AS air_sale_price,
+                                    COALESCE(registered_exchange_rate, 0) AS registered_exchange_rate
+                               FROM packages WHERE id = $1`,
                             [packageId]
                         );
                         const poboxVentaUsd = parseFloat(currentPkgData.rows[0]?.pobox_venta_usd) || 0;
                         const gexCost = parseFloat(currentPkgData.rows[0]?.gex_total_cost) || 0;
                         const montoPagado = parseFloat(currentPkgData.rows[0]?.monto_pagado) || 0;
                         const poboxMxn = poboxVentaUsd * tc;
-                        const newTotalMxn = poboxMxn + gexCost + shippingCostMxn;
+                        // ⚠️ El total NO es solo PO Box.
+                        //
+                        // Esta cuenta estaba escrita como si toda guia fuera PO Box:
+                        // tomaba `pobox_venta_usd` y le sumaba GEX y flete nacional.
+                        // En una guia AEREA ese campo esta vacio, asi que el total
+                        // quedaba en el flete nacional a secas —o en CERO si no
+                        // llevaba— y al escribirse en `assigned_cost_mxn` y
+                        // `saldo_pendiente` borraba el flete aereo de la guia. Un
+                        // cliente puso sus instrucciones y tres cajas suyas de
+                        // ~$8,000 de flete quedaron debiendo $99, que era lo que
+                        // costaba su envio nacional (tarea 1072 / 1087).
+                        //
+                        // El flete del servicio se suma venga de donde venga: PO Box
+                        // en dolares por nivel, o aereo en `air_sale_price`. Una guia
+                        // trae uno u otro, nunca los dos, asi que sumarlos es seguro.
+                        // El aereo se convierte con el tipo de cambio REGISTRADO en
+                        // la guia; el `tc` de aqui es el de PO Box y no le toca.
+                        const aereoUsd = parseFloat(currentPkgData.rows[0]?.air_sale_price) || 0;
+                        const tcAereo = parseFloat(currentPkgData.rows[0]?.registered_exchange_rate) || tc;
+                        const aereoMxn = aereoUsd * tcAereo;
+                        const newTotalMxn = poboxMxn + aereoMxn + gexCost + shippingCostMxn;
                         const nuevoSaldo = Math.max(0, newTotalMxn - montoPagado);
                         
                         console.log(`📦 [Asignación Normal] Paquete ${packageId}:`);
                         console.log(`   Carrier: ${carrierName || carrier}, Costo envío: $${shippingCostMxn.toFixed(2)} MXN`);
                         console.log(`   PO Box: $${poboxVentaUsd} USD × TC $${tc} = $${poboxMxn.toFixed(2)} MXN`);
+                        if (aereoUsd > 0) console.log(`   Aéreo: $${aereoUsd} USD × TC $${tcAereo} = $${aereoMxn.toFixed(2)} MXN`);
                         console.log(`   GEX: $${gexCost.toFixed(2)}, Envío: $${shippingCostMxn.toFixed(2)}`);
                         console.log(`   TOTAL: $${newTotalMxn.toFixed(2)} MXN, Pagado: $${montoPagado.toFixed(2)}, Saldo: $${nuevoSaldo.toFixed(2)}`);
                         
