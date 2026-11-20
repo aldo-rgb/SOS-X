@@ -45,6 +45,30 @@ export async function tcVigenteDelServicio(db: Db, servicio: string | null | und
 }
 
 /**
+ * El tipo de cambio que traen pactado las guias de la orden, cuando todas
+ * traen el mismo. 0 si ninguna lo trae, o si no coinciden entre ellas.
+ */
+async function tcAcordadoDeLasGuias(db: Db, poboxPaymentId: number): Promise<number> {
+  try {
+    const r = await db.query(
+      `SELECT COUNT(DISTINCT p.registered_exchange_rate) AS distintos,
+              MIN(p.registered_exchange_rate)::numeric AS tc,
+              COUNT(*) FILTER (WHERE COALESCE(p.registered_exchange_rate, 0) = 0) AS sin_tc
+         FROM pobox_payments o
+         JOIN packages p ON o.package_ids @> to_jsonb(ARRAY[p.id])
+        WHERE o.id = $1`,
+      [poboxPaymentId],
+    );
+    const f = r.rows[0] || {};
+    if (Number(f.distintos) !== 1 || Number(f.sin_tc) > 0) return 0;
+    return parseFloat(f.tc) || 0;
+  } catch (e: any) {
+    console.warn('[tc-orden] no pude leer el TC pactado de las guias:', e?.message);
+    return 0;
+  }
+}
+
+/**
  * Deja escrito en la orden el tipo de cambio con el que se cotizo.
  * No lanza: una orden sin TC sellado se sigue pudiendo pagar.
  */
@@ -55,7 +79,17 @@ export async function sellarTcDeLaOrden(
 ): Promise<number> {
   if (!poboxPaymentId) return 0;
   try {
-    const tc = await tcVigenteDelServicio(db, servicio);
+    // 🤝 El tipo de cambio pactado con el cliente manda sobre el vigente.
+    //
+    // Hay guias que traen el suyo escrito (`registered_exchange_rate`): es el
+    // que se le cotizo al cliente, normalmente junto con una tarifa acordada.
+    // Sellar el vigente encima le cambiaba el numero al cliente aunque el
+    // importe en pesos fuera el correcto: "el tipo de cambio sigue sin
+    // reflejarse con el solicitado" (tarea 1070). Solo aplica cuando TODAS las
+    // guias de la orden traen el MISMO: con dos distintos no hay un tipo de
+    // cambio de la orden que decir, y entonces manda el vigente.
+    const tc = (await tcAcordadoDeLasGuias(db, poboxPaymentId))
+      || (await tcVigenteDelServicio(db, servicio));
     if (!(tc > 0)) return 0;
     await db.query(
       `UPDATE pobox_payments SET tipo_cambio_usd = $2 WHERE id = $1 AND tipo_cambio_usd IS NULL`,

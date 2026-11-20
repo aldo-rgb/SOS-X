@@ -1110,7 +1110,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // habria sacado a 19.23 cuando se cobro a 18.93. Si la orden no lo trae
         // sellado y la guia tampoco, queda en cero y mas abajo se deriva del
         // propio monto de la orden; si ni eso, sale en blanco (tarea 1086).
-        const tcDeLaFila = tcSellado || parseFloat(m.registered_exchange_rate) || 0;
+        // El TC de la propia guia va PRIMERO: es el que se le pacto y cotizo
+        // (tarea 1070). El sellado de la orden entra cuando la guia no trae el
+        // suyo, que es el caso normal.
+        const tcDeLaFila = parseFloat(m.registered_exchange_rate) || tcSellado || 0;
         // Lo que cobra el renglon, en pesos. Se calcula ANTES del desglose
         // porque el desglose abre justo ese importe: sus columnas tienen que
         // sumar lo mismo que la fila enseña (1086).

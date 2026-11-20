@@ -2420,7 +2420,8 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         || Number(p.saldo_pendiente) || Number(p.assigned_cost_mxn) || 0;
                     return ({
                         ...p,
-                        ...desgloseDeGuia(p, tcSellado || Number(p.registered_exchange_rate) || tcDerivado, ventaMxn),
+                        // El TC pactado en la guia manda sobre el de la orden (1070).
+                        ...desgloseDeGuia(p, Number(p.registered_exchange_rate) || tcSellado || tcDerivado, ventaMxn),
                     });
                 });
             }
