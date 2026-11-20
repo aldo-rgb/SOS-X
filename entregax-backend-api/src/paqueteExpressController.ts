@@ -1492,6 +1492,60 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
   // tarifa es el código postal.
   const origenCotiza = { zipCode: origen.zip, colonyName: 'CENTRO' };
 
+  // Todo lo que se pregunta y todo lo que se contesta queda registrado. No
+  // existia bitacora: cuando un cliente reporto "fuera de cobertura" no habia
+  // nada que revisar, y al dia siguiente ese CP cotizaba bien (tarea 1087).
+  const { yaEntregamosEn, registrarCotizacion } = await import('./pqtxCobertura');
+  const arranque = Date.now();
+
+  // Arma la respuesta de domicilio a partir de las tarifas que contesto la
+  // cotizadora. Esta aparte porque se usa DOS veces: al primer intento y al
+  // reintento que se hace antes de dar un CP por fuera de cobertura (tarea 1087).
+  const armarDomicilio = (quotations: any[]): any => {
+    // La mas economica (terrestre, normalmente)
+    const cheapest = quotations.reduce((min: any, q: any) => {
+      const qTotal = parseFloat(q.amount?.totalAmnt || q.totalAmnt || q.totalAmount || q.total || '0');
+      const mTotal = parseFloat(min.amount?.totalAmnt || min.totalAmnt || min.totalAmount || min.total || '0');
+      return qTotal < mTotal ? q : min;
+    }, quotations[0]);
+    const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
+    // REGLA DE UTILIDAD (precio POR CAJA) — pqtxTotal corresponde a linesToQuote
+    // lineas. $400 hasta ~$300 de costo por caja; por encima, ceil(costo)+$100.
+    const lineas = Math.min(Math.max(1, packageCount), 6);
+    const pqtxPerBox = lineas > 1 ? pqtxTotal / lineas : pqtxTotal;
+    const pricePerBox = pqtxPricePerBox(pqtxPerBox);
+    const clientPrice = pricePerBox * packageCount;
+    const rule = pqtxPerBox < 300 ? 'min_400_per_box' : 'override_cost_plus_100';
+    console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, pricePerBox=$${pricePerBox}, clientTotal=$${clientPrice}, rule=${rule}`);
+    return {
+      success: true,
+      available: true,
+      type: 'domicilio',
+      carrier: 'paquete_express',
+      name: 'Paquete Express',
+      pqtxQuote: pqtxTotal,
+      clientPrice,
+      pricePerBox,
+      packageCount,
+      currency: 'MXN',
+      rule,
+      estimatedDays: cheapest.dlvyEstDate || '2-4 días hábiles',
+      serviceName: cheapest.zoneName || cheapest.serviceDescription || 'Terrestre',
+    };
+  };
+
+  const comunesDelLog = {
+    destZip: destZipCode,
+    colony: input.colonyName || null,
+    originZip: origen.zip,
+    sucursal,
+    packageCount,
+    weight,
+    dims: `${length}x${width}x${height}`,
+    userId: input.userId ?? null,
+    packageId: input.packageId ?? null,
+  };
+
   try {
     // PQTX rechaza cotizaciones con más de 6 líneas de captura
     // ("NO SE PUEDEN ENVIAR MAS DE 6 LINEAS DE CAPTURA"). Como aquí la cotización
@@ -1578,6 +1632,36 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
     }
 
     if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
+      // ── Un "no" de la cotizadora no es un veredicto sobre el CP ───────────
+      //
+      // Antes de bajar al cliente a Ocurre —que lo obliga a ir a recoger— se
+      // pregunta OTRA VEZ a domicilio. La respuesta vacia puede ser de ese
+      // momento: en la tarea 1087 el CP salio sin cobertura una tarde y al dia
+      // siguiente cotizaba bien desde los dos CEDIS, con y sin colonia, con las
+      // medidas reales y sin medidas. Va ANTES del barrido de Ocurre a
+      // proposito: si Ocurre contesta, ya no se vuelve a preguntar a domicilio y
+      // un parpadeo acabaria mandando a recoger a quien tiene entrega en casa.
+      try {
+        body.body.request.data.clientAddrDest.colonyName =
+          (input.colonyName || '').trim().toUpperCase() || 'CENTRO';
+        const reintento = await axios.post(url, body, {
+          headers: { 'Content-Type': 'application/json' }, timeout: 20000,
+        });
+        const rb3 = reintento.data?.body?.response;
+        const q3 = rb3?.data?.quotations;
+        if (rb3?.success && Array.isArray(q3) && q3.length > 0) {
+          console.log(`[PQTX-CLIENT] ZIP=${destZipCode}: al reintentar SI cotizo a domicilio`);
+          const r = armarDomicilio(q3);
+          registrarCotizacion({ ...comunesDelLog, veredicto: 'domicilio',
+            motivo: 'cotizo al reintentar; la primera respuesta vino vacia',
+            costoPqtx: r.pqtxQuote, precioCliente: r.clientPrice, ms: Date.now() - arranque });
+          return r;
+        }
+      } catch (e: any) {
+        console.warn('[PQTX-CLIENT] el reintento a domicilio fallo:', e?.message);
+      }
+
+
       console.log(`[PQTX-CLIENT] Sin cobertura domicilio para ZIP=${destZipCode}, intentando Ocurre...`);
 
       // Intentar Ocurre en CP exacto y luego en CPs cercanos
@@ -1623,6 +1707,9 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
           const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
           const costPerBox = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
           const pricePerBox = pqtxPricePerBox(costPerBox);
+          registrarCotizacion({ ...comunesDelLog, veredicto: 'ocurre',
+            motivo: 'sin tarifa a domicilio; Ocurre en el CP exacto',
+            costoPqtx: oTotal, precioCliente: pricePerBox * packageCount, ms: Date.now() - arranque });
           return { success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
             branch: exact.destination, pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
             estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount };
@@ -1643,6 +1730,9 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
               const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
               const costPerBox2 = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
               const pricePerBox = pqtxPricePerBox(costPerBox2);
+              registrarCotizacion({ ...comunesDelLog, veredicto: 'ocurre',
+                motivo: `sin tarifa a domicilio; Ocurre en la sucursal del CP ${candidateZip}`,
+                costoPqtx: oTotal, precioCliente: pricePerBox * packageCount, ms: Date.now() - arranque });
               return { success: true, available: true, type: 'ocurre', nearestBranch: true,
                 usedZip: candidateZip, originalZip: destZipCode, branch: r2.destination,
                 pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
@@ -1652,47 +1742,45 @@ export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> 
         }
       }
 
+      // ¿Ya le entregamos a ese CP? Si hay una guia nuestra
+      // emitida ahi, la cotizadora se contradice con los hechos y gana el hecho.
+      // La paqueteria queda disponible al precio de respaldo —que en aereo va
+      // incluido en el flete—, en lugar de apagarse.
+      const antecedente = await yaEntregamosEn(destZipCode);
+      if (antecedente.hayAntecedente) {
+        const pricePerBox = pqtxPricePerBox(0);
+        console.warn(`[PQTX-CLIENT] ZIP=${destZipCode}: la cotizadora dice sin cobertura, pero `
+          + `${antecedente.motivo}. Se deja disponible a domicilio con precio de respaldo.`);
+        registrarCotizacion({ ...comunesDelLog, veredicto: 'sin_cobertura_con_antecedente',
+          motivo: antecedente.motivo, precioCliente: pricePerBox * packageCount,
+          ms: Date.now() - arranque });
+        return {
+          success: true, available: true, type: 'domicilio', carrier: 'paquete_express',
+          name: 'Paquete Express', pqtxQuote: null, sinTarifa: true,
+          motivoSinTarifa: antecedente.motivo,
+          pricePerBox, clientPrice: pricePerBox * packageCount, packageCount,
+          currency: 'MXN', rule: 'antecedente_de_entrega', estimatedDays: '2-4 días hábiles',
+        };
+      }
+
       // Sin cobertura en ningún CP cercano
       console.log(`[PQTX-CLIENT] Sin cobertura domicilio ni Ocurre para ZIP=${destZipCode}`);
+      registrarCotizacion({ ...comunesDelLog, veredicto: 'sin_cobertura',
+        motivo: 'sin tarifa a domicilio ni Ocurre, tras reintentar, y sin guia previa a ese CP',
+        ms: Date.now() - arranque });
       return { success: true, available: false, noCoverage: true, carrier: 'paquete_express', destZipCode, packageCount };
     }
 
-    // Tomar la cotización más económica (terrestre normalmente)
-    const cheapest = quotations.reduce((min: any, q: any) => {
-      const qTotal = parseFloat(q.amount?.totalAmnt || q.totalAmnt || q.totalAmount || q.total || '0');
-      const mTotal = parseFloat(min.amount?.totalAmnt || min.totalAmnt || min.totalAmount || min.total || '0');
-      return qTotal < mTotal ? q : min;
-    }, quotations[0]);
-
-    const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
-
-    // REGLA DE UTILIDAD (precio POR CAJA) — pqtxTotal corresponde a linesToQuote líneas.
-    // $400 hasta ~$300 de costo por caja; por encima, override = ceil(costo)+$100.
-    const pqtxPerBox = linesToQuote > 1 ? pqtxTotal / linesToQuote : pqtxTotal;
-    const pricePerBox = pqtxPricePerBox(pqtxPerBox);
-    const clientPrice = pricePerBox * packageCount;
-    const rule = pqtxPerBox < 300 ? 'min_400_per_box' : 'override_cost_plus_100';
-
-    console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, pricePerBox=$${pricePerBox}, clientTotal=$${clientPrice}, rule=${rule}`);
-
-    return {
-      success: true,
-      available: true,
-      type: 'domicilio',
-      carrier: 'paquete_express',
-      name: 'Paquete Express',
-      pqtxQuote: pqtxTotal,
-      clientPrice,
-      pricePerBox,
-      packageCount,
-      currency: 'MXN',
-      rule,
-      estimatedDays: cheapest.dlvyEstDate || '2-4 días hábiles',
-      serviceName: cheapest.zoneName || cheapest.serviceDescription || 'Terrestre',
-    };
+    const r = armarDomicilio(quotations);
+    registrarCotizacion({ ...comunesDelLog, veredicto: 'domicilio',
+      motivo: 'cotizo al primer intento', costoPqtx: r.pqtxQuote,
+      precioCliente: r.clientPrice, ms: Date.now() - arranque });
+    return r;
 
   } catch (error: any) {
     console.error('[PQTX-CLIENT] Error en cotización:', error.message);
+    registrarCotizacion({ ...comunesDelLog, veredicto: 'error',
+      motivo: String(error?.message || '').slice(0, 300), ms: Date.now() - arranque });
     // Sin dato de cobertura → no inventamos precio: marcamos no disponible para que
     // el llamador decida (el endpoint responde igual; la asignación usa fallback).
     return { success: false, available: false, packageCount, error: error.message };

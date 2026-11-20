@@ -11140,6 +11140,13 @@ export default function DashboardClient() {
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" display="block">
                                   Paquete Express no tiene cobertura a domicilio ni sucursal Ocurre cercana para tu CP.{' '}
+                                  {/* Un cliente de Apatzingán vio este aviso, se quedó sin su paquetería
+                                      —que en aéreo va incluida en el flete— y pagó otra opción. Al
+                                      revisarlo, su CP cotizaba bien y ya le habíamos emitido una guía
+                                      ahí. Ahora el sistema reintenta y, si tenemos guía previa a ese CP,
+                                      ni siquiera llega aquí; pero si llega, que sepa que no es el final
+                                      del camino (tarea 1087). */}
+                                  <strong>Si ya te hemos enviado a esta dirección, dile a tu asesor: puede generar la guía de todos modos. </strong>
                                   <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noopener noreferrer" style={{ color: '#E65100' }}>
                                     Buscar sucursal manualmente →
                                   </a>

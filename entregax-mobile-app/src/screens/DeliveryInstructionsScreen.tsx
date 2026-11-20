@@ -1792,8 +1792,16 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                       {isPqtx && pqtxNoCoverage && (
                         <View style={{ backgroundColor: '#FFF3E0', borderRadius: 6, padding: 8, marginTop: 6, marginRight: 8, borderWidth: 1, borderColor: '#FFB74D' }}>
                           <Text style={{ fontSize: 12, fontWeight: '700', color: '#E65100' }}>🚫 Zona Fuera de Cobertura</Text>
+                          {/* Un cliente vio este aviso, se quedo sin su paqueteria —que en
+                              aereo va incluida en el flete— y pago otra opcion. Al revisarlo
+                              su CP cotizaba bien y ya le habiamos emitido una guia ahi. Ahora
+                              el sistema reintenta y, si hay guia previa a ese CP, no llega
+                              aqui; pero si llega, que sepa que no es el final (tarea 1087). */}
                           <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
                             Paquete Express no cubre tu CP ni tiene sucursal Ocurre cercana.{' '}
+                            <Text style={{ fontWeight: '700' }}>
+                              Si ya te hemos enviado a esta direccion, dile a tu asesor: puede generar la guia de todos modos.
+                            </Text>
                           </Text>
                           <TouchableOpacity onPress={() => Linking.openURL('https://www.paquetexpress.com.mx/sucursales')}>
                             <Text style={{ fontSize: 11, color: '#E65100', textDecorationLine: 'underline' }}>Buscar sucursal manualmente →</Text>
