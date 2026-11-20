@@ -1191,6 +1191,11 @@ export default function DashboardClient() {
         const params = new URLSearchParams();
         if (pesoMaxCaja > 0) params.set('weight', String(pesoMaxCaja));
         if (zipSel) params.set('zip', zipSel);
+        // 🎁 Las guías de la selección: el servidor las usa para saber si esto
+        // es un envío del Kit de Bienvenida. Las paqueterías reservadas al kit
+        // —la prepagada de 1 kilo— solo se ofrecen cuando todas las guías
+        // seleccionadas son del kit.
+        if (selectedPackageIds.length > 0) params.set('package_ids', selectedPackageIds.join(','));
         if (selectedServiceType === 'tdi_express') params.set('tdx', '1');
         const qs = params.toString() ? `?${params.toString()}` : '';
         const res = await fetch(`${API_URL}/api/carrier-options/by-service/${selectedServiceType}${qs}`, {

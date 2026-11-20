@@ -5486,14 +5486,36 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             if (carrierKeyNorm) {
                 try {
                     const topeRes = await pool.query(
-                        `SELECT name, max_weight_kg
+                        `SELECT name, max_weight_kg, COALESCE(solo_kit_bienvenida, false) AS solo_kit
                            FROM carrier_service_options
                           WHERE REPLACE(REPLACE(LOWER(carrier_key), '_', ''), ' ', '') = $1
                             AND is_active = true
-                            AND COALESCE(max_weight_kg, 0) > 0
                           LIMIT 1`,
                         [carrierKeyNorm]
                     );
+
+                    // 🎁 Reservada al Kit de Bienvenida.
+                    //
+                    // La prepagada de 1 kg se compro para mandar el regalo del
+                    // kit. El tope de peso solo la frenaba arriba de 1 kg, asi
+                    // que una caja de cliente de 1 kg se la seguia llevando: 12
+                    // de las 13 veces que se uso fue carga del cliente y solo 1
+                    // un kit (TKT-2026-3716, tareas 1003 y 1065). Aqui se
+                    // amarra a la guia: solo las USK- la pueden usar.
+                    if (topeRes.rows[0]?.solo_kit === true) {
+                        const guiaRes = await pool.query(
+                            `SELECT tracking_internal FROM packages WHERE id = $1`, [idNum]
+                        );
+                        const guia = String(guiaRes.rows[0]?.tracking_internal || '');
+                        if (!guia.startsWith('USK-')) {
+                            console.warn(`\u26d4 [assign-instructions] ${carrier} es del Kit de Bienvenida y ${guia || idNum} no lo es: rechazado`);
+                            return res.status(400).json({
+                                success: false,
+                                error: 'Esa guia prepagada esta reservada para el Kit de Bienvenida. Elige otra paqueteria.',
+                            });
+                        }
+                    }
+
                     const tope = Number(topeRes.rows[0]?.max_weight_kg) || 0;
                     if (tope > 0) {
                         const pesoRes = await pool.query(

@@ -442,6 +442,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // guias normales y esta pantalla no, asi que el cliente la elegia para cajas
   // de PO Box y de aereo de hasta 23 kg y pagaba $99 por un flete que cuesta
   // mucho mas (TKT-2026-3544).
+  // El kit SI la puede usar: para eso se compro. El backend aplica la misma
+  // regla sobre las guias que se mandan en `package_ids`, asi que un telefono
+  // con bundle viejo tampoco la ve.
   const SOLO_KIT = ['estafeta_pre'];
   // La prepagada se cobra POR CAJA, asi que el limite de peso del catalogo se
   // mide contra la caja mas pesada de la seleccion, no contra la suma.
@@ -470,6 +473,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         const qs = new URLSearchParams();
         if (pesoMaxCaja > 0) qs.set('weight', String(pesoMaxCaja));
         if (selectedZip) qs.set('zip', String(selectedZip));
+        // 🎁 Las guias de la seleccion: con ellas el servidor sabe si esto es
+        // un envio del Kit de Bienvenida y decide si ofrece la prepagada
+        // reservada al kit. Sin ids, no la ofrece.
+        const idsDeLaSeleccion = allPackages
+          .map((p: any) => Number(p?.id)).filter((n: number) => Number.isFinite(n) && n > 0);
+        if (idsDeLaSeleccion.length > 0) qs.set('package_ids', idsDeLaSeleccion.join(','));
         const cola = qs.toString() ? `?${qs.toString()}` : '';
         const r = await fetch(`${API_URL}/api/carrier-options/by-service/${svc}${cola}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -484,7 +493,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         const prepagadas: CarrierOption[] = (d?.data || [])
           .filter((c: any) => c.allows_collect !== true && c.carrier_type !== 'collect')
           .filter((c: any) => !yaEnLista.includes(String(c.carrier_key)))
-          .filter((c: any) => !SOLO_KIT.includes(String(c.carrier_key).toLowerCase()))
+          .filter((c: any) => isUsk || !SOLO_KIT.includes(String(c.carrier_key).toLowerCase()))
           .filter((c: any) => /^\$\s*[\d,]+(\.\d+)?\s*(mxn)?$/i.test(String(c.price_label || '').trim()))
           .map((c: any) => ({
             id: String(c.carrier_key),

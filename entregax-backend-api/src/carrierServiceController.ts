@@ -117,16 +117,44 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
     const weightRaw = req.query.weight != null ? Number(req.query.weight) : NaN;
     const weight = Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : null;
 
+    // 🎁 Guías del Kit de Bienvenida.
+    //
+    // La guía prepagada de 1 kg se compró para mandar el regalo del kit; no es
+    // una opción de envío del cliente. Mientras se ofreció en el catálogo
+    // normal, 12 de las 13 veces que se usó fue para carga del cliente —de 1 a
+    // 23.4 kg— y solo 1 vez para un kit: un flete de $99 sobre envíos que
+    // cuestan mucho más (TKT-2026-3716, tareas 1003 y 1065).
+    //
+    // Las opciones marcadas `solo_kit_bienvenida` se ofrecen únicamente cuando
+    // TODAS las guías de la selección son del kit (tracking USK-). El portal
+    // manda los ids en `package_ids`; si no vienen, la opción no se ofrece: un
+    // cliente viejo que no manda ids ve la lista sin ella, que es el
+    // comportamiento correcto.
+    const idsCrudos = String(req.query.package_ids || '')
+      .split(',').map((x) => Number(String(x).trim())).filter((n) => Number.isFinite(n) && n > 0);
+    let esEnvioDeKit = false;
+    if (idsCrudos.length > 0) {
+      const kitRes = await pool.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE tracking_internal LIKE 'USK-%')::int AS del_kit
+           FROM packages WHERE id = ANY($1::int[])`,
+        [idsCrudos]
+      );
+      const { total, del_kit } = kitRes.rows[0] || { total: 0, del_kit: 0 };
+      esEnvioDeKit = total > 0 && total === del_kit;
+    }
+
     const result = await pool.query(`
       SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect, co.max_weight_kg,
-             co.price_per_package, co.free_from_qty
+             co.price_per_package, co.free_from_qty, COALESCE(co.solo_kit_bienvenida, false) AS solo_kit_bienvenida
       FROM carrier_service_options co
       INNER JOIN carrier_service_type_map cm ON co.id = cm.carrier_option_id
       WHERE cm.service_type = $1
         AND co.is_active = true
         AND ($2::numeric IS NULL OR co.max_weight_kg IS NULL OR co.max_weight_kg >= $2::numeric)
+        AND (COALESCE(co.solo_kit_bienvenida, false) = false OR $3::boolean = true)
       ORDER BY co.priority ASC
-    `, [serviceType, weight]);
+    `, [serviceType, weight, esEnvioDeKit]);
 
     // 🚚 Regla TDX en zona metropolitana de MTY: solo aplica entrega local EntregaX.
     // Se ocultan Paquete Express, Paquete Express Por Cobrar y todas las "por cobrar".
