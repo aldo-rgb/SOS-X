@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { markDhlGroupPaid } from './dhlGroup';
+import { sellarTcDeLaOrden } from './tipoCambioOrden';
+import { desgloseDeGuia, COLUMNAS_DEL_DESGLOSE } from './desgloseDeGuia';
 import axios from 'axios';
 import crypto from 'crypto';
 import { getOpenpayCredentials, ServiceType } from './services/openpayConfig';
@@ -421,6 +423,11 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
 
         const paymentId = paymentResult.rows[0].id;
 
+        // El tipo de cambio con el que se cotizo queda sellado en la orden. Sin esto
+        // la cotizacion se reimprimia con el TC vigente y el mismo folio cambiaba de
+        // numero al cambiar la configuracion (tarea 1086).
+        await sellarTcDeLaOrden(pool, paymentId, serviceTypeDb);
+
         // Obtener credenciales de PayPal desde la BD.
         // Cobra la empresa del servicio que se esta pagando, igual que en el
         // resto de los cobros. Con 'po_box' fijo, una guia de DHL se cobraba
@@ -825,6 +832,11 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
 
         const paymentId = paymentResult.rows[0].id;
+
+        // El tipo de cambio con el que se cotizo queda sellado en la orden. Sin esto
+        // la cotizacion se reimprimia con el TC vigente y el mismo folio cambiaba de
+        // numero al cambiar la configuracion (tarea 1086).
+        await sellarTcDeLaOrden(pool, paymentId, 'POBOX_USA');
 
         // Crear cargo con redireccionamiento en OpenPay
         // NOTA: OpenPay no acepta caracteres especiales en description (paréntesis, etc.)
@@ -1295,6 +1307,11 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef, paymentMethod, wantsInvoice, serviceTypeForConfig]);
 
         const payment = paymentResult.rows[0];
+
+        // El tipo de cambio con el que se cotizo queda sellado en la orden. Sin esto
+        // la cotizacion se reimprimia con el TC vigente y el mismo folio cambiaba de
+        // numero al cambiar la configuracion (tarea 1086).
+        await sellarTcDeLaOrden(pool, payment.id, serviceTypeForConfig);
 
         // Obtener lista de guías para mostrar (sólo las efectivamente cobradas)
         const trackings = filteredRows.map((p: any) => p.tracking_internal).join(', ');
@@ -2008,7 +2025,9 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 p.credit_applied_at,
                 COALESCE(p.credit_settled, false) AS credit_settled,
                 p.wallet_applied,
-                p.wallet_applied_at
+                p.wallet_applied_at,
+                -- El tipo de cambio con el que se cotizó, sellado al crearla.
+                p.tipo_cambio_usd
             FROM pobox_payments p
             WHERE p.user_id = $1 AND p.status != 'cancelled'
             ORDER BY p.created_at DESC
@@ -2074,7 +2093,11 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             COALESCE(is_master, false) as is_master,
             description,
             COALESCE(gex_total_cost, 0) as gex_total_cost,
-            master_id
+            master_id,
+            -- De qué se compone el importe de la guía: dólares, precio por kilo,
+            -- peso cobrable y volumétrico. Sin esto el PDF del cliente enseñaba
+            -- un total en pesos y nada que lo explicara (tarea 1086).
+            ${COLUMNAS_DEL_DESGLOSE}
         `;
         const topPkgsRes = allTopIds.length > 0
             ? await pool.query(`SELECT ${PKG_COLS} FROM packages WHERE id = ANY($1)`, [allTopIds])
@@ -2130,14 +2153,36 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
         const cargosByTracking = new Map<string, number>();     // tracking -> cargos
         const descuentosByTracking = new Map<string, number>(); // tracking -> descuentos (negativo)
         if (allRelevantTrks.size > 0) {
+            // Un cargo que ya se cobro en su PROPIA orden trae esa referencia
+            // encima (28 de los 208 activos son asi). Se guarda a que orden
+            // pertenece cada ajuste para no sumarlo en la que no le toca: en la
+            // cotizacion de la guia original aparecia otra vez, cobrado dos
+            // veces en el documento (tarea 1086).
             const ajRes = await pool.query(
-                `SELECT guia_tracking, tipo, monto FROM guias_ajustes_financieros
+                `SELECT guia_tracking, tipo, monto, COALESCE(moneda, 'MXN') AS moneda,
+                        payment_reference
+                   FROM guias_ajustes_financieros
                  WHERE activo = true AND guia_tracking = ANY($1::text[])`,
                 [Array.from(allRelevantTrks)]
             ).catch(() => ({ rows: [] as any[] }));
+            // Un ajuste puede estar capturado en DOLARES: de los 208 activos, 139
+            // traen moneda USD. Se sumaban sin mirar la moneda, asi que un cargo
+            // de 78.26 USD se imprimia como "$78.26" en un documento en pesos.
+            // El tipo de cambio de referencia es el del aereo, que es el servicio
+            // donde se capturan en dolares (tarea 1086).
+            let tcParaAjustes = 0;
+            try {
+                const tcRes = await pool.query(
+                    `SELECT tipo_cambio_final FROM exchange_rate_config
+                      WHERE servicio = 'tdi' AND estado = true LIMIT 1`);
+                tcParaAjustes = parseFloat(tcRes.rows[0]?.tipo_cambio_final) || 0;
+            } catch { /* sin tipo de cambio se deja el monto crudo */ }
             for (const a of ajRes.rows) {
-                const t = String(a.guia_tracking);
-                const monto = Number(a.monto) || 0;
+                const t = String(a.guia_tracking) + '|' + String(a.payment_reference || '');
+                const crudo = Number(a.monto) || 0;
+                const monto = String(a.moneda).toUpperCase() === 'USD' && tcParaAjustes > 0
+                    ? +(crudo * tcParaAjustes).toFixed(2)
+                    : crudo;
                 const sign = a.tipo === 'descuento' ? -1 : 1;
                 ajustesByTracking.set(t, (ajustesByTracking.get(t) || 0) + sign * monto);
                 // Separados además del neto: un descuento impreso bajo la etiqueta
@@ -2320,16 +2365,57 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         const ch = childrenByMaster.get(id) || [];
                         for (const c of ch) if (c.tracking_internal) trks.push(String(c.tracking_internal));
                     }
+                    // Los ajustes sin referencia son de esta orden; los que traen
+                    // una referencia solo cuentan en la orden que los cobro.
                     for (const t of trks) {
-                        cost_breakdown.extra += ajustesByTracking.get(t) || 0;
-                        cost_breakdown.cargos_extra += cargosByTracking.get(t) || 0;
-                        cost_breakdown.descuento += descuentosByTracking.get(t) || 0;
+                        for (const clave of [t + '|', t + '|' + String(row.payment_reference || '')]) {
+                            cost_breakdown.extra += ajustesByTracking.get(clave) || 0;
+                            cost_breakdown.cargos_extra += cargosByTracking.get(clave) || 0;
+                            cost_breakdown.descuento += descuentosByTracking.get(clave) || 0;
+                            if (!row.payment_reference) break;
+                        }
                     }
                     cost_breakdown.pobox = montoBruto
                         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
                 }
             } catch (e) {
                 console.error('[getPoboxPaymentHistory] cost_breakdown error:', e);
+            }
+
+            // Abrir el importe de cada guía en sus partes, con la MISMA cuenta
+            // que el detalle del asesor: si se escribiera dos veces, los dos
+            // documentos del mismo cobro acabarían diciendo cosas distintas.
+            //
+            // El tipo de cambio sale del sellado al crear la orden. Las de antes
+            // del 20-nov-2026 no lo traen, y entonces se deriva del propio monto
+            // —lo que queda después del flete, el GEX y los cargos, entre los
+            // dólares de las guías—, que es el único testigo de con cuánto se
+            // cotizó. NUNCA de la configuración vigente: ésa es la de hoy, no la
+            // de la cotización, y reimprimir una orden del 19-nov la habría
+            // sacado a 19.23 cuando se cobró a 18.93 (tarea 1086).
+            if (!isDhlOrder) {
+                const tcSellado = Number(row.tipo_cambio_usd) || 0;
+                let tcDerivado = 0;
+                // Sólo se deriva si la orden se explica sola: lo que cobra, entre
+                // los dólares de sus guías. Con flete nacional, GEX o ajustes por
+                // guía esa división ya no es un tipo de cambio —en el lote de la
+                // tarea 1081 daba 23.10 cuando se cotizó a 18.40— y es mejor
+                // dejar la columna en blanco que imprimir un número inventado.
+                const ordenLimpia = Math.abs(Number(cost_breakdown.paqueteria) || 0) < 0.01
+                    && Math.abs(Number(cost_breakdown.gex) || 0) < 0.01
+                    && Math.abs(Number(cost_breakdown.extra) || 0) < 0.01;
+                if (!(tcSellado > 0) && ordenLimpia) {
+                    const dolares = packages.reduce(
+                        (a: number, p: any) => a + (Number(p.air_sale_price) || Number(p.pobox_venta_usd) || 0), 0);
+                    const t = dolares > 0 ? (Number(cost_breakdown.pobox) || 0) / dolares : 0;
+                    // Fuera de ese rango no es un tipo de cambio: es una orden con
+                    // guías que ya no están o con cargos que no le corresponden.
+                    if (t > 5 && t < 50) tcDerivado = t;
+                }
+                packages = packages.map((p: any) => ({
+                    ...p,
+                    ...desgloseDeGuia(p, tcSellado || Number(p.registered_exchange_rate) || tcDerivado),
+                }));
             }
 
             // service_type autoritativo (del log): permite al frontend ofrecer el

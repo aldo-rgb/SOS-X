@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { createCustomNotification } from './notificationController';
 import { depositar as walletDepositar } from './walletService';
+import { sellarTcDeLaOrden } from './tipoCambioOrden';
 
 // Helper: Enviar notificación push via Expo
 const sendExpoPushNotification = async (pushToken: string, title: string, body: string, data?: object) => {
@@ -468,6 +469,11 @@ export async function createCexCollectible(opts: {
     [opts.cliente_id, montoMxn, ref, concepto, company.bank_name, company.bank_clabe, company.bank_account, company.legal_name, cfgServiceType]
   );
   const poboxPaymentId = ppRes.rows[0].id;
+
+  // El tipo de cambio con el que se cotizo queda sellado en la orden. Sin esto
+  // la cotizacion se reimprimia con el TC vigente y el mismo folio cambiaba de
+  // numero al cambiar la configuracion (tarea 1086).
+  await sellarTcDeLaOrden(pool, poboxPaymentId, cfgServiceType);
 
   try {
     await pool.query(
@@ -2229,6 +2235,16 @@ async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
        o.payment_method || 'cash', newRef, o.requiere_factura || false, o.service_type || null]
     );
     const newPoboxId = newPobox.rows[0].id;
+
+    // La orden nueva HEREDA el tipo de cambio de la que sustituye: es la misma
+    // cotizacion con el descuento aplicado, no una nueva, y tomar el TC de hoy
+    // le cambiaria la aritmetica al documento (tarea 1086).
+    await pool.query(
+      `UPDATE pobox_payments SET tipo_cambio_usd =
+         (SELECT tipo_cambio_usd FROM pobox_payments WHERE id = $2)
+        WHERE id = $1`,
+      [newPoboxId, o.id]
+    ).catch((e: any) => console.warn('[tc-orden] no pude heredar el TC al regenerar:', e?.message));
 
     // Regenerar órdenes de asesor (CTZ) vinculadas
     const apoRes = await pool.query(

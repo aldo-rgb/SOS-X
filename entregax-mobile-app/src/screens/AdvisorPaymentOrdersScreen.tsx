@@ -80,6 +80,18 @@ interface OrderDetailItem {
   venta_usd?: number;
   venta_mxn?: number;
   exchange_rate?: number;
+  // De que se compone el importe de la guia: dolares, precio por kilo, peso
+  // cobrable y el tipo de cambio con el que se cotizo la orden (tarea 1086).
+  costo_usd?: number;
+  precio_por_kg_usd?: number;
+  peso_real?: number;
+  peso_volumetrico?: number;
+  peso_cobrable?: number;
+  tc?: number;
+  tipo_tarifa?: string | null;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
   // DHL: de qué se compone el monto de la guía (tarea 282).
   import_cost_usd?: number;
   import_tax_mxn?: number;
@@ -97,6 +109,13 @@ interface OrderDetailItem {
     widthCm?: number;
     heightCm?: number;
     description?: string | null;
+    costo_usd?: number;
+    precio_por_kg_usd?: number;
+    peso_real?: number;
+    peso_volumetrico?: number;
+    peso_cobrable?: number;
+    tc?: number;
+    tipo_tarifa?: string | null;
   }>;
 }
 
@@ -134,7 +153,10 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
     : (serviciosDeLaOrden.length > 0 ? serviciosDeLaOrden.join(' + ') : 'PO Box USA - Carga Aérea');
 
   // En DHL la tabla abre el desglose en columnas, asi que lleva dos mas.
-  const totalCols = isDhlOp ? 8 : 6;
+  // Las dos tablas abren el importe en columnas: ocho en DHL (importacion,
+  // impuestos, envio, total) y ocho en las demas (servicio, dolares, precio por
+  // kilo, peso cobrable, tipo de cambio, total) — tarea 1086.
+  const totalCols = 8;
   // Columnas de desglose de una guia DHL: importacion, impuestos, envio y total.
   // La importacion se saca restando, para que los renglones siempre sumen lo que
   // se esta cobrando aunque el tipo de cambio traiga redondeos (tarea 282).
@@ -153,40 +175,91 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
       + celda(fmt(total), 'font-weight:600');
   };
 
+  // Que se le ensena al cliente de cada guia. Antes solo salia el total en
+  // pesos: para saber de donde venia —cuantos dolares, a que precio por kilo,
+  // sobre que peso y con que tipo de cambio— habia que entrar a la guia una por
+  // una (tarea 1086).
+  const usdTxt = (n: any) => Number(n || 0) > 0
+    ? '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—';
+  const kgTxt = (n: any) => Number(n || 0).toFixed(1) + ' kg';
+  // Lo que no merece columna propia va en letra chica bajo la guia.
+  const bajoLaGuia = (it: any): string => {
+    const partes: string[] = [];
+    const real = Number(it.peso_real != null ? it.peso_real : it.weight) || 0;
+    if (real > 0) partes.push(kgTxt(real) + ' real');
+    if (Number(it.peso_volumetrico) > 0) partes.push(kgTxt(it.peso_volumetrico) + ' vol');
+    if (Number(it.lengthCm) > 0 || Number(it.widthCm) > 0 || Number(it.heightCm) > 0) {
+      partes.push(it.lengthCm + '×' + it.widthCm + '×' + it.heightCm + ' cm');
+    }
+    return partes.join(' · ');
+  };
+  const celdasAereo = (it: any, chico = false): string => {
+    const px = chico ? '4px 5px' : '6px 5px';
+    const fs = chico ? '10px' : '10.5px';
+    const borde = chico ? '1px solid #F5E6D0' : '1px solid #eee';
+    const celda = (c: string, extra = '') =>
+      '<td style="padding:' + px + ';border-bottom:' + borde + ';font-size:' + fs
+      + ';text-align:right;white-space:nowrap;' + extra + '">' + c + '</td>';
+    const porKg = Number(it.precio_por_kg_usd) || 0;
+    // Start Up es un precio PLANO por tramo de peso: no hay precio por kilo que
+    // cobrar, y poner el derivado se leeria como una tarifa que no existe.
+    const esStartUp = String(it.tipo_tarifa || '') === 'SU';
+    const tc = Number(it.tc) || 0;
+    const total = it.venta_mxn == null ? null : (Number(it.venta_mxn) || 0);
+    const cobrable = Number(it.peso_cobrable) || 0;
+    return celda(usdTxt(it.costo_usd))
+      + celda(esStartUp ? 'plano' : (porKg > 0 ? '$' + porKg.toFixed(2) : '—'))
+      + celda(cobrable > 0 ? kgTxt(cobrable) : '—')
+      + celda(tc > 0 ? '$' + tc.toFixed(2) : '—')
+      + celda(total == null ? '' : fmt(total), chico ? 'color:#999' : 'font-weight:600');
+  };
   let pkgRows = '';
   if (items.length > 0) {
     items.forEach((it, idx) => {
-      const monto = Number(it.venta_mxn || 0);
       const peso  = it.weight ? `${Number(it.weight).toFixed(1)} kg` : '—';
       const tipo  = it.total_boxes ? `${it.tipo} (${it.total_boxes} cajas)` : (it.tipo || '—');
       const dims = ((it as any).lengthCm || 0) > 0 || ((it as any).widthCm || 0) > 0 || ((it as any).heightCm || 0) > 0
         ? `${(it as any).lengthCm}×${(it as any).widthCm}×${(it as any).heightCm} cm` : '—';
-      const comunes = `
+      const chica = bajoLaGuia(it);
+      const comunesDhl = `
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${it.tracking || '—'}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${peso}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${dims}</td>`;
+      // En aereo y PO Box el peso y las medidas bajan a la letra chica: las dos
+      // columnas que se liberan son las que abren el importe.
+      const comunes = `
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${it.tracking || '—'}${chica ? `<br><span style="font-size:8.5px;color:#666;font-weight:400">${chica}</span>` : ''}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:10px;text-align:center">${tipo}</td>`;
       // El monto de la guia DHL junta importacion, impuesto y paqueteria: cada
       // concepto va en su columna para que se lea de que se compone (tarea 282).
       pkgRows += isDhlOp
-        ? `<tr>${comunes}${celdasDhl(it)}</tr>`
-        : `<tr>${comunes}
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${tipo}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(monto)}</td>
-      </tr>`;
+        ? `<tr>${comunesDhl}${celdasDhl(it)}</tr>`
+        : `<tr>${comunes}${celdasAereo(it)}</tr>`;
       (it.children || []).forEach((c, ci) => {
         const cdims = (c.lengthCm || 0) > 0 || (c.widthCm || 0) > 0 || (c.heightCm || 0) > 0
           ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
         const cpeso = c.weight ? `${Number(c.weight).toFixed(1)} kg` : '—';
         const nivel = c.n_level ? `<span style="background:#FEE2E2;color:#B91C1C;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">${c.n_level}</span>` : '';
-        pkgRows += `<tr style="background:#FFF8F0">
+        const cchica = bajoLaGuia(c);
+        pkgRows += isDhlOp
+          ? `<tr style="background:#FFF8F0">
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#000">&nbsp;↳ ${ci + 1}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cpeso}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
-          ${isDhlOp ? '<td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td><td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td>' : ''}
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">${fmt(c.venta_mxn)}</td>
+        </tr>`
+          : `<tr style="background:#FFF8F0">
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#000">&nbsp;↳ ${ci + 1}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}${cchica ? `<br><span style="font-size:8px;color:#888;font-family:inherit">${cchica}</span>` : ''}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0"></td>
+          ${celdasAereo(c, true)}
         </tr>`;
       });
     });
@@ -253,15 +326,19 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
       <thead><tr>
         <th style="width:30px">#</th>
         <th>Guia / Tracking</th>
-        <th style="text-align:center">Peso</th>
-        <th style="text-align:center">Medidas</th>
         ${isDhlOp
-          ? `<th style="text-align:right;padding:8px 5px">Importacion</th>
+          ? `<th style="text-align:center">Peso</th>
+        <th style="text-align:center">Medidas</th>
+        <th style="text-align:right;padding:8px 5px">Importacion</th>
         <th style="text-align:right;padding:8px 5px">Impuestos</th>
         <th style="text-align:right;padding:8px 5px">Envio</th>
         <th style="text-align:right;padding:8px 5px">Total (MXN)</th>`
-          : `<th style="text-align:center">Paqueteria</th>
-        <th style="text-align:right">Monto (MXN)</th>`}
+          : `<th style="text-align:center;padding:8px 5px">Servicio</th>
+        <th style="text-align:right;padding:8px 5px">Costo USD</th>
+        <th style="text-align:right;padding:8px 5px">USD / kg</th>
+        <th style="text-align:right;padding:8px 5px">Peso cobrable</th>
+        <th style="text-align:right;padding:8px 5px">T. cambio</th>
+        <th style="text-align:right;padding:8px 5px">Total (MXN)</th>`}
       </tr></thead>
       <tbody>
         ${pkgRows}
@@ -824,28 +901,65 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
             x?.venta_mxn === null || x?.venta_mxn === undefined ? null : (Number(x.venta_mxn) || 0);
           const dinero = (v: number) =>
             `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-          const rows: { tracking: string; weight: number; dims: string; importe: number | null; nivel?: string | null; child?: boolean }[] = [];
+          const dolares = (v: number) => v > 0
+            ? `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : '';
+          // De que se compone el importe: dolares, precio por kilo, peso cobrable
+          // y tipo de cambio. En el telefono no caben cinco columnas, asi que van
+          // en dos renglones de texto bajo la guia (tarea 1086).
+          const partesDe = (x: any) => ({
+            usd: Number(x?.costo_usd) || 0,
+            porKg: Number(x?.precio_por_kg_usd) || 0,
+            cobrable: Number(x?.peso_cobrable) || 0,
+            volumetrico: Number(x?.peso_volumetrico) || 0,
+            tc: Number(x?.tc) || 0,
+            startUp: String(x?.tipo_tarifa || '') === 'SU',
+          });
+          type Renglon = {
+            tracking: string; weight: number; dims: string; importe: number | null;
+            nivel?: string | null; child?: boolean;
+            usd: number; porKg: number; cobrable: number; volumetrico: number;
+            tc: number; startUp: boolean;
+          };
+          const rows: Renglon[] = [];
           for (const it of items) {
             const kids = it.children || [];
-            rows.push({ tracking: it.tracking || '—', weight: Number(it.weight) || 0, dims: dimsOf((it as any).lengthCm, (it as any).widthCm, (it as any).heightCm), importe: importeDe(it) });
+            rows.push({ tracking: it.tracking || '—', weight: Number(it.weight) || 0, dims: dimsOf((it as any).lengthCm, (it as any).widthCm, (it as any).heightCm), importe: importeDe(it), ...partesDe(it) });
             for (const c of kids) {
-              rows.push({ tracking: c.tracking || '—', weight: Number(c.weight) || 0, dims: dimsOf(c.lengthCm, c.widthCm, c.heightCm), importe: importeDe(c), nivel: c.n_level, child: true });
+              rows.push({ tracking: c.tracking || '—', weight: Number(c.weight) || 0, dims: dimsOf(c.lengthCm, c.widthCm, c.heightCm), importe: importeDe(c), nivel: c.n_level, child: true, ...partesDe(c) });
             }
           }
           const sumaImportes = rows.reduce((a, r) => a + (r.importe || 0), 0);
+          const sumaUsd = rows.reduce((a, r) => a + (r.child ? 0 : r.usd), 0);
           return (
             <View style={[styles.guidesExpanded, (detail?.loading || rows.length > 0) && styles.guidesDetailWrap]}>
               {detail?.loading ? (
                 <Text style={styles.guideDetailMeta}>Cargando detalle…</Text>
               ) : rows.length > 0 ? (
                 rows.map((r, i) => (
-                  <View key={i} style={[styles.guideDetailRow, r.child && { paddingLeft: 14 }]}>
+                  <View key={i} style={[styles.guideDetailBloque, r.child && { paddingLeft: 14 }]}>
+                    <View style={styles.guideDetailRowTop}>
                     <Text style={[styles.guideDetailTracking, r.child && { fontWeight: '400', color: '#555' }]} numberOfLines={1}>
                       {r.child ? '↳ ' : ''}{r.tracking}{r.nivel ? `  ${r.nivel}` : ''}
                     </Text>
                     <Text style={styles.guideDetailMeta}>
-                      {r.weight > 0 ? `${r.weight.toFixed(1)} kg` : '—'}{r.dims ? `  ·  ${r.dims}` : ''}
-                      {r.importe === null ? '' : `  ·  ${dinero(r.importe)}`}
+                      {[
+                        r.cobrable > 0 ? `${r.cobrable.toFixed(1)} kg cobrable` : '',
+                        r.usd > 0 && r.tc > 0 ? `${dolares(r.usd)} USD × $${r.tc.toFixed(2)}` : (r.usd > 0 ? `${dolares(r.usd)} USD` : ''),
+                        r.importe === null ? '' : dinero(r.importe),
+                      ].filter(Boolean).join('  ·  ') || '—'}
+                    </Text>
+                    </View>
+                    {/* Peso real, volumetrico, precio por kilo y medidas: de ahi
+                        sale el peso cobrable, pero no caben en el renglon de
+                        arriba. Start Up es precio plano: no lleva por-kilo. */}
+                    <Text style={styles.guideDetailSub}>
+                      {[
+                        r.weight > 0 ? `${r.weight.toFixed(1)} kg real` : '',
+                        r.volumetrico > 0 ? `${r.volumetrico.toFixed(1)} kg vol` : '',
+                        r.startUp ? 'tarifa plana' : (r.porKg > 0 ? `$${r.porKg.toFixed(2)}/kg` : ''),
+                        r.dims || '',
+                      ].filter(Boolean).join('  ·  ')}
                     </Text>
                   </View>
                 ))
@@ -859,7 +973,9 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
               {!detail?.loading && rows.length > 0 && (
                 <View style={[styles.guideDetailRow, { borderTopWidth: 1, borderTopColor: '#E0E0E0' }]}>
                   <Text style={[styles.guideDetailTracking, { fontWeight: '700' }]}>Total</Text>
-                  <Text style={[styles.guideDetailMeta, { fontWeight: '700' }]}>{dinero(sumaImportes)}</Text>
+                  <Text style={[styles.guideDetailMeta, { fontWeight: '700' }]}>
+                    {sumaUsd > 0 ? `${dolares(sumaUsd)} USD  ·  ` : ''}{dinero(sumaImportes)}
+                  </Text>
                 </View>
               )}
             </View>
@@ -1300,6 +1416,11 @@ const styles = StyleSheet.create({
   guideChipText: { fontSize: 10, color: '#555', fontFamily: 'monospace' },
   guidesDetailWrap: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', width: '100%' },
   guideDetailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  // El renglon de una guia son dos lineas: arriba la guia y lo que se cobra,
+  // abajo de donde sale el peso cobrable (tarea 1086).
+  guideDetailBloque: { paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  guideDetailRowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  guideDetailSub: { fontSize: 9.5, color: '#AAA', marginTop: 1 },
   guideDetailTracking: { fontSize: 11, color: '#222', fontWeight: '600', fontFamily: 'monospace', flexShrink: 1, marginRight: 8 },
   guideDetailMeta: { fontSize: 11, color: '#888' },
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F0F0F0' },

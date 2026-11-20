@@ -144,8 +144,45 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       + celda((envio > 0 ? formatCurrency(envio) : '—') + (envio > 0 && paqueteria !== '—' ? chica(paqueteria) : ''))
       + celda(formatCurrency(total), 'font-weight:600;');
   };
-  // En DHL la tabla abre el desglose en columnas, así que lleva dos más.
-  const totalCols = isDhlQuote ? 8 : 6;
+  // Las dos tablas abren el importe en columnas: ocho en DHL (importación,
+  // impuestos, envío, total) y ocho en las demás (paquetería, dólares, precio
+  // por kilo, peso cobrable, tipo de cambio, total) — tarea 1086.
+  const totalCols = 8;
+  // Antes sólo salía el total en pesos de cada guía: para saber de dónde venía
+  // —cuántos dólares, a qué precio por kilo, sobre qué peso y con qué tipo de
+  // cambio— había que preguntar. Ahora el renglón se explica solo.
+  const usdTxt = (n: any) => Number(n || 0) > 0
+    ? '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—';
+  const kgTxt = (n: any) => Number(n || 0).toFixed(1) + ' kg';
+  // Lo que no merece columna propia va en letra chica bajo la guía: el peso
+  // real, el volumétrico cuando aplica y las medidas de la caja.
+  const bajoLaGuia = (p: any): string => {
+    const partes: string[] = [];
+    const real = Number(p.peso_real != null ? p.peso_real : p.weight) || 0;
+    if (real > 0) partes.push(kgTxt(real) + ' real');
+    if (Number(p.peso_volumetrico) > 0) partes.push(kgTxt(p.peso_volumetrico) + ' vol');
+    if (Number(p.length_cm) > 0 || Number(p.width_cm) > 0 || Number(p.height_cm) > 0) {
+      partes.push(p.length_cm + '×' + p.width_cm + '×' + p.height_cm + ' cm');
+    }
+    return partes.join(' · ');
+  };
+  const celdasAereo = (p: any): string => {
+    const celda = (c: string, extra = '') =>
+      '<td style="padding:6px 5px;border-bottom:1px solid #eee;font-size:10.5px;'
+      + 'text-align:right;white-space:nowrap;' + extra + '">' + c + '</td>';
+    const porKg = Number(p.precio_por_kg_usd) || 0;
+    // Start Up es un precio PLANO por tramo de peso: no hay precio por kilo que
+    // cobrar, y poner el derivado se leería como una tarifa que no existe.
+    const esStartUp = String(p.tipo_tarifa || '') === 'SU';
+    const tc = Number(p.tc) || 0;
+    const cobrable = Number(p.peso_cobrable) || 0;
+    return celda(usdTxt(p.costo_usd))
+      + celda(esStartUp ? 'plano' : (porKg > 0 ? '$' + porKg.toFixed(2) : '—'))
+      + celda(cobrable > 0 ? kgTxt(cobrable) : '—')
+      + celda(tc > 0 ? '$' + tc.toFixed(2) : '—')
+      + celda(formatCurrency(montoGuia(p)), 'font-weight:600;');
+  };
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
@@ -155,10 +192,8 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
         : '—';
       const carrier = carrierLabel(pkg.national_carrier);
-      // En DHL el costo de PO Box no existe y saldo_pendiente queda en 0 al
-      // pagarse: por eso las guías salían en $0.00 (tarea 282).
-      const cost = formatCurrency(montoGuia(pkg));
-      const comunes = `
+      const chica = bajoLaGuia(pkg);
+      const comunesDhl = `
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}${intTrk}</td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${weight}</td>
@@ -166,11 +201,15 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       // DHL: el monto de la guía junta importación, impuesto y paquetería. Cada
       // concepto va en su columna para que el cliente lea de corrido de qué se
       // compone lo que paga (tarea 282).
-      if (isDhlQuote) return `<tr>${comunes}${celdasDhl(pkg)}</tr>`;
+      if (isDhlQuote) return `<tr>${comunesDhl}${celdasDhl(pkg)}</tr>`;
+      // En aéreo y PO Box el peso y las medidas bajan a la letra chica: las dos
+      // columnas que se liberan son las que abren el importe.
       return `
-        <tr>${comunes}
-          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${carrier}</td>
-          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: right; font-weight: 600;">${cost}</td>
+        <tr>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}${intTrk}${chica ? `<br><span style="font-size:8.5px;color:#666;font-weight:400">${chica}</span>` : ''}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 10px; text-align: center;">${carrier}</td>
+          ${celdasAereo(pkg)}
         </tr>`;
     }).join('');
   }
@@ -321,15 +360,19 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         <tr>
           <th style="width:30px;">#</th>
           <th>Guía / Tracking</th>
-          <th style="text-align:center;">Peso</th>
-          <th style="text-align:center;">Medidas</th>
           ${isDhlQuote
-            ? `<th style="text-align:right;padding:8px 5px;">Importación</th>
+            ? `<th style="text-align:center;">Peso</th>
+          <th style="text-align:center;">Medidas</th>
+          <th style="text-align:right;padding:8px 5px;">Importación</th>
           <th style="text-align:right;padding:8px 5px;">Impuestos</th>
           <th style="text-align:right;padding:8px 5px;">Envío</th>
           <th style="text-align:right;padding:8px 5px;">Total (MXN)</th>`
-            : `<th style="text-align:center;">Paquetería</th>
-          <th style="text-align:right;">Monto (MXN)</th>`}
+            : `<th style="text-align:center;padding:8px 5px;">Paquetería</th>
+          <th style="text-align:right;padding:8px 5px;">Costo USD</th>
+          <th style="text-align:right;padding:8px 5px;">USD / kg</th>
+          <th style="text-align:right;padding:8px 5px;">Peso cobrable</th>
+          <th style="text-align:right;padding:8px 5px;">T. cambio</th>
+          <th style="text-align:right;padding:8px 5px;">Total (MXN)</th>`}
         </tr>
       </thead>
       <tbody>

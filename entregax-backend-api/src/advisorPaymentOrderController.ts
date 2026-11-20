@@ -10,6 +10,8 @@ import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffe
 // Dominio web público para enmascarar el enlace del PDF (entregax.app/orden-de-pago/…)
 import { urlPublicaFactura, sqlUrlFactura } from './facturaArchivo';
 import { getRoleLevel, ROLES } from './authController';
+import { sellarTcDeLaOrden } from './tipoCambioOrden';
+import { desgloseDeGuia } from './desgloseDeGuia';
 
 /**
  * Como se nombra cada servicio en la columna "Paqueteria" de la cotizacion.
@@ -679,6 +681,11 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
 
     const poboxPaymentId = ppRes.rows[0].id;
 
+    // El tipo de cambio con el que se cotizo queda sellado en la orden. Sin esto
+    // la cotizacion se reimprimia con el TC vigente y el mismo folio cambiaba de
+    // numero al cambiar la configuracion (tarea 1086).
+    await sellarTcDeLaOrden(pool, poboxPaymentId, serviceTypeForConfig);
+
     // ── 6. Log to openpay_webhook_logs for cobranza dashboard ─────────────
     const trackingStr = (trackings || []).join(', ') || package_uids.join(', ');
     try {
@@ -929,7 +936,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           apo.created_at, apo.advisor_id,
           -- Misma lectura que abajo: la orden del asesor apunta al cobro real.
           COALESCE((SELECT pp2.wallet_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS wallet_applied,
-          COALESCE((SELECT pp2.credit_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS credit_applied
+          COALESCE((SELECT pp2.credit_applied FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id), 0) AS credit_applied,
+          -- El tipo de cambio con el que se cotizo, sellado al crear la orden.
+          -- NULL en las de antes del 20-nov-2026: ahi se deriva del monto.
+          (SELECT pp2.tipo_cambio_usd FROM pobox_payments pp2 WHERE pp2.id = apo.pobox_payment_id) AS tipo_cambio_usd
         FROM advisor_payment_orders apo
         WHERE apo.id = $1 AND ($4::bool OR apo.advisor_id = $2)
         UNION ALL
@@ -946,7 +956,8 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           -- que pasó con RO-8183B26D: dos equipos revisaron tres días una
           -- diferencia que era justo el monedero del cliente (tarea 634).
           COALESCE(pp.wallet_applied, 0) AS wallet_applied,
-          COALESCE(pp.credit_applied, 0) AS credit_applied
+          COALESCE(pp.credit_applied, 0) AS credit_applied,
+          pp.tipo_cambio_usd
         FROM pobox_payments pp
         JOIN users u ON u.id = pp.user_id
         WHERE pp.id = $1 AND ($4::bool OR u.advisor_id = $2 OR u.referred_by_id = $2)
@@ -1039,6 +1050,11 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       console.warn('[payment-orders] no pude leer el tipo de cambio aereo:', e?.message);
     }
 
+    // Tipo de cambio de ESTA orden. El sellado al crearla manda; las ordenes
+    // anteriores al 20-nov-2026 no lo tienen y mas abajo se deriva del propio
+    // monto, que es el unico testigo que quedo de con cuanto se cotizo.
+    const tcSellado = parseFloat((order as any).tipo_cambio_usd) || 0;
+
     // Para packages: traer master + hijos con desglose POBOX (n_level, USD, MXN)
     const items: any[] = [];
     if (pkgIds.length > 0) {
@@ -1050,6 +1066,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           p.pobox_tarifa_nivel, p.pobox_venta_usd, p.pobox_service_cost,
           p.assigned_cost_mxn, p.saldo_pendiente, p.monto_pagado,
           p.air_sale_price, p.registered_exchange_rate,
+          -- Para abrir el importe de cada guia en la cotizacion: dolares, precio
+          -- por kilo, volumetrico y peso cobrable (tarea 1086).
+          p.air_price_per_kg, p.air_chargeable_weight, p.air_tariff_type, p.single_volume,
           p.service_type::text AS service_type,
           p.box_number, p.total_boxes
         FROM packages p
@@ -1086,7 +1105,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // NORMAL (US-XXXX con -0001, -0002…): cada hija tiene su PROPIO costo y el
         // master es la suma → hay que mostrar el costo por caja, no $0.
         const isRepack = !!m.is_master && /^US-REPACK-/i.test(String(m.tracking_internal || ''));
+        // El TC del renglon NO se cae al de la configuracion vigente: ese es el
+        // de hoy, no el de la cotizacion, y reimprimir una orden del 19-nov la
+        // habria sacado a 19.23 cuando se cobro a 18.93. Si la orden no lo trae
+        // sellado y la guia tampoco, queda en cero y mas abajo se deriva del
+        // propio monto de la orden; si ni eso, sale en blanco (tarea 1086).
+        const tcDeLaFila = tcSellado || parseFloat(m.registered_exchange_rate) || 0;
         items.push({
+          ...desgloseDeGuia(m, tcDeLaFila),
           id: m.id,
           tracking: m.tracking_internal,
           service_type: m.service_type,
@@ -1108,6 +1134,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           air_usd: ventaGuardadaMxn(m) > 0 ? 0 : (parseFloat(m.air_sale_price) || 0),
           exchange_rate: parseFloat(tc) || 18.5,
           children: children.map((c: any) => ({
+            ...desgloseDeGuia({ ...c, service_type: c.service_type || m.service_type }, tcDeLaFila),
             id: c.id,
             tracking: c.tracking_internal,
             child_no: c.child_no,
@@ -1212,26 +1239,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     // repartir, entre los dolares que hay que convertir. El sobrante del redondeo
     // se carga al ultimo renglon para que cuadre al centavo. Si el numero que
     // sale no es un tipo de cambio creible, se deja la conversion de siempre.
-    const renglonesEnDolares = items.filter((i: any) => (Number(i.air_usd) || 0) > 0);
-    if (renglonesEnDolares.length > 0) {
-      const dolares = renglonesEnDolares.reduce((a: number, i: any) => a + Number(i.air_usd), 0);
-      const yaEnPesos = items.reduce(
-        (a: number, i: any) => a + ((Number(i.air_usd) || 0) > 0 ? 0 : (Number(i.venta_mxn) || 0)), 0);
-      const porRepartir = montoBrutoOrden - yaEnPesos;
-      const tcDeLaOrden = dolares > 0 ? porRepartir / dolares : 0;
-      if (tcDeLaOrden > 5 && tcDeLaOrden < 50) {
-        let acumulado = 0;
-        renglonesEnDolares.forEach((i: any, idx: number) => {
-          const parte = idx === renglonesEnDolares.length - 1
-            ? +(porRepartir - acumulado).toFixed(2)
-            : +(Number(i.air_usd) * tcDeLaOrden).toFixed(2);
-          acumulado += parte;
-          i.venta_mxn = parte;
-        });
-      }
-    }
-    for (const i of items as any[]) delete i.air_usd;
-
+    let tcDerivadoDeLaOrden = 0;
     const cost_breakdown = {
       // `extra` es el NETO (cargos menos descuentos) y se conserva tal cual
       // porque ya lo consumen la app y el portal del cliente. Los dos campos
@@ -1272,12 +1280,30 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         const trks = trkRes.rows.map((r: any) => r.tracking_internal).filter(Boolean).map(String);
         if (trks.length > 0) {
           const ch = await pool.query(
-            `SELECT tipo, monto FROM guias_ajustes_financieros
-             WHERE activo = true AND guia_tracking = ANY($1::text[])`,
-            [trks]
+            `SELECT tipo, monto, COALESCE(moneda, 'MXN') AS moneda
+               FROM guias_ajustes_financieros
+             WHERE activo = true AND guia_tracking = ANY($1::text[])
+               -- Un cargo que ya se cobro en su PROPIA orden trae esa referencia
+               -- encima (28 de los 208 activos son asi: un cargo sobre una guia
+               -- ya pagada sale como orden CEX independiente). Sumarlo aqui lo
+               -- cobraba dos veces en el documento: la UW-2744302F imprimia
+               -- $16,538.76 de cargos sobre un total de $7,819.85, que es justo
+               -- el monto de su CEX (tarea 1086).
+               AND (payment_reference IS NULL OR payment_reference = $2)`,
+            [trks, (order as any).payment_reference || null]
           );
+              // Un ajuste puede estar capturado en DOLARES: de los 208 activos,
+              // 139 traen moneda USD. La cotizacion los sumaba sin mirar la
+              // moneda, asi que un cargo de 78.26 USD se imprimia como "$78.26"
+              // en un documento en pesos —un decimo de lo que es— y la
+              // diferencia terminaba escondida en el renglon del servicio. El
+              // total no cambia: cambia de que renglon cuelga (tarea 1086).
+          const tcParaAjustes = tcSellado || tcAereo || 0;
           for (const c of ch.rows) {
-            const monto = Number(c.monto) || 0;
+            const crudo = Number(c.monto) || 0;
+            const monto = String(c.moneda).toUpperCase() === 'USD' && tcParaAjustes > 0
+              ? +(crudo * tcParaAjustes).toFixed(2)
+              : crudo;
             if (c.tipo === 'descuento') {
               cost_breakdown.descuento -= monto;   // negativo: resta del total
               cost_breakdown.extra -= monto;
@@ -1338,6 +1364,60 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       }
     } catch (e) {
       console.warn('[payment-orders] destino:', (e as Error).message);
+    }
+
+    // El desglose tiene que SUMAR lo que cobra la orden.
+    //
+    // Los renglones aereos no traen su importe en pesos —el precio vive en
+    // dolares— asi que hay que convertirlos. Convertirlos con el tipo de cambio
+    // DE HOY no sirve: la orden se cotizo con el de SU dia, y el documento
+    // acabaria con unos renglones que suman una cosa y un "TOTAL A PAGAR" que
+    // dice otra. En una orden de 15 guias aereas la diferencia era de $1,547.44
+    // contra un total de $99,463.04, sin nada que la explicara (tarea 1084).
+    //
+    // Asi que el tipo de cambio se saca de la propia orden: lo que queda por
+    // repartir, entre los dolares que hay que convertir. Lo que se reparte es
+    // SOLO el servicio —`cost_breakdown.pobox`—, no el total: el flete, el GEX y
+    // los cargos extra se imprimen en sus propios renglones mas abajo, y
+    // repartirlos otra vez entre las guias los cobraba dos veces en el documento
+    // (tarea 1086). El sobrante del redondeo se carga al ultimo renglon para que
+    // cuadre al centavo. Si el numero que sale no es un tipo de cambio creible,
+    // se deja la conversion de siempre.
+    const renglonesEnDolares = items.filter((i: any) => (Number(i.air_usd) || 0) > 0);
+    if (renglonesEnDolares.length > 0) {
+      const dolares = renglonesEnDolares.reduce((a: number, i: any) => a + Number(i.air_usd), 0);
+      const yaEnPesos = items.reduce(
+        (a: number, i: any) => a + ((Number(i.air_usd) || 0) > 0 ? 0 : (Number(i.venta_mxn) || 0)), 0);
+      const porRepartir = (Number(cost_breakdown.pobox) || montoBrutoOrden) - yaEnPesos;
+      const tcDeLaOrden = dolares > 0 ? porRepartir / dolares : 0;
+      if (tcDeLaOrden > 5 && tcDeLaOrden < 50) {
+        let acumulado = 0;
+        renglonesEnDolares.forEach((i: any, idx: number) => {
+          const parte = idx === renglonesEnDolares.length - 1
+            ? +(porRepartir - acumulado).toFixed(2)
+            : +(Number(i.air_usd) * tcDeLaOrden).toFixed(2);
+          acumulado += parte;
+          i.venta_mxn = parte;
+        });
+        // Si la orden no trae TC sellado —las de antes del 20-nov-2026—, el
+        // candidato a imprimir es este: el que sale de su propio monto. Leerlo de
+        // la configuracion vigente seria mentir sobre el documento, porque esa
+        // configuracion cambia: el 19-nov estaba en 18.93 y el 20 en 19.23, y el
+        // mismo folio reimpreso habria dicho 19.23.
+        if (!(tcSellado > 0)) tcDerivadoDeLaOrden = +tcDeLaOrden.toFixed(4);
+      }
+    }
+    for (const i of items as any[]) delete i.air_usd;
+
+    // El tipo de cambio derivado ya sale limpio: el reparto de arriba dejo fuera
+    // el flete, el GEX y los cargos extra, asi que lo que se dividio entre los
+    // dolares es solo el servicio. Sin eso daba 23.10 en el lote de la tarea
+    // 1081 sobre una cotizacion hecha a 18.40.
+    if (tcDerivadoDeLaOrden > 0) {
+      for (const i of items as any[]) {
+        if (!(Number(i.tc) > 0)) i.tc = tcDerivadoDeLaOrden;
+        for (const c of (i.children || [])) if (!(Number(c.tc) > 0)) c.tc = tcDerivadoDeLaOrden;
+      }
     }
 
     return res.json({ order, items, cost_breakdown, destino });

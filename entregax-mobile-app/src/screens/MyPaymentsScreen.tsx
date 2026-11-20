@@ -1435,6 +1435,20 @@ const MyPaymentsScreen = () => {
                     {order.packages.map((pkg: any) => {
                       const dims = (Number(pkg.length_cm) > 0 || Number(pkg.width_cm) > 0 || Number(pkg.height_cm) > 0)
                         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm` : '';
+                      // De que se compone lo que se le cobra por esta guia:
+                      // dolares, peso cobrable y tipo de cambio. Antes el cliente
+                      // solo veia el total de la orden y tenia que preguntar de
+                      // donde salia cada guia (tarea 1086).
+                      const dinero = (v: number, moneda: 'MXN' | 'USD') =>
+                        '$' + Number(v).toLocaleString(moneda === 'USD' ? 'en-US' : 'es-MX',
+                          { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      const cobro = [
+                        Number(pkg.costo_usd) > 0 ? dinero(Number(pkg.costo_usd), 'USD') + ' USD' : '',
+                        Number(pkg.peso_cobrable) > 0 ? Number(pkg.peso_cobrable).toFixed(1) + ' kg cobrable' : '',
+                        Number(pkg.precio_por_kg_usd) > 0 && String(pkg.tipo_tarifa || '') !== 'SU'
+                          ? dinero(Number(pkg.precio_por_kg_usd), 'USD') + '/kg' : '',
+                        Number(pkg.tc) > 0 ? 'T.C. ' + dinero(Number(pkg.tc), 'MXN') : '',
+                      ].filter(Boolean).join(' · ');
                       return (
                         <View key={pkg.id} style={styles.orderPkgRow}>
                           <View style={{ flex: 1 }}>
@@ -1444,6 +1458,7 @@ const MyPaymentsScreen = () => {
                               {dims ? ` · 📐 ${dims}` : ''}
                               {pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}
                             </Text>
+                            {cobro ? <Text style={styles.orderPkgCobro}>{cobro}</Text> : null}
                           </View>
                         </View>
                       );
@@ -2419,6 +2434,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
+  orderPkgCobro: { fontSize: 10.5, color: '#FF6B00', fontWeight: '600', marginTop: 2 },
   orderPkgTracking: {
     fontSize: 13,
     fontWeight: '700',
