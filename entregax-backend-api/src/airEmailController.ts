@@ -979,7 +979,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         // El acuerdo del cliente manda sobre el tipo que trae el packing list:
         // un cliente con trato Flat se cobra Flat aunque su mercancia clasifique
         // como Logo (tarea 1070).
-        const tariffType = tipoDelAcuerdo || tipoDelPacking;
+        let tariffType = tipoDelAcuerdo || tipoDelPacking;
         const weight = parseFloat(row.pesoKg) || 0;
         // PESO COBRABLE: el mayor entre el peso real y el volumetrico.
         //
@@ -1006,10 +1006,44 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         const altoCm = Number(row.alto) || 0;
         const volumetrico = Number(row.volumen) || (largoCm * anchoCm * altoCm) / 6000;
         const pesoCobrable = Math.max(weight, volumetrico > 0 ? volumetrico : 0);
-        const salePrice = pesoCobrable * pricePerKg;
+        let salePrice = pesoCobrable * pricePerKg;
+        let precioPorKg = pricePerKg;
+
+        // 🚀 Start Up: precio PLANO por tramo de peso.
+        //
+        // El Start Up no se cobra por kilo: son $150 de 1 a 5 kg, $250 de 5.1 a
+        // 10 y $350 de 10.1 a 15, con flete, liberacion de aduana y entrega a
+        // puerta incluidos. La captura de China y TDI Express ya lo aplicaban;
+        // este camino —el del manifiesto— no lo conocia y cobraba siempre por
+        // kilo neto: seis cajas de 3.9 kg salieron a $18.40/kg, $71.76 cada una,
+        // en vez de los $150 del tramo (tarea 1082).
+        //
+        // El tramo se mide con el peso REAL, igual que en los otros dos caminos
+        // y que el cotizador (tarea 809): si aqui se midiera distinto, lo
+        // cotizado y lo facturado dejarian de empatar. Un acuerdo de cliente
+        // manda sobre el Start Up, como ya pasa en la captura de China.
+        if (!isCustom && airRouteId && weight > 0 && weight <= 15) {
+          const tramo = await client.query(
+            `SELECT price_usd FROM air_startup_tiers
+              WHERE route_id = $1 AND is_active = true
+                AND $2::numeric >= min_weight AND $2::numeric <= max_weight
+              LIMIT 1`,
+            [airRouteId, weight],
+          );
+          const plano = parseFloat(tramo.rows[0]?.price_usd) || 0;
+          if (plano > 0) {
+            salePrice = plano;
+            // Se guarda el equivalente por kilo nada mas para que la cotizacion
+            // tenga que ensenar; el cobro es el precio plano.
+            precioPorKg = +(plano / weight).toFixed(4);
+            tariffType = 'SU';
+          }
+        }
 
         console.log(`  → ${guiaAir}: ${clienteId} | real ${weight}kg / vol ${volumetrico.toFixed(2)}kg`
-          + ` → cobrable ${pesoCobrable.toFixed(2)}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)}`
+          + (tariffType === 'SU'
+              ? ` → START UP $${salePrice.toFixed(2)} (tramo por peso real)`
+              : ` → cobrable ${pesoCobrable.toFixed(2)}kg × $${precioPorKg}/kg = $${salePrice.toFixed(2)}`)
           + ` (${isCustom ? 'CUSTOM' : 'GENERAL'})`);
 
         // Buscar si ya existe una guía con el mismo child_no (puede haber llegado vía API con tracking diferente)
@@ -1113,7 +1147,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               awb.carrier || draft.carrier || null,
               airRouteId,
               tariffType,
-              pricePerKg > 0 ? pricePerKg : null,
+              precioPorKg > 0 ? precioPorKg : null,
               salePrice > 0 ? salePrice : null,
               isCustom,
               userId,
@@ -1174,7 +1208,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
             guiaAir,
             airRouteId,
             tariffType,
-            pricePerKg > 0 ? pricePerKg : null,
+            precioPorKg > 0 ? precioPorKg : null,
             salePrice > 0 ? salePrice : null,
             isCustom,
             userId,
