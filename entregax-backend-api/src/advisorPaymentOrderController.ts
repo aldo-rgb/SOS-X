@@ -681,8 +681,19 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     // mano.
     if (allPackageIds.length > 0 && dhlIds.length === 0) {
       try {
-        const { totalCanonicoDeOrden } = await import('./totalDeOrden');
+        const { totalCanonicoDeOrden, sellarFleteLocalDeLaOrden } = await import('./totalDeOrden');
         const { getUsdToMxnRate } = await import('./customerServiceController');
+        // 🚚 La entrega local se decide con las cajas de ESTA cotizacion.
+        //
+        // "$99 por caja, gratis desde 3" es un umbral de la ENTREGA, y la
+        // entrega es la nota: tres cajas en la misma cotizacion viajan juntas.
+        // Antes se resolvia al asignar las instrucciones, cuando la nota
+        // todavia no existia, y cada camino contaba algo distinto (tarea 1073).
+        const fleteLocal = await sellarFleteLocalDeLaOrden(pool, allPackageIds);
+        if (fleteLocal.porGuia.size > 0) {
+          console.log('[orden-asesor] entrega local de la cotizacion: $'
+            + fleteLocal.total.toFixed(2) + ' en ' + fleteLocal.porGuia.size + ' guia(s).');
+        }
         const canon = await totalCanonicoDeOrden(pool, allPackageIds, null, await getUsdToMxnRate());
         // Cuando la cuenta se puede armar aqui, manda la de aqui.
         //

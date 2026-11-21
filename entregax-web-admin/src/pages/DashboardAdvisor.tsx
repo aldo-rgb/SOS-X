@@ -236,6 +236,9 @@ interface AdvisorShipment {
   extraChargesTotal: number;
   /** El importe de la guia ya trae sus cargos y descuentos dentro (1096). */
   amountIncludesExtras?: boolean;
+  /** Entrega local: cuanto cuesta por caja y desde cuantas es gratis (1073). */
+  fleteLocalPorCaja?: number | null;
+  fleteLocalGratisDesde?: number | null;
   extraChargesDesc?: string;
   // Dias que la guia lleva sin moverse (null en marítimo y DHL, que no llevan
   // historial de estados). Tarea 1037.
@@ -1240,8 +1243,26 @@ export default function DashboardAdvisor() {
       // dos veces los descuentos: una orden de diez guías pedía $86,841.51
       // cuando le tocaban $78,874.73 (tarea 1096). El servidor dice en
       // `amountIncludesExtras` cuándo el importe ya los trae dentro.
+      // 🚚 La entrega local se cuenta POR COTIZACIÓN.
+      //
+      // "$99 por caja, gratis desde 3" es un umbral de la entrega, y la
+      // entrega es esta nota: tres cajas aquí viajan juntas. El flete que la
+      // guía trae escrito se decidió al asignarle las instrucciones, cuando
+      // esta nota todavía no existía, contando otra cosa (tarea 1073).
+      //
+      // El servidor hace la misma cuenta al crear la orden; esto es para que
+      // el asesor vea el mismo número antes de generarla.
+      const cajasLocalesDeLaNota = selected.reduce((n, s) =>
+        n + ((s.fleteLocalPorCaja ?? null) !== null ? Math.max(1, Number(s.boxesCount) || 1) : 0), 0);
+      const fleteLocalDe = (s: AdvisorShipment): number | null => {
+        const porCaja = s.fleteLocalPorCaja ?? null;
+        if (porCaja === null) return null;
+        const gratisDesde = Number(s.fleteLocalGratisDesde) || 0;
+        if (gratisDesde > 0 && cajasLocalesDeLaNota >= gratisDesde) return 0;
+        return Number(porCaja) * Math.max(1, Number(s.boxesCount) || 1);
+      };
       const autoTotal = selected.reduce((sum, s) =>
-        sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.amountIncludesExtras ? 0 : (s.extraChargesTotal || 0)), 0);
+        sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (fleteLocalDe(s) ?? (s.nationalShippingCost || 0))) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.amountIncludesExtras ? 0 : (s.extraChargesTotal || 0)), 0);
       const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,

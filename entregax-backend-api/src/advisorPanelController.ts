@@ -1086,10 +1086,52 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       if (tcRes.rows.length > 0) tcUsdToMxn = Number(tcRes.rows[0].tc) || 1;
     } catch { /* fallback 1 */ }
 
+    // 🚚 Tarifa de entrega local del catalogo, por paqueteria.
+    //
+    // La pantalla arma el total de la nota y necesita poder aplicar el umbral
+    // "gratis desde N" con las cajas de ESA cotizacion, no con el flete que la
+    // guia trae escrito de cuando se le asignaron las instrucciones (1073).
+    const tarifaLocalPorCarrier = new Map<string, { porCaja: number; gratisDesde: number }>();
+    try {
+      const tl = await pool.query(
+        `SELECT REPLACE(REPLACE(LOWER(carrier_key), '_', ''), ' ', '') AS clave,
+                price_per_package::numeric AS por_caja, free_from_qty::int AS gratis_desde
+           FROM carrier_service_options
+          WHERE is_active = TRUE AND COALESCE(allows_collect, false) = false
+            AND price_per_package IS NOT NULL`);
+      for (const t of tl.rows) {
+        tarifaLocalPorCarrier.set(String(t.clave), {
+          porCaja: Number(t.por_caja) || 0,
+          gratisDesde: Number(t.gratis_desde) || 0,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[tarifa local] no se pudo leer el catalogo:', e?.message);
+    }
+    const tarifaLocalDe = (carrier: any) => tarifaLocalPorCarrier.get(
+      String(carrier || '').toLowerCase().replace(/[_\s-]+/g, ''));
+    // Que paqueteria nacional trae cada guia: el renglon del listado no la
+    // lleva, asi que se pregunta aparte con los ids que ya se tienen.
+    const tarifaLocalPorGuia = new Map<number, { porCaja: number; gratisDesde: number }>();
+
     const extraChargesByShipment: Record<string, number> = {};
     const extraChargesDescByShipment: Record<string, string> = {};
     try {
       const shipIds = shipmentsRes.rows.map((s: any) => Number(s.id)).filter((n: number) => Number.isFinite(n));
+      if (shipIds.length > 0 && tarifaLocalPorCarrier.size > 0) {
+        try {
+          const cr = await pool.query(
+            `SELECT id, COALESCE(NULLIF(national_carrier, ''), '') AS carrier
+               FROM packages WHERE id = ANY($1::int[]) AND COALESCE(is_collect, false) = false`,
+            [shipIds]);
+          for (const f of cr.rows) {
+            const t = tarifaLocalDe(f.carrier);
+            if (t) tarifaLocalPorGuia.set(Number(f.id), t);
+          }
+        } catch (e: any) {
+          console.warn('[tarifa local] no se pudo resolver por guia:', e?.message);
+        }
+      }
       // Conjunto de trackings PROPIOS de cada guía. Incluye el tracking principal,
       // el internacional (para DHL = secondary_tracking, que es donde se registra el
       // ajuste) y las hijas. Antes solo se usaban las hijas + guia_id; como los
@@ -1184,6 +1226,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         nationalShippingCost: parseFloat(s.national_shipping_cost) || 0,
         extraChargesTotal: extraChargesByShipment[String(s.id)] || 0,
         extraChargesDesc: extraChargesDescByShipment[String(s.id)] || '',
+        // Lo que cuesta la entrega local POR CAJA y desde cuantas cajas es
+        // gratis: el umbral se aplica sobre las cajas de la cotizacion (1073).
+        fleteLocalPorCaja: tarifaLocalPorGuia.get(Number(s.id))?.porCaja ?? null,
+        fleteLocalGratisDesde: tarifaLocalPorGuia.get(Number(s.id))?.gratisDesde ?? null,
         // El importe de arriba ya trae sus cargos y descuentos dentro: quien
         // arme un total NO debe volver a sumarlos (tarea 1096).
         amountIncludesExtras: !!s.monto_es_saldo,

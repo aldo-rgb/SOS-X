@@ -172,3 +172,101 @@ export async function aplicarDeltaDeAjusteEnOrdenesAbiertas(
   }
   return cambios;
 }
+
+/**
+ * La entrega local de una orden: "$99 por caja, gratis desde 3".
+ *
+ * El precio lo trae el catalogo (`price_per_package` y `free_from_qty`), pero
+ * el umbral se evaluaba al asignar las instrucciones, y ahi todavia no existe
+ * la cotizacion. Cada camino contaba algo distinto: el panel del asesor
+ * contaba las cajas PENDIENTES del cliente —asi que a un cliente con
+ * inventario guardado nunca se le cobraba, aunque la entrega llevara una sola
+ * caja— y la app contaba las cajas de esa guia, que en PO Box siempre es una,
+ * asi que siempre cobraba. Medido el 21-nov-2026 sobre 30 dias: de 266 guias
+ * con entrega local, 23 salieron gratis debiendo cobrar y 14 cobraron
+ * debiendo salir gratis (tarea 1073, TKT-2026-3734).
+ *
+ * El umbral es de la ENTREGA, y la entrega es la cotizacion: tres cajas en la
+ * misma nota viajan juntas. Asi que se decide aqui, con las cajas que trae la
+ * orden, y da igual quien haya asignado las instrucciones.
+ *
+ * Las "por cobrar" no entran: esas las paga el cliente al transportista.
+ */
+export interface FleteLocal {
+  total: number;
+  porGuia: Map<number, number>;
+}
+
+export async function fleteLocalDeLaOrden(db: Db, packageIds: number[]): Promise<FleteLocal> {
+  const vacio: FleteLocal = { total: 0, porGuia: new Map() };
+  const ids = (packageIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  if (ids.length === 0) return vacio;
+  try {
+    const r = await db.query(
+      `SELECT p.id,
+              LOWER(COALESCE(NULLIF(p.national_carrier, ''), '')) AS carrier,
+              -- REPACK es UNA caja fisica: total_boxes ahi cuenta las guias
+              -- consolidadas, no las cajas.
+              CASE WHEN UPPER(COALESCE(p.tracking_internal, '')) LIKE 'US-REPACK-%'
+                   THEN 1 ELSE GREATEST(COALESCE(p.total_boxes, 1), 1) END AS cajas,
+              c.price_per_package::numeric AS por_caja,
+              c.free_from_qty::int AS gratis_desde
+         FROM packages p
+         LEFT JOIN carrier_service_options c
+           ON REPLACE(REPLACE(LOWER(c.carrier_key), '_', ''), ' ', '')
+            = REPLACE(REPLACE(LOWER(COALESCE(p.national_carrier, '')), '_', ''), ' ', '')
+          AND c.is_active = TRUE
+          AND COALESCE(c.allows_collect, false) = false
+          AND c.price_per_package IS NOT NULL
+        WHERE p.id = ANY($1::int[])
+          AND COALESCE(p.is_collect, false) = false`,
+      [ids],
+    );
+
+    // Las cajas se cuentan POR PAQUETERIA: una orden puede mezclarlas.
+    const cajasPorCarrier = new Map<string, number>();
+    for (const f of r.rows) {
+      if (!(Number(f.por_caja) >= 0) || !f.carrier) continue;
+      cajasPorCarrier.set(f.carrier, (cajasPorCarrier.get(f.carrier) || 0) + (Number(f.cajas) || 1));
+    }
+
+    const porGuia = new Map<number, number>();
+    let total = 0;
+    for (const f of r.rows) {
+      const porCaja = Number(f.por_caja);
+      if (!(porCaja >= 0) || !f.carrier) continue;
+      const gratisDesde = Number(f.gratis_desde) || 0;
+      const cajasDeLaOrden = cajasPorCarrier.get(f.carrier) || 0;
+      const gratis = gratisDesde > 0 && cajasDeLaOrden >= gratisDesde;
+      const importe = gratis ? 0 : Math.round(porCaja * (Number(f.cajas) || 1) * 100) / 100;
+      porGuia.set(Number(f.id), importe);
+      total += importe;
+    }
+    return { total: Math.round(total * 100) / 100, porGuia };
+  } catch (e: any) {
+    console.warn('[flete local] no pude calcular la entrega local de la orden:', e?.message);
+    return vacio;
+  }
+}
+
+/**
+ * Deja escrito en cada guia lo que le toca de entrega local segun ESTA orden.
+ * Se llama al crearla, para que la guia y la nota digan lo mismo.
+ */
+export async function sellarFleteLocalDeLaOrden(db: Db, packageIds: number[]): Promise<FleteLocal> {
+  const flete = await fleteLocalDeLaOrden(db, packageIds);
+  for (const [id, importe] of flete.porGuia) {
+    try {
+      await db.query(
+        `UPDATE packages SET national_shipping_cost = $2, updated_at = NOW()
+          WHERE id = $1 AND COALESCE(national_shipping_cost, 0) <> $2
+            AND COALESCE(client_paid, false) = false
+            AND COALESCE(payment_status::text, '') <> 'paid'`,
+        [id, importe],
+      );
+    } catch (e: any) {
+      console.warn('[flete local] no pude escribir la entrega local de la guia', id, '-', e?.message);
+    }
+  }
+  return flete;
+}
