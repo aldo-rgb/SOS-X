@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 import { sendPushToRole } from './pushService';
 import { createCustomNotification } from './notificationController';
 import { casilleroSinAnotacion } from './boxLinkReconcile';
+import { tcDelDia, fechaDeRecepcionChina } from './tipoCambioDelDia';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1040,6 +1041,23 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
           }
         }
 
+        // 📅 El tipo de cambio con el que se cotiza esta guia es el del DIA EN
+        // QUE SE RECIBIO EN CHINA, no el de hoy.
+        //
+        // La fecha viaja dentro del numero de guia, que es como la casa ya lo
+        // lee ("el lote del 09.11.26"): AIR20261110773 es del 10 de noviembre.
+        // Se guarda en la guia, y de ahi en adelante manda sobre el vigente:
+        // la orden lo sella y el renglon de la cotizacion lo imprime.
+        //
+        // Si ese dia no tiene tipo de cambio guardado -los dias anteriores a
+        // que esto empezara a registrarse- la guia se queda sin el suyo y todo
+        // sigue como antes, con el vigente.
+        const fechaChina = fechaDeRecepcionChina(trackingInternal);
+        const tcDeLaRecepcion = await tcDelDia(client, 'tdi', fechaChina);
+        if (tcDeLaRecepcion > 0) {
+          console.log(`  📅 ${guiaAir}: recibida en China el ${fechaChina} → TC ${tcDeLaRecepcion}`);
+        }
+
         console.log(`  → ${guiaAir}: ${clienteId} | real ${weight}kg / vol ${volumetrico.toFixed(2)}kg`
           + (tariffType === 'SU'
               ? ` → START UP $${salePrice.toFixed(2)} (tramo por peso real)`
@@ -1131,6 +1149,9 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
                 air_price_assigned_at = NOW(),
                 air_price_assigned_by = $17,
                 air_chargeable_weight = $18,
+                -- El de la recepcion en China manda; si ese dia no tiene
+                -- registro, se queda el que la guia ya traia (tarea 1086).
+                registered_exchange_rate = COALESCE($19, registered_exchange_rate),
                 updated_at = NOW()
               WHERE id = $1
             `, [
@@ -1152,6 +1173,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               isCustom,
               userId,
               pesoCobrable > 0 ? pesoCobrable : null,
+              tcDeLaRecepcion > 0 ? tcDeLaRecepcion : null,
             ]);
           }
         } else {
@@ -1164,10 +1186,10 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               child_no, air_source,
               air_route_id, air_tariff_type, air_price_per_kg, air_sale_price,
               air_is_custom_tariff, air_price_assigned_at, air_price_assigned_by,
-              air_chargeable_weight,
+              air_chargeable_weight, registered_exchange_rate,
               created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'extraction',
-                      $14, $15, $16, $17, $18, NOW(), $19, $20, NOW(), NOW())
+                      $14, $15, $16, $17, $18, NOW(), $19, $20, $21, NOW(), NOW())
             ON CONFLICT (tracking_internal) DO UPDATE SET
               user_id = COALESCE(EXCLUDED.user_id, packages.user_id),
               box_id = COALESCE(EXCLUDED.box_id, packages.box_id),
@@ -1188,6 +1210,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
               air_price_per_kg = COALESCE(packages.air_price_per_kg, EXCLUDED.air_price_per_kg),
               air_sale_price = COALESCE(packages.air_sale_price, EXCLUDED.air_sale_price),
               air_chargeable_weight = COALESCE(packages.air_chargeable_weight, EXCLUDED.air_chargeable_weight),
+              registered_exchange_rate = COALESCE(packages.registered_exchange_rate, EXCLUDED.registered_exchange_rate),
               air_is_custom_tariff = COALESCE(packages.air_is_custom_tariff, EXCLUDED.air_is_custom_tariff),
               air_price_assigned_at = COALESCE(packages.air_price_assigned_at, EXCLUDED.air_price_assigned_at),
               air_price_assigned_by = COALESCE(packages.air_price_assigned_by, EXCLUDED.air_price_assigned_by),
@@ -1213,6 +1236,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
             isCustom,
             userId,
             pesoCobrable > 0 ? pesoCobrable : null,
+            tcDeLaRecepcion > 0 ? tcDeLaRecepcion : null,
           ]);
         }
 

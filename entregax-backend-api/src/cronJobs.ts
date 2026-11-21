@@ -586,6 +586,17 @@ export const startExchangeRateCheckCron = () => {
         console.log(`💱 [CRON] ${configs.rows.length} servicios actualizados con TC desde API`);
       }
 
+      // El tipo de cambio de HOY queda escrito, uno por servicio.
+      //
+      // La casa cotiza el aereo con el tipo de cambio del dia en que la guia se
+      // recibio en China, y hasta ahora no habia de donde sacarlo: la
+      // configuracion solo guarda el vigente y el historial solo se escribe
+      // cuando alguien la edita a mano (27 filas, la ultima de junio). Con esto
+      // se arma el historial dia por dia hacia adelante (tarea 1086).
+      const { registrarTcDelDia } = await import('./tipoCambioDelDia');
+      const guardados = await registrarTcDelDia(pool);
+      if (guardados > 0) console.log(`📅 [CRON] tipo de cambio del dia guardado en ${guardados} servicios`);
+
     } catch (error) {
       console.error('❌ [CRON] Error en verificación de tipo de cambio:', error);
     }
