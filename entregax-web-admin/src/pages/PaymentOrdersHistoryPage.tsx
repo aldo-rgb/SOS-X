@@ -600,14 +600,22 @@ export default function PaymentOrdersHistoryPage() {
                         : '—';
                       // Peso real, volumétrico y medidas: de ahí sale el peso cobrable,
                       // pero ninguno merece columna propia.
+                      // Los decimales con los que se COBRA: el peso cobrable
+                      // multiplica a la tarifa, y redondeado a uno el renglón no
+                      // cuadraba — 26.44 × 16.40 = 433.62, impreso como 26.4
+                      // parecía 432.96 (tarea 1086).
+                      const kgTxt = (n: any) => {
+                        const v = Number(n || 0);
+                        return (Math.abs(v - Number(v.toFixed(1))) < 0.005 ? v.toFixed(1) : v.toFixed(2)) + ' kg';
+                      };
                       const bajoLaGuia = (i: DetalleItem) => [
-                        Number(i.weight) > 0 ? Number(i.weight).toFixed(1) + ' kg real' : '',
-                        Number(i.peso_volumetrico) > 0 ? Number(i.peso_volumetrico).toFixed(1) + ' kg vol' : '',
+                        Number(i.weight) > 0 ? kgTxt(i.weight) + ' real' : '',
+                        Number(i.peso_volumetrico) > 0 ? kgTxt(i.peso_volumetrico) + ' vol' : '',
                         medidas(i) !== '—' ? medidas(i) : '',
                         // La tarifa por kilo no explica el precio con el peso cobrable:
                         // se dice sobre que peso se cobro (1086).
                         Number(i.peso_cobrado) > 0
-                          ? 'cobrado sobre ' + Number(i.peso_cobrado).toFixed(1) + ' kg' : '',
+                          ? 'cobrado sobre ' + kgTxt(i.peso_cobrado) : '',
                       ].filter(Boolean).join(' · ');
                       return (
                         <TableRow>
@@ -664,7 +672,7 @@ export default function PaymentOrdersHistoryPage() {
                                             : (Number(i.precio_por_kg_usd) > 0 ? '$' + Number(i.precio_por_kg_usd).toFixed(2) : '—')}
                                         </TableCell>
                                         <TableCell align="right">
-                                          {Number(i.peso_cobrable) > 0 ? `${Number(i.peso_cobrable).toFixed(1)} kg` : '—'}
+                                          {Number(i.peso_cobrable) > 0 ? kgTxt(i.peso_cobrable) : '—'}
                                         </TableCell>
                                         <TableCell align="right">
                                           {Number(i.tc) > 0 ? '$' + Number(i.tc).toFixed(2) : '—'}

@@ -1365,7 +1365,18 @@ export default function DashboardAdvisor() {
     const usdTxt = (n: any) => Number(n || 0) > 0
       ? '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : '—';
-    const kgTxt = (n: any) => Number(n || 0).toFixed(1) + ' kg';
+    const kgTxt = (n: any) => {
+      // Los decimales con los que se COBRA.
+      //
+      // El peso se imprimia redondeado a un decimal y el cobro se hace con el
+      // de verdad: una caja de 51x51x61 da 26.44 kg volumetricos, se cobro
+      // 26.44 x 16.40 = 433.62, y el renglon decia "26.4 kg", que multiplicado
+      // da 432.96. Juan lo leyo como un error de centavos y tenia razon: el
+      // documento tiene que poder comprobarse con una calculadora (1086).
+      const v = Number(n || 0);
+      const txt = Math.abs(v - Number(v.toFixed(1))) < 0.005 ? v.toFixed(1) : v.toFixed(2);
+      return txt + ' kg';
+    };
     // Lo que no merece columna propia va en letra chica bajo la guía: el peso
     // real, el volumétrico cuando aplica y las medidas de la caja.
     const bajoLaGuia = (it: any): string => {
