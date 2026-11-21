@@ -2413,15 +2413,25 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     if (t > 5 && t < 50) tcDerivado = t;
                 }
                 packages = packages.map((p: any) => {
+                    const tcDeLaFila = Number(p.registered_exchange_rate) || tcSellado || tcDerivado;
                     // El importe que esta fila enseña como Total: el desglose
                     // abre ese mismo número, con la misma cadena de respaldo que
                     // usan el portal y el PDF (1086).
+                    //
+                    // El último eslabón son los dólares del flete aéreo. Sin él, una
+                    // guía aérea recién cotizada —sin saldo, sin costo asignado y sin
+                    // costo PO Box, que es como nacen— salía con Total $0.00 en la
+                    // cotización del cliente: 87 renglones en $0.00 bajo una orden
+                    // de $807,170.73. El panel del asesor ya la tenía; esta no.
                     const ventaMxn = Number(p.venta_mxn) || Number(p.pobox_service_cost)
-                        || Number(p.saldo_pendiente) || Number(p.assigned_cost_mxn) || 0;
+                        || Number(p.saldo_pendiente) || Number(p.assigned_cost_mxn)
+                        || (tcDeLaFila > 0 ? (Number(p.air_sale_price) || 0) * tcDeLaFila : 0)
+                        || 0;
                     return ({
                         ...p,
                         // El TC pactado en la guia manda sobre el de la orden (1070).
-                        ...desgloseDeGuia(p, Number(p.registered_exchange_rate) || tcSellado || tcDerivado, ventaMxn),
+                        ...desgloseDeGuia(p, tcDeLaFila, ventaMxn),
+                        venta_mxn: ventaMxn > 0 ? +ventaMxn.toFixed(2) : (p.venta_mxn ?? null),
                     });
                 });
             }
