@@ -1525,8 +1525,25 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   )}
                 </View>
 
-                {/* 💳 Botón de Pago (solo si está despachado) */}
-                {isShipped && item.consolidation_id && (
+                {/* 💳 Botón de Pago (solo si está despachado y NO se ha pagado) */}
+                {/*
+                  El botón solo miraba si la guía iba despachada, no si ya estaba
+                  pagada: a un cliente que pagó su envío completo le seguía
+                  apareciendo "PAGAR FLETE" encima, y escribía preguntando qué
+                  flete nuevo era ese (TKT-2026-3736, tarea 1074).
+
+                  Se pregunta igual que el resto de la pantalla: la guía está
+                  pagada si lo dice `client_paid` o si ya no debe nada. El peso
+                  de tolerancia es por el redondeo de convertir dólares a pesos,
+                  que dejaba centavos colgando —la guía del ticket debía $0.09—.
+                */}
+                {isShipped && item.consolidation_id && !(() => {
+                  const costo = parseFloat(String((item as any).assigned_cost_mxn ?? '0')) || 0;
+                  const saldo = parseFloat(String((item as any).saldo_pendiente ?? '0')) || 0;
+                  return (item as any).client_paid === true
+                    || (item as any).payment_status === 'paid'
+                    || (costo > 0 && saldo <= 1);
+                })() && (
                   <View style={styles.payButtonContainer}>
                     <Pressable
                       style={styles.payButton}

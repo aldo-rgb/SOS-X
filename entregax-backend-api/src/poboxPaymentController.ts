@@ -624,10 +624,22 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
             if (!alreadyCompleted) {
                 await pool.query(`
                     UPDATE packages SET
-                        payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
+                        -- Un peso de diferencia NO es una deuda.
+                        --
+                        -- El costo de la guia y el monto de la orden se convierten de
+                        -- dolares a pesos en momentos distintos, y el redondeo deja
+                        -- centavos de sobra: una guia pagada completa quedaba en
+                        -- 'parcial' con $0.09 encima y al cliente le aparecia el boton
+                        -- de pagar flete sobre un envio que ya habia pagado
+                        -- (TKT-2026-3736, tarea 1074). Medido el 21-nov-2026: 7 guias
+                        -- de 5 clientes en ese estado, $0.37 en total.
+                        --
+                        -- La tolerancia era de un centavo; ahora es de un peso, que es
+                        -- lo que la casa no va a ir a cobrar.
+                        payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 1 THEN 'partial' ELSE 'paid' END,
                         monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                        saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
-                        client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END
+                        saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN CASE WHEN assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1) <= 1 THEN 0 ELSE assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1) END ELSE 0 END,
+                        client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 1 THEN FALSE ELSE TRUE END
                     WHERE (id = ANY($2) OR master_id = ANY($2))
                       AND COALESCE(payment_status, '') <> 'paid'
                 `, [payment.amount, packageIds]);
@@ -1728,10 +1740,10 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
 
                     await pool.query(`
                         UPDATE packages SET
-                            payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
+                            payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 1 THEN 'partial' ELSE 'paid' END,
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                            saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
-                            client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END
+                            saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN CASE WHEN assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1) <= 1 THEN 0 ELSE assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1) END ELSE 0 END,
+                            client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 1 THEN FALSE ELSE TRUE END
                         WHERE id = ANY($2) OR master_id = ANY($2)
                     `, [payment.amount, packageIds]);
 
