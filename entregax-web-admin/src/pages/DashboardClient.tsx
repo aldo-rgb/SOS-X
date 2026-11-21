@@ -930,6 +930,20 @@ export default function DashboardClient() {
     // campo viene lleno y por eso la regla de "paqueteria sin flete" de mas
     // abajo nunca se alcanzaba a evaluar.
     if (esPickUp(pkg)) return 0;
+    // ✈️ Carga aérea: la entrega nacional ya va DENTRO del flete, así que no se
+    // cobra aparte —nunca, sea cual sea la paquetería—.
+    //
+    // La regla ya existía más abajo, pero solo se alcanzaba cuando la guía no
+    // traía `national_shipping_cost`: el `direct` de aquí abajo devuelve ese
+    // campo y corta la función. Como la bodega sí lo llena, el flete se cobraba
+    // igual, encima del costo de la guía. Una guía aérea de 1 kg con $400 de
+    // Paquete Express se cotizó en $800: $400 del costo y $400 del mismo flete
+    // otra vez (TKT-2026-3781, tarea 1097). Es el mismo tropeón del Pick Up de
+    // aquí arriba, y por eso va ANTES, no después.
+    //
+    // ⚠️ ESPEJO de FLETE_INCLUYE_ENTREGA en
+    //    entregax-backend-api/src/totalDeOrden.ts.
+    if (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX') return 0;
     const direct = Number(pkg.national_shipping_cost) || 0;
     if (direct > 0) return direct;
     const fromChildren = (pkg.included_guides || []).reduce(
