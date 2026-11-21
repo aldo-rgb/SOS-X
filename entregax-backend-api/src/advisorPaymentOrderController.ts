@@ -664,7 +664,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       }
     }
 
-    // ── 3c. Ajustes cobrados dos veces ───────────────────────────────
+    // ── 3c. El total lo arma el servidor ────────────────────────────
     //
     // El panel suma, por guia, su importe mas sus cargos extra. Pero el
     // importe que el panel enseña ya ES el saldo de la guia, y el saldo ya trae
@@ -684,18 +684,27 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
         const { totalCanonicoDeOrden } = await import('./totalDeOrden');
         const { getUsdToMxnRate } = await import('./customerServiceController');
         const canon = await totalCanonicoDeOrden(pool, allPackageIds, null, await getUsdToMxnRate());
-        if (canon && canon.total > 0 && Math.abs(canon.ajustes) > 0.009) {
-          const conAjusteDoble = Math.round((canon.total + canon.ajustes) * 100) / 100;
-          if (Math.abs(totalFinal - conAjusteDoble) < 0.5) {
-            console.warn('[orden-asesor] ajustes cobrados dos veces: '
-              + totalFinal.toFixed(2) + ' -> ' + canon.total.toFixed(2)
-              + ' (' + canon.guias + ' guias, ajustes ' + canon.ajustes.toFixed(2) + ').'
-              + ' Asesor ' + aid + ', cliente ' + client_id + '.');
-            totalFinal = canon.total;
-          }
+        // Cuando la cuenta se puede armar aqui, manda la de aqui.
+        //
+        // El total llegaba armado por la pantalla, y una pantalla puede venir
+        // de un telefono con bundle viejo o de una pestana abierta desde antes.
+        // Dos ordenes seguidas del mismo lote pidieron $782,378.69 cuando sus
+        // 87 renglones sumaban $796,757.54: el documento se contradecia solo.
+        //
+        // Un total escrito a mano por el asesor NO se pierde: ese camino solo
+        // se usa cuando las guias no traen precio, y entonces esta cuenta da
+        // cero y no toca nada.
+        if (canon && canon.total > 0 && Math.abs(totalFinal - canon.total) >= 0.01) {
+          console.warn('[orden-asesor] el total no cuadra con sus renglones: '
+            + totalFinal.toFixed(2) + ' -> ' + canon.total.toFixed(2)
+            + ' (' + canon.guias + ' guias, base ' + canon.base.toFixed(2)
+            + ', ajustes ' + canon.ajustes.toFixed(2) + ', flete ' + canon.flete.toFixed(2)
+            + ', gex ' + canon.gex.toFixed(2) + ').'
+            + ' Asesor ' + aid + ', cliente ' + client_id + '.');
+          totalFinal = canon.total;
         }
       } catch (e: any) {
-        console.warn('[orden-asesor] no pude revisar el doble cobro de ajustes:', e?.message);
+        console.warn('[orden-asesor] no pude revisar el total de la orden:', e?.message);
       }
     }
 
