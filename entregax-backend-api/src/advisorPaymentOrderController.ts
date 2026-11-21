@@ -664,6 +664,41 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       }
     }
 
+    // ── 3c. Ajustes cobrados dos veces ───────────────────────────────
+    //
+    // El panel suma, por guia, su importe mas sus cargos extra. Pero el
+    // importe que el panel enseña ya ES el saldo de la guia, y el saldo ya trae
+    // dentro esos ajustes: la formula del saldo es base + cargos − descuentos.
+    // Resultado: cada cargo se cobraba dos veces y cada descuento se restaba
+    // dos veces. La orden de diez guias de la tarea 1096 cobraba $86,841.51
+    // cuando le tocaban $78,874.73 —exactamente sus $7,966.80 de ajustes
+    // repetidos— y no habia forma de corregirla: borrar el cargo tampoco movia
+    // el monto, porque ya estaba congelado.
+    //
+    // Igual que con la paqueteria de DHL: solo se corrige el cobro DOBLE —el
+    // total que llego es el canonico MAS sus ajustes otra vez—; cualquier otra
+    // diferencia se respeta, porque el asesor pudo haber ajustado el total a
+    // mano.
+    if (allPackageIds.length > 0 && dhlIds.length === 0) {
+      try {
+        const { totalCanonicoDeOrden } = await import('./totalDeOrden');
+        const { getUsdToMxnRate } = await import('./customerServiceController');
+        const canon = await totalCanonicoDeOrden(pool, allPackageIds, null, await getUsdToMxnRate());
+        if (canon && canon.total > 0 && Math.abs(canon.ajustes) > 0.009) {
+          const conAjusteDoble = Math.round((canon.total + canon.ajustes) * 100) / 100;
+          if (Math.abs(totalFinal - conAjusteDoble) < 0.5) {
+            console.warn('[orden-asesor] ajustes cobrados dos veces: '
+              + totalFinal.toFixed(2) + ' -> ' + canon.total.toFixed(2)
+              + ' (' + canon.guias + ' guias, ajustes ' + canon.ajustes.toFixed(2) + ').'
+              + ' Asesor ' + aid + ', cliente ' + client_id + '.');
+            totalFinal = canon.total;
+          }
+        }
+      } catch (e: any) {
+        console.warn('[orden-asesor] no pude revisar el doble cobro de ajustes:', e?.message);
+      }
+    }
+
     // ── 4. Generate payment reference ────────────────────────────────────
     const words = (companyInfo.company_name || 'EX').trim().split(/\s+/)
       .filter((w: string) => !['sa','de','cv','s.a.','c.v.'].includes(w.toLowerCase()));

@@ -5,6 +5,7 @@ import axios from 'axios';
 import { createCustomNotification } from './notificationController';
 import { depositar as walletDepositar } from './walletService';
 import { sellarTcDeLaOrden } from './tipoCambioOrden';
+import { aplicarDeltaDeAjusteEnOrdenesAbiertas } from './totalDeOrden';
 
 // Helper: Enviar notificación push via Expo
 const sendExpoPushNotification = async (pushToken: string, title: string, body: string, data?: object) => {
@@ -78,6 +79,11 @@ export const createAjuste = async (req: Request, res: Response) => {
 
     // Actualizar saldo_pendiente en la tabla correspondiente
     await actualizarSaldoGuia(guia_tracking, servicio);
+    // El cargo tiene que llegar a la orden que todavia no se paga (1096).
+    if (servicio === 'package') {
+      await aplicarDeltaDeAjusteEnOrdenesAbiertas(
+        pool, guia_tracking, await montoDelAjusteEnMxn(result.rows[0]));
+    }
 
     res.json({ success: true, ajuste: result.rows[0] });
   } catch (error: any) {
@@ -96,6 +102,11 @@ export const deleteAjuste = async (req: Request, res: Response) => {
     );
     if (result.rows.length > 0) {
       await actualizarSaldoGuia(result.rows[0].guia_tracking, result.rows[0].servicio);
+      // Al borrarlo, la orden abierta tiene que dejar de cobrarlo (1096).
+      if (result.rows[0].servicio === 'package') {
+        await aplicarDeltaDeAjusteEnOrdenesAbiertas(
+          pool, result.rows[0].guia_tracking, -(await montoDelAjusteEnMxn(result.rows[0])));
+      }
     }
     res.json({ success: true });
   } catch (error: any) {
@@ -142,6 +153,21 @@ export async function ensureCargoExtraSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ajustes_validacion ON guias_ajustes_financieros(estado_validacion) WHERE estado_validacion = 'pendiente'`);
     cargoExtraSchemaReady = true;
   } catch (e) { console.error('ensureCargoExtraSchema:', e); }
+}
+
+/**
+ * Cuanto mueve este ajuste, en pesos y con su signo: un cargo suma y un
+ * descuento resta. Los capturados en dolares se convierten con el mismo tipo
+ * de cambio que usa el saldo de la guia.
+ */
+async function montoDelAjusteEnMxn(ajuste: any): Promise<number> {
+  const crudo = Number(ajuste?.monto) || 0;
+  if (!crudo) return 0;
+  const enPesos = String(ajuste?.moneda || 'MXN').toUpperCase() === 'USD'
+    ? crudo * (await getUsdToMxnRate())
+    : crudo;
+  const signo = String(ajuste?.tipo || '') === 'descuento' ? -1 : 1;
+  return Math.round(enPesos * signo * 100) / 100;
 }
 
 // Actualiza el saldo_pendiente sumando cargos y restando descuentos.

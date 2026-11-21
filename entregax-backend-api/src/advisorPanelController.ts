@@ -769,7 +769,19 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         -- guias que no se mueven desde hace meses, asi que el numero no decia
         -- nada: 5,798 de las 9,804 no entregadas llevan mas de 60 dias en el
         -- mismo estado. La definicion vive en guiasSinMovimiento.ts (tarea 1037).
-        ${sqlDiasSinMovimiento('p')} as dias_sin_movimiento
+        ${sqlDiasSinMovimiento('p')} as dias_sin_movimiento,
+        -- El importe de la guia, cuando sale del saldo pendiente.
+        --
+        -- El saldo ES base + cargos − descuentos, asi que cuando el importe
+        -- sale de ahi ya trae los ajustes dentro. La pantalla armaba el total
+        -- de la orden sumando importe MAS cargos, y entonces cada ajuste se
+        -- cobraba dos veces: una orden de diez guias pedia $86,841.51 cuando
+        -- le tocaban $78,874.73 (tarea 1096). Con esto la pantalla sabe
+        -- cuando NO debe volver a sumarlos.
+        (COALESCE(p.assigned_cost_mxn, 0) = 0
+         AND COALESCE(p.pobox_service_cost, 0) = 0
+         AND COALESCE(p.pobox_venta_usd, 0) * COALESCE(p.registered_exchange_rate, 0) = 0
+         AND COALESCE(p.saldo_pendiente, 0) <> 0) as monto_es_saldo
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -831,7 +843,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         -- Maritimo lleva su propio historial (container_status_history) y no se
         -- mide con la misma regla; NULL deja estas filas fuera del filtro sin
         -- tener que enumerarlas.
-        NULL::int as dias_sin_movimiento
+        NULL::int as dias_sin_movimiento,
+        (COALESCE(mo.assigned_cost_mxn, 0) = 0 AND COALESCE(mo.saldo_pendiente, 0) <> 0) as monto_es_saldo
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -927,7 +940,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COALESCE(SUM(COALESCE(ds.national_cost_mxn, 0)), 0)::numeric as national_shipping_cost,
         0::int as boxes_count,
         -- DHL tampoco escribe en package_history.
-        NULL::int as dias_sin_movimiento
+        NULL::int as dias_sin_movimiento,
+        false as monto_es_saldo
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       -- Guía con proceso especial y costo retenido: tampoco la ve el asesor,
@@ -1170,6 +1184,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         nationalShippingCost: parseFloat(s.national_shipping_cost) || 0,
         extraChargesTotal: extraChargesByShipment[String(s.id)] || 0,
         extraChargesDesc: extraChargesDescByShipment[String(s.id)] || '',
+        // El importe de arriba ya trae sus cargos y descuentos dentro: quien
+        // arme un total NO debe volver a sumarlos (tarea 1096).
+        amountIncludesExtras: !!s.monto_es_saldo,
         // Dias sin movimiento de la guia (null en marítimo y DHL, que no
         // escriben en package_history). Tarea 1037.
         diasSinMovimiento: s.dias_sin_movimiento != null ? Number(s.dias_sin_movimiento) : null,

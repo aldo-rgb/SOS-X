@@ -234,6 +234,8 @@ interface AdvisorShipment {
   labelPrinted: boolean;
   nationalShippingCost: number;
   extraChargesTotal: number;
+  /** El importe de la guia ya trae sus cargos y descuentos dentro (1096). */
+  amountIncludesExtras?: boolean;
   extraChargesDesc?: string;
   // Dias que la guia lleva sin moverse (null en marítimo y DHL, que no llevan
   // historial de estados). Tarea 1037.
@@ -1230,8 +1232,16 @@ export default function DashboardAdvisor() {
     try {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
+      // Los cargos extra se suman UNA vez.
+      //
+      // El importe de la guía sale de una cadena de respaldo y uno de sus
+      // eslabones es el saldo, que por definición ya es base + cargos −
+      // descuentos. Sumarle encima los cargos los cobraba dos veces y restó
+      // dos veces los descuentos: una orden de diez guías pedía $86,841.51
+      // cuando le tocaban $78,874.73 (tarea 1096). El servidor dice en
+      // `amountIncludesExtras` cuándo el importe ya los trae dentro.
       const autoTotal = selected.reduce((sum, s) =>
-        sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
+        sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.amountIncludesExtras ? 0 : (s.extraChargesTotal || 0)), 0);
       const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
