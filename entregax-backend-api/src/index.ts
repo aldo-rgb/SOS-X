@@ -1446,6 +1446,7 @@ import {
   listCargosExtra,
   listDescuentos,
   deleteAjuste,
+  updateAjuste,
   // Cartera Vencida
   getCarteraCliente,
   getCarteraDashboard,
@@ -15698,6 +15699,9 @@ app.post('/api/fiscal/retry-invoice', authenticateToken, retryPendingInvoice);
 app.get('/api/cs/ajustes/:servicio/:tracking', authenticateToken, getAjustesGuia);
 app.post('/api/cs/ajustes', authenticateToken, createAjuste);
 app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
+// Corregir un cargo extra ya capturado (monto, concepto o notas). Lo que ya se
+// cobro no se edita: ahi va un descuento o un cargo nuevo (tarea 1056).
+app.put('/api/cs/ajustes/:id', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), updateAjuste);
 // Cargo extra cobrable (CEX): si la guía ya está pagada, genera orden de cobro.
 app.post('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createCargoExtra);
 app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listCargosExtra);

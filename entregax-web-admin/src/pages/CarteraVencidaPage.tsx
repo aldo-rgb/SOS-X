@@ -50,6 +50,7 @@ import DrawIcon from '@mui/icons-material/Draw';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PersonIcon from '@mui/icons-material/Person';
 import HistoryIcon from '@mui/icons-material/History';
+import EditIcon from '@mui/icons-material/Edit';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -252,6 +253,10 @@ export default function CarteraVencidaPage() {
   // Confirmación de eliminación de ajuste
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
   const [ajusteToDelete, setAjusteToDelete] = useState<{ id: number; concepto: string; monto: number; tipo: string } | null>(null);
+  // Corregir un cargo ya capturado sin tener que borrarlo y volver a teclearlo (1056).
+  const [ajusteToEdit, setAjusteToEdit] = useState<any | null>(null);
+  const [editAjusteForm, setEditAjusteForm] = useState({ monto: '', moneda: 'MXN', concepto: '', notas: '' });
+  const [editAjusteLoading, setEditAjusteLoading] = useState(false);
   
   // Saldo a favor (crédito al cliente, requiere aprobación de director)
   const [saldoDialog, setSaldoDialog] = useState(false);
@@ -538,15 +543,57 @@ export default function CarteraVencidaPage() {
     if (!selectedGuia || !ajusteToDelete) return;
     
     try {
-      await api.delete(`/cs/ajustes/${ajusteToDelete.id}`);
-      setSnackbar({ open: true, message: '✅ Ajuste eliminado correctamente', severity: 'success' });
+      const r = await api.delete(`/cs/ajustes/${ajusteToDelete.id}`);
+      setSnackbar({ open: true, message: r.data?.message || '✅ Ajuste eliminado correctamente', severity: 'success' });
       loadResumenGuia(selectedGuia.tracking, selectedGuia.servicio);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error eliminando ajuste:', error);
-      setSnackbar({ open: true, message: 'Error al eliminar ajuste', severity: 'error' });
+      // Un cargo que el cliente ya pago no se borra: el backend explica por que (1056).
+      const d = error?.response?.data;
+      setSnackbar({ open: true, message: d?.message || d?.error || 'Error al eliminar ajuste', severity: 'error' });
     }
     setDeleteConfirmDialog(false);
     setAjusteToDelete(null);
+  };
+
+  // Abrir la correccion de un cargo extra
+  const handleEditAjuste = (ajuste: any) => {
+    setAjusteToEdit(ajuste);
+    setEditAjusteForm({
+      monto: String(Number(ajuste.monto) || ''),
+      moneda: ajuste.moneda || 'MXN',
+      concepto: ajuste.concepto || '',
+      notas: ajuste.notas || '',
+    });
+  };
+
+  const confirmEditAjuste = async () => {
+    if (!selectedGuia || !ajusteToEdit) return;
+    if (!(Number(editAjusteForm.monto) > 0)) {
+      setSnackbar({ open: true, message: 'Captura un monto válido', severity: 'error' });
+      return;
+    }
+    if (!editAjusteForm.concepto.trim()) {
+      setSnackbar({ open: true, message: 'El concepto es obligatorio', severity: 'error' });
+      return;
+    }
+    setEditAjusteLoading(true);
+    try {
+      const r = await api.put(`/cs/ajustes/${ajusteToEdit.id}`, {
+        monto: Number(editAjusteForm.monto),
+        moneda: editAjusteForm.moneda,
+        concepto: editAjusteForm.concepto.trim(),
+        notas: editAjusteForm.notas.trim() || null,
+      });
+      setSnackbar({ open: true, message: r.data?.message || '✅ Cargo corregido', severity: 'success' });
+      setAjusteToEdit(null);
+      loadResumenGuia(selectedGuia.tracking, selectedGuia.servicio);
+    } catch (error: any) {
+      console.error('Error editando ajuste:', error);
+      const d = error?.response?.data;
+      setSnackbar({ open: true, message: d?.message || d?.error || 'Error al corregir el cargo', severity: 'error' });
+    }
+    setEditAjusteLoading(false);
   };
 
   // Generar documento de abandono
@@ -1890,8 +1937,13 @@ export default function CarteraVencidaPage() {
                             {new Date(ajuste.fecha_registro).toLocaleDateString()}
                           </Typography>
                         </TableCell>
-                        <TableCell>
-                          <IconButton size="small" color="error" onClick={() => handleDeleteAjuste(ajuste)}>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {ajuste.tipo === 'cargo_extra' && (
+                            <IconButton size="small" title="Corregir monto o concepto" onClick={() => handleEditAjuste(ajuste)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                          <IconButton size="small" color="error" title="Quitar" onClick={() => handleDeleteAjuste(ajuste)}>
                             <RemoveIcon fontSize="small" />
                           </IconButton>
                         </TableCell>
@@ -1996,6 +2048,47 @@ export default function CarteraVencidaPage() {
             disabled={!ajusteForm.monto || !ajusteForm.concepto || ajusteLoading}
           >
             {ajusteLoading ? <CircularProgress size={20} /> : ajusteForm.tipo === 'cargo_extra' ? 'Aplicar Cargo' : 'Solicitar Descuento'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: corregir un cargo extra ya capturado (1056) */}
+      <Dialog open={!!ajusteToEdit} onClose={() => setAjusteToEdit(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Corregir cargo extra</DialogTitle>
+        <DialogContent>
+          {ajusteToEdit && (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                {ajusteToEdit.payment_reference
+                  ? <>Este cargo salió como cobro <strong>{ajusteToEdit.payment_reference}</strong>: se actualiza también la cuenta por pagar del cliente, Cobranza y lo que ve el asesor.</>
+                  : <>Este cargo está sumado al saldo de la guía: se recalcula el saldo y la cotización que todavía no se paga.</>}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+                <TextField size="small" label="Monto" type="number" sx={{ width: 160 }}
+                  value={editAjusteForm.monto}
+                  onChange={(e) => setEditAjusteForm({ ...editAjusteForm, monto: e.target.value })} />
+                <FormControl size="small" sx={{ width: 120 }} disabled={!!ajusteToEdit.payment_reference}>
+                  <InputLabel>Moneda</InputLabel>
+                  <Select label="Moneda" value={editAjusteForm.moneda}
+                    onChange={(e) => setEditAjusteForm({ ...editAjusteForm, moneda: String(e.target.value) })}>
+                    <MenuItem value="MXN">MXN</MenuItem>
+                    <MenuItem value="USD">USD</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+              <TextField fullWidth size="small" label="Concepto / motivo" required sx={{ mb: 2 }}
+                value={editAjusteForm.concepto}
+                onChange={(e) => setEditAjusteForm({ ...editAjusteForm, concepto: e.target.value })} />
+              <TextField fullWidth size="small" label="Notas (opcional)" multiline minRows={2}
+                value={editAjusteForm.notas}
+                onChange={(e) => setEditAjusteForm({ ...editAjusteForm, notas: e.target.value })} />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAjusteToEdit(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmEditAjuste} disabled={editAjusteLoading}>
+            {editAjusteLoading ? 'Guardando…' : 'Guardar corrección'}
           </Button>
         </DialogActions>
       </Dialog>

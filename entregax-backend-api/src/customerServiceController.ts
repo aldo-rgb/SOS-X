@@ -92,10 +92,198 @@ export const createAjuste = async (req: Request, res: Response) => {
   }
 };
 
-// Eliminar ajuste (soft delete)
-export const deleteAjuste = async (req: Request, res: Response) => {
-  const { id } = req.params;
+/**
+ * El cobro de un cargo extra que ya salio como orden CEX.
+ *
+ * Un cargo sobre guia pagada no vive solo en la tabla de ajustes: tiene cuenta
+ * por pagar del cliente (pobox_payments), renglon en Cobranza
+ * (openpay_webhook_logs) y copia visible para el asesor
+ * (advisor_payment_orders). Corregirlo o quitarlo son esas cuatro cosas, no una.
+ */
+async function cobroDelCargo(paymentReference: string | null | undefined): Promise<
+  { ref: string; id: number | null; status: string | null; pagado: boolean } | null> {
+  const ref = String(paymentReference || '').trim();
+  if (!ref) return null;
+  const r = await pool.query(
+    `SELECT id, status FROM pobox_payments WHERE payment_reference = $1 ORDER BY id DESC LIMIT 1`, [ref]);
+  if (r.rows.length === 0) return { ref, id: null, status: null, pagado: false };
+  const st = String(r.rows[0].status || '').toLowerCase();
+  return { ref, id: Number(r.rows[0].id), status: st, pagado: ['paid', 'completed'].includes(st) };
+}
+
+/** Deja el cobro CEX sin efecto en los tres lugares donde se ve. */
+async function cancelarCobroDelCargo(ref: string, poboxPaymentId: number | null): Promise<void> {
+  if (poboxPaymentId) {
+    await pool.query(
+      `UPDATE pobox_payments SET status = 'cancelled'
+        WHERE id = $1 AND status IN ('pending','pending_payment','vouchers_submitted','vouchers_partial')`,
+      [poboxPaymentId]).catch((e) => console.warn('[cargo extra] pobox_payments:', e?.message));
+    await pool.query(
+      `UPDATE advisor_payment_orders SET status = 'cancelado', updated_at = NOW()
+        WHERE pobox_payment_id = $1 AND status = 'pendiente'`,
+      [poboxPaymentId]).catch((e) => console.warn('[cargo extra] orden del asesor:', e?.message));
+  }
+  await pool.query(
+    `UPDATE openpay_webhook_logs SET estatus_procesamiento = 'cancelled'
+      WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'`,
+    [ref]).catch((e) => console.warn('[cargo extra] cobranza:', e?.message));
+}
+
+/** Reescribe importe y concepto del cobro CEX todavia no pagado. */
+async function reescribirCobroDelCargo(
+  ref: string, poboxPaymentId: number | null, montoMxn: number, concepto: string): Promise<void> {
+  if (poboxPaymentId) {
+    await pool.query(
+      `UPDATE pobox_payments SET amount = $2, concepto = $3 WHERE id = $1`,
+      [poboxPaymentId, montoMxn, concepto]);
+    await pool.query(
+      `UPDATE advisor_payment_orders SET total_mxn = $2, updated_at = NOW()
+        WHERE pobox_payment_id = $1 AND status = 'pendiente'`,
+      [poboxPaymentId, montoMxn]).catch((e) => console.warn('[cargo extra] orden del asesor:', e?.message));
+  }
+  await pool.query(
+    `UPDATE openpay_webhook_logs
+        SET monto_recibido = $2, monto_neto = $2, concepto = $3
+      WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'`,
+    [ref, montoMxn, concepto]).catch((e) => console.warn('[cargo extra] cobranza:', e?.message));
+}
+
+/** Quien corrigio el cargo queda escrito en sus notas. */
+async function nombreDe(uid: number | null): Promise<string> {
+  if (!uid) return 'el sistema';
   try {
+    const r = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid]);
+    return String(r.rows[0]?.full_name || ('usuario ' + uid));
+  } catch { return 'usuario ' + uid; }
+}
+
+/**
+ * PUT /api/cs/ajustes/:id - corregir un cargo extra ya capturado.
+ *
+ * Se pedia desde Servicio a Cliente (tarea 1056): un monto mal tecleado o un
+ * concepto incompleto solo se podian arreglar borrando y volviendo a capturar,
+ * y el que ya habia salido como cobro CEX ni eso, porque al borrar el ajuste la
+ * cuenta por pagar del cliente se quedaba viva.
+ *
+ * No se edita lo ya cobrado: ahi la correccion es un descuento o un cargo
+ * nuevo, para que el dinero que entro siga teniendo su respaldo.
+ */
+export const updateAjuste = async (req: Request, res: Response): Promise<any> => {
+  const id = Number(req.params.id);
+  const uid = (req as any).user?.id ?? (req as any).user?.userId ?? null;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id invalido' });
+  try {
+    await ensureCargoExtraSchema();
+    const r = await pool.query(`SELECT * FROM guias_ajustes_financieros WHERE id = $1`, [id]);
+    const ajuste = r.rows[0];
+    if (!ajuste) return res.status(404).json({ error: 'El cargo no existe' });
+    if (!ajuste.activo && String(ajuste.estado_validacion || '') !== 'pendiente') {
+      return res.status(409).json({ error: 'Ese cargo ya se elimino; captura uno nuevo.' });
+    }
+    // Un descuento nace de una autorizacion: editarlo aqui se saltaria el visto
+    // bueno. Se quita y se vuelve a solicitar.
+    if (String(ajuste.tipo) !== 'cargo_extra') {
+      return res.status(403).json({
+        error: 'Los descuentos no se editan',
+        message: 'Un descuento se autoriza en Verificaciones. Si el monto esta mal, eliminalo y solicita el correcto.',
+      });
+    }
+
+    const montoNuevo = req.body?.monto === undefined || req.body?.monto === null || req.body?.monto === ''
+      ? Number(ajuste.monto) : Math.abs(Number(req.body.monto));
+    if (!(montoNuevo > 0)) return res.status(400).json({ error: 'Captura un monto valido' });
+    const monedaNueva = String(req.body?.moneda || ajuste.moneda || 'MXN').toUpperCase() === 'USD' ? 'USD' : 'MXN';
+    const conceptoNuevo = String(req.body?.concepto ?? ajuste.concepto ?? '').trim();
+    if (!conceptoNuevo) return res.status(400).json({ error: 'El concepto es obligatorio' });
+    const notasNuevas = req.body?.notas === undefined
+      ? (ajuste.notas || null) : (String(req.body.notas).trim() || null);
+
+    const cobro = await cobroDelCargo(ajuste.payment_reference);
+    if (cobro?.pagado) {
+      return res.status(409).json({
+        error: 'Ese cargo ya se cobro',
+        message: `El cliente ya pago ${cobro.ref}. Para corregirlo aplica un descuento por la diferencia o genera un cargo `
+          + 'nuevo; editar un cobro pagado dejaria el pago sin respaldo.',
+      });
+    }
+
+    const viejoMxn = await montoDelAjusteEnMxn(ajuste);
+    // El cobro CEX se emitio en pesos: si lo corrigen en dolares, se convierte.
+    const tcUsd = monedaNueva === 'USD' ? await getUsdToMxnRate() : 1;
+    const nuevoMxnCrudo = Math.round(montoNuevo * tcUsd * 100) / 100;
+
+    const quien = await nombreDe(uid);
+    const cambio = (Number(ajuste.monto) !== montoNuevo || String(ajuste.moneda || 'MXN') !== monedaNueva)
+      ? `${Number(ajuste.monto).toFixed(2)} ${ajuste.moneda || 'MXN'} -> ${montoNuevo.toFixed(2)} ${monedaNueva}`
+      : 'concepto/notas';
+    const bitacora = `[corregido ${new Date().toISOString().slice(0, 10)} por ${quien}: ${cambio}]`;
+    const notasConBitacora = [notasNuevas, bitacora].filter(Boolean).join('\n');
+
+    if (cobro) {
+      // Cargo sobre guia ya pagada: vive como cobro CEX, siempre en pesos.
+      await pool.query(
+        `UPDATE guias_ajustes_financieros
+            SET monto = $2, moneda = 'MXN', concepto = $3, notas = $4
+          WHERE id = $1`,
+        [id, nuevoMxnCrudo, conceptoNuevo, notasConBitacora]);
+      await reescribirCobroDelCargo(cobro.ref, cobro.id, nuevoMxnCrudo, conceptoNuevo);
+      console.log(`[cargo extra] ${cobro.ref} corregido a $${nuevoMxnCrudo} por ${quien}.`);
+      return res.json({
+        success: true, mode: 'cex_actualizado', reference: cobro.ref, amount_mxn: nuevoMxnCrudo,
+        message: `Se corrigio el cobro ${cobro.ref}: ahora dice `
+          + `$${nuevoMxnCrudo.toLocaleString('es-MX', { maximumFractionDigits: 2 })} MXN.`,
+      });
+    }
+
+    await pool.query(
+      `UPDATE guias_ajustes_financieros
+          SET monto = $2, moneda = $3, concepto = $4, notas = $5
+        WHERE id = $1`,
+      [id, montoNuevo, monedaNueva, conceptoNuevo, notasConBitacora]);
+    await actualizarSaldoGuia(ajuste.guia_tracking, ajuste.servicio);
+    // La cotizacion que todavia no se paga tiene que cobrar el monto corregido (1096).
+    if (ajuste.servicio === 'package') {
+      const nuevoMxn = await montoDelAjusteEnMxn({ ...ajuste, monto: montoNuevo, moneda: monedaNueva });
+      const delta = Math.round((nuevoMxn - viejoMxn) * 100) / 100;
+      if (Math.abs(delta) >= 0.01) {
+        await aplicarDeltaDeAjusteEnOrdenesAbiertas(pool, ajuste.guia_tracking, delta);
+      }
+    }
+    console.log(`[cargo extra] ajuste ${id} de ${ajuste.guia_tracking} corregido por ${quien}: ${cambio}.`);
+    return res.json({
+      success: true, mode: 'saldo_actualizado',
+      message: 'Se corrigio el cargo y se recalculo el saldo de la guia.',
+    });
+  } catch (error: any) {
+    console.error('Error updateAjuste:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * DELETE /api/cs/ajustes/:id - quitar un cargo o descuento.
+ *
+ * Si el cargo ya habia salido como cobro CEX se cancela tambien la cuenta por
+ * pagar del cliente, su renglon en Cobranza y la copia del asesor: borrar solo
+ * el ajuste dejaba al cliente debiendo un cargo que ya nadie veia (tarea 1056).
+ */
+export const deleteAjuste = async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+  const uid = (req as any).user?.id ?? (req as any).user?.userId ?? null;
+  try {
+    const prev = await pool.query(`SELECT * FROM guias_ajustes_financieros WHERE id = $1`, [id]);
+    const ajuste = prev.rows[0];
+    if (!ajuste) return res.status(404).json({ error: 'El cargo no existe' });
+
+    const cobro = await cobroDelCargo(ajuste.payment_reference);
+    if (cobro?.pagado) {
+      return res.status(409).json({
+        error: 'Ese cargo ya se cobro',
+        message: `El cliente ya pago ${cobro.ref}. Si no procedia, el camino es un descuento o una devolucion, `
+          + 'no borrar el cobro.',
+      });
+    }
+
     const result = await pool.query(
       `UPDATE guias_ajustes_financieros SET activo = FALSE WHERE id = $1 RETURNING *`,
       [id]
@@ -107,6 +295,14 @@ export const deleteAjuste = async (req: Request, res: Response) => {
         await aplicarDeltaDeAjusteEnOrdenesAbiertas(
           pool, result.rows[0].guia_tracking, -(await montoDelAjusteEnMxn(result.rows[0])));
       }
+    }
+    if (cobro) {
+      await cancelarCobroDelCargo(cobro.ref, cobro.id);
+      console.log(`[cargo extra] ${cobro.ref} cancelado al eliminar el ajuste ${id} (usuario ${uid}).`);
+      return res.json({
+        success: true, cancelado: cobro.ref,
+        message: `Se elimino el cargo y se cancelo el cobro ${cobro.ref}.`,
+      });
     }
     res.json({ success: true });
   } catch (error: any) {
@@ -673,14 +869,18 @@ export const listCargosExtra = async (_req: Request, res: Response): Promise<any
   try {
     await ensureCargoExtraSchema();
     const r = await pool.query(`
-      SELECT a.id, a.guia_tracking, a.servicio, a.monto, a.moneda, a.concepto, a.fecha_registro,
+      SELECT a.id, a.guia_tracking, a.servicio, a.monto, a.moneda, a.concepto, a.notas, a.fecha_registro,
              a.payment_reference, a.cliente_id, u.full_name AS cliente_nombre, u.box_id,
-             au.full_name AS autorizado_nombre, pp.status AS pago_status, pp.paid_at, pp.amount AS monto_mxn
+             au.full_name AS autorizado_nombre, pp.status AS pago_status, pp.paid_at, pp.amount AS monto_mxn,
+             (COALESCE(a.payment_reference,'') <> '') AS es_cobro_aparte
       FROM guias_ajustes_financieros a
       LEFT JOIN users u ON u.id = a.cliente_id
       LEFT JOIN users au ON au.id = a.autorizado_por
       LEFT JOIN pobox_payments pp ON pp.payment_reference = a.payment_reference
-      WHERE a.tipo = 'cargo_extra' AND a.activo = TRUE AND COALESCE(a.payment_reference,'') <> ''
+      -- Los cargos que se sumaron al saldo no se veian en ningun lado: solo
+      -- aparecian abriendo la guia en Cartera Vencida, asi que no habia donde
+      -- corregirlos (tarea 1056).
+      WHERE a.tipo = 'cargo_extra' AND a.activo = TRUE
       ORDER BY a.fecha_registro DESC LIMIT 200
     `);
     res.json({ cargos: r.rows });
