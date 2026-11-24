@@ -47,6 +47,8 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import GavelIcon from '@mui/icons-material/Gavel';
+import ScaleIcon from '@mui/icons-material/Scale';
+import RecosteoAereoDialog from '../components/RecosteoAereoDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -137,6 +139,13 @@ const AirManagementPage: React.FC<Props> = ({ onBack, initialNoAwbNonce = 0 }) =
   const [detailDialog, setDetailDialog] = useState<{ open: boolean; guide: AirGuide | null }>({
     open: false,
     guide: null,
+  });
+  // Revisar medidas y recostear: el precio se congela al cotizar y el peso
+  // cobrable sale de las medidas que declara China, asi que cuando llegan mal
+  // -de menos o de mas- hay que poder corregirlas (tarea 1108).
+  const [recosteo, setRecosteo] = useState<{ open: boolean; inicial: string }>({
+    open: false,
+    inicial: '',
   });
 
   const token = localStorage.getItem('token');
@@ -250,6 +259,14 @@ const AirManagementPage: React.FC<Props> = ({ onBack, initialNoAwbNonce = 0 }) =
           </Typography>
         </Box>
         <Box sx={{ flexGrow: 1 }} />
+        <Button
+          variant="outlined"
+          startIcon={<ScaleIcon />}
+          onClick={() => setRecosteo({ open: true, inicial: '' })}
+          sx={{ mr: 1, borderColor: '#E53935', color: '#E53935' }}
+        >
+          Medidas y recosteo
+        </Button>
         <Button
           variant="contained"
           startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
@@ -612,9 +629,27 @@ const AirManagementPage: React.FC<Props> = ({ onBack, initialNoAwbNonce = 0 }) =
           )}
         </DialogContent>
         <DialogActions>
+          <Button
+            startIcon={<ScaleIcon />}
+            onClick={() => {
+              const g = detailDialog.guide;
+              setDetailDialog({ open: false, guide: null });
+              setRecosteo({ open: true, inicial: g ? (g.child_no || g.tracking_internal) : '' });
+            }}
+          >
+            Revisar medidas y recostear
+          </Button>
           <Button onClick={() => setDetailDialog({ open: false, guide: null })}>Cerrar</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Revisar medidas y recostear */}
+      <RecosteoAereoDialog
+        open={recosteo.open}
+        inicial={recosteo.inicial}
+        onClose={() => setRecosteo({ open: false, inicial: '' })}
+        onAplicado={() => loadData()}
+      />
 
       {/* Snackbar */}
       <Snackbar

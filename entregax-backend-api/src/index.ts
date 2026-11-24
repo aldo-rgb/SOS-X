@@ -1015,6 +1015,8 @@ import {
   saveClientTariffsBulk,
   deleteClientTariff
 } from './airEmailController';
+
+import { previewRecosteoAereo, aplicarRecosteoAereo } from './recosteoAereo';
 import {
   getTdiProductTypes,
   getTdiStats,
@@ -13042,6 +13044,13 @@ app.get('/api/admin/air-client-tariffs', authenticateToken, getClientTariffs);
 app.post('/api/admin/air-client-tariffs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveClientTariff);
 app.post('/api/admin/air-client-tariffs/bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveClientTariffsBulk);
 app.delete('/api/admin/air-client-tariffs/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteClientTariff);
+
+// ========== RECOSTEO AEREO (corregir medidas y volver a sacar el precio) ==========
+// La vista previa no escribe nada. Aplicar si: lo deja la operacion, no el
+// asesor que genera la orden -por eso CUSTOMER_SERVICE (70) y no COUNTER_STAFF
+// (60), que tambien dejaria pasar a los asesores (62)- (tarea 1108).
+app.post('/api/admin/air-recosteo/preview', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), previewRecosteoAereo);
+app.post('/api/admin/air-recosteo/aplicar', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), aplicarRecosteoAereo);
 
 // ========== GESTIÓN CAJO ==========
 app.get('/api/cajo/guides', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoGuides);
