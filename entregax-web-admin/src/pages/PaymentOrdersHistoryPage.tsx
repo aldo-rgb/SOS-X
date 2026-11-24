@@ -29,6 +29,8 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ScaleIcon from '@mui/icons-material/Scale';
+import RecosteoAereoDialog from '../components/RecosteoAereoDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -175,6 +177,14 @@ const statusColor = (raw: string): 'default' | 'success' | 'warning' | 'error' |
 export default function PaymentOrdersHistoryPage() {
   const token = localStorage.getItem('token') || '';
   const [service, setService] = useState<ServiceKey>('ALL');
+  // Revisar medidas y recostear, desde la orden cuya cotizacion sale mal. La
+  // herramienta vivia solo en el panel de administracion de China Aereo, tres
+  // niveles adentro, y la gente que atiende estos tickets no entra ahi: el
+  // panel que si tienen es este (tarea 1108).
+  const [recosteo, setRecosteo] = useState<{ open: boolean; inicial: string }>({
+    open: false,
+    inicial: '',
+  });
   const today = useMemo(() => new Date(), []);
   const defaultFrom = useMemo(() => {
     const d = new Date();
@@ -621,10 +631,30 @@ export default function PaymentOrdersHistoryPage() {
                         <TableRow>
                           <TableCell colSpan={11} sx={{ bgcolor: '#FAFAFA', pt: 0, pb: 1.5 }}>
                             <Box sx={{ px: 2 }}>
-                              <Typography variant="caption" fontWeight={700} color="text.secondary"
-                                sx={{ display: 'block', mb: 0.5 }}>
-                                Guías de esta orden
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                <Typography variant="caption" fontWeight={700} color="text.secondary">
+                                  Guías de esta orden
+                                </Typography>
+                                <Box sx={{ flexGrow: 1 }} />
+                                {/* Solo aéreo: el peso cobrable y su tarifa son de
+                                    este servicio. */}
+                                {r.service === 'AIR_CHN_MX' && lineas.length > 0 && (
+                                  <Button
+                                    size="small"
+                                    startIcon={<ScaleIcon fontSize="small" />}
+                                    onClick={() => setRecosteo({
+                                      open: true,
+                                      inicial: lineas
+                                        .filter((i) => !i.hija && i.tracking)
+                                        .map((i) => i.tracking)
+                                        .join(' '),
+                                    })}
+                                    sx={{ fontSize: 11 }}
+                                  >
+                                    Revisar medidas y recostear
+                                  </Button>
+                                )}
+                              </Box>
                               {det?.loading ? (
                                 <Typography variant="caption" color="text.secondary">Cargando desglose…</Typography>
                               ) : det?.fallo ? (
@@ -725,6 +755,14 @@ export default function PaymentOrdersHistoryPage() {
           </TableContainer>
         )}
       </Paper>
+
+      {/* Revisar medidas y recostear las guías de una orden aérea */}
+      <RecosteoAereoDialog
+        open={recosteo.open}
+        inicial={recosteo.inicial}
+        onClose={() => setRecosteo({ open: false, inicial: '' })}
+        onAplicado={() => { setDetalles({}); }}
+      />
 
       {/* Ver detalles. Es el detalle OPERATIVO de la operación: quién recibe el
           dinero, en qué banco, en qué etapa va y con qué fechas. No lleva

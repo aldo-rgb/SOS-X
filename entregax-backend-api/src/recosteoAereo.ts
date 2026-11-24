@@ -286,7 +286,12 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
   try {
     const body = (req.body || {}) as any;
     let trackings: string[] = Array.isArray(body.trackings) ? body.trackings.map(String) : [];
-    if (trackings.length === 0 && body.lote) trackings = await trackingsDelLote(String(body.lote));
+    if (trackings.length === 0 && body.lote) {
+      trackings = await trackingsDelLote(String(body.lote));
+      if (trackings.length === 0) {
+        return res.status(404).json({ error: 'No encontré guías de ese lote: ' + String(body.lote) });
+      }
+    }
     if (trackings.length === 0) {
       return res.status(400).json({ error: 'Dime qué guías revisar: manda trackings o un lote.' });
     }
@@ -337,7 +342,12 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
     }
 
     let trackings: string[] = Array.isArray(body.trackings) ? body.trackings.map(String) : [];
-    if (trackings.length === 0 && body.lote) trackings = await trackingsDelLote(String(body.lote));
+    if (trackings.length === 0 && body.lote) {
+      trackings = await trackingsDelLote(String(body.lote));
+      if (trackings.length === 0) {
+        return res.status(404).json({ error: 'No encontré guías de ese lote: ' + String(body.lote) });
+      }
+    }
     if (trackings.length === 0) {
       return res.status(400).json({ error: 'Dime qué guías recostear: manda trackings o un lote.' });
     }
