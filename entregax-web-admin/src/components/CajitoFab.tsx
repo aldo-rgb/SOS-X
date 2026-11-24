@@ -418,6 +418,27 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const dhlExchangeRate = (!esPickup && (m as any).exchangeRate != null) ? Number((m as any).exchangeRate) : null;
   const ajustes: Array<{ tipo: string; monto: number; concepto?: string | null }> =
     Array.isArray((m as any).ajustes) ? (m as any).ajustes : [];
+  // Si el total ya los trae dentro, los renglones van ARRIBA del total y el
+  // desglose se lee como una suma; si no (DHL), siguen abajo como hasta hoy
+  // (tarea 1110).
+  const ajustesEnTotal = (m as any).ajustesEnTotal === true;
+  // Descuentos y cargos extra: el total decia $5,313.85 y el saldo $4,248.75
+  // sin explicar la diferencia, porque el descuento vivia en la base pero no
+  // se mostraba (TKT-2026-2365).
+  const filasDeAjustes = ajustes.map((a, i) => {
+    const esDescuento = String(a.tipo) === 'descuento';
+    return (
+      <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+          {esDescuento ? '🏷️ Descuento' : '➕ Cargo extra'}
+          {a.concepto ? ` · ${a.concepto}` : ''}
+        </Typography>
+        <Typography variant="caption" fontWeight={700} sx={{ color: esDescuento ? '#2E7D32' : '#C2410C', whiteSpace: 'nowrap' }}>
+          {esDescuento ? '−' : '+'}{fmtMoney(Math.abs(Number(a.monto) || 0))}
+        </Typography>
+      </Box>
+    );
+  });
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
   const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
   // Aéreo/TDI: desglose CW (peso cobrable) × costo/kg (USD) × TC = total.
@@ -922,6 +943,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
                 <Typography variant="caption" fontWeight={600}>{fmtMoney(nationalCostMxn)}</Typography>
               </Box>
             )}
+            {ajustesEnTotal && filasDeAjustes}
             {totalCost != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #FFE0B2', pt: 0.5, mt: 0.25 }}>
                 <Typography variant="caption" fontWeight={700}>Total a cobrar</Typography>
@@ -930,23 +952,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
                 </Typography>
               </Box>
             )}
-            {/* Descuentos y cargos extra: el total decia $5,313.85 y el saldo
-                $4,248.75 sin explicar la diferencia, porque el descuento vivia
-                en la base pero no se mostraba (TKT-2026-2365). */}
-            {ajustes.map((a, i) => {
-              const esDescuento = String(a.tipo) === 'descuento';
-              return (
-                <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-                    {esDescuento ? '🏷️ Descuento' : '➕ Cargo extra'}
-                    {a.concepto ? ` · ${a.concepto}` : ''}
-                  </Typography>
-                  <Typography variant="caption" fontWeight={700} sx={{ color: esDescuento ? '#2E7D32' : '#C2410C', whiteSpace: 'nowrap' }}>
-                    {esDescuento ? '−' : '+'}{fmtMoney(Math.abs(Number(a.monto) || 0))}
-                  </Typography>
-                </Box>
-              );
-            })}
+            {!ajustesEnTotal && filasDeAjustes}
             {dispMontoPagado != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">

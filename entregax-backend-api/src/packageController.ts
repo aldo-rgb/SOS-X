@@ -2633,6 +2633,47 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             } catch (e) { console.warn('[getShipmentByTracking] kitProduct:', (e as Error).message); }
         }
 
+        // Cargos extra y descuentos de la guia.
+        //
+        // El "Total a cobrar" de esta consulta se armaba con venta + garantia +
+        // paqueteria y nada mas, asi que un cargo extra no aparecia por ningun
+        // lado: la guia decia $3,652.75 mientras su saldo -y su orden- ya iban en
+        // $5,652.75. Cuando el flete de una guia multipieza se cobra como cargo
+        // extra, que es como la operacion lo resuelve hoy, el asesor veia la
+        // cotizacion sin un peso de entrega (tarea 1110).
+        //
+        // Se mira igual que la cuenta de la orden: los cargos de la guia Y los de
+        // sus cajas, y fuera los que ya se cobran por su propia orden CEX.
+        let ajustesGuia: Array<{ tipo: string; monto: number; moneda: string; concepto: string | null; fecha: any }> = [];
+        let ajustesNetoGuia = 0;
+        try {
+            const { getUsdToMxnRate } = await import('./customerServiceController');
+            const tcAj = await getUsdToMxnRate();
+            const ajRes = await pool.query(
+                `SELECT aj.tipo, aj.monto, COALESCE(aj.moneda, 'MXN') AS moneda, aj.concepto, aj.fecha_registro
+                   FROM guias_ajustes_financieros aj
+                  WHERE aj.activo = TRUE
+                    AND COALESCE(aj.payment_reference, '') = ''
+                    AND aj.guia_tracking IN (
+                      SELECT p.tracking_internal FROM packages p
+                       WHERE p.id = $1 OR p.master_id = $1)
+                  ORDER BY aj.id`,
+                [pkg.id]);
+            ajustesGuia = ajRes.rows.map((r: any) => ({
+                tipo: r.tipo,
+                monto: Number(r.monto) || 0,
+                moneda: String(r.moneda || 'MXN').toUpperCase(),
+                concepto: r.concepto || null,
+                fecha: r.fecha_registro || null,
+            }));
+            ajustesNetoGuia = Math.round(ajustesGuia.reduce((suma, r) => {
+                const enMxn = r.moneda === 'USD' && Number(tcAj) > 0 ? r.monto * Number(tcAj) : r.monto;
+                return suma + (r.tipo === 'descuento' ? -enMxn : enMxn);
+            }, 0) * 100) / 100;
+        } catch (ajErr: any) {
+            console.warn('[getShipmentByTracking] cargos extra de la guia:', ajErr?.message);
+        }
+
         res.json({
             success: true,
             shipment: {
@@ -2731,9 +2772,19 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         // el MXN correcto; si NO, se estima con el TC aéreo (air_sale_price × TC).
                         const airSaleMxn = assigned > 0 ? 0 : (parseFloat(pkg.air_sale_price) || 0) * airTc;
                         const computed = ventaMxn + airSaleMxn + gex + envio;
-                        const total = Math.max(computed, assigned);
+                        // Los cargos extra y descuentos activos tambien cuentan: el
+                        // saldo de la guia y la orden ya los traen dentro, y sin
+                        // ellos esta pantalla y el cobro decian cosas distintas
+                        // (tarea 1110).
+                        const total = Math.max(computed, assigned) + ajustesNetoGuia;
                         return total > 0 ? total : null;
                     })(),
+                    ajustes: ajustesGuia.length > 0 ? ajustesGuia : null,
+                    ajustesNeto: ajustesGuia.length > 0 ? ajustesNetoGuia : null,
+                    // Aqui el total YA los trae dentro, asi que el desglose los
+                    // imprime ARRIBA del total y no debajo, donde se leerian como
+                    // algo que todavia hay que sumarle.
+                    ajustesEnTotal: ajustesGuia.length > 0 ? true : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
                     // Costos visibles solo para super_admin/admin/director/customer_service en frontend
                     nationalLabelCost: pkg.national_shipping_cost != null ? parseFloat(pkg.national_shipping_cost) : null,
@@ -5897,6 +5948,45 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             WHERE id = $3${ownerCondition}
                             RETURNING id, tracking_internal
                         `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile, userId, isCollectReq, isCollectReq ? String(carrier || '') : null]);
+
+                        // El flete de la CAJA es el flete de la GUIA.
+                        //
+                        // El cobro y las pantallas leen el MASTER, y ese renglon no se
+                        // tocaba cuando la paqueteria se asignaba sobre una caja: el
+                        // importe quedaba guardado en las hijas y el master seguia en
+                        // cero. Una guia de cinco cajas con $2,000 de Paquete Express se
+                        // cotizaba sin un peso de entrega -"no me adiciona el costo del
+                        // envio nacional"- y su orden habria salido corta por esos
+                        // $2,000 (tarea 1110).
+                        //
+                        // Se escribe el MISMO importe, no la suma: la caja ya lo calculo
+                        // con las cajas de la guia (total_boxes), y asi queda como en el
+                        // resto de las multipieza, donde master e hijas dicen lo mismo.
+                        // Solo cuando el master no trae flete propio: lo que alguien ya
+                        // decidio sobre la guia no se pisa.
+                        if (shippingCostMxn > 0) {
+                            try {
+                                const subio = await pool.query(
+                                    `UPDATE packages m
+                                        SET national_shipping_cost = $2,
+                                            national_carrier = COALESCE(NULLIF(m.national_carrier, ''), $3),
+                                            updated_at = NOW()
+                                       FROM packages c
+                                      WHERE c.id = $1 AND m.id = c.master_id
+                                        AND COALESCE(m.national_shipping_cost, 0) = 0
+                                        AND COALESCE(m.client_paid, false) = false
+                                        AND COALESCE(m.payment_status, '') <> 'paid'
+                                  RETURNING m.id, m.tracking_internal`,
+                                    [packageId, shippingCostMxn, carrierName || carrier || null],
+                                );
+                                if (subio.rowCount) {
+                                    console.log('[Ultima milla] $' + shippingCostMxn + ' de la caja ' + packageId
+                                        + ' tambien quedaron en su guia ' + subio.rows[0].tracking_internal + '.');
+                                }
+                            } catch (mErr: any) {
+                                console.warn('[Ultima milla] no pude subir el flete de la caja a su guia:', mErr?.message);
+                            }
+                        }
                     }
                 }
                 // 🧒 Propagar dirección + carrier a TODAS las hijas del master
