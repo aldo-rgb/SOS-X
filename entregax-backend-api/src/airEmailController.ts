@@ -1002,10 +1002,29 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         // air_chargeable_weight para que se vea de donde salio el cobro y se
         // pueda corregir con la medicion de CEDIS por el camino de ajustes que
         // ya existe. Aplica hacia adelante; no se recalcula nada guardado.
-        const largoCm = Number(row.largo) || 0;
-        const anchoCm = Number(row.ancho) || 0;
-        const altoCm = Number(row.alto) || 0;
-        const volumetrico = Number(row.volumen) || (largoCm * anchoCm * altoCm) / 6000;
+        //
+        // Y si la fila del manifiesto llega SIN medidas, valen las que la guia
+        // ya tiene. El volumetrico salia solo del manifiesto, asi que una caja
+        // que ya habia nacido por la API -con sus medidas guardadas- pero cuya
+        // fila venia pelona se volvia a cobrar por el peso neto: un lote de
+        // cinco cajas de un mismo cliente se costeo asi el 21-nov-2026, dos
+        // dias despues de que el peso cobrable ya existia, y una caja de 11 kg
+        // con 24.96 kg volumetricos se cotizo a 11 kg (tarea 1104).
+        const volDeLaFila = Number(row.volumen)
+          || (Number(row.largo) * Number(row.ancho) * Number(row.alto)) / 6000
+          || 0;
+        let volumetrico = volDeLaFila;
+        if (!(volumetrico > 0) && guiaAir) {
+          const medidasGuardadas = await client.query(
+            `SELECT single_volume, pkg_length, pkg_width, pkg_height
+               FROM packages WHERE child_no = $1 OR tracking_internal = $1 LIMIT 1`,
+            [guiaAir],
+          );
+          const m = medidasGuardadas.rows[0] || {};
+          volumetrico = Number(m.single_volume)
+            || (Number(m.pkg_length) * Number(m.pkg_width) * Number(m.pkg_height)) / 6000
+            || 0;
+        }
         const pesoCobrable = Math.max(weight, volumetrico > 0 ? volumetrico : 0);
         let salePrice = pesoCobrable * pricePerKg;
         let precioPorKg = pricePerKg;
