@@ -1144,15 +1144,32 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // es assigned_cost_mxn (el reempaque completo); en las demas manda
         // pobox_service_cost. Si los dos vienen vacios, el precio vive en
         // dolares y lo convierte ventaAereaMxn.
-        const ventaGuardadaMxn = (g: any): number =>
-          (g.is_master && children.length > 0)
-            ? (parseFloat(g.assigned_cost_mxn) || parseFloat(g.pobox_service_cost) || parseFloat(g.saldo_pendiente) || 0)
-            : (parseFloat(g.pobox_service_cost) || parseFloat(g.assigned_cost_mxn) || parseFloat(g.saldo_pendiente) || 0);
+        //
+        // El SALDO no entra cuando el precio vive en dolares. El saldo de una
+        // guia aerea es una conversion congelada: se escribe con el tipo de
+        // cambio que hubiera ese dia y ya no se vuelve a tocar. La orden, en
+        // cambio, se cotiza con el suyo y lo sella. Cuando los dos dias no son
+        // el mismo, el documento se contradice solo: cinco cajas impresas a
+        // 19.23 sumaban $66,920.39 bajo un "TOTAL A PAGAR" de $67,198.80, y los
+        // $278.41 de diferencia no los explicaba nada (tarea 1092). Para esas
+        // guias manda la conversion de abajo, con el TC de la orden.
+        const ventaGuardadaMxn = (g: any): number => {
+          const enDolares = (parseFloat(g?.air_sale_price) || 0) > 0;
+          const saldo = enDolares ? 0 : (parseFloat(g.saldo_pendiente) || 0);
+          return (g.is_master && children.length > 0)
+            ? (parseFloat(g.assigned_cost_mxn) || parseFloat(g.pobox_service_cost) || saldo || 0)
+            : (parseFloat(g.pobox_service_cost) || parseFloat(g.assigned_cost_mxn) || saldo || 0);
+        };
 
         const ventaAereaMxn = (g: any): number => {
           const usd = parseFloat(g?.air_sale_price) || 0;
           if (usd <= 0) return 0;
-          const tcGuia = parseFloat(g?.registered_exchange_rate) || tcAereo || parseFloat(String(tc)) || 18.5;
+          // El de la guia primero, luego el SELLADO EN LA ORDEN, y solo al
+          // final el vigente: el vigente es el de hoy, no el de la cotizacion,
+          // y con el la misma orden reimpresa cambiaba de numero cada dia
+          // (tarea 1092).
+          const tcGuia = parseFloat(g?.registered_exchange_rate) || tcSellado
+            || tcAereo || parseFloat(String(tc)) || 18.5;
           return usd * tcGuia;
         };
         // REPACK (US-REPACK-*): UNA caja consolidada; sus hijas van adentro y NO se

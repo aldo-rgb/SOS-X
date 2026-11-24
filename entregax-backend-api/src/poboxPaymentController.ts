@@ -2481,7 +2481,17 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     // costo PO Box, que es como nacen— salía con Total $0.00 en la
                     // cotización del cliente: 87 renglones en $0.00 bajo una orden
                     // de $807,170.73. El panel del asesor ya la tenía; esta no.
+                    //
+                    // En una guia cuyo precio vive en DOLARES esos dolares van
+                    // ANTES que el saldo. El saldo es una conversion congelada
+                    // -se escribe con el tipo de cambio que hubiera ese dia y no
+                    // se vuelve a tocar-, mientras que la orden se cotiza con el
+                    // suyo y lo sella. Cuando no son el mismo dia, el documento
+                    // se contradice: cinco cajas impresas a 19.23 sumaban
+                    // $66,920.39 bajo un "TOTAL A PAGAR" de $67,198.80 (1092).
+                    const enDolares = (Number(p.air_sale_price) || 0) > 0 && tcDeLaFila > 0;
                     const ventaMxn = Number(p.venta_mxn) || Number(p.pobox_service_cost)
+                        || (enDolares ? Number(p.air_sale_price) * tcDeLaFila : 0)
                         || Number(p.saldo_pendiente) || Number(p.assigned_cost_mxn)
                         || (tcDeLaFila > 0 ? (Number(p.air_sale_price) || 0) * tcDeLaFila : 0)
                         || 0;
