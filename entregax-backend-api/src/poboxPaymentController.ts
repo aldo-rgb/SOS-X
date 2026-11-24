@@ -1164,6 +1164,52 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             }
         }
 
+        // ✈️ Aereo sin costear: el total lo arma el servidor, con el TC sellado.
+        //
+        // El monto sigue llegando del navegador y arriba solo se cotejaba con
+        // un aviso en el log; eso se queda asi a proposito, porque el flete de
+        // ultima milla no siempre esta grabado en la guia y recalcular a ciegas
+        // cobraria de menos.
+        //
+        // Pero una orden donde TODAS las guias son aereas sin costear no tiene
+        // esa duda: su precio es peso cobrable x tarifa USD x el tipo de cambio
+        // que se le sello a la guia, y no hay flete ni garantia que se le pueda
+        // escapar al servidor. Ahi el navegador solo puede equivocarse, y se
+        // equivoco: el 21-nov-2026 dos ordenes de un mismo cliente salieron con
+        // un TC escrito a mano en la pantalla (18.50) en vez del pactado,
+        // cobrando $782,378.69 y $518,963.11 cuando les tocaban $796,757.54 y
+        // $530,464.45 —$25,880.19 de menos— y una ya se pago contra la linea
+        // de credito (tarea 1070). Medido sobre 45 dias, son 9 ordenes en total,
+        // todas de este caso.
+        try {
+            const idsCanon = filteredPackageIds.map(Number).filter(Boolean);
+            if (idsCanon.length > 0) {
+                const q = await pool.query(
+                    `SELECT COUNT(*)::int AS n,
+                            COUNT(*) FILTER (
+                              WHERE service_type = 'AIR_CHN_MX'
+                                AND COALESCE(air_sale_price, 0) > 0
+                                AND COALESCE(registered_exchange_rate, 0) > 0
+                                AND COALESCE(assigned_cost_mxn, 0) = 0)::int AS aereas
+                       FROM packages WHERE id = ANY($1::int[])`, [idsCanon]);
+                const x = q.rows[0] || {};
+                if (Number(x.n) > 0 && Number(x.n) === Number(x.aereas)) {
+                    const { totalCanonicoDeOrden } = await import('./totalDeOrden');
+                    const { getUsdToMxnRate } = await import('./customerServiceController');
+                    const canon = await totalCanonicoDeOrden(pool, idsCanon, null, await getUsdToMxnRate());
+                    if (canon && canon.total > 0 && Math.abs(Number(finalTotalAmount) - canon.total) >= 0.01) {
+                        console.warn(
+                            `[orden-pago] aereo: el navegador pidio $${Number(finalTotalAmount).toFixed(2)} y con el `
+                            + `tipo de cambio sellado de las ${canon.guias} guias son $${canon.total.toFixed(2)}. `
+                            + 'Se cobra el del servidor.');
+                        finalTotalAmount = canon.total;
+                    }
+                }
+            }
+        } catch (e: any) {
+            console.warn('[orden-pago] no se pudo revisar el total aereo:', e?.message);
+        }
+
         // ✨ Verificar si ya existe un pago pendiente para EXACTAMENTE estos paquetes (post-filtrado)
         const sortedPackageIds = [...filteredPackageIds].sort((a, b) => a - b);
         const existingPayment = await pool.query(`

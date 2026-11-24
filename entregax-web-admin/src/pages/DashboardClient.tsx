@@ -599,6 +599,25 @@ export default function DashboardClient() {
     }
     return tipoCambioBase;
   };
+
+  /**
+   * El tipo de cambio de ESTA guía.
+   *
+   * El que vale es el que se le selló cuando se costeó
+   * (`registered_exchange_rate`): es el pactado con el cliente y el que usa el
+   * saldo. El de `exchange_rate_config` cambia todos los días, así que usarlo
+   * para una guía ya costeada le mueve el precio sin que nadie lo haya
+   * autorizado —y el 18.5 que estaba escrito a mano cobraba con un TC de hace
+   * meses (tarea 1070).
+   */
+  const tcDeLaGuia = (pkg: any): number => {
+    const sellado = Number(pkg?.registered_exchange_rate)
+      || Number(pkg?.air_exchange_rate)
+      || Number(pkg?.exchange_rate)
+      || 0;
+    if (sellado > 0) return sellado;
+    return getTipoCambio(pkg?.servicio, pkg?.shipment_type) || 0;
+  };
   
   // Info del asesor asignado
   const [advisorInfo, setAdvisorInfo] = useState<{
@@ -1011,19 +1030,19 @@ export default function DashboardClient() {
       else if (cbm <= 10) usd = cbm * 799;
       else if (cbm <= 20) usd = cbm * 749;
       else usd = cbm * 649;
-      envioMXN = usd * (Number(pkg.exchange_rate) || 18.5);
+      envioMXN = usd * tcDeLaGuia(pkg);
     }
     // Air with air_sale_price
     if (isAir && envioMXN === 0 && pkg.air_sale_price && Number(pkg.air_sale_price) > 0) {
-      envioMXN = Number(pkg.air_sale_price) * (Number(pkg.exchange_rate) || 18.5);
+      envioMXN = Number(pkg.air_sale_price) * tcDeLaGuia(pkg);
     }
     // PO Box
     if (isPobox && envioMXN === 0 && pkg.pobox_venta_usd && Number(pkg.pobox_venta_usd) > 0) {
-      envioMXN = Number(pkg.pobox_venta_usd) * (Number(pkg.exchange_rate) || 18.5);
+      envioMXN = Number(pkg.pobox_venta_usd) * tcDeLaGuia(pkg);
     }
     // USD monto
     if (envioMXN === monto && pkg.monto_currency === 'USD' && monto > 0) {
-      envioMXN = monto * (Number(pkg.exchange_rate) || 18.5);
+      envioMXN = monto * tcDeLaGuia(pkg);
     }
 
     const included = pkg.included_guides || [];
@@ -12857,8 +12876,9 @@ export default function DashboardClient() {
                     } else if (hasAirFrozenPrice) {
                       // AÉREO CHINA / TDX: air_sale_price es USD.
                       costoUSD = Number(selectedPackage.air_sale_price);
-                      montoMXN = costoUSD * tcConfig;
-                      tcToShow = tcConfig;
+                      // El TC sellado al costear, no el de hoy: la guía ya tiene precio.
+                      tcToShow = tcDeLaGuia(selectedPackage) || tcConfig;
+                      montoMXN = costoUSD * tcToShow;
                       // La tarifa/kg y el precio congelado se calculan sobre el PESO COBRABLE
                       // (air_chargeable_weight), no el peso real → así la tarifa mostrada
                       // coincide con la publicada (ej. 428.78 / 22 = 19.49, no /22.2 = 19.31).
@@ -15291,7 +15311,7 @@ export default function DashboardClient() {
                     const showAir = isTdi || isChinaAir;
                     const ppk = Number((pkg as any).air_price_per_kg) || 0;
                     const wKg = Number((pkg as any).air_chargeable_weight ?? pkg.weight ?? 0) || 0;
-                    const tc = getTipoCambio(pkg.servicio, pkg.shipment_type) || Number(pkg.exchange_rate) || 0;
+                    const tc = tcDeLaGuia(pkg);
                     if (!showAir || !(ppk > 0) || !(wKg > 0) || !(tc > 0)) return null;
                     const usd = wKg * ppk;
                     const mxn = usd * tc;
