@@ -1185,7 +1185,19 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         // El TC de la propia guia va PRIMERO: es el que se le pacto y cotizo
         // (tarea 1070). El sellado de la orden entra cuando la guia no trae el
         // suyo, que es el caso normal.
-        const tcDeLaFila = parseFloat(m.registered_exchange_rate) || tcSellado || 0;
+        // 📦 Y si el MASTER no trae el suyo, el de sus cajas antes que el de
+        // la orden. En PO Box multipieza el precio y el tipo de cambio viven en
+        // la CAJA -cada una con su nivel y su tarifa- y al master no se le
+        // sella ninguno: sale en cero. La columna de dolares se deriva de los
+        // pesos entre el TC de la fila, asi que con el de la orden -que es el
+        // vigente del dia en que se imprime- una caja de nivel 1 cotizada a
+        // 19.38 se enseñaba en $19.79 USD en vez de los $19.99 del tarifario.
+        // El total en pesos siempre estuvo bien; lo que mentia era la columna.
+        // "La diferencia es de centavos, pero es menor al que aparece en los
+        // costos establecidos en el tarifario" (tarea 1126).
+        const tcDeLasCajas = children.reduce(
+          (v: number, c: any) => v || (parseFloat(c.registered_exchange_rate) || 0), 0);
+        const tcDeLaFila = parseFloat(m.registered_exchange_rate) || tcDeLasCajas || tcSellado || 0;
         // Lo que cobra el renglon, en pesos. Se calcula ANTES del desglose
         // porque el desglose abre justo ese importe: sus columnas tienen que
         // sumar lo mismo que la fila enseña (1086).
@@ -1218,7 +1230,13 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
               : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn)
                  || parseFloat(c.saldo_pendiente) || ventaAereaMxn(c));
             return ({
-            ...desgloseDeGuia({ ...c, service_type: c.service_type || m.service_type }, tcDeLaFila, ventaHijaMxn),
+            // Cada caja con el SUYO: dos cajas de la misma guia pueden haberse
+            // costeado en dias distintos, y entonces el TC del master no
+            // explica el importe de las dos (tarea 1126).
+            ...desgloseDeGuia(
+              { ...c, service_type: c.service_type || m.service_type },
+              parseFloat(c.registered_exchange_rate) || tcDeLaFila,
+              ventaHijaMxn),
             id: c.id,
             tracking: c.tracking_internal,
             child_no: c.child_no,
