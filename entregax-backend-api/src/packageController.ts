@@ -12,6 +12,91 @@ import { envioYaEtiquetado, noPuedeCambiarTrasEtiqueta, LEYENDA_TICKET } from '.
 import { esAereoChina, MOTIVO_SIN_POR_COBRAR } from './porCobrarAereo';
 import { carrilDe, FUERA_DE_CARRIL } from './carrilDeMostrador';
 
+/**
+ * Quien puede poner instrucciones A NOMBRE DE UN CLIENTE.
+ *
+ * Las dos pantallas de instrucciones le pegan `AND user_id = <quien pide>` a
+ * cada UPDATE para que un cliente no toque la guia de otro. La lista de
+ * personal que se salta ese candado traia los roles de oficina pero NO al
+ * asesor ni al sub-asesor, que son justo quienes usan la pantalla a nombre de
+ * su cliente: sus UPDATE no tocaban ninguna fila, asi que la paqueteria, su
+ * flete y el total recalculado nunca se escribian —aunque la pantalla ya le
+ * hubiera ensenado el precio con flete al asesor—. Y como la orden de pago
+ * rearma su total con el flete GUARDADO en la guia, el flete desaparecia del
+ * cobro: la guia del TKT-2026-3849 se enseno en $1,437.31 y su orden salio en
+ * $961.31, exactamente los $476.00 de la paqueteria.
+ *
+ * Medido el 25-nov-2026 sobre 20 dias de PO Box: de 210 guias instruidas por
+ * un asesor, 165 (79%) se quedaron pidiendo instrucciones y 175 con el total
+ * en cero; de las 168 que instruyo el propio cliente, NINGUNA (tarea 1113).
+ *
+ * Se resuelve por la jerarquia en vez de por lista: personal es todo el que
+ * esta por encima del cliente.
+ */
+/**
+ * El flete de Paquete Express de UNA guia, cotizado en el servidor.
+ *
+ * `assignDeliveryInstructions` ya hace esto ("Ultima milla AUTORITATIVA"):
+ * si la pantalla no manda el costo, el servidor cotiza y, si la cotizadora no
+ * contesta, cobra el piso de $400 por caja. La asignacion en LOTE no lo tenia,
+ * asi que por ahi una guia de Paquete Express podia guardarse con flete en
+ * cero —y la orden de pago, que rearma su total con el flete guardado en la
+ * guia, no lo cobraba nunca (tarea 1113).
+ */
+export async function fleteDePqtxDeLaGuia(
+    db: { query: (sql: string, params?: any[]) => Promise<any> },
+    packageId: number,
+    addressId: number | null,
+    cajas: number,
+    userId: number | null,
+): Promise<number> {
+    const PISO_POR_CAJA = 400;
+    const n = Math.max(1, Number(cajas) || 1);
+    try {
+        const d = (await db.query(
+            `SELECT COALESCE(p.weight, 1) AS peso,
+                    COALESCE(p.pkg_length, 30) AS l,
+                    COALESCE(p.width_cm, p.pkg_width, 30) AS w,
+                    COALESCE(p.height_cm, p.pkg_height, 30) AS h,
+                    (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+               FROM packages p WHERE p.id = $1`,
+            [packageId, addressId],
+        )).rows[0] || {};
+        if (!d.zip) return PISO_POR_CAJA * n;
+        const { quotePqtxClientPrice } = await import('./paqueteExpressController');
+        const q = await quotePqtxClientPrice({
+            destZipCode: String(d.zip),
+            packageCount: n,
+            weight: Math.max(0.5, (Number(d.peso) || 1) / n),
+            length: Number(d.l) || 30, width: Number(d.w) || 30, height: Number(d.h) || 30,
+            packageId, userId,
+        });
+        const porCaja = q && q.available && Number(q.pricePerBox) > 0
+            ? Number(q.pricePerBox) : PISO_POR_CAJA;
+        return Math.round(porCaja * n * 100) / 100;
+    } catch (e: any) {
+        console.warn(`[flete PQTX] no pude cotizar la guia ${packageId}, cobro el piso:`, e?.message);
+        return PISO_POR_CAJA * n;
+    }
+}
+
+const INSTRUYEN_POR_OTRO = new Set([
+    // los que ya estaban
+    'admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox',
+    'branch_manager', 'director', 'warehouse_ops', 'counter_staff',
+    // los que faltaban: atienden al cliente y la pantalla es suya
+    'advisor', 'sub_advisor', 'customer_service', 'operaciones',
+]);
+
+export function puedeInstruirPorOtro(role?: string | null): boolean {
+    // Se enumeran a proposito en vez de pedir "nivel por encima del cliente":
+    // por nivel entrarian tambien monitoreo —que es un rol de solo mirar—, el
+    // contador, el abogado y el repartidor, y ninguno pone instrucciones a
+    // nombre de nadie.
+    const r = String(role || '').toLowerCase().replace(/[\s-]+/g, '_');
+    return INSTRUYEN_POR_OTRO.has(r);
+}
+
 // Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
 // se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
 // El cliente debe ver solo el folio → 'MTY01WE6018254'. Solo aplica a vistas del
@@ -5594,7 +5679,11 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         }
 
         // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
-        const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase());
+        // La lista se queda como red de seguridad para los nombres de rol que
+        // no viven en la jerarquia (ops_mx, ops_usa, ops_usa_pobox); el asesor
+        // y el sub-asesor entran por nivel. Ver puedeInstruirPorOtro.
+        const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase())
+            || puedeInstruirPorOtro(userRole);
 
         // Verificar que la dirección existe y pertenece al usuario (solo si no es pickup y no es admin)
         if (deliveryAddressId && !isPickup && !isAdmin) {
@@ -8210,7 +8299,11 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
   try {
     const userId = (req as any).user.userId;
     const userRole = String((req as any).user.role || '').toLowerCase();
-    const isAdmin = ['admin', 'superadmin', 'super_admin', 'ops_mx', 'ops_usa', 'ops_usa_pobox'].includes(userRole);
+    // Mismo arreglo que en assignDeliveryInstructions: el asesor opera a nombre
+    // de su cliente y no estaba en la lista, asi que su UPDATE no tocaba nada
+    // (tarea 1113). Ver puedeInstruirPorOtro.
+    const isAdmin = ['admin', 'superadmin', 'super_admin', 'ops_mx', 'ops_usa', 'ops_usa_pobox'].includes(userRole)
+        || puedeInstruirPorOtro(userRole);
     const {
       packageIds,
       addressId,
@@ -8278,6 +8371,12 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
       if (totalBoxesReq > 0) return carrierCostMxn / totalBoxesReq;
       return 0;
     })();
+    // Paquete Express de PAGA: su tarifa sale de la API, no del catalogo, asi
+    // que si la pantalla no manda el flete nadie lo pone y la guia se guarda en
+    // cero. Se cotiza mas abajo, guia por guia (tarea 1113).
+    const _pqtxNorm = String(carrierService || '').toLowerCase().replace(/[\s_]+/g, '');
+    const esPqtxDePaga = !isCollectBool
+      && (_pqtxNorm === 'paqueteexpress' || _pqtxNorm === 'paquetexpress' || _pqtxNorm === 'pqtx');
 
     console.log(`📦 [Bulk Assign Delivery] User ${userId}: ${pkgIds.length} packages, carrier=${carrierService}, isCollect=${isCollectBool}`);
 
@@ -8425,6 +8524,12 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
         const pre = preRes.rows[0];
         const pkgBoxes = pre ? Math.max(1, parseInt(pre.total_boxes, 10) || 1) : 1;
         let pkgShippingCost = +(carrierCostPerBox * pkgBoxes).toFixed(2);
+        // Una paqueteria de paga no puede quedarse sin flete: es lo que hace el
+        // otro camino de asignacion desde siempre (tarea 1113).
+        if (esPqtxDePaga && !(pkgShippingCost > 0)) {
+          pkgShippingCost = await fleteDePqtxDeLaGuia(client, Number(pkgId), addrId, pkgBoxes, ownerId);
+          console.log(`🚚 [Bulk Assign] guia ${pkgId}: la pantalla no mando flete, cotizado en $${pkgShippingCost}`);
+        }
         const ventaUsd = pre ? (parseFloat(pre.pobox_venta_usd) || 0) : 0;
         const tc = pre ? (parseFloat(pre.registered_exchange_rate) || 0) : 0;
         const gex = pre ? (parseFloat(pre.gex_total_cost) || 0) : 0;
