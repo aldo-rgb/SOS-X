@@ -68,6 +68,7 @@ interface Fila {
   actual: Lado;
   nuevo: LadoNuevo;
   tarifaDeSuDia: TarifaDeSuDia | null;
+  rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null;
   difUsd: number;
   manda: 'neto' | 'volumetrico' | 'empate';
   bloqueo: string | null;
@@ -86,6 +87,7 @@ interface Resumen {
   difUsd: number;
   ordenesAbiertas: string[];
   conTarifaDeOtroDia: number;
+  conRutaMala: number;
 }
 
 /** Lo que el usuario escribió a mano, por guía. */
@@ -114,6 +116,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
   // Apagado por omisión: traer la tarifa de su día cambia el precio, no la
   // medida, y quien lo prende tiene que decir por qué en el motivo.
   const [tarifaDeSuDia, setTarifaDeSuDia] = useState(false);
+  // Tambien apagado por omision: mover la ruta cambia el precio por kilo, y
+  // quien lo prende tiene que decir por que en el motivo (tarea 1114).
+  const [corregirRuta, setCorregirRuta] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hecho, setHecho] = useState<string | null>(null);
 
@@ -131,9 +136,15 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
     }));
     // Un solo texto sin guión de caja se trata como lote: trae todas sus hijas.
     if (partes.length === 1 && !/-\d+$/.test(partes[0]!)) {
-      return { lote: partes[0], correcciones: corr, usarTarifaDeRecepcion: tarifaDeSuDia };
+      return {
+        lote: partes[0], correcciones: corr,
+        usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta,
+      };
     }
-    return { trackings: partes, correcciones: corr, usarTarifaDeRecepcion: tarifaDeSuDia };
+    return {
+      trackings: partes, correcciones: corr,
+      usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta,
+    };
   };
 
   const revisar = async () => {
@@ -258,6 +269,22 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
           }
         />
 
+        <FormControlLabel
+          sx={{ mb: 1, display: 'block' }}
+          control={
+            <Switch
+              size="small" checked={corregirRuta}
+              onChange={(e) => { setCorregirRuta(e.target.checked); setFilas([]); setResumen(null); }}
+            />
+          }
+          label={
+            <Typography variant="caption">
+              Corregir la ruta aérea de las que nacieron en la ruta express. Vuelve a sacar el
+              precio con la tarifa de la ruta buena del día en que se recibió en China.
+            </Typography>
+          }
+        />
+
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
         {hecho && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setHecho(null)}>{hecho}</Alert>}
 
@@ -273,6 +300,10 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                 label={hayCambios ? `${resumen.cambian} cambian` : 'todas están bien'} />
               {resumen.suben > 0 && <Chip size="small" color="error" label={`${resumen.suben} suben`} />}
               {resumen.bajan > 0 && <Chip size="small" color="info" label={`${resumen.bajan} bajan`} />}
+              {resumen.conRutaMala > 0 && (
+                <Chip size="small" color="warning" variant="outlined"
+                  label={`${resumen.conRutaMala} cambian de ruta`} />
+              )}
               <Box sx={{ flexGrow: 1 }} />
               <Typography variant="body2">
                 {fmtUsd(resumen.usdActual)} → <strong>{fmtUsd(resumen.usdNuevo)}</strong> USD
@@ -293,6 +324,15 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
             Pasa cuando el manifiesto se sube días después y el tarifario ya cambió. La columna
             “Su día” dice cuánto valía el kilo ese día. Si así hay que cobrarlo, prende el
             interruptor de arriba y vuelve a revisar.
+          </Alert>
+        )}
+
+        {resumen && resumen.conRutaMala > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>{resumen.conRutaMala} guía(s) nacieron en la ruta express</AlertTitle>
+            Son aéreo normal, pero su precio salió del tarifario de la ruta express, que cuesta
+            cerca de un dólar menos por kilo que la ruta buena. Al aplicar se mueven de ruta y se
+            les vuelve a sacar el precio con la tarifa que les tocaba el día de su recepción.
           </Alert>
         )}
 

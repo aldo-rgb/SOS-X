@@ -49,6 +49,28 @@ import { fechaDeRecepcionChina } from './tipoCambioDelDia';
 /** El divisor del aéreo. TDI usa el suyo (5000) y no pasa por aquí. */
 export const DIVISOR_AEREO = 6000;
 
+/**
+ * La ruta con la que se cobra el Aéreo China: la primera activa que NO es la
+ * express.
+ *
+ * Hay dos rutas activas y el endpoint de China pedía "una activa" sin ORDER BY,
+ * así que desde junio la base empezó a contestar la de TDI Express —otro
+ * servicio, como un dólar menos por kilo— mientras el cotizador y el manifiesto
+ * siempre resolvieron a AIFA: lo cotizado y lo cobrado no empataban. El costeo
+ * ya quedó determinista; esto es para las guías que nacieron con la ruta mala,
+ * y por eso va apagado por omisión (tarea 1114).
+ */
+export async function rutaAereaDeChina(
+  db: { query: (sql: string, params?: any[]) => Promise<any> },
+): Promise<{ id: number; code: string } | null> {
+  const r = await db.query(
+    `SELECT id, code FROM air_routes
+      WHERE is_active = true AND code <> 'TDI-EXPRES'
+      ORDER BY id ASC LIMIT 1`,
+  );
+  return r.rows[0] ? { id: Number(r.rows[0].id), code: String(r.rows[0].code) } : null;
+}
+
 const num = (v: any): number => {
   const n = parseFloat(String(v));
   return Number.isFinite(n) ? n : 0;
@@ -102,6 +124,8 @@ export interface RenglonRecosteo {
    * siempre para poder ensenarla; solo se usa si lo piden.
    */
   tarifaDeSuDia: { fecha: string; porKg: number; origen: string } | null;
+  /** Si la guía nació en la ruta equivocada y el recosteo la va a mover. */
+  rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null;
   difUsd: number;
   /** Lo que manda el cobro: 'neto' o 'volumetrico'. */
   manda: 'neto' | 'volumetrico' | 'empate';
@@ -122,6 +146,7 @@ export async function calcularRecosteo(
   trackings: string[],
   correcciones: MedidaCorregida[] = [],
   usarTarifaDeRecepcion = false,
+  corregirRuta = false,
 ): Promise<RenglonRecosteo[]> {
   const limpios = Array.from(
     new Set(trackings.map((t) => String(t || '').trim()).filter(Boolean)),
@@ -154,6 +179,14 @@ export async function calcularRecosteo(
            WHERE t.v = ANY($1::text[]))`,
     [limpios],
   );
+
+  // La ruta buena y los códigos de las dos, para poder decir de cuál a cuál.
+  const rutaBuena = corregirRuta ? await rutaAereaDeChina(db) : null;
+  const codigoDeRuta = new Map<number, string>();
+  if (rutaBuena) {
+    const rr = await db.query(`SELECT id, code FROM air_routes`);
+    for (const x of rr.rows) codigoDeRuta.set(Number(x.id), String(x.code));
+  }
 
   const porTracking = new Map<string, MedidaCorregida>();
   for (const c of correcciones) {
@@ -195,6 +228,21 @@ export async function calcularRecosteo(
     // --- la tarifa: la que la guía YA trae, no la de hoy ---
     const tipo = r.air_tariff_type ? String(r.air_tariff_type) : null;
 
+    // La ruta con la que se vuelve a resolver el precio. Si la guía trae la
+    // express y se pidió corregir, su tarifa congelada salió de la tabla
+    // equivocada: no hay trato anterior que respetar, se resuelve en la buena.
+    let rutaUsada: number | null = r.air_route_id == null ? null : Number(r.air_route_id);
+    let rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null = null;
+    if (rutaBuena && rutaUsada && rutaUsada !== rutaBuena.id) {
+      rutaCorregida = {
+        de: rutaUsada,
+        deCodigo: codigoDeRuta.get(rutaUsada) || String(rutaUsada),
+        a: rutaBuena.id,
+        aCodigo: rutaBuena.code,
+      };
+      rutaUsada = rutaBuena.id;
+    }
+
     // La que le tocaba el día en que se recibió en China. Se resuelve por el
     // mismo camino que el costeo, así que respeta el acuerdo del cliente: un
     // nivel baja sobre la general DE ESE DÍA y un precio fijo pactado no se
@@ -202,10 +250,10 @@ export async function calcularRecosteo(
     let tarifaDeSuDia: { fecha: string; porKg: number; origen: string } | null = null;
     const fechaDeChina = fechaDeRecepcionChina(tracking)
       || fechaDeRecepcionChina(String(r.tracking_internal));
-    if (fechaDeChina && tipo && tipo !== 'SU' && r.air_route_id) {
+    if (fechaDeChina && tipo && tipo !== 'SU' && rutaUsada) {
       const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
       const deSuDia = await resolverTarifaDeCliente(db, {
-        userId: r.user_id, boxId: r.box_id, routeId: r.air_route_id,
+        userId: r.user_id, boxId: r.box_id, routeId: rutaUsada,
         tipoSugerido: tipo, fecha: fechaDeChina,
       });
       if (deSuDia.pricePerKg > 0) {
@@ -231,7 +279,7 @@ export async function calcularRecosteo(
           WHERE route_id = $1 AND is_active = true
             AND $2::numeric >= min_weight AND $2::numeric <= max_weight
           LIMIT 1`,
-        [r.air_route_id, peso],
+        [rutaUsada, peso],
       );
       const plano = num(tramo.rows[0]?.price_usd);
       if (plano > 0) {
@@ -247,12 +295,29 @@ export async function calcularRecosteo(
       porKg = tarifaDeSuDia.porKg;
       origenTarifa = `tarifa del ${tarifaDeSuDia.fecha} (${tarifaDeSuDia.origen})`;
       usdNuevo = redondea(pesoCobrable * porKg);
+    } else if (rutaCorregida) {
+      // Manda la tarifa del día en que la carga se recibió en China, resuelta
+      // ya en la ruta buena; si el número de la guía no trae fecha, la general
+      // de esa ruta.
+      if (tarifaDeSuDia && tarifaDeSuDia.porKg > 0) {
+        porKg = tarifaDeSuDia.porKg;
+        origenTarifa = `ruta ${rutaCorregida.aCodigo}, tarifa del ${tarifaDeSuDia.fecha}`
+          + ` (${tarifaDeSuDia.origen})`;
+      } else {
+        const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+        const acuerdo = await resolverTarifaDeCliente(db, {
+          userId: r.user_id, boxId: r.box_id, routeId: rutaUsada, tipoSugerido: tipo || 'G',
+        });
+        porKg = acuerdo.pricePerKg;
+        origenTarifa = `ruta ${rutaCorregida.aCodigo} → ${acuerdo.origen}`;
+      }
+      usdNuevo = redondea(pesoCobrable * porKg);
     } else if (!(porKgCongelado > 0)) {
       // Guía sin tarifa congelada: nunca se coteó. Aquí sí se resuelve, porque
       // no hay trato anterior que respetar.
       const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
       const acuerdo = await resolverTarifaDeCliente(db, {
-        userId: r.user_id, boxId: r.box_id, routeId: r.air_route_id, tipoSugerido: tipo || 'G',
+        userId: r.user_id, boxId: r.box_id, routeId: rutaUsada, tipoSugerido: tipo || 'G',
       });
       porKg = acuerdo.pricePerKg;
       origenTarifa = 'sin tarifa congelada → ' + acuerdo.origen;
@@ -298,6 +363,7 @@ export async function calcularRecosteo(
         origenTarifa,
       },
       tarifaDeSuDia,
+      rutaCorregida,
       difUsd: redondea(usdNuevo - usdActual),
       manda: volumetrico > peso ? 'volumetrico' : (peso > volumetrico ? 'neto' : 'empate'),
       bloqueo,
@@ -346,7 +412,8 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
     }
 
     const filas = await calcularRecosteo(
-      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true);
+      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true,
+      body.corregirRuta === true);
     if (filas.length === 0) {
       return res.status(404).json({ error: 'No encontré ninguna de esas guías.' });
     }
@@ -367,6 +434,8 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
       // China: es lo que la pantalla avisa para que la operacion decida.
       conTarifaDeOtroDia: filas.filter((f) =>
         f.tarifaDeSuDia && Math.abs(f.tarifaDeSuDia.porKg - f.actual.porKg) >= 0.01).length,
+      // Cuantas nacieron en la ruta equivocada (tarea 1114).
+      conRutaMala: filas.filter((f) => f.rutaCorregida).length,
     };
 
     return res.json({ success: true, resumen, filas });
@@ -407,8 +476,10 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
     }
 
     const filas = await calcularRecosteo(
-      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true);
-    const aplicables = filas.filter((f) => !f.bloqueo && Math.abs(f.difUsd) >= 0.01);
+      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true,
+      body.corregirRuta === true);
+    const aplicables = filas.filter((f) =>
+      !f.bloqueo && (Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null));
     if (aplicables.length === 0) {
       return res.json({
         success: true, aplicadas: 0, filas,
@@ -434,6 +505,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
              air_chargeable_weight = $7,
              air_price_per_kg = $8,
              air_sale_price = $9,
+             air_route_id = COALESCE($11, air_route_id),
              air_price_assigned_at = NOW(),
              air_price_assigned_by = $10,
              updated_at = NOW()
@@ -446,6 +518,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             f.id, f.nuevo.peso, f.nuevo.largo, f.nuevo.ancho, f.nuevo.alto,
             f.nuevo.volumetrico > 0 ? f.nuevo.volumetrico : null,
             f.nuevo.pesoCobrable, f.nuevo.porKg, f.nuevo.usd, quien,
+            f.rutaCorregida ? f.rutaCorregida.a : null,
           ],
         );
         if (!upd.rowCount) {
@@ -465,7 +538,11 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             + `${f.nuevo.pesoCobrable}kg × $${f.nuevo.porKg}/kg = $${f.nuevo.usd} USD `
             + `(antes $${f.actual.usd}`
             + (f.nuevo.porKg !== f.actual.porKg ? ` a $${f.actual.porKg}/kg` : '')
-            + `). ${f.nuevo.origenTarifa}. ${motivo}`,
+            + `). ${f.nuevo.origenTarifa}.`
+            + (f.rutaCorregida
+              ? ` Ruta corregida de ${f.rutaCorregida.deCodigo} a ${f.rutaCorregida.aCodigo}.`
+              : '')
+            + ` ${motivo}`,
             quien,
           ],
         );
