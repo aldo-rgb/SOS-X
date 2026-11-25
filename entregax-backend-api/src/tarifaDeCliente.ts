@@ -19,6 +19,11 @@
  *    se convertía en otra cosa sin que nadie lo tocara. Con `nivel`, el precio
  *    se calcula al momento y sigue al costo solo.
  *
+ * 3. LA TARIFA ES LA DEL DIA DE RECEPCION EN CHINA. El tipo de cambio ya se
+ *    cobra asi (tarea 1086); la tarifa por kilo no, y el manifiesto se carga
+ *    de 2 a 7 dias despues de que la carga entra a la bodega. Con `fecha`, la
+ *    general sale del tarifario de ese dia (ver tarifaAereaDelDia.ts).
+ *
  * El margen de cada tipo no vive en ninguna tabla: está metido en la tarifa
  * general (Logo = costo + $9, Genérico + $8, Flat + $7), que la pantalla de
  * administración recalcula cuando cambia el costo. Por eso aquí se parte de la
@@ -48,14 +53,21 @@ const num = (v: any): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Tarifa general vigente de una ruta y un tipo. */
-async function tarifaGeneral(db: Db, routeId: number, tipo: string): Promise<number> {
-  const r = await db.query(
-    `SELECT price_per_kg FROM air_tariffs
-      WHERE route_id = $1 AND tariff_type = $2 AND is_active = true LIMIT 1`,
-    [routeId, tipo],
-  );
-  return num(r.rows[0]?.price_per_kg);
+/**
+ * Tarifa general de una ruta y un tipo. Con `fecha`, la que estaba vigente ese
+ * dia; sin fecha, la de hoy.
+ *
+ * El nivel es un descuento SOBRE la general, asi que si la general se queda en
+ * la de hoy el nivel arrastra el mismo rezago que la 1115: un cliente nivel B
+ * de un lote del 13 de noviembre terminaba con $19.90 (20.90 - 1) en vez de
+ * $17.40 (18.40 - 1).
+ */
+async function tarifaGeneral(
+  db: Db, routeId: number, tipo: string, fecha?: string | null,
+): Promise<{ precio: number; origen: string }> {
+  const { tarifaGeneralDelDia } = await import('./tarifaAereaDelDia');
+  const t = await tarifaGeneralDelDia(db, routeId, tipo, fecha || null);
+  return { precio: t.precio, origen: t.origen };
 }
 
 /**
@@ -67,7 +79,11 @@ async function tarifaGeneral(db: Db, routeId: number, tipo: string): Promise<num
  */
 export async function resolverTarifaDeCliente(
   db: Db,
-  opts: { userId?: number | null; boxId?: string | null; routeId: number | null; tipoSugerido: string },
+  opts: {
+    userId?: number | null; boxId?: string | null; routeId: number | null; tipoSugerido: string;
+    /** Fecha de recepcion en China, 'YYYY-MM-DD'. Sin ella se usa la tarifa de hoy. */
+    fecha?: string | null;
+  },
 ): Promise<TarifaResuelta> {
   const tipoSugerido = opts.tipoSugerido || 'G';
   const vacio: TarifaResuelta = { tipo: tipoSugerido, pricePerKg: 0, esDeCliente: false, origen: 'sin ruta' };
@@ -113,7 +129,8 @@ export async function resolverTarifaDeCliente(
 
     // 2) La regla de ese tipo
     const regla = reglas.rows.find((r: any) => String(r.tariff_type) === tipo);
-    const general = await tarifaGeneral(db, opts.routeId, tipo);
+    const { precio: general, origen: origenGeneral } =
+      await tarifaGeneral(db, opts.routeId, tipo, opts.fecha || null);
 
     if (regla) {
       const nivel = String(regla.nivel || '').toUpperCase();
@@ -122,7 +139,8 @@ export async function resolverTarifaDeCliente(
         if (precio > 0) {
           return {
             tipo, pricePerKg: precio, esDeCliente: true,
-            origen: `nivel ${nivel} del cliente (general ${general.toFixed(2)} - ${DESCUENTO_POR_NIVEL[nivel]})`
+            origen: `nivel ${nivel} del cliente (general ${general.toFixed(2)}`
+              + ` de ${origenGeneral} - ${DESCUENTO_POR_NIVEL[nivel]})`
               + (forzada ? `, tipo ${tipo} forzado por el acuerdo` : ''),
           };
         }
@@ -138,7 +156,7 @@ export async function resolverTarifaDeCliente(
     }
 
     // 3) Sin acuerdo: la tarifa general del tipo que toque.
-    return { tipo, pricePerKg: general, esDeCliente: false, origen: 'tarifa general' };
+    return { tipo, pricePerKg: general, esDeCliente: false, origen: origenGeneral };
   } catch (e: any) {
     console.error('[tarifa-cliente] no pude resolver la tarifa:', e?.message);
     return vacio;
@@ -147,5 +165,8 @@ export async function resolverTarifaDeCliente(
 
 /** Atajo con el pool por omisión. */
 export const resolverTarifa = (
-  opts: { userId?: number | null; boxId?: string | null; routeId: number | null; tipoSugerido: string },
+  opts: {
+    userId?: number | null; boxId?: string | null; routeId: number | null; tipoSugerido: string;
+    fecha?: string | null;
+  },
 ) => resolverTarifaDeCliente(pool, opts);

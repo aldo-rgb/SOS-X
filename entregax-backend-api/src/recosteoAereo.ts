@@ -20,13 +20,23 @@
  * $19,015.98 sobre una de las 34 guías— que cubría el 14% del hueco real.
  * De ahí la petición de la operación en la 1108: una herramienta para esto.
  *
- * LA TARIFA NO SE VUELVE A RESOLVER. Se recostea con la que la guía YA tiene
- * congelada, no con la del tarifario de hoy. El costo de la ruta China-México
- * se movió cinco veces en un mes (9.40 → 9.80 → 9.50 → 9.40 → 11.50 → 11.90 →
- * 12.50) y con él la tarifa Logo, de $18.40 a $21.50 por kilo. Resolver la
- * tarifa otra vez le subiría el 17% a un cliente que ya tenía su precio, lo que
- * no es corregir una medida: es cambiarle el trato. Aquí se corrige SOLO el
- * peso con el que se multiplica.
+ * LA TARIFA NO SE VUELVE A RESOLVER CON LA DE HOY. Se recostea con la que la
+ * guía YA tiene congelada. El costo de la ruta China-México se movió cinco
+ * veces en un mes (9.40 → 9.80 → 9.50 → 9.40 → 11.50 → 11.90 → 12.50) y con él
+ * la tarifa Logo, de $18.40 a $21.50 por kilo. Traer la de hoy le subiría el
+ * 17% a un cliente que ya tenía su precio, lo que no es corregir una medida:
+ * es cambiarle el trato.
+ *
+ * LA DE SU DÍA SÍ, Y A PETICIÓN. La casa cobra con la tarifa del día en que la
+ * carga se recibió en China, no con la de la fecha en que alguien subió el
+ * manifiesto —que llega de 2 a 7 días después—. Como el tarifario se
+ * sobreescribía, el costeo tomaba el vigente: el lote del 13 de noviembre se
+ * costeó el 19 a $20.90 cuando su día valía $18.40, y así 82 guías de 21
+ * clientes, $6,018.16 USD de más —medido el 24-nov-2026 contando solo el
+ * efecto de la fecha—. Eso ya se arregló hacia adelante en el costeo; para
+ * las que ya nacieron mal, la vista previa enseña la tarifa de su día y
+ * `usarTarifaDeRecepcion` la aplica. Apagado por omisión: quien lo prende lo
+ * escribe en el motivo (tarea 1115).
  *
  * Y nunca toca una guía pagada. El candado va dentro del UPDATE, no solo en la
  * lectura: entre que se arma la vista previa y se aplica, alguien pudo cobrar.
@@ -34,6 +44,7 @@
 
 import type { Request, Response } from 'express';
 import { pool } from './db';
+import { fechaDeRecepcionChina } from './tipoCambioDelDia';
 
 /** El divisor del aéreo. TDI usa el suyo (5000) y no pasa por aquí. */
 export const DIVISOR_AEREO = 6000;
@@ -86,6 +97,11 @@ export interface RenglonRecosteo {
     /** De dónde salió el precio por kilo. */
     origenTarifa: string;
   };
+  /**
+   * La tarifa que le tocaba el día en que se recibió en China. Se calcula
+   * siempre para poder ensenarla; solo se usa si lo piden.
+   */
+  tarifaDeSuDia: { fecha: string; porKg: number; origen: string } | null;
   difUsd: number;
   /** Lo que manda el cobro: 'neto' o 'volumetrico'. */
   manda: 'neto' | 'volumetrico' | 'empate';
@@ -105,6 +121,7 @@ export async function calcularRecosteo(
   db: { query: (sql: string, params?: any[]) => Promise<any> },
   trackings: string[],
   correcciones: MedidaCorregida[] = [],
+  usarTarifaDeRecepcion = false,
 ): Promise<RenglonRecosteo[]> {
   const limpios = Array.from(
     new Set(trackings.map((t) => String(t || '').trim()).filter(Boolean)),
@@ -177,6 +194,29 @@ export async function calcularRecosteo(
 
     // --- la tarifa: la que la guía YA trae, no la de hoy ---
     const tipo = r.air_tariff_type ? String(r.air_tariff_type) : null;
+
+    // La que le tocaba el día en que se recibió en China. Se resuelve por el
+    // mismo camino que el costeo, así que respeta el acuerdo del cliente: un
+    // nivel baja sobre la general DE ESE DÍA y un precio fijo pactado no se
+    // mueve con la fecha. El Start Up no entra: es precio plano por tramo.
+    let tarifaDeSuDia: { fecha: string; porKg: number; origen: string } | null = null;
+    const fechaDeChina = fechaDeRecepcionChina(tracking)
+      || fechaDeRecepcionChina(String(r.tracking_internal));
+    if (fechaDeChina && tipo && tipo !== 'SU' && r.air_route_id) {
+      const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
+      const deSuDia = await resolverTarifaDeCliente(db, {
+        userId: r.user_id, boxId: r.box_id, routeId: r.air_route_id,
+        tipoSugerido: tipo, fecha: fechaDeChina,
+      });
+      if (deSuDia.pricePerKg > 0) {
+        tarifaDeSuDia = {
+          fecha: fechaDeChina,
+          porKg: deSuDia.pricePerKg,
+          origen: deSuDia.origen,
+        };
+      }
+    }
+
     const porKgCongelado = num(r.air_price_per_kg);
     let porKg = porKgCongelado;
     let origenTarifa = 'tarifa congelada de la guía';
@@ -202,6 +242,11 @@ export async function calcularRecosteo(
         origenTarifa = 'Start Up sin tramo para este peso: no se recostea';
         usdNuevo = num(r.air_sale_price);
       }
+    } else if (usarTarifaDeRecepcion && tarifaDeSuDia && tarifaDeSuDia.porKg > 0) {
+      // La tarifa del día de recepción, que es la que la casa cobra.
+      porKg = tarifaDeSuDia.porKg;
+      origenTarifa = `tarifa del ${tarifaDeSuDia.fecha} (${tarifaDeSuDia.origen})`;
+      usdNuevo = redondea(pesoCobrable * porKg);
     } else if (!(porKgCongelado > 0)) {
       // Guía sin tarifa congelada: nunca se coteó. Aquí sí se resuelve, porque
       // no hay trato anterior que respetar.
@@ -252,6 +297,7 @@ export async function calcularRecosteo(
         usd: usdNuevo,
         origenTarifa,
       },
+      tarifaDeSuDia,
       difUsd: redondea(usdNuevo - usdActual),
       manda: volumetrico > peso ? 'volumetrico' : (peso > volumetrico ? 'neto' : 'empate'),
       bloqueo,
@@ -299,7 +345,8 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Son demasiadas guías de una vez (máximo 500).' });
     }
 
-    const filas = await calcularRecosteo(pool, trackings, body.correcciones || []);
+    const filas = await calcularRecosteo(
+      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true);
     if (filas.length === 0) {
       return res.status(404).json({ error: 'No encontré ninguna de esas guías.' });
     }
@@ -316,6 +363,10 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
       usdNuevo: redondea(recosteables.reduce((a, f) => a + f.nuevo.usd, 0)),
       difUsd: redondea(recosteables.reduce((a, f) => a + f.difUsd, 0)),
       ordenesAbiertas: Array.from(new Set(filas.flatMap((f) => f.ordenesAbiertas))),
+      // Cuantas traen una tarifa distinta a la del dia en que se recibieron en
+      // China: es lo que la pantalla avisa para que la operacion decida.
+      conTarifaDeOtroDia: filas.filter((f) =>
+        f.tarifaDeSuDia && Math.abs(f.tarifaDeSuDia.porKg - f.actual.porKg) >= 0.01).length,
     };
 
     return res.json({ success: true, resumen, filas });
@@ -355,7 +406,8 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Son demasiadas guías de una vez (máximo 500).' });
     }
 
-    const filas = await calcularRecosteo(pool, trackings, body.correcciones || []);
+    const filas = await calcularRecosteo(
+      pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true);
     const aplicables = filas.filter((f) => !f.bloqueo && Math.abs(f.difUsd) >= 0.01);
     if (aplicables.length === 0) {
       return res.json({
@@ -411,7 +463,9 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             f.id, f.estado || 'recosteo',
             `Recosteo aéreo: ${f.actual.peso}kg real / ${f.actual.volumetrico}kg vol → cobrable `
             + `${f.nuevo.pesoCobrable}kg × $${f.nuevo.porKg}/kg = $${f.nuevo.usd} USD `
-            + `(antes $${f.actual.usd}). ${motivo}`,
+            + `(antes $${f.actual.usd}`
+            + (f.nuevo.porKg !== f.actual.porKg ? ` a $${f.actual.porKg}/kg` : '')
+            + `). ${f.nuevo.origenTarifa}. ${motivo}`,
             quien,
           ],
         );

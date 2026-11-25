@@ -9,8 +9,15 @@
 // mano (tarea 1108).
 //
 // Aquí se captura lo que midió CEDIS, se ve el antes y el después, y se aplica.
-// La tarifa NO se vuelve a resolver: se recostea con la que la guía ya tiene
+// La tarifa NO se trae la de hoy: se recostea con la que la guía ya tiene
 // congelada, porque corregir una medida no es cambiarle el precio al cliente.
+//
+// Lo que sí se puede traer, y a propósito, es la tarifa DEL DÍA EN QUE LA CARGA
+// SE RECIBIÓ EN CHINA, que es con la que la casa cobra. El manifiesto se sube
+// de 2 a 7 días después y el costeo tomaba el tarifario de ese momento: 82
+// guías de 21 clientes se cobraron así con una tarifa posterior a la de su
+// propio lote, $6,018 USD de más (tarea 1115). El costeo nuevo ya sale bien;
+// esto es para las que ya nacieron mal.
 // ============================================================
 
 import { useState } from 'react';
@@ -18,6 +25,7 @@ import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, Alert, AlertTitle, CircularProgress, Tooltip, Divider,
+  FormControlLabel, Switch,
 } from '@mui/material';
 import ScaleIcon from '@mui/icons-material/Scale';
 import SearchIcon from '@mui/icons-material/Search';
@@ -44,6 +52,13 @@ interface LadoNuevo extends Lado {
   pesoCobrable: number;
 }
 
+/** La tarifa que le tocaba el día en que la carga se recibió en China. */
+interface TarifaDeSuDia {
+  fecha: string;
+  porKg: number;
+  origen: string;
+}
+
 interface Fila {
   id: number;
   tracking: string;
@@ -52,6 +67,7 @@ interface Fila {
   estado: string | null;
   actual: Lado;
   nuevo: LadoNuevo;
+  tarifaDeSuDia: TarifaDeSuDia | null;
   difUsd: number;
   manda: 'neto' | 'volumetrico' | 'empate';
   bloqueo: string | null;
@@ -69,6 +85,7 @@ interface Resumen {
   usdNuevo: number;
   difUsd: number;
   ordenesAbiertas: string[];
+  conTarifaDeOtroDia: number;
 }
 
 /** Lo que el usuario escribió a mano, por guía. */
@@ -94,6 +111,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [correcciones, setCorrecciones] = useState<Record<string, Correccion>>({});
   const [motivo, setMotivo] = useState('');
+  // Apagado por omisión: traer la tarifa de su día cambia el precio, no la
+  // medida, y quien lo prende tiene que decir por qué en el motivo.
+  const [tarifaDeSuDia, setTarifaDeSuDia] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hecho, setHecho] = useState<string | null>(null);
 
@@ -111,9 +131,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
     }));
     // Un solo texto sin guión de caja se trata como lote: trae todas sus hijas.
     if (partes.length === 1 && !/-\d+$/.test(partes[0]!)) {
-      return { lote: partes[0], correcciones: corr };
+      return { lote: partes[0], correcciones: corr, usarTarifaDeRecepcion: tarifaDeSuDia };
     }
-    return { trackings: partes, correcciones: corr };
+    return { trackings: partes, correcciones: corr, usarTarifaDeRecepcion: tarifaDeSuDia };
   };
 
   const revisar = async () => {
@@ -172,6 +192,7 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
   const cerrar = () => {
     setFilas([]); setResumen(null); setCorrecciones({});
     setMotivo(''); setError(null); setHecho(null);
+    setTarifaDeSuDia(false);
     onClose();
   };
 
@@ -221,6 +242,22 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
           </Button>
         </Box>
 
+        <FormControlLabel
+          sx={{ mb: 1 }}
+          control={
+            <Switch
+              size="small" checked={tarifaDeSuDia}
+              onChange={(e) => { setTarifaDeSuDia(e.target.checked); setFilas([]); setResumen(null); }}
+            />
+          }
+          label={
+            <Typography variant="caption">
+              Cobrar con la tarifa del día en que se recibió en China (la fecha va en el número de
+              guía). Sin esto, se respeta la tarifa que la guía ya tiene.
+            </Typography>
+          }
+        />
+
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
         {hecho && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setHecho(null)}>{hecho}</Alert>}
 
@@ -248,6 +285,17 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
           </Paper>
         )}
 
+        {resumen && resumen.conTarifaDeOtroDia > 0 && !tarifaDeSuDia && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <AlertTitle>
+              {resumen.conTarifaDeOtroDia} guía(s) traen una tarifa distinta a la de su día de recepción
+            </AlertTitle>
+            Pasa cuando el manifiesto se sube días después y el tarifario ya cambió. La columna
+            “Su día” dice cuánto valía el kilo ese día. Si así hay que cobrarlo, prende el
+            interruptor de arriba y vuelve a revisar.
+          </Alert>
+        )}
+
         {resumen && resumen.ordenesAbiertas.length > 0 && (
           <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2 }}>
             <AlertTitle>Hay orden de pago abierta: {resumen.ordenesAbiertas.join(', ')}</AlertTitle>
@@ -270,6 +318,7 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                   <TableCell align="right">Cobrable</TableCell>
                   <TableCell align="center">Manda</TableCell>
                   <TableCell align="right">USD/kg</TableCell>
+                  <TableCell align="right">Su día</TableCell>
                   <TableCell align="right">Cobra</TableCell>
                   <TableCell align="right">Debe</TableCell>
                   <TableCell align="right">Diferencia</TableCell>
@@ -336,6 +385,22 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                         </Tooltip>
                       </TableCell>
                       <TableCell align="right">
+                        {f.tarifaDeSuDia ? (
+                          <Tooltip title={`${f.tarifaDeSuDia.fecha}: ${f.tarifaDeSuDia.origen}`}>
+                            <Typography
+                              variant="caption"
+                              fontWeight={Math.abs(f.tarifaDeSuDia.porKg - f.actual.porKg) >= 0.01 ? 700 : 400}
+                              color={Math.abs(f.tarifaDeSuDia.porKg - f.actual.porKg) >= 0.01
+                                ? 'warning.main' : 'text.secondary'}
+                            >
+                              ${f.tarifaDeSuDia.porKg}
+                            </Typography>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
                         <Typography variant="caption">{fmtUsd(f.actual.usd)}</Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -365,7 +430,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
             <TextField
               fullWidth size="small" multiline minRows={2}
               label="Motivo (queda escrito en la bitácora de cada guía)"
-              placeholder="Medidas verificadas en CEDIS CDMX el 24-nov, ticket TKT-2026-3789"
+              placeholder={tarifaDeSuDia
+                ? 'Se cobra con la tarifa de su día de recepción en China, ticket TKT-0000-0000'
+                : 'Medidas verificadas en CEDIS CDMX el 24-nov, ticket TKT-0000-0000'}
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
             />

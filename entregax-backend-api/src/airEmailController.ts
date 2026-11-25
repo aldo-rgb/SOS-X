@@ -906,7 +906,15 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
     let countCajo = 0;
 
     // === FUNCIÓN HELPER PARA OBTENER PRECIO POR CLIENTE ===
-    async function getClientPrice(clienteId: string, tariffType: string, targetUserId: number | null): Promise<{pricePerKg: number, isCustom: boolean, tipo?: string}> {
+    // La FECHA DE RECEPCION EN CHINA manda sobre el tarifario, igual que ya
+    // manda sobre el tipo de cambio (tarea 1086). Este manifiesto se carga de
+    // 2 a 7 dias despues de que la carga entro a la bodega, y el costo de la
+    // ruta se mueve cada semana: el lote del 13 de noviembre se cargo el 19 y
+    // se coteo a $20.90 el kilo cuando su dia valia $18.40 (tarea 1115).
+    async function getClientPrice(
+      clienteId: string, tariffType: string, targetUserId: number | null,
+      fechaRecepcion: string | null,
+    ): Promise<{pricePerKg: number, isCustom: boolean, tipo?: string, origenTarifa?: string}> {
       if (!airRouteId) {
         return { pricePerKg: 0, isCustom: false };
       }
@@ -921,22 +929,20 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
       const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
       const acuerdo = await resolverTarifaDeCliente(client, {
         userId: targetUserId, boxId: clienteId, routeId: airRouteId, tipoSugerido: tariffType,
+        fecha: fechaRecepcion,
       });
       if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) {
-        return { pricePerKg: acuerdo.pricePerKg, isCustom: true, tipo: acuerdo.tipo };
+        return { pricePerKg: acuerdo.pricePerKg, isCustom: true, tipo: acuerdo.tipo,
+                 origenTarifa: acuerdo.origen };
       }
       
-      // 3. Si no hay tarifa personalizada, usar tarifa general
-      const generalRes = await client.query(`
-        SELECT price_per_kg FROM air_tariffs 
-        WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
-        LIMIT 1
-      `, [airRouteId, tariffType]);
-      
-      if (generalRes.rows.length > 0) {
-        return { pricePerKg: parseFloat(generalRes.rows[0].price_per_kg), isCustom: false };
+      // 3. Si no hay tarifa personalizada, la general DE SU DIA.
+      const { tarifaGeneralDelDia } = await import('./tarifaAereaDelDia');
+      const general = await tarifaGeneralDelDia(client, airRouteId, tariffType, fechaRecepcion);
+      if (general.precio > 0) {
+        return { pricePerKg: general.precio, isCustom: false, origenTarifa: general.origen };
       }
-      
+
       return { pricePerKg: 0, isCustom: false };
     }
 
@@ -975,8 +981,10 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         const tipoNorm = (row.tipoNorm || row.tipo || 'G').toUpperCase().charAt(0);
         const tipoDelPacking = ['L', 'G', 'S', 'F'].includes(tipoNorm) ? tipoNorm : 'G';
 
-        const { pricePerKg, isCustom, tipo: tipoDelAcuerdo } =
-          await getClientPrice(clienteBusqueda, tipoDelPacking, targetUserId);
+        // La fecha sale del numero de guia, igual que para el tipo de cambio.
+        const fechaDeChina = fechaDeRecepcionChina(trackingInternal);
+        const { pricePerKg, isCustom, tipo: tipoDelAcuerdo, origenTarifa } =
+          await getClientPrice(clienteBusqueda, tipoDelPacking, targetUserId, fechaDeChina);
         // El acuerdo del cliente manda sobre el tipo que trae el packing list:
         // un cliente con trato Flat se cobra Flat aunque su mercancia clasifique
         // como Logo (tarea 1070).
@@ -1071,17 +1079,16 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         // Si ese dia no tiene tipo de cambio guardado -los dias anteriores a
         // que esto empezara a registrarse- la guia se queda sin el suyo y todo
         // sigue como antes, con el vigente.
-        const fechaChina = fechaDeRecepcionChina(trackingInternal);
-        const tcDeLaRecepcion = await tcDelDia(client, 'tdi', fechaChina);
+        const tcDeLaRecepcion = await tcDelDia(client, 'tdi', fechaDeChina);
         if (tcDeLaRecepcion > 0) {
-          console.log(`  📅 ${guiaAir}: recibida en China el ${fechaChina} → TC ${tcDeLaRecepcion}`);
+          console.log(`  📅 ${guiaAir}: recibida en China el ${fechaDeChina} → TC ${tcDeLaRecepcion}`);
         }
 
         console.log(`  → ${guiaAir}: ${clienteId} | real ${weight}kg / vol ${volumetrico.toFixed(2)}kg`
           + (tariffType === 'SU'
               ? ` → START UP $${salePrice.toFixed(2)} (tramo por peso real)`
               : ` → cobrable ${pesoCobrable.toFixed(2)}kg × $${precioPorKg}/kg = $${salePrice.toFixed(2)}`)
-          + ` (${isCustom ? 'CUSTOM' : 'GENERAL'})`);
+          + ` (${isCustom ? 'CUSTOM' : 'GENERAL'}${origenTarifa ? ': ' + origenTarifa : ''})`);
 
         // Buscar si ya existe una guía con el mismo child_no (puede haber llegado vía API con tracking diferente)
         const existingByChildNo = await client.query(
@@ -1994,21 +2001,28 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
     }
 
     // Upsert each tariff type (price 0 => is_active = false)
+    //
+    // Y SE GUARDA EN EL HISTORIAL. `air_tariffs` solo tiene la vigente y se
+    // sobreescribe cada vez que cambia el costo de la ruta, asi que no habia
+    // forma de saber a cuanto estaba el kilo el dia que una guia se recibio en
+    // China. El costo si tiene historial, pero el margen de cada tipo lo
+    // teclea la operacion aqui mismo y no quedaba en ningun lado: de ahi solo
+    // se puede reconstruir (tarea 1115).
     let genericPriceChanged = false;
     let newGenericPrice = 0;
     if (tariffs && typeof tariffs === 'object') {
+      const { registrarTarifaEnHistorial } = await import('./tarifaAereaDelDia');
       for (const type of ['L', 'G', 'S', 'F']) {
         if (tariffs[type] !== undefined) {
           const price = parseFloat(tariffs[type]) || 0;
           const isActive = price > 0;
-          if (type === 'G' && isActive) {
-            // Check previous generic price
-            const prevG = await pool.query(
-              `SELECT price_per_kg FROM air_tariffs WHERE route_id = $1 AND tariff_type = 'G' LIMIT 1`,
-              [route_id]
-            );
-            const prevGPrice = parseFloat(prevG.rows[0]?.price_per_kg || '0');
-            if (price !== prevGPrice) { genericPriceChanged = true; newGenericPrice = price; }
+          const prev = await pool.query(
+            `SELECT price_per_kg FROM air_tariffs WHERE route_id = $1 AND tariff_type = $2 LIMIT 1`,
+            [route_id, type]
+          );
+          const prevPrice = parseFloat(prev.rows[0]?.price_per_kg || '0');
+          if (type === 'G' && isActive && price !== prevPrice) {
+            genericPriceChanged = true; newGenericPrice = price;
           }
           await pool.query(`
             INSERT INTO air_tariffs (route_id, tariff_type, price_per_kg, is_active, updated_at)
@@ -2016,6 +2030,13 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
             ON CONFLICT (route_id, tariff_type)
             DO UPDATE SET price_per_kg = $3, is_active = $4, updated_at = NOW()
           `, [route_id, type, price, isActive]);
+          if (price !== prevPrice && isActive) {
+            await registrarTarifaEnHistorial(
+              pool, Number(route_id), type, price, userId || null,
+              `Cambio de $${prevPrice.toFixed(2)} a $${price.toFixed(2)}`
+                + (cost_per_kg_usd !== undefined ? `, costo $${parseFloat(cost_per_kg_usd).toFixed(2)}` : ''),
+            );
+          }
         }
       }
     }
