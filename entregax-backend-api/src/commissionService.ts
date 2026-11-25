@@ -140,7 +140,52 @@ export async function generateCommissionForShipment(
       // (sobre-cuenta) y en otras viene en 0 (no generaría comisión).
       const res = await pool.query(`
         SELECT p.user_id, p.tracking_internal,
-               COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, p.monto_pagado, 0) as payment_amount,
+               -- 💵 De donde sale el importe de la guia, en pesos.
+               --
+               -- La cadena se quedo pensada para PO Box y se tropezaba dos veces
+               -- con una guia AEREA:
+               --
+               --  1. El precio del aereo NO vive en assigned_cost_mxn ni en
+               --     pobox_service_cost: vive en air_sale_price, en DOLARES.
+               --     Nunca se miraba, asi que el importe salia en cero.
+               --  2. pobox_service_cost llega en 0.00 -no NULL- en esas guias,
+               --     y COALESCE se queda con el cero y ya no llega a
+               --     monto_pagado. Faltaba el NULLIF.
+               --
+               -- Con importe cero la funcion devuelve false sin decir nada, asi
+               -- que el aereo no genero UNA SOLA comision desde el 28 de junio
+               -- de 2026 aunque su tarifa (2.5%) lleva configurada desde mayo.
+               -- Medido el 25-nov-2026: 105 guias de 24 clientes con su orden ya
+               -- pagada, $817,876.18 facturados, $20,446.90 de comision que
+               -- nadie cobro (TKT-2026-3882, tarea 1125).
+               --
+               -- El dolar se convierte con el tipo de cambio REGISTRADO en la
+               -- guia; 14,781 guias aereas no traen el suyo, asi que esas caen
+               -- al vigente del servicio. Es la misma cadena que usa
+               -- totalCanonicoDeOrden para cobrar: la comision y el cobro miden
+               -- lo mismo.
+               COALESCE(
+                 NULLIF(p.assigned_cost_mxn, 0),
+                 NULLIF(p.pobox_service_cost, 0),
+                 NULLIF(p.air_sale_price, 0) * COALESCE(
+                   NULLIF(p.registered_exchange_rate, 0),
+                   -- El de la NOTA con la que se cobro, antes que el vigente:
+                   -- la comision es un porcentaje de lo que el cliente pago, y
+                   -- el vigente de hoy sube la base 5% sobre lo facturado.
+                   (SELECT NULLIF(pp_tc.tipo_cambio_usd, 0) FROM pobox_payments pp_tc
+                     WHERE pp_tc.package_ids @> to_jsonb(p.id)
+                       AND pp_tc.status IN ('completed','paid')
+                     ORDER BY pp_tc.id DESC LIMIT 1),
+                   (SELECT erc.tipo_cambio_final FROM exchange_rate_config erc
+                     WHERE erc.servicio = 'tdi' AND erc.estado = TRUE LIMIT 1),
+                   0),
+                 NULLIF(p.pobox_venta_usd, 0) * COALESCE(
+                   NULLIF(p.registered_exchange_rate, 0),
+                   (SELECT erc.tipo_cambio_final FROM exchange_rate_config erc
+                     WHERE erc.servicio = 'pobox_usa' AND erc.estado = TRUE LIMIT 1),
+                   0),
+                 NULLIF(p.monto_pagado, 0),
+                 0) as payment_amount,
                p.service_type
         FROM packages p
         WHERE p.id = $1
