@@ -8,6 +8,7 @@ import { pool } from './db';
 import { createNotification } from './notificationController';
 import { duenoDeLaMarca, casilleroSinAnotacion } from './boxLinkReconcile';
 import crypto from 'crypto';
+import { fechaDeRecepcionChina } from './tipoCambioDelDia';
 import { sm2 } from 'sm-crypto';
 
 /**
@@ -110,6 +111,84 @@ interface ChinaPackageData {
 }
 
 // ============================================
+// EL SISTEMA CHINO CAMBIA COMO ESCRIBE SUS CAMPOS
+// ============================================
+// El 12 de noviembre MoJie empezo a mandar `Fno`, `Data`, `ChildNo` con
+// mayuscula inicial. Los campos de arriba ya se leian de las dos formas, pero
+// los de adentro de cada caja no: `item.childNo` llegaba vacio y el callback
+// moria en el primer `.slice`. Entre el 12 y el 25 de noviembre se rechazaron
+// asi 220 empujes y 93 guias nunca entraron al sistema (tarea 1114).
+//
+// Del lado de ellos esos empujes cuentan como exitosos, por eso su pantalla
+// marca cero fallos y no los reintenta: la falla no se ve desde alla. Asi que
+// aqui los campos se leen sin importar como vengan escritos -mayusculas,
+// minusculas o guion bajo- y la proxima vez que cambien la forma la entrada
+// sigue de pie.
+function campoDeChina(obj: any, ...alias: string[]): any {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const plano: Record<string, any> = {};
+    for (const llave of Object.keys(obj)) {
+        const limpia = llave.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const actual = plano[limpia];
+        if (actual === undefined || actual === null || actual === '') plano[limpia] = obj[llave];
+    }
+    for (const a of alias) {
+        const valor = plano[a.toLowerCase().replace(/[^a-z0-9]/g, '')];
+        if (valor !== undefined && valor !== null && valor !== '') return valor;
+    }
+    return undefined;
+}
+
+/** Una caja del payload chino, venga como venga escrita. */
+export function normalizaCajaDeChina(crudo: any): ChinaPackageData {
+    return {
+        childNo: campoDeChina(crudo, 'childNo', 'childNumber', 'childCode'),
+        trajecotryName: campoDeChina(crudo, 'trajecotryName', 'trajectoryName') ?? '',
+        weight: campoDeChina(crudo, 'weight') ?? 0,
+        long: campoDeChina(crudo, 'long', 'length') ?? 0,
+        width: campoDeChina(crudo, 'width') ?? 0,
+        height: campoDeChina(crudo, 'height') ?? 0,
+        proName: campoDeChina(crudo, 'proName', 'productName') ?? null,
+        customsBno: campoDeChina(crudo, 'customsBno') ?? null,
+        singleVolume: campoDeChina(crudo, 'singleVolume') ?? 0,
+        singleCbm: campoDeChina(crudo, 'singleCbm') ?? 0,
+        billNo: campoDeChina(crudo, 'billNo', 'awb', 'awbNo') ?? null,
+        etd: campoDeChina(crudo, 'etd') ?? null,
+        eta: campoDeChina(crudo, 'eta') ?? null,
+    } as ChinaPackageData;
+}
+
+/** La orden completa con sus cajas. */
+export function normalizaPayloadDeChina(crudo: any): ChinaApiPayload {
+    const cajas = campoDeChina(crudo, 'data', 'items', 'packages', 'boxes', 'list');
+    const archivo = campoDeChina(crudo, 'file', 'files', 'evidenceUrls');
+    let evidencias: string[] = [];
+    if (Array.isArray(archivo)) {
+        evidencias = archivo;
+    } else if (typeof archivo === 'string' && archivo.trim()) {
+        const texto = archivo.trim();
+        if (texto.startsWith('[')) {
+            try {
+                const leido = JSON.parse(texto);
+                evidencias = Array.isArray(leido) ? leido : [texto];
+            } catch { evidencias = [texto]; }
+        } else {
+            evidencias = [texto];
+        }
+    }
+    return {
+        fno: campoDeChina(crudo, 'fno', 'orderNo', 'orderCode', 'orderId'),
+        shippingMark: campoDeChina(crudo, 'shippingMark', 'mark', 'customerCode'),
+        totalQty: campoDeChina(crudo, 'totalQty', 'qty', 'quantity') ?? 0,
+        totalWeight: campoDeChina(crudo, 'totalWeight', 'weight') ?? 0,
+        totalVolume: campoDeChina(crudo, 'totalVolume', 'volume') ?? 0,
+        totalCbm: campoDeChina(crudo, 'totalCbm', 'cbm') ?? 0,
+        file: evidencias,
+        data: Array.isArray(cajas) ? cajas.map(normalizaCajaDeChina) : [],
+    } as ChinaApiPayload;
+}
+
+// ============================================
 // WEBHOOK: Recibir datos de China
 // POST /api/china/receive
 // ============================================
@@ -135,22 +214,10 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         console.log("Body RAW:", JSON.stringify(req.body, null, 2));
         console.log("========================================");
         
-        // Normalizar campos - MoJie puede enviar con diferentes nombres
+        // Los nombres de los campos cambian del lado chino, asi que se leen
+        // sin importar como vengan escritos (tarea 1114).
         const rawBody = req.body;
-        const payload: ChinaApiPayload = {
-            fno: rawBody.fno || rawBody.FNO || rawBody.Fno || rawBody.fNo || rawBody.order_no || rawBody.orderNo || rawBody.order_id,
-            shippingMark: rawBody.shippingMark || rawBody.ShippingMark || rawBody.shipping_mark || rawBody.mark || rawBody.customer_code || rawBody.customerCode,
-            totalQty: rawBody.totalQty || rawBody.TotalQty || rawBody.total_qty || rawBody.qty || rawBody.quantity || 0,
-            totalWeight: rawBody.totalWeight || rawBody.TotalWeight || rawBody.total_weight || rawBody.weight || 0,
-            totalVolume: rawBody.totalVolume || rawBody.TotalVolume || rawBody.total_volume || rawBody.volume || 0,
-            totalCbm: rawBody.totalCbm || rawBody.TotalCbm || rawBody.total_cbm || rawBody.cbm || 0,
-            // file puede ser string o array - normalizar a array
-            file: Array.isArray(rawBody.file) ? rawBody.file : 
-                  (rawBody.file ? [rawBody.file] : 
-                  (Array.isArray(rawBody.files) ? rawBody.files : 
-                  (rawBody.files ? [rawBody.files] : []))),
-            data: rawBody.data || rawBody.Data || rawBody.items || rawBody.packages || rawBody.boxes || []
-        };
+        const payload: ChinaApiPayload = normalizaPayloadDeChina(rawBody);
         
         console.log("📦 Recibiendo FNO:", payload.fno, "- ShippingMark:", payload.shippingMark);
         console.log("  → Evidencias:", payload.file.length, "archivo(s)");
@@ -308,11 +375,20 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             // del sistema, CERO son Flat- (tarea 1070). Y si el acuerdo esta
             // guardado como nivel, el precio se calcula ahora y sigue al costo de
             // la ruta, en vez de quedarse congelado en el numero de aquel dia.
+            //
+            // Y la tarifa es la del DIA EN QUE LA CARGA ENTRO A CHINA, que viene
+            // dentro del propio numero de guia (tareas 1086 y 1115). Este
+            // callback casi siempre llega el mismo dia, asi que normalmente da
+            // igual; cuenta cuando una guia entra tarde -como las 93 que se
+            // quedaron fuera desde el 12 de noviembre por el cambio de campos-
+            // para que no se le cobre la tarifa de hoy.
+            const fechaDeChina = fechaDeRecepcionChina(String(item.childNo || ''))
+                || fechaDeRecepcionChina(String(payload.fno || ''));
             let hasCustomTariff = false;
             if (airRouteId && userId) {
                 const { resolverTarifaDeCliente } = await import('./tarifaDeCliente');
                 const acuerdo = await resolverTarifaDeCliente(client, {
-                    userId, routeId: airRouteId, tipoSugerido: tariffType,
+                    userId, routeId: airRouteId, tipoSugerido: tariffType, fecha: fechaDeChina,
                 });
                 if (acuerdo.esDeCliente && acuerdo.pricePerKg > 0) {
                     tariffType = acuerdo.tipo;
@@ -347,14 +423,11 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             // 3️⃣ Si no es startup, calcular per-kg (custom o general)
             if (!isStartup) {
                 if (pricePerKg === 0 && airRouteId) {
-                    const generalTariffRes = await client.query(`
-                        SELECT price_per_kg FROM air_tariffs 
-                        WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
-                        LIMIT 1
-                    `, [airRouteId, tariffType]);
-                    
-                    if (generalTariffRes.rows.length > 0) {
-                        pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                    const { tarifaGeneralDelDia } = await import('./tarifaAereaDelDia');
+                    const general = await tarifaGeneralDelDia(client, airRouteId, tariffType, fechaDeChina);
+                    if (general.precio > 0) {
+                        pricePerKg = general.precio;
+                        console.log(`   [tarifa] ${item.childNo}: ${general.origen}`);
                     }
                 }
                 salePrice = pesoCobrable * pricePerKg;
@@ -561,6 +634,95 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         });
     } finally {
         client.release();
+    }
+};
+
+// ============================================
+// RECUPERAR LOS EMPUJES QUE SE QUEDARON FUERA
+// POST /api/china/reprocess-failed
+// ============================================
+// Del lado chino estos empujes quedaron marcados como exitosos -su pantalla
+// dice cero fallos-, asi que su boton de "reenviar los fallidos" no los va a
+// mandar de nuevo: para ellos nunca fallaron. El payload completo si quedo
+// guardado en china_callback_logs, de modo que la recuperacion se hace desde
+// aqui y por el MISMO camino que usa el webhook, para que no exista una
+// segunda copia del codigo que con el tiempo se desvie. Cada reproceso deja
+// su propio renglon en la bitacora (tarea 1114).
+//
+// Con `simulacion: true` solo cuenta e informa, sin tocar nada.
+export const reprocesarCallbacksFallidos = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const cuerpo = req.body || {};
+        const desde = String(cuerpo.desde || '2026-11-12');
+        const soloPendientes = cuerpo.soloPendientes !== false;
+        const simulacion = cuerpo.simulacion === true;
+
+        // El ultimo empuje de cada guia que no entro.
+        const fallidos = await pool.query(`
+            SELECT DISTINCT ON (fno) fno, id, raw_payload
+              FROM (
+                SELECT id, raw_payload,
+                       COALESCE(raw_payload->>'Fno', raw_payload->>'fno',
+                                raw_payload->>'FNO', raw_payload->>'orderNo') AS fno
+                  FROM china_callback_logs
+                 WHERE created_at >= $1::date AND NOT success
+              ) t
+             WHERE fno IS NOT NULL AND fno <> ''
+             ORDER BY fno, id DESC
+        `, [desde]);
+
+        const pendientes: any[] = [];
+        for (const f of fallidos.rows) {
+            if (soloPendientes) {
+                const ya = await pool.query(
+                    `SELECT 1 FROM packages WHERE child_no LIKE $1 || '%' LIMIT 1`, [f.fno]);
+                if (ya.rows.length > 0) continue;
+            }
+            pendientes.push(f);
+        }
+
+        if (simulacion) {
+            return res.json({
+                success: true, simulacion: true, desde,
+                porEntrar: pendientes.length,
+                fnos: pendientes.map((p: any) => p.fno),
+            });
+        }
+
+        const resultados: any[] = [];
+        for (const p of pendientes) {
+            const salida = await new Promise<any>((resolve) => {
+                const resInterno: any = {
+                    statusCode: 200,
+                    status(c: number) { this.statusCode = c; return this; },
+                    json(respuesta: any) { resolve({ status: this.statusCode, respuesta }); return this; },
+                };
+                receiveFromChina(
+                    { body: p.raw_payload, headers: { 'x-forwarded-for': 'reproceso-interno' }, socket: {} } as any,
+                    resInterno,
+                ).catch((e: any) => resolve({ status: 500, respuesta: { success: false, details: e.message } }));
+            });
+            const r = salida.respuesta || {};
+            resultados.push({
+                fno: p.fno,
+                ok: r.success === true,
+                cajas: r.data?.packagesCreated ?? 0,
+                error: r.success === true ? null : (r.details || r.error || 'sin detalle'),
+            });
+        }
+
+        const entraron = resultados.filter((r) => r.ok).length;
+        console.log(`[China] Reproceso: ${entraron} de ${resultados.length} guias recuperadas`);
+        return res.json({
+            success: true, desde,
+            intentados: resultados.length,
+            entraron,
+            fallaron: resultados.length - entraron,
+            resultados,
+        });
+    } catch (error: any) {
+        console.error('[China] Error reprocesando callbacks:', error);
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -2285,7 +2447,11 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
 
         const results: any[] = [];
 
-        for (const order of orders) {
+        for (const ordenCruda of orders) {
+
+            // Misma lectura tolerante que el webhook (tarea 1114).
+
+            const order = normalizaPayloadDeChina(ordenCruda);
             // El JSON usa: fno, shippingMark, totalQty, totalWeight, totalVolume, totalCbm, file, data
             const fno = order.fno || orderCode;
             const shippingMark = order.shippingMark || 'UNKNOWN';
@@ -2858,7 +3024,7 @@ export const mojieCallbackEncrypted = async (req: Request, res: Response): Promi
             // Verificar si es JSON sin encriptar
             if (req.body.trim().startsWith('{')) {
                 try {
-                    directPayload = JSON.parse(req.body);
+                    directPayload = normalizaPayloadDeChina(JSON.parse(req.body));
                     console.log('   → Body es JSON string, parseado correctamente');
                 } catch {
                     encryptedData = req.body;
@@ -2880,9 +3046,9 @@ export const mojieCallbackEncrypted = async (req: Request, res: Response): Promi
             } else if (req.body.content && typeof req.body.content === 'string') {
                 encryptedData = req.body.content;
                 console.log('   → Datos encriptados en campo "content"');
-            } else if (req.body.fno) {
+            } else if (campoDeChina(req.body, 'fno', 'orderNo', 'orderCode')) {
                 // JSON sin encriptar con estructura esperada
-                directPayload = req.body as ChinaApiPayload;
+                directPayload = normalizaPayloadDeChina(req.body);
                 console.log('   → Datos JSON sin encriptar (tiene fno)');
             } else {
                 // Intentar buscar cualquier campo string largo que pueda ser encriptado
@@ -2926,7 +3092,7 @@ export const mojieCallbackEncrypted = async (req: Request, res: Response): Promi
         console.log('   → Datos desencriptados correctamente');
         
         // Parsear el JSON desencriptado
-        const payload: ChinaApiPayload = JSON.parse(decryptedString);
+        const payload: ChinaApiPayload = normalizaPayloadDeChina(JSON.parse(decryptedString));
         console.log(`   → FNO: ${payload.fno}, ShippingMark: ${payload.shippingMark}`);
         
         // Procesar el payload

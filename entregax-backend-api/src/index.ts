@@ -857,7 +857,8 @@ import {
   listTrajectoryNames,
   recalcChinaStatuses,
   getChinaStatusHistory,
-  getCallbackLogs
+  getCallbackLogs,
+  reprocesarCallbacksFallidos,
 } from './chinaController';
 import {
   getMasterAwbData,
@@ -7529,6 +7530,8 @@ app.get('/api/china/stats', authenticateToken, getChinaStats);
 app.get('/api/china/air-guides', authenticateToken, getAirDaughterGuides);
 app.get('/api/china/air-guides/stats', authenticateToken, getAirDaughterStats);
 app.get('/api/china/callback-logs', authenticateToken, getCallbackLogs); // Logs de diagnóstico
+// Recupera las guias que el sistema chino empujo y nuestro endpoint rechazo (tarea 1114)
+app.post('/api/china/reprocess-failed', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), reprocesarCallbacksFallidos);
 
 // Pull desde MJCustomer API (consultar en lugar de recibir webhook)
 app.post('/api/china/mjcustomer/login', authenticateToken, loginMJCustomerEndpoint);

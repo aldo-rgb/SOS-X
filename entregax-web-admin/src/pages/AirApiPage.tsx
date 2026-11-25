@@ -2,6 +2,12 @@
 // PANEL DE MONITOREO - API CHINA AÉREO (TDI)
 // Recepciones y tracking en tiempo real
 // ============================================
+//
+// "Recuperar pendientes" vuelve a procesar las guías que el sistema chino
+// empujó y nuestro endpoint rechazó. Del lado de ellos esos empujes quedaron
+// como exitosos, así que su botón de reenviar no las manda de nuevo: para
+// ellos nunca fallaron. El aviso dice cuántas son antes de tocar nada, porque
+// cada guía que entra nace con su precio congelado (tarea 1114).
 
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -184,6 +190,47 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
   });
 
   const token = localStorage.getItem('token');
+
+  // Guías que el sistema chino empujó y se quedaron fuera.
+  const [recuperar, setRecuperar] = useState<{
+    open: boolean; cargando: boolean; porEntrar: number | null;
+    fnos: string[]; hecho: { entraron: number; fallaron: number } | null;
+  }>({ open: false, cargando: false, porEntrar: null, fnos: [], hecho: null });
+
+  const revisarPendientes = useCallback(async () => {
+    setRecuperar({ open: true, cargando: true, porEntrar: null, fnos: [], hecho: null });
+    try {
+      const res = await fetch(`${API_URL}/api/china/reprocess-failed`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulacion: true }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo revisar');
+      setRecuperar({ open: true, cargando: false, porEntrar: d.porEntrar ?? 0, fnos: d.fnos || [], hecho: null });
+    } catch (e: any) {
+      setRecuperar((p) => ({ ...p, open: false, cargando: false }));
+      setSnackbar({ open: true, message: e.message || 'Error revisando pendientes', severity: 'error' });
+    }
+  }, [token]);
+
+  const correrRecuperacion = useCallback(async () => {
+    setRecuperar((p) => ({ ...p, cargando: true }));
+    try {
+      const res = await fetch(`${API_URL}/api/china/reprocess-failed`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo recuperar');
+      setRecuperar((p) => ({ ...p, cargando: false, hecho: { entraron: d.entraron, fallaron: d.fallaron } }));
+      setSnackbar({ open: true, message: `✅ ${d.entraron} guía(s) recuperada(s)`, severity: 'success' });
+    } catch (e: any) {
+      setRecuperar((p) => ({ ...p, cargando: false }));
+      setSnackbar({ open: true, message: e.message || 'Error recuperando', severity: 'error' });
+    }
+  }, [token]);
 
   // Sincronizar con MoJie API
   const syncWithMoJie = useCallback(async () => {
@@ -538,6 +585,14 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
           sx={{ mr: 1, borderColor: '#4CAF50', color: '#4CAF50' }}
         >
           Rastrear Guía
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<InventoryIcon />}
+          onClick={revisarPendientes}
+          sx={{ mr: 1, borderColor: '#FB8C00', color: '#FB8C00' }}
+        >
+          Recuperar pendientes
         </Button>
         <Button
           variant="outlined"
@@ -1446,6 +1501,47 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       </Dialog>
 
       {/* Snackbar */}
+      {/* Guías que el sistema chino empujó y no entraron */}
+      <Dialog open={recuperar.open} onClose={() => { if (!recuperar.cargando) { setRecuperar((p) => ({ ...p, open: false })); loadData(); } }} maxWidth="sm" fullWidth>
+        <DialogTitle>Guías pendientes de entrar</DialogTitle>
+        <DialogContent>
+          {recuperar.cargando && <LinearProgress sx={{ mb: 2 }} />}
+          {recuperar.hecho ? (
+            <Alert severity={recuperar.hecho.fallaron > 0 ? 'warning' : 'success'}>
+              Entraron {recuperar.hecho.entraron} guía(s)
+              {recuperar.hecho.fallaron > 0 ? `, ${recuperar.hecho.fallaron} siguen fuera` : ''}.
+            </Alert>
+          ) : recuperar.porEntrar === null ? (
+            <Typography variant="body2">Revisando…</Typography>
+          ) : recuperar.porEntrar === 0 ? (
+            <Alert severity="success">No hay guías pendientes: todo lo que China empujó está en el sistema.</Alert>
+          ) : (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {recuperar.porEntrar} guía(s) que China empujó no entraron y siguen fuera del sistema.
+              </Alert>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Al recuperarlas se crean sus cajas con el precio de la tarifa del día en que se
+                recibieron en China, no la de hoy. El cliente las verá en cuanto entren.
+              </Typography>
+              <Box sx={{ maxHeight: 180, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+                {recuperar.fnos.join(', ')}
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setRecuperar((p) => ({ ...p, open: false })); loadData(); }} disabled={recuperar.cargando}>
+            Cerrar
+          </Button>
+          {!recuperar.hecho && !!recuperar.porEntrar && (
+            <Button variant="contained" color="warning" onClick={correrRecuperacion} disabled={recuperar.cargando}>
+              Recuperar {recuperar.porEntrar}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={5000}
