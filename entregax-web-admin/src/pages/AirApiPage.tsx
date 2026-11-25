@@ -233,16 +233,23 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
   }, [token]);
 
   // Sincronizar con MoJie API
+  //
+  // Va por TRAMOS. Antes se mandaban todas las recepciones activas en una sola
+  // llamada -varios cientos-, el servidor las recorria de una en una contra el
+  // sistema chino y la llamada tardaba minutos: el proxy la cortaba a los 100
+  // segundos con un 524 y aqui se veia como "Failed to fetch", que esta
+  // pantalla traducia a "Error de conexion con MoJie API". Se reporto como que
+  // China no contestaba cuando lo que se caia era nuestra propia llamada
+  // (tarea 1114).
   const syncWithMoJie = useCallback(async () => {
     try {
       setSyncing(true);
-      const headers = { 
+      const headers = {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       };
 
-      // Obtener recepciones activas para sincronizar
-      const activeReceipts = receipts.filter(r => 
+      const activeReceipts = receipts.filter(r =>
         r.status && !['delivered', 'cancelled'].includes(r.status)
       );
 
@@ -251,29 +258,72 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
         return;
       }
 
-      // Sincronizar en batch
-      const orderCodes = activeReceipts.map(r => r.fno).filter(Boolean);
-      
-      const syncRes = await fetch(`${API_URL}/api/china/pull-batch`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ orderCodes })
-      });
+      let pendientes: string[] = activeReceipts.map(r => r.fno).filter(Boolean) as string[];
+      const total = pendientes.length;
+      let creadas = 0;
+      let actualizadas = 0;
+      let conError = 0;
+      // Tope de vueltas por si el servidor dejara de avanzar: nunca mas de las
+      // que harian falta.
+      let vueltas = 0;
+      const maxVueltas = Math.ceil(total / 20) + 5;
 
-      const syncData = await syncRes.json();
-
-      if (syncData.success) {
-        setSnackbar({ 
-          open: true, 
-          message: `✅ Sincronizado: ${syncData.results?.filter((r: any) => r.success).length || 0} órdenes actualizadas`, 
-          severity: 'success' 
+      while (pendientes.length > 0 && vueltas < maxVueltas) {
+        vueltas += 1;
+        const syncRes = await fetch(`${API_URL}/api/china/pull-batch`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ orderCodes: pendientes })
         });
-      } else {
-        setSnackbar({ open: true, message: syncData.error || 'Error en sincronización', severity: 'error' });
+
+        if (!syncRes.ok) {
+          setSnackbar({
+            open: true,
+            message: `La sincronización se cortó en el servidor (${syncRes.status}). `
+              + `Van ${total - pendientes.length} de ${total}; vuelve a darle para seguir.`,
+            severity: 'error',
+          });
+          return;
+        }
+
+        const syncData = await syncRes.json();
+        if (!syncData.success) {
+          setSnackbar({ open: true, message: syncData.error || 'Error en sincronización', severity: 'error' });
+          return;
+        }
+
+        creadas += Number(syncData.creadas) || 0;
+        actualizadas += Number(syncData.actualizadas) || 0;
+        conError += (syncData.errors || []).length;
+        const siguen: string[] = Array.isArray(syncData.restantes) ? syncData.restantes : [];
+        // Si el servidor no avanzo, se corta para no girar en vacio.
+        if (siguen.length >= pendientes.length) break;
+        pendientes = siguen;
+
+        if (pendientes.length > 0) {
+          setSnackbar({
+            open: true,
+            message: `Sincronizando con China: ${total - pendientes.length} de ${total}…`,
+            severity: 'success',
+          });
+        }
       }
+
+      setSnackbar({
+        open: true,
+        message: `Sincronizado: ${total - pendientes.length} de ${total} órdenes`
+          + ` (${creadas} cajas nuevas, ${actualizadas} actualizadas`
+          + (conError ? `, ${conError} con error` : '') + ')',
+        severity: conError ? 'error' : 'success',
+      });
+      await loadData();
     } catch (error: any) {
       console.error('Error sincronizando con MoJie:', error);
-      setSnackbar({ open: true, message: 'Error de conexión con MoJie API', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: 'No se pudo completar la sincronización. Vuelve a darle: continúa donde se quedó.',
+        severity: 'error',
+      });
     } finally {
       setSyncing(false);
     }

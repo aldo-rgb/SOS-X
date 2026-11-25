@@ -2702,47 +2702,84 @@ export const pullBatchFromMJCustomer = async (req: Request, res: Response): Prom
             });
         }
 
-        console.log(`🔄 Sincronización masiva: ${orderCodes.length} códigos`);
+        // Cuántas se procesan POR LLAMADA.
+        //
+        // La pantalla mandaba TODAS las recepciones activas de un golpe -varios
+        // cientos- y esto las recorría de una en una, con su consulta a China y
+        // una pausa de 200 ms entre cada una. Son minutos: el proxy corta a los
+        // 100 segundos con un 524 y el navegador enseña "Failed to fetch", que
+        // la pantalla traducía a "Error de conexión con MoJie API". Por eso se
+        // reportó como que China no contestaba, cuando lo que se cayó fue
+        // nuestra propia llamada (tarea 1114).
+        //
+        // Ahora cada llamada procesa un tramo corto y devuelve lo que falta;
+        // la pantalla vuelve a llamar hasta terminar.
+        const topePedido = Number(req.body.tope);
+        const tope = Number.isFinite(topePedido) && topePedido > 0
+            ? Math.min(topePedido, 50)
+            : 20;
+        const codigos = orderCodes.map((c: any) => String(c || '').trim()).filter(Boolean);
+        const lote = codigos.slice(0, tope);
+        const restantes = codigos.slice(tope);
 
-        // Obtener token válido antes de empezar
-        const token = await getMJCustomerToken();
+        console.log(`🔄 Sincronización MoJie: ${lote.length} de ${codigos.length} códigos en esta llamada`);
 
         const results: any[] = [];
         const errors: any[] = [];
+        let creadas = 0;
+        let actualizadas = 0;
 
-        for (const code of orderCodes) {
-            try {
-                const apiResponse = await fetch(
-                    `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${code}`,
-                    {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Accept': 'application/json'
-                        }
-                    }
-                );
+        for (const code of lote) {
+            // Se delega en el pull de UNA orden, que es el que de verdad guarda.
+            //
+            // Antes esto solo PREGUNTABA: juntaba las respuestas de China en un
+            // array y las devolvía al navegador, que las tiraba. El botón de
+            // sincronizar no escribía una sola fila, y el aviso decía
+            // "Sincronizado: 0 órdenes actualizadas" porque contaba un campo
+            // que la respuesta tampoco traía. Llamando al mismo camino que el
+            // botón de una guía no hay dos copias que se separen.
+            const respuesta: any = await new Promise((resolve) => {
+                const reqFalso: any = { params: { orderCode: code }, body: {}, user: (req as any).user };
+                const resFalso: any = {
+                    statusCode: 200,
+                    status(c: number) { this.statusCode = c; return this; },
+                    json(payload: any) { resolve({ statusCode: this.statusCode, payload }); return this; },
+                };
+                pullFromMJCustomer(reqFalso, resFalso).catch((e: any) => {
+                    resolve({ statusCode: 500, payload: { success: false, error: e?.message } });
+                });
+            });
 
-                const apiData = await apiResponse.json() as MJCustomerOrderResponse;
-                
-                if (apiData.code === 200 && apiData.result) {
-                    results.push({ code, status: 'success', data: apiData.result });
-                } else {
-                    errors.push({ code, status: 'error', message: apiData.message });
+            if (respuesta.statusCode === 200 && respuesta.payload?.success) {
+                const filas: any[] = Array.isArray(respuesta.payload.data) ? respuesta.payload.data : [];
+                for (const f of filas) {
+                    creadas += Number(f.packagesCreated) || 0;
+                    actualizadas += Number(f.packagesUpdated) || 0;
                 }
-            } catch (err: any) {
-                errors.push({ code, status: 'error', message: err.message });
+                results.push({ code, status: 'success', cajas: filas });
+            } else {
+                errors.push({
+                    code,
+                    status: 'error',
+                    message: respuesta.payload?.error || respuesta.payload?.details || 'sin detalle',
+                });
             }
 
-            // Pequeña pausa entre requests para no saturar
+            // Pequeña pausa entre consultas para no saturar al sistema chino.
             await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         res.json({
             success: true,
-            message: `Procesados ${results.length} exitosos, ${errors.length} errores`,
+            message: `Procesadas ${results.length} órdenes (${creadas} cajas nuevas, ${actualizadas} actualizadas)`
+                + (errors.length ? `, ${errors.length} con error` : '')
+                + (restantes.length ? `. Faltan ${restantes.length}.` : ''),
+            procesadas: results.length,
+            creadas,
+            actualizadas,
             results,
-            errors
+            errors,
+            restantes,
         });
 
     } catch (error: any) {
