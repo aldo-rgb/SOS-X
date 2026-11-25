@@ -1281,6 +1281,23 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // 'credit' = retenida. Asi el asesor no ve como suyo dinero que no puede pedir.
     const statusParam = (() => { const s = String(req.query.status || '').trim(); return (s === 'pending' || s === 'paid' || s === 'credit') ? s : ''; })();
     const EN_CREDITO = `COALESCE(ac.awaiting_client_payment, FALSE)`;
+    // 📅 La fecha de una comisión es la del día en que se volvió COBRABLE, no
+    // la del día en que nació.
+    //
+    // Una guía que el cliente pagó a crédito genera su comisión al vender, pero
+    // el asesor no la puede cobrar hasta que el cliente liquide. El corte ya lo
+    // mide así desde la tarea 840 —y el ledger del super admin también—, pero
+    // esta pantalla seguía midiendo por `created_at`: el asesor liquidaba el
+    // crédito de su cliente y sus comisiones no aparecían en la semana en que
+    // las cobró, sino en la de meses atrás en que vendió. Un sub-asesor lo
+    // reportó con una guía creada el 25 de septiembre y cobrable el 3 de
+    // noviembre (TKT-2026-3773). Medido el 25-nov-2026: 1,158 comisiones de 9
+    // asesores, $303,636.70, caen en una semana distinta según quién pregunte.
+    //
+    // Es el MISMO criterio que usan calcularCorte y el ledger; si uno cambia,
+    // los tres tienen que cambiar.
+    const FECHA_COBRABLE =
+      `(COALESCE(ac.client_paid_at, ac.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')`;
     const POBOX_PAID = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
     const PAID_ORDER_FILTER = `AND (
         ac.service_type <> 'pobox_usa_mx'
@@ -1295,8 +1312,8 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // Helper: agrega condiciones de fecha/servicio/estado a una query (empuja params).
     const extraFilter = (params: any[]): string => {
       let sql = '';
-      if (fromDate) { params.push(fromDate); sql += ` AND ac.created_at >= $${params.length}`; }
-      if (toDate) { params.push(toDate); sql += ` AND ac.created_at <= $${params.length}::date + interval '1 day'`; }
+      if (fromDate) { params.push(fromDate); sql += ` AND ${FECHA_COBRABLE}::date >= $${params.length}::date`; }
+      if (toDate) { params.push(toDate); sql += ` AND ${FECHA_COBRABLE}::date <= $${params.length}::date`; }
       if (svcTypeParam) { params.push(svcTypeParam); sql += ` AND ac.service_type = $${params.length}`; }
       if (statusParam === 'credit') { sql += ` AND ${EN_CREDITO} = TRUE`; }
       else if (statusParam === 'pending') { sql += ` AND ac.status = 'pending' AND ${EN_CREDITO} = FALSE`; }
@@ -1357,7 +1374,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // ─── Resumen mensual (últimos 6 meses) ───
     const monthlyRes = await pool.query(`
       SELECT 
-        to_char(ac.created_at, 'YYYY-MM') as month,
+        to_char(${FECHA_COBRABLE}, 'YYYY-MM') as month,
         COUNT(*) as count,
         SUM(ac.payment_amount_mxn) as volume,
         SUM(ac.commission_amount_mxn) as commission,
@@ -1367,10 +1384,10 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_amount
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false
-        AND ac.created_at >= NOW() - INTERVAL '6 months'
+        AND ${FECHA_COBRABLE} >= NOW() - INTERVAL '6 months'
         ${svcTypeParam ? 'AND ac.service_type = $2' : ''}
       ${PAID_ORDER_FILTER}
-      GROUP BY to_char(ac.created_at, 'YYYY-MM')
+      GROUP BY to_char(${FECHA_COBRABLE}, 'YYYY-MM')
       ORDER BY month DESC
     `, svcTypeParam ? [advisorId, svcTypeParam] : [advisorId]);
 
