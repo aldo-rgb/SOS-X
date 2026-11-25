@@ -92,9 +92,22 @@ export interface MedidaCorregida {
  *
  * El Start Up es precio plano -$150 de 1 a 5 kg, $250 de 5.1 a 10, $350 de
  * 10.1 a 15, con flete, liberacion de aduana y entrega a puerta incluidos- y
- * se mide con el peso real, igual que en el costeo y el cotizador. Un acuerdo
- * de cliente manda sobre el Start Up, asi que una guia con tarifa a medida no
- * entra.
+ * aqui el tramo se mide con el peso COBRABLE, no con el real.
+ *
+ * El costeo y el cotizador lo miden con el real, y asi se escribio a proposito
+ * para que lo cotizado y lo facturado empataran (tarea 809). Pero una caja de
+ * 13 kg de bascula con 32 kg volumetricos ocupa 32 kg de avion, y cobrarla
+ * como Start Up la deja en $350 cuando por kilo son $683: la mitad. La
+ * operacion lo reporto en el TKT-2026-3829 y tiene razon. Medido el
+ * 26-nov-2026: 223 guias en Start Up con el cobrable por encima de 15 kg,
+ * $75,850 cobrados contra $116,106 por kilo (tarea 1129).
+ *
+ * Esta herramienta la opera una persona que decide guia por guia, asi que aqui
+ * se mide con el cobrable; cambiar el costeo y el cotizador es una decision de
+ * precio que no se toma desde el recosteo.
+ *
+ * Un acuerdo de cliente manda sobre el Start Up, asi que una guia con tarifa a
+ * medida no entra.
  *
  * Existe aqui porque el costeo del manifiesto no conocia el Start Up hasta el
  * 20-nov-2026 y las guias que nacieron antes quedaron cobradas por kilo: la
@@ -105,15 +118,15 @@ export interface MedidaCorregida {
 async function tramoStartUpDeLaGuia(
   db: { query: (sql: string, params?: any[]) => Promise<any> },
   routeId: number | null,
-  pesoReal: number,
+  pesoCobrable: number,
 ): Promise<number> {
-  if (!routeId || !(pesoReal > 0) || pesoReal > 15) return 0;
+  if (!routeId || !(pesoCobrable > 0) || pesoCobrable > 15) return 0;
   const r = await db.query(
     `SELECT price_usd FROM air_startup_tiers
       WHERE route_id = $1 AND is_active = true
         AND $2::numeric >= min_weight AND $2::numeric <= max_weight
       LIMIT 1`,
-    [routeId, pesoReal],
+    [routeId, pesoCobrable],
   );
   return num(r.rows[0]?.price_usd);
 }
@@ -309,25 +322,58 @@ export async function calcularRecosteo(
     // medida o si su peso real pasa de 15 kg.
     let startUpQueLeToca: { porKg: number; usd: number } | null = null;
     if (tipo !== 'SU' && !r.air_is_custom_tariff) {
-      const plano = await tramoStartUpDeLaGuia(db, rutaUsada, peso);
+      const plano = await tramoStartUpDeLaGuia(db, rutaUsada, pesoCobrable);
       if (plano > 0) {
         startUpQueLeToca = { usd: plano, porKg: peso > 0 ? redondea(plano / peso) : 0 };
       }
     }
     let tipoNuevo: string | null = null;
+    /**
+     * La guia ya es Start Up pero su peso cobrable se sale del ultimo tramo.
+     *
+     * Hasta ahora el recosteo no sabia deshacer un Start Up: `tipo === 'SU'`
+     * volvia a resolver el tramo y la dejaba igual, "no permite recostearla
+     * nuevamente dejando el costo en Start Up cuando por el volumetrico no
+     * entraba" (tarea 1129). Con el interruptor prendido se la saca y se le
+     * devuelve el cobro por kilo con la tarifa que trae congelada.
+     */
+    const seSaleDelStartUp = tipo === 'SU'
+      && !r.air_is_custom_tariff
+      && pesoCobrable > 15;
+
+    // El tipo con el que se cobraba antes de volverse Start Up. Queda escrito
+    // en la bitacora del propio recosteo ("Tarifa cambiada de L a SU"), que es
+    // el unico lugar donde sobrevive: la columna ya se piso con 'SU'.
+    let tipoAnterior: string | null = null;
+    if (tipo === 'SU') {
+      const h = await db.query(
+        `SELECT notes FROM package_history
+          WHERE package_id = $1 AND notes LIKE '%Tarifa cambiada de %'
+          ORDER BY id DESC LIMIT 1`,
+        [r.id],
+      ).catch(() => ({ rows: [] as any[] }));
+      const m = /Tarifa cambiada de ([A-Z]{1,2}) a SU/.exec(String(h.rows[0]?.notes || ''));
+      if (m && m[1]) tipoAnterior = m[1];
+    }
 
     const porKgCongelado = num(r.air_price_per_kg);
     let porKg = porKgCongelado;
     let origenTarifa = 'tarifa congelada de la guía';
     let usdNuevo = redondea(pesoCobrable * porKg);
 
-    if (aplicarStartUp && startUpQueLeToca) {
+    if (aplicarStartUp && seSaleDelStartUp && porKgCongelado > 0) {
+      // Fuera del Start Up: vuelve a cobrarse por kilo cobrable.
+      tipoNuevo = tipoAnterior || 'G';
+      porKg = porKgCongelado;
+      usdNuevo = redondea(pesoCobrable * porKg);
+      origenTarifa = `fuera del Start Up: ${pesoCobrable} kg cobrables pasan de 15`;
+    } else if (aplicarStartUp && startUpQueLeToca) {
       // El Start Up es plano por tramo: ni el volumetrico ni la tarifa por kilo
       // entran, y por eso va antes que todo lo demas.
       usdNuevo = startUpQueLeToca.usd;
       porKg = startUpQueLeToca.porKg;
       tipoNuevo = 'SU';
-      origenTarifa = `Start Up, tramo de ${peso} kg reales`;
+      origenTarifa = `Start Up, tramo de ${pesoCobrable} kg cobrables`;
     } else if (tipo === 'SU') {
       // El Start Up es precio PLANO por tramo de peso REAL: el volumétrico no
       // entra. Solo se mueve si la medición cambió el peso, y entonces hay que
