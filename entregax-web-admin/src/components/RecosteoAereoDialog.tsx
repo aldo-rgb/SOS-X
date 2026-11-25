@@ -69,6 +69,8 @@ interface Fila {
   nuevo: LadoNuevo;
   tarifaDeSuDia: TarifaDeSuDia | null;
   rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null;
+  startUpQueLeToca: { porKg: number; usd: number } | null;
+  tipoNuevo: string | null;
   difUsd: number;
   manda: 'neto' | 'volumetrico' | 'empate';
   bloqueo: string | null;
@@ -88,6 +90,7 @@ interface Resumen {
   ordenesAbiertas: string[];
   conTarifaDeOtroDia: number;
   conRutaMala: number;
+  conStartUpPendiente: number;
 }
 
 /** Lo que el usuario escribió a mano, por guía. */
@@ -119,6 +122,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
   // Tambien apagado por omision: mover la ruta cambia el precio por kilo, y
   // quien lo prende tiene que decir por que en el motivo (tarea 1114).
   const [corregirRuta, setCorregirRuta] = useState(false);
+  // Igual que los otros dos: apagado por omision. Cambiar una guia a Start Up
+  // cambia su precio a plano por tramo (tarea 1121).
+  const [startUp, setStartUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hecho, setHecho] = useState<string | null>(null);
 
@@ -138,12 +144,12 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
     if (partes.length === 1 && !/-\d+$/.test(partes[0]!)) {
       return {
         lote: partes[0], correcciones: corr,
-        usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta,
+        usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta, aplicarStartUp: startUp,
       };
     }
     return {
       trackings: partes, correcciones: corr,
-      usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta,
+      usarTarifaDeRecepcion: tarifaDeSuDia, corregirRuta, aplicarStartUp: startUp,
     };
   };
 
@@ -285,6 +291,22 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
           }
         />
 
+        <FormControlLabel
+          sx={{ mb: 1, display: 'block' }}
+          control={
+            <Switch
+              size="small" checked={startUp}
+              onChange={(e) => { setStartUp(e.target.checked); setFilas([]); setResumen(null); }}
+            />
+          }
+          label={
+            <Typography variant="caption">
+              Cobrar como Start Up las que le tocan por peso real (hasta 15 kg): precio plano por
+              tramo, en vez de por kilo. No aplica a quien tiene tarifa pactada.
+            </Typography>
+          }
+        />
+
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
         {hecho && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setHecho(null)}>{hecho}</Alert>}
 
@@ -303,6 +325,10 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
               {resumen.conRutaMala > 0 && (
                 <Chip size="small" color="warning" variant="outlined"
                   label={`${resumen.conRutaMala} cambian de ruta`} />
+              )}
+              {resumen.conStartUpPendiente > 0 && (
+                <Chip size="small" color="secondary" variant="outlined"
+                  label={`${resumen.conStartUpPendiente} con tramo Start Up`} />
               )}
               <Box sx={{ flexGrow: 1 }} />
               <Typography variant="body2">
@@ -324,6 +350,18 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
             Pasa cuando el manifiesto se sube días después y el tarifario ya cambió. La columna
             “Su día” dice cuánto valía el kilo ese día. Si así hay que cobrarlo, prende el
             interruptor de arriba y vuelve a revisar.
+          </Alert>
+        )}
+
+        {resumen && resumen.conStartUpPendiente > 0 && !startUp && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <AlertTitle>
+              {resumen.conStartUpPendiente} guía(s) caen en un tramo Start Up y se cotearon por kilo
+            </AlertTitle>
+            El Start Up es precio plano por tramo de peso real —$150 hasta 5 kg, $250 hasta 10 y
+            $350 hasta 15— con flete, aduana y entrega incluidos. El costeo del manifiesto no lo
+            conocía hasta el 20 de noviembre, así que las guías de antes salieron por kilo. Si así
+            hay que cobrarlas, prende el interruptor de arriba y vuelve a revisar.
           </Alert>
         )}
 

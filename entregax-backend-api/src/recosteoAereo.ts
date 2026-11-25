@@ -87,6 +87,37 @@ export interface MedidaCorregida {
   height?: number | null;
 }
 
+/**
+ * El tramo Start Up que le toca a una guia por su peso REAL.
+ *
+ * El Start Up es precio plano -$150 de 1 a 5 kg, $250 de 5.1 a 10, $350 de
+ * 10.1 a 15, con flete, liberacion de aduana y entrega a puerta incluidos- y
+ * se mide con el peso real, igual que en el costeo y el cotizador. Un acuerdo
+ * de cliente manda sobre el Start Up, asi que una guia con tarifa a medida no
+ * entra.
+ *
+ * Existe aqui porque el costeo del manifiesto no conocia el Start Up hasta el
+ * 20-nov-2026 y las guias que nacieron antes quedaron cobradas por kilo: la
+ * del TKT-2026-3866 salio en $234.90 cuando su tramo son $350. El recosteo no
+ * las podia arreglar porque respeta el tipo congelado de la guia, y no habia
+ * por donde: quedaban en manos de un cargo extra a mano (tarea 1121).
+ */
+async function tramoStartUpDeLaGuia(
+  db: { query: (sql: string, params?: any[]) => Promise<any> },
+  routeId: number | null,
+  pesoReal: number,
+): Promise<number> {
+  if (!routeId || !(pesoReal > 0) || pesoReal > 15) return 0;
+  const r = await db.query(
+    `SELECT price_usd FROM air_startup_tiers
+      WHERE route_id = $1 AND is_active = true
+        AND $2::numeric >= min_weight AND $2::numeric <= max_weight
+      LIMIT 1`,
+    [routeId, pesoReal],
+  );
+  return num(r.rows[0]?.price_usd);
+}
+
 export interface RenglonRecosteo {
   id: number;
   tracking: string;
@@ -126,6 +157,14 @@ export interface RenglonRecosteo {
   tarifaDeSuDia: { fecha: string; porKg: number; origen: string } | null;
   /** Si la guía nació en la ruta equivocada y el recosteo la va a mover. */
   rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null;
+  /**
+   * El tramo Start Up que le toca por su peso real, cuando la guía NO se coteó
+   * como Start Up. Se calcula siempre para poder enseñarlo; solo se aplica si
+   * lo piden.
+   */
+  startUpQueLeToca: { porKg: number; usd: number } | null;
+  /** El tipo con el que queda si se aplica. Vacío si no cambia. */
+  tipoNuevo: string | null;
   difUsd: number;
   /** Lo que manda el cobro: 'neto' o 'volumetrico'. */
   manda: 'neto' | 'volumetrico' | 'empate';
@@ -147,6 +186,7 @@ export async function calcularRecosteo(
   correcciones: MedidaCorregida[] = [],
   usarTarifaDeRecepcion = false,
   corregirRuta = false,
+  aplicarStartUp = false,
 ): Promise<RenglonRecosteo[]> {
   const limpios = Array.from(
     new Set(trackings.map((t) => String(t || '').trim()).filter(Boolean)),
@@ -265,12 +305,30 @@ export async function calcularRecosteo(
       }
     }
 
+    // El tramo que le tocaria. No entra si ya es Start Up, si trae tarifa a
+    // medida o si su peso real pasa de 15 kg.
+    let startUpQueLeToca: { porKg: number; usd: number } | null = null;
+    if (tipo !== 'SU' && !r.air_is_custom_tariff) {
+      const plano = await tramoStartUpDeLaGuia(db, rutaUsada, peso);
+      if (plano > 0) {
+        startUpQueLeToca = { usd: plano, porKg: peso > 0 ? redondea(plano / peso) : 0 };
+      }
+    }
+    let tipoNuevo: string | null = null;
+
     const porKgCongelado = num(r.air_price_per_kg);
     let porKg = porKgCongelado;
     let origenTarifa = 'tarifa congelada de la guía';
     let usdNuevo = redondea(pesoCobrable * porKg);
 
-    if (tipo === 'SU') {
+    if (aplicarStartUp && startUpQueLeToca) {
+      // El Start Up es plano por tramo: ni el volumetrico ni la tarifa por kilo
+      // entran, y por eso va antes que todo lo demas.
+      usdNuevo = startUpQueLeToca.usd;
+      porKg = startUpQueLeToca.porKg;
+      tipoNuevo = 'SU';
+      origenTarifa = `Start Up, tramo de ${peso} kg reales`;
+    } else if (tipo === 'SU') {
       // El Start Up es precio PLANO por tramo de peso REAL: el volumétrico no
       // entra. Solo se mueve si la medición cambió el peso, y entonces hay que
       // volver a leer el tramo.
@@ -358,12 +416,14 @@ export async function calcularRecosteo(
       },
       nuevo: {
         peso, largo, ancho, alto,
-        volumetrico, pesoCobrable, porKg, tipo,
+        volumetrico, pesoCobrable, porKg, tipo: tipoNuevo || tipo,
         usd: usdNuevo,
         origenTarifa,
       },
       tarifaDeSuDia,
       rutaCorregida,
+      startUpQueLeToca,
+      tipoNuevo,
       difUsd: redondea(usdNuevo - usdActual),
       manda: volumetrico > peso ? 'volumetrico' : (peso > volumetrico ? 'neto' : 'empate'),
       bloqueo,
@@ -413,7 +473,7 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
 
     const filas = await calcularRecosteo(
       pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true,
-      body.corregirRuta === true);
+      body.corregirRuta === true, body.aplicarStartUp === true);
     if (filas.length === 0) {
       return res.status(404).json({ error: 'No encontré ninguna de esas guías.' });
     }
@@ -436,6 +496,8 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
         f.tarifaDeSuDia && Math.abs(f.tarifaDeSuDia.porKg - f.actual.porKg) >= 0.01).length,
       // Cuantas nacieron en la ruta equivocada (tarea 1114).
       conRutaMala: filas.filter((f) => f.rutaCorregida).length,
+      // Cuantas le tocaba Start Up y se coteraron por kilo (tarea 1121).
+      conStartUpPendiente: filas.filter((f) => f.startUpQueLeToca).length,
     };
 
     return res.json({ success: true, resumen, filas });
@@ -477,9 +539,9 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
 
     const filas = await calcularRecosteo(
       pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true,
-      body.corregirRuta === true);
+      body.corregirRuta === true, body.aplicarStartUp === true);
     const aplicables = filas.filter((f) =>
-      !f.bloqueo && (Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null));
+      !f.bloqueo && (Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null || f.tipoNuevo !== null));
     if (aplicables.length === 0) {
       return res.json({
         success: true, aplicadas: 0, filas,
@@ -506,6 +568,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
              air_price_per_kg = $8,
              air_sale_price = $9,
              air_route_id = COALESCE($11, air_route_id),
+             air_tariff_type = COALESCE($12, air_tariff_type),
              air_price_assigned_at = NOW(),
              air_price_assigned_by = $10,
              updated_at = NOW()
@@ -519,6 +582,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             f.nuevo.volumetrico > 0 ? f.nuevo.volumetrico : null,
             f.nuevo.pesoCobrable, f.nuevo.porKg, f.nuevo.usd, quien,
             f.rutaCorregida ? f.rutaCorregida.a : null,
+            f.tipoNuevo,
           ],
         );
         if (!upd.rowCount) {
@@ -542,6 +606,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             + (f.rutaCorregida
               ? ` Ruta corregida de ${f.rutaCorregida.deCodigo} a ${f.rutaCorregida.aCodigo}.`
               : '')
+            + (f.tipoNuevo ? ` Tarifa cambiada de ${f.actual.tipo || 's/tipo'} a ${f.tipoNuevo}.` : '')
             + ` ${motivo}`,
             quien,
           ],
