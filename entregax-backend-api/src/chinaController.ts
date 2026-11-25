@@ -28,7 +28,9 @@ export async function resolveAirPricePerKg(
         // Resolver ruta activa si no se pasó
         let rid = routeId || null;
         if (!rid) {
-            const r = await db.query(`SELECT id FROM air_routes WHERE is_active = true ORDER BY id LIMIT 1`);
+            const r = await db.query(
+                `SELECT id FROM air_routes WHERE is_active = true AND code <> 'TDI-EXPRES'
+                  ORDER BY id ASC LIMIT 1`);
             rid = r.rows[0]?.id || null;
         }
         if (!rid) return 0;
@@ -188,6 +190,32 @@ export function normalizaPayloadDeChina(crudo: any): ChinaApiPayload {
     } as ChinaApiPayload;
 }
 
+/**
+ * El numero interno de una caja que viene de China.
+ *
+ * Se armaba con los ultimos 8 caracteres del numero chino, y esos 8 no
+ * alcanzan: 'AIR202611020002-001', 'AIR202611120002-001' y
+ * 'AIR202611230002-001' terminan los tres en '0002-001', porque lo que se
+ * recorta es justo la fecha. El consecutivo de China se reinicia cada dia,
+ * asi que dos cajas con el mismo consecutivo en dias distintos chocaban
+ * contra la llave unica y la guia se quedaba fuera sin que nadie se enterara.
+ * De las 93 guias que se recuperaron, 26 cayeron ahi (tarea 1114).
+ *
+ * El numero corto se respeta cuando esta libre -las que ya existen no se
+ * tocan y las nuevas se siguen viendo igual-; solo cuando ya lo tiene otra
+ * caja se usa el numero chino completo, que si trae la fecha.
+ */
+async function trackingInternoDeChina(
+    db: { query: (q: string, p?: any[]) => Promise<any> },
+    childNo: string,
+): Promise<string> {
+    const corto = `CN-${String(childNo).slice(-8)}`;
+    const ocupado = await db.query(
+        `SELECT child_no FROM packages WHERE tracking_internal = $1 LIMIT 1`, [corto]);
+    if (ocupado.rows.length === 0 || ocupado.rows[0].child_no === childNo) return corto;
+    return `CN-${String(childNo).replace(/^AIR/i, '')}`;
+}
+
 // ============================================
 // WEBHOOK: Recibir datos de China
 // POST /api/china/receive
@@ -324,9 +352,16 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             );
 
             // === CALCULAR PRECIO DE VENTA ===
-            // Buscar ruta activa
+            // La ruta aerea de China es la primera activa que NO es la express:
+            // hay dos activas y la consulta no traia ORDER BY, asi que desde que
+            // nacio la segunda -el 17 de junio- el cobro se fue a la de TDI
+            // Express, que es otro servicio y cuesta como un dolar menos por
+            // kilo. El cotizador y el manifiesto siempre usaron la primera, asi
+            // que lo cotizado y lo cobrado no empataban (tarea 1114).
             const routeRes = await client.query(`
-                SELECT id FROM air_routes WHERE is_active = true LIMIT 1
+                SELECT id FROM air_routes
+                 WHERE is_active = true AND code <> 'TDI-EXPRES'
+                 ORDER BY id ASC LIMIT 1
             `);
             const airRouteId = routeRes.rows.length > 0 ? routeRes.rows[0].id : null;
             
@@ -506,7 +541,7 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                 packagesUpdated++;
             } else {
                 // CREAR nueva caja CON PRECIO CONGELADO
-                const trackingInternal = `CN-${item.childNo.slice(-8)}`;
+                const trackingInternal = await trackingInternoDeChina(client, item.childNo);
                 const dimensions = `${item.long}x${item.width}x${item.height}`;
                 
                 await client.query(`
@@ -2558,7 +2593,7 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
                         packagesUpdated++;
                     } else {
                         // Crear nueva caja
-                        const trackingInternal = `CN-${childNo.slice(-8)}`;
+                        const trackingInternal = await trackingInternoDeChina(client, childNo);
                         const dimensions = `${item.long}x${item.width}x${item.height}`;
                         
                         await client.query(`
@@ -3232,13 +3267,15 @@ async function processCallbackPayload(
                     packagesUpdated++;
                 } else {
                     // Crear nuevo paquete CON PRECIO DE VENTA ASIGNADO
-                    const trackingInternal = `CN-${childNo.slice(-8)}`;
+                    const trackingInternal = await trackingInternoDeChina(client, childNo);
                     const dimensions = `${item.long || 0}x${item.width || 0}x${item.height || 0}`;
                     
                     // === CALCULAR PRECIO DE VENTA ===
                     // Buscar ruta activa (asumimos destino MEX por defecto)
                     const routeRes = await client.query(`
-                        SELECT id FROM air_routes WHERE is_active = true LIMIT 1
+                        SELECT id FROM air_routes
+                         WHERE is_active = true AND code <> 'TDI-EXPRES'
+                         ORDER BY id ASC LIMIT 1
                     `);
                     const airRouteId = routeRes.rows.length > 0 ? routeRes.rows[0].id : null;
                     
