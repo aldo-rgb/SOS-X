@@ -491,7 +491,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     }
 
     // All real numeric IDs for pobox_payments.package_ids
-    const allPackageIds = [...pkgIds, ...marIds, ...dhlIds];
+    let allPackageIds = [...pkgIds, ...marIds, ...dhlIds];
     if (allPackageIds.length === 0) return res.status(400).json({ error: 'No se encontraron IDs válidos en las guías seleccionadas' });
 
     // ── 1b. Check for duplicate active orders containing any of these UIDs ─
@@ -559,13 +559,33 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
         paidGuides.push(...r.rows.map((x: any) => x.tracking_internal).filter(Boolean));
       }
       if (dhlIds.length > 0) {
+        // DHL multicaja: una guía son varias cajas y se pagan por separado. NO
+        // se bloquea toda la orden porque una caja hermana ya esté pagada —eso
+        // dejaba al asesor sin poder cobrar la caja 2 cuando la caja 1 se pagó
+        // el día antes (TKT-2026-3915). Se quitan las cajas ya pagadas y se
+        // cobran solo las pendientes. Solo si TODAS las cajas DHL seleccionadas
+        // ya están pagadas se bloquea (guía liquidada), para no perder la
+        // protección contra el doble cobro.
         const r = await pool.query(
-          `SELECT COALESCE(secondary_tracking, inbound_tracking) AS tk FROM dhl_shipments
+          `SELECT id FROM dhl_shipments
             WHERE id = ANY($1::int[])
               AND (paid_at IS NOT NULL OR COALESCE(monto_pagado,0) > 0)`,
           [dhlIds]
         );
-        paidGuides.push(...r.rows.map((x: any) => x.tk).filter(Boolean));
+        const pagadas = new Set(r.rows.map((x: any) => Number(x.id)));
+        if (pagadas.size > 0) {
+          const pendientes = dhlIds.filter((id) => !pagadas.has(id));
+          if (pendientes.length === 0) {
+            const tkq = await pool.query(
+              `SELECT DISTINCT COALESCE(secondary_tracking, inbound_tracking) AS tk
+                 FROM dhl_shipments WHERE id = ANY($1::int[])`, [dhlIds]);
+            paidGuides.push(...tkq.rows.map((x: any) => x.tk).filter(Boolean));
+          } else {
+            console.log(`📦 [Orden asesor DHL] se excluyen ${pagadas.size} caja(s) ya pagada(s); se cobran ${pendientes.length} pendiente(s)`);
+            dhlIds.length = 0;
+            dhlIds.push(...pendientes);
+          }
+        }
       }
       if (marIds.length > 0) {
         const r = await pool.query(
@@ -584,6 +604,13 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
           paid_guides: [...new Set(paidGuides)],
         });
       }
+    }
+
+    // Las cajas DHL ya pagadas pudieron quitarse arriba; se recalcula la lista
+    // para que la orden y su monto solo lleven las cajas pendientes.
+    allPackageIds = [...pkgIds, ...marIds, ...dhlIds];
+    if (allPackageIds.length === 0) {
+      return res.status(409).json({ error: 'Todas las guías seleccionadas ya están pagadas' });
     }
 
     // ── 2. Determine dominant service type from actual packages ────────────
