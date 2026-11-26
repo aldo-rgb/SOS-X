@@ -210,7 +210,11 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // se pregunta por él primero y se deja `shipment_type` como respaldo.
   const esAereoChina = (() => {
     const v = String((pkg as any)?.service_type || '').toUpperCase();
-    if (v === 'AIR_CHN_MX' || v === 'TDI_AEREO') return true;
+    // TDI Express se guarda como 'tdi_express'; antes solo se miraba 'TDI_AEREO'
+    // (que nunca llega), por eso en TDI aéreo cobraba la guía nacional en vez de
+    // marcarla incluida en el flete (TKT-2026-3892). El backend ya trata los tres
+    // como aéreo (packageController isAirSvc).
+    if (v === 'AIR_CHN_MX' || v === 'TDI_EXPRESS' || v === 'TDI_AEREO') return true;
     return shipmentType === 'china_air';
   })();
   const getShipmentIcon = (): 'boat' | 'airplane' | 'car' | 'cube' => {
