@@ -1920,135 +1920,78 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
             }
         };
 
-        // Helper para hacer la llamada con un token dado (timeout 12s)
-        const callApi = async (token: string) => {
-            const apiResponse = await fetchWithTimeout(
-                `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${searchFno}`,
-                {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Accept': 'application/json',
-                        'request-from': 'swagger'
-                    }
-                },
-                12000
-            );
-            const text = await apiResponse.text();
-            let data: MJCustomerOrderResponse | null = null;
-            try { data = JSON.parse(text) as MJCustomerOrderResponse; } catch { /* noop */ }
-            return { status: apiResponse.status, data, rawText: text };
-        };
-
-        // Intentamos MoJie pero con deadline máximo global de 40s (muy por debajo del 60s Railway)
-        const mojieFlow = async () => {
-            let token: string;
-            try {
-                token = await getMJCustomerToken();
-            } catch (tokenErr: any) {
-                throw new Error(`auth: ${tokenErr.message}`);
-            }
-
-            let { status: httpStatus, data: apiData, rawText } = await callApi(token);
-
-            const isAuthFail = httpStatus === 401 || (apiData && (apiData.code === 401 || apiData.code === 403));
-            if (isAuthFail) {
-                console.warn('🔄 Token MJCustomer inválido, refrescando...');
-                MJCUSTOMER_API.token = '';
-                MJCUSTOMER_API.tokenExpiry = 0;
-                const newToken = await loginToMJCustomer();
-                if (newToken) {
-                    ({ status: httpStatus, data: apiData, rawText } = await callApi(newToken));
-                }
-            }
-            return { httpStatus, apiData, rawText };
-        };
-
-        let mojieResult: { httpStatus: number; apiData: MJCustomerOrderResponse | null; rawText: string } | null = null;
-        let mojieError: string | null = null;
-
+        // Consulta en vivo al sistema aéreo nuevo (gzmojie). Si no responde o no
+        // trae la orden, se cae a los datos locales (ya completos por el push).
+        // Los campos ricos -producto, aduanal, guía internacional- salen de nuestra
+        // base por childNo; el estatus en vivo sale de 1 llamada de trayectoria.
+        let trackingInfo: any = null;
+        let liveError: string | null = null;
         try {
-            mojieResult = await Promise.race([
-                mojieFlow(),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Deadline global 40s superado')), 40000)
-                )
-            ]) as any;
-        } catch (err: any) {
-            mojieError = err?.message || String(err);
-            console.error('❌ MoJie flow falló:', mojieError);
+            const orden = await buscarOrdenPorFno(searchFno);
+            if (orden) {
+                const cajas = await cajasDeOrden(orden.id);
+                let lastTrajectory: string | null = null;
+                const primero = cajas[0]?.childNo || cajas[0]?.ChildNo;
+                if (primero) {
+                    try {
+                        const ev = await trayectoriaDeCaja(primero);
+                        const ord = [...ev].sort((a: any, b: any) => String(b.occurTime || '').localeCompare(String(a.occurTime || '')));
+                        lastTrajectory = ord[0]?.trajectoryName || null;
+                    } catch { /* sin trayectoria todavía */ }
+                }
+                const fnoReal = String(orden.fno || searchFno);
+                const locales = await pool.query(
+                    `SELECT child_no, trajectory_name, pro_name, customs_bno, international_tracking, etd, eta
+                       FROM packages WHERE split_part(child_no,'-',1) = $1`, [fnoReal]);
+                const locMap: Record<string, any> = {};
+                for (const r of locales.rows) locMap[r.child_no] = r;
+                trackingInfo = {
+                    fno: orden.fno,
+                    shippingMark: orden.shippingMark || orden.customerCode,
+                    totalQty: orden.totalQty,
+                    totalWeight: orden.totalWeight,
+                    totalVolume: orden.totalVolume,
+                    totalCbm: orden.totalCbm,
+                    evidencias: [],
+                    paquetes: cajas.map((c: any) => {
+                        const loc = locMap[c.childNo] || {};
+                        return {
+                            childNo: c.childNo,
+                            status: loc.trajectory_name || lastTrajectory || null,
+                            peso: c.weight ?? null,
+                            dimensiones: `${c.long || 0}x${c.width || 0}x${c.height || 0} cm`,
+                            producto: loc.pro_name || c.sku || null,
+                            codigoAduanal: loc.customs_bno || null,
+                            guiaInternacional: loc.international_tracking || 'Pendiente',
+                            etd: loc.etd || orden.etd || 'Pendiente',
+                            eta: loc.eta || orden.eta || 'Pendiente',
+                        };
+                    }),
+                };
+            }
+        } catch (e: any) {
+            liveError = e?.message || String(e);
+            console.warn('  track gzmojie falló:', liveError);
         }
 
-        // Si MoJie falló o devolvió error → intentar fallback BD
-        if (!mojieResult || !mojieResult.apiData || mojieResult.apiData.code !== 200 || !mojieResult.apiData.result) {
-            const local = await buildLocalFallback();
-            if (local) {
-                console.log(`  ⚠️  Usando fallback BD local (MoJie: ${mojieError || mojieResult?.apiData?.message || 'sin datos'})`);
-                return res.json({
-                    success: true,
-                    tracking: local,
-                    fromCache: true,
-                    warning: mojieError
-                        ? `MoJie no disponible (${mojieError}). Mostrando últimos datos en caché.`
-                        : `MoJie devolvió: ${mojieResult?.apiData?.message || 'sin datos'}. Mostrando caché local.`
-                });
-            }
-            // Sin MoJie y sin caché
-            if (mojieError) {
-                return res.status(502).json({
-                    success: false,
-                    error: 'MoJie no disponible y no hay datos en caché',
-                    details: mojieError
-                });
-            }
-            return res.status(mojieResult?.httpStatus === 401 ? 401 : 404).json({
-                success: false,
-                error: mojieResult?.apiData?.message || 'FNO no encontrado',
-                apiCode: mojieResult?.apiData?.code
+        if (trackingInfo) {
+            console.log(`  ✅ FNO en vivo: ${trackingInfo.totalQty} paquetes`);
+            return res.json({ success: true, tracking: trackingInfo });
+        }
+
+        // Fallback: datos locales (ya completos por el push).
+        const local = await buildLocalFallback();
+        if (local) {
+            return res.json({
+                success: true,
+                tracking: local,
+                fromCache: true,
+                warning: liveError
+                    ? `Sistema de origen no disponible (${liveError}). Mostrando datos en caché.`
+                    : 'La guía no está en el sistema de origen; mostrando datos locales.'
             });
         }
-
-        const { apiData } = mojieResult;
-
-        // Procesar resultado
-        const order = Array.isArray(apiData.result) ? apiData.result[0] : apiData.result;
-        
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                error: 'FNO no encontrado en la respuesta'
-            });
-        }
-        
-        // Formatear respuesta amigable
-        const trackingInfo = {
-            fno: order.fno,
-            shippingMark: order.shippingMark,
-            totalQty: order.totalQty,
-            totalWeight: order.totalWeight,
-            totalVolume: order.totalVolume,
-            totalCbm: order.totalCbm,
-            evidencias: order.file || [],
-            paquetes: (order.data || []).map((item: ChinaPackageData) => ({
-                childNo: item.childNo,
-                status: item.trajecotryName,
-                peso: item.weight,
-                dimensiones: `${item.long}x${item.width}x${item.height} cm`,
-                producto: item.proName,
-                codigoAduanal: item.customsBno,
-                guiaInternacional: item.billNo || 'Pendiente',
-                etd: item.etd || 'Pendiente',
-                eta: item.eta || 'Pendiente'
-            }))
-        };
-
-        console.log(`  ✅ FNO encontrado: ${order.totalQty} paquetes`);
-
-        res.json({
-            success: true,
-            tracking: trackingInfo,
-            raw: order
-        });
+        return res.status(404).json({ success: false, error: 'Guía no encontrada' });
 
     } catch (error: any) {
         console.error('❌ Error rastreando FNO:', error?.stack || error);
@@ -2420,255 +2363,74 @@ export const recalcChinaStatuses = async (_req: Request, res: Response): Promise
 // GET /api/china/pull/:orderCode
 // ============================================
 export const pullFromMJCustomer = async (req: Request, res: Response): Promise<any> => {
-    const client = await pool.connect();
-    
     try {
-        const { orderCode } = req.params;
-        
+        const orderCode = String(req.params.orderCode || '').trim();
         if (!orderCode) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Se requiere el código de orden' 
-            });
+            return res.status(400).json({ success: false, error: 'Se requiere el código de orden' });
+        }
+        if (!gzmojieConfigurado()) {
+            return res.status(500).json({ success: false, error: 'GZMOJIE_ACCESS_SECRET no configurado' });
         }
 
-        console.log(`🔄 Consultando MJCustomer API: ${orderCode}`);
+        console.log(`🔄 Consultando sistema aéreo nuevo (gzmojie): ${orderCode}`);
 
-        // Obtener token válido (login automático si es necesario)
-        const token = await getMJCustomerToken();
+        const orden = await buscarOrdenPorFno(orderCode);
+        if (!orden) {
+            return res.status(404).json({ success: false, error: 'La orden no existe en el sistema de origen', apiCode: 404 });
+        }
+        const fno = String(orden.fno || orderCode);
 
-        // Llamar al API externo
-        const apiResponse = await fetch(
-            `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${orderCode}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/json'
-                }
-            }
-        );
-
-        const apiData = await apiResponse.json() as MJCustomerOrderResponse;
-        
-        console.log(`  → Respuesta API: code=${apiData.code}, message=${apiData.message}`);
-
-        if (apiData.code !== 200 || !apiData.result) {
-            return res.status(apiResponse.status === 401 ? 401 : 400).json({
-                success: false,
-                error: apiData.message || 'Error al consultar API externa',
-                apiCode: apiData.code
-            });
+        // Solo hacia adelante: si la guia ya esta en el sistema no se reingesta
+        // (no se reescriben registros viejos); solo se crean las que faltan.
+        const existe = await pool.query(
+            `SELECT 1 FROM packages WHERE split_part(child_no,'-',1) = $1 LIMIT 1`, [fno]);
+        if (existe.rows.length) {
+            return res.json({ success: true, data: [{ fno, packagesCreated: 0, packagesUpdated: 0, nota: 'ya estaba en el sistema' }] });
         }
 
-        // Procesar resultado (puede ser un objeto o array)
-        const orders = Array.isArray(apiData.result) ? apiData.result : [apiData.result];
-        
-        await client.query('BEGIN');
-
-        const results: any[] = [];
-
-        for (const ordenCruda of orders) {
-
-            // Misma lectura tolerante que el webhook (tarea 1114).
-
-            const order = normalizaPayloadDeChina(ordenCruda);
-            // El JSON usa: fno, shippingMark, totalQty, totalWeight, totalVolume, totalCbm, file, data
-            const fno = order.fno || orderCode;
-            const shippingMark = order.shippingMark || 'UNKNOWN';
-
-            // Buscar cliente por shipping mark
-            // El empate parcial que habia aqui ('LIKE %marca%') no solo fallaba:
-            // acertaba al cliente EQUIVOCADO, y la consulta ni siquiera llevaba
-            // ORDER BY, asi que el ganador salia por suerte. duenoDeLaMarca pide
-            // empate exacto, limpia la anotacion de China y acepta al cliente del
-            // sistema anterior solo si ya reclamo su casillero.
-            const userId = await duenoDeLaMarca(client, shippingMark);
-            const nombreRes = userId
-                ? await client.query('SELECT full_name FROM users WHERE id = $1', [userId])
-                : null;
-            const userName = nombreRes?.rows[0]?.full_name || 'Sin asignar';
-            
-            console.log(`  → Cliente: ${userName} (${shippingMark})`);
-
-            // Convertir array de fotos a formato PostgreSQL TEXT[]
-            // order.file puede venir como array o como string JSON
-            let evidenceUrls: string[] = [];
-            if (order.file) {
-                if (Array.isArray(order.file)) {
-                    evidenceUrls = order.file;
-                } else if (typeof order.file === 'string') {
-                    try {
-                        const parsed = JSON.parse(order.file);
-                        if (Array.isArray(parsed)) {
-                            evidenceUrls = parsed;
-                        }
-                    } catch (e) {
-                        // Si no es JSON válido, tratarlo como URL única
-                        evidenceUrls = [order.file];
-                    }
-                }
-            }
-            console.log(`  → URLs de evidencia (${evidenceUrls.length}):`, evidenceUrls);
-
-            // 🏠 Auto-asignar dirección predeterminada para servicio 'air'
-            const defaultAirAddressId = await resolveDefaultAirAddress(client, userId);
-
-            // Insertar o actualizar recibo
-            const receiptResult = await client.query(`
-                INSERT INTO china_receipts 
-                (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, 
-                 evidence_urls, notes, delivery_address_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                ON CONFLICT (fno) DO UPDATE SET
-                    total_qty = COALESCE(EXCLUDED.total_qty, china_receipts.total_qty),
-                    total_weight = COALESCE(EXCLUDED.total_weight, china_receipts.total_weight),
-                    total_cbm = COALESCE(EXCLUDED.total_cbm, china_receipts.total_cbm),
-                    evidence_urls = COALESCE(EXCLUDED.evidence_urls, china_receipts.evidence_urls),
-                    delivery_address_id = COALESCE(china_receipts.delivery_address_id, EXCLUDED.delivery_address_id),
-                    updated_at = CURRENT_TIMESTAMP
-                RETURNING id
-            `, [
-                fno,
-                userId,
-                shippingMark,
-                order.totalQty || 1,
-                order.totalWeight || 0,
-                order.totalVolume || 0,
-                order.totalCbm || 0,
-                evidenceUrls,  // node-postgres maneja arrays nativamente
-                `Sincronizado desde MJCustomer: ${new Date().toISOString()}`,
-                defaultAirAddressId
-            ]);
-
-            const receiptId = receiptResult.rows[0].id;
-            let packagesCreated = 0;
-            let packagesUpdated = 0;
-
-            // Procesar cajas - El JSON usa "data" (array de ChinaPackageData)
-            if (order.data && Array.isArray(order.data)) {
-                for (const item of order.data) {
-                    const childNo = item.childNo;
-                    
-                    const existingPkg = await client.query(
-                        'SELECT id FROM packages WHERE child_no = $1',
-                        [childNo]
-                    );
-
-                    if (existingPkg.rows.length > 0) {
-                        // Actualizar caja existente
-                        await client.query(`
-                            UPDATE packages SET
-                                international_tracking = COALESCE($1, international_tracking),
-                                weight = $2,
-                                pro_name = $3,
-                                customs_bno = $4,
-                                etd = $5,
-                                eta = $6,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE child_no = $7
-                        `, [
-                            item.billNo || null,
-                            item.weight,
-                            item.proName,
-                            item.customsBno,
-                            item.etd || null,
-                            item.eta || null,
-                            childNo
-                        ]);
-                        packagesUpdated++;
-                    } else {
-                        // Crear nueva caja
-                        const trackingInternal = await trackingInternoDeChina(client, childNo);
-                        const dimensions = `${item.long}x${item.width}x${item.height}`;
-                        
-                        await client.query(`
-                            INSERT INTO packages 
-                            (tracking_internal, child_no, china_receipt_id, user_id, box_id,
-                             weight, dimensions, long_cm, width_cm, height_cm,
-                             description, pro_name, customs_bno, trajectory_name,
-                             single_volume, single_cbm, international_tracking,
-                             etd, eta, service_type, warehouse_location, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-                        `, [
-                            trackingInternal,
-                            childNo,
-                            receiptId,
-                            userId,
-                            // 'UNKNOWN' es el relleno de esta funcion cuando la orden
-                            // no trae marca; guardarlo seria inventarle un casillero.
-                            shippingMark && shippingMark !== 'UNKNOWN' ? shippingMark : null,
-                            item.weight,
-                            dimensions,
-                            item.long,
-                            item.width,
-                            item.height,
-                            item.proName,
-                            item.proName,
-                            item.customsBno,
-                            item.trajecotryName,
-                            item.singleVolume,
-                            item.singleCbm,
-                            item.billNo || null,
-                            item.etd || null,
-                            item.eta || null,
-                            'AIR_CHN_MX',
-                            'china_air',
-                            'received_china'
-                        ]);
-                        packagesCreated++;
-                    }
-                }
-            }
-
-            // === ACTUALIZAR SALDO EN CHINA_RECEIPTS ===
-            const totalWeight = parseFloat(String(order.totalWeight || 0)) || 0;
-            if (totalWeight > 0) {
-                // Tarifario oficial (cliente → general). Default tariff_type='L'.
-                const estPerKg = await resolveAirPricePerKg(client, userId, 'L');
-                const estimatedCost = totalWeight * estPerKg;
-                await client.query(`
-                    UPDATE china_receipts 
-                    SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $2 AND (assigned_cost_mxn IS NULL OR assigned_cost_mxn = 0)
-                `, [estimatedCost, receiptId]);
-            }
-
-            results.push({
-                fno,
-                receiptId,
-                userId,
-                shippingMark,
-                packagesCreated,
-                packagesUpdated
-            });
+        const cajas = await cajasDeOrden(orden.id);
+        if (!cajas.length) {
+            return res.json({ success: true, data: [{ fno, packagesCreated: 0, packagesUpdated: 0, nota: 'la orden no trae cajas todavia' }] });
         }
 
-        await client.query('COMMIT');
+        // Se arma el payload con la forma del webhook y se ingiere por el MISMO
+        // camino que el push (receiveFromChina), para no duplicar la logica de
+        // tarifas y recepciones. El producto/aduanal/guia internacional no vienen
+        // en esta consulta; llegan despues por el push y el webhook los completa.
+        const payload: any = {
+            fno,
+            shippingMark: orden.shippingMark || orden.customerCode || '',
+            totalQty: orden.totalQty, totalWeight: orden.totalWeight,
+            totalVolume: orden.totalVolume, totalCbm: orden.totalCbm,
+            file: [],
+            data: cajas.map((c: any) => ({
+                childNo: c.childNo,
+                weight: c.weight, long: c.long, width: c.width, height: c.height,
+                singleVolume: c.singleVolume, singleCbm: c.singleCbm,
+                proName: c.sku || null, customsBno: null, billNo: null,
+                etd: orden.etd || null, eta: orden.eta || null,
+            })),
+        };
 
-        console.log(`  ✅ Sincronización completada: ${results.length} órdenes procesadas`);
-
-        // Preparar respuesta con el order para el frontend
-        const orderResponse = Array.isArray(apiData.result) ? apiData.result[0] : apiData.result;
-
-        res.json({
-            success: true,
-            message: 'Datos sincronizados desde MJCustomer',
-            data: results,
-            order: orderResponse, // Para el modal de rastreo en frontend
-            rawResponse: apiData.result
+        const resultado: any = await new Promise((resolve) => {
+            const reqFalso: any = { body: payload, headers: {}, socket: {} };
+            const resFalso: any = {
+                statusCode: 200,
+                status(c: number) { this.statusCode = c; return this; },
+                json(p: any) { resolve({ statusCode: this.statusCode, payload: p }); return this; },
+            };
+            receiveFromChina(reqFalso, resFalso).catch((e: any) => resolve({ statusCode: 500, payload: { success: false, error: e?.message } }));
         });
+
+        if (resultado.statusCode === 200 && resultado.payload?.success) {
+            const d = resultado.payload.data || {};
+            return res.json({ success: true, data: [{ fno, packagesCreated: d.packagesCreated || 0, packagesUpdated: d.packagesUpdated || 0 }] });
+        }
+        return res.status(502).json({ success: false, error: resultado.payload?.error || 'No se pudo ingerir la orden', details: resultado.payload?.details });
 
     } catch (error: any) {
-        await client.query('ROLLBACK');
-        console.error("❌ Error consultando MJCustomer:", error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Error al sincronizar con MJCustomer',
-            details: error.message 
-        });
-    } finally {
-        client.release();
+        console.error("❌ Error consultando sistema aéreo nuevo:", error);
+        res.status(500).json({ success: false, error: 'Error al sincronizar', details: error.message });
     }
 };
 
