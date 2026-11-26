@@ -10,6 +10,7 @@ import { duenoDeLaMarca, casilleroSinAnotacion } from './boxLinkReconcile';
 import crypto from 'crypto';
 import { fechaDeRecepcionChina } from './tipoCambioDelDia';
 import { sm2 } from 'sm-crypto';
+import { buscarOrdenPorFno, cajasDeOrden, trayectoriaDeCaja, gzmojieConfigurado } from './gzmojieClient';
 
 /**
  * 🎯 Resuelve el precio USD/kg para un (user_id, tariff_type) consultando:
@@ -2075,89 +2076,74 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
             });
         }
 
-        console.log(`🔍 Consultando trayectoria: ${childNo}`);
+        console.log(`🔍 Consultando trayectoria (gzmojie): ${childNo}`);
 
-        // Obtener token válido
-        const token = await getMJCustomerToken();
+        // Resolver el childNo real del sistema de origen. Si llega el interno
+        // (CN-...) o una referencia distinta, se busca el child_no verdadero.
+        let realChildNo = childNo;
+        if (!/^AIR/i.test(childNo)) {
+            const q = await pool.query(
+                `SELECT child_no FROM packages
+                  WHERE tracking_internal = $1 OR child_no = $1
+                  ORDER BY (child_no = $1) DESC LIMIT 1`, [childNo]);
+            if (q.rows[0]?.child_no) realChildNo = q.rows[0].child_no;
+        }
 
-        // Helper: traduce errores comunes de MoJie al español
-        const translateMJError = (msg: string | undefined): string => {
-            if (!msg) return 'Trayectoria no encontrada';
-            const map: Record<string, string> = {
-                '子单号不存在': 'Esta guía aún no se registró en el sistema de origen (MoJie). Es posible que el paquete apenas esté siendo procesado.',
-                '订单号不存在': 'El pedido no existe en MoJie.',
-                '未登录': 'Sesión expirada en MoJie.',
-                'Token过期': 'Token de MoJie expirado.'
-            };
-            for (const key of Object.keys(map)) {
-                if (msg.includes(key)) return map[key] as string;
-            }
-            return msg;
-        };
+        // 1) Trayectoria directa de la caja (trae eventos de caja y de orden).
+        let eventos: any[] = [];
+        try {
+            eventos = await trayectoriaDeCaja(realChildNo);
+        } catch (e: any) {
+            console.warn('  trayectoria gzmojie falló:', e?.message);
+        }
 
-        // Intento 1: consultar trayectoria exacta del childNo
-        const callTrajectory = async (code: string) => {
-            const r = await fetchWithTimeout(
-                `${MJCUSTOMER_API.baseUrl}/api/orderInfo/orderSystemByTrajectoryData/${code}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Accept': 'text/plain',
-                        'request-from': 'swagger'
-                    }
-                },
-                20000
-            );
-            const text = await r.text();
-            let parsed: TrajectoryResponse | null = null;
-            try { parsed = JSON.parse(text) as TrajectoryResponse; } catch { /* noop */ }
-            return { httpStatus: r.status, data: parsed, rawText: text };
-        };
-
-        let { httpStatus, data: apiData } = await callTrajectory(childNo);
-
-        // Fallback: si childNo no existe, intentar con el FNO padre (quitar sufijo -NNN o similar)
-        if (apiData && apiData.code !== 200) {
-            const fnoMatch = childNo.match(/^([A-Z]+\d+[A-Za-z0-9]*)/);
-            const fno = fnoMatch ? fnoMatch[1] : null;
-            if (fno && fno !== childNo) {
-                console.log(`  🔁 Childno ${childNo} no existe, probando FNO padre: ${fno}`);
-                const fallback = await callTrajectory(fno);
-                if (fallback.data && fallback.data.code === 200) {
-                    apiData = fallback.data;
-                    httpStatus = fallback.httpStatus;
+        // 2) Si no hubo, derivar del FNO padre: buscar la orden y su primera caja.
+        if (!eventos.length) {
+            const fnoPadre = realChildNo.replace(/-\d+$/, '');
+            try {
+                const orden = await buscarOrdenPorFno(fnoPadre);
+                if (orden) {
+                    const cajas = await cajasDeOrden(orden.id);
+                    const primero = cajas[0]?.childNo || cajas[0]?.ChildNo;
+                    if (primero) eventos = await trayectoriaDeCaja(primero);
                 }
+            } catch (e: any) {
+                console.warn('  fallback FNO gzmojie falló:', e?.message);
             }
         }
 
-        if (!apiData || apiData.code !== 200) {
-            return res.status(httpStatus === 401 ? 401 : 404).json({
+        if (!eventos.length) {
+            return res.status(404).json({
                 success: false,
-                error: translateMJError(apiData?.message),
-                apiCode: apiData?.code
+                error: 'Esta guía aún no tiene movimientos en el sistema de origen. Es posible que el paquete apenas se esté procesando.'
             });
         }
 
-        // Formatear trayectoria (devuelve ambos formatos para compatibilidad)
-        const trajectory = (apiData.result || []).map(event => ({
-            fecha: event.date,
-            descripcion: event.en || event.ch,
-            descripcionChino: event.ch,
-            // Compat con frontend existente
-            date: event.date,
-            en: event.en,
-            ch: event.ch
-        }));
+        // Del más reciente al más antiguo y mapeado al formato del frontend.
+        eventos.sort((a: any, b: any) => String(b.occurTime || '').localeCompare(String(a.occurTime || '')));
+        const trajectory = eventos.map((ev: any) => {
+            const nombre = ev.trajectoryName || ev.trajecotryName || '';
+            return {
+                fecha: ev.occurTime || null,
+                descripcion: nombre,
+                descripcionChino: nombre,
+                // Compat con frontend existente
+                date: ev.occurTime || null,
+                en: '',
+                ch: nombre,
+                nivel: ev.level || null,
+                operador: ev.operatorName || null
+            };
+        });
 
-        console.log(`  ✅ Trayectoria encontrada: ${trajectory.length} eventos`);
+        console.log(`  ✅ Trayectoria (gzmojie): ${trajectory.length} eventos`);
 
         res.json({
             success: true,
-            childNo,
+            childNo: realChildNo,
             eventos: trajectory.length,
             trayectoria: trajectory,
-            raw: apiData.result
+            raw: eventos
         });
 
     } catch (error: any) {
@@ -2872,111 +2858,94 @@ export const syncActiveMJCustomerOrders = async (): Promise<{
 
         console.log(`   → ${activeOrders.rows.length} órdenes activas encontradas`);
 
-        // Obtener token válido
-        const token = await getMJCustomerToken();
-        if (!token) {
-            console.error('   ❌ No se pudo obtener token de MJCustomer');
-            return { success: false, ordersProcessed: 0, ordersUpdated: 0, errors: ['No token available'] };
+        // El sistema nuevo (gzmojie) firma por petición, no usa token de sesión.
+        if (!gzmojieConfigurado()) {
+            console.error('   ❌ GZMOJIE_ACCESS_SECRET no configurado');
+            return { success: false, ordersProcessed: 0, ordersUpdated: 0, errors: ['gzmojie sin credencial'] };
         }
 
-        // Procesar cada orden
+        const dormir = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+        // Procesar cada orden. El estatus se deduce de la trayectoria de una caja
+        // (GetChildTrajectoryList devuelve eventos de caja y de orden de un jalón),
+        // así que basta 1 llamada por orden. El AWB/ETA/ETD y los totales llegan por
+        // el push a nuestro webhook, no por esta consulta; aquí solo movemos estatus.
         for (const order of activeOrders.rows) {
             try {
                 const fno = order.fno;
-                
-                const apiResponse = await fetch(
-                    `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
-                    {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Accept': 'application/json'
-                        }
-                    }
-                );
 
-                const apiData = await apiResponse.json() as any;
-                
-                if (apiData.code === 200 && apiData.result) {
-                    const orderData = Array.isArray(apiData.result) ? apiData.result[0] : apiData.result;
-                    
-                    // Determinar status basado en trajectoryName de los paquetes
-                    let newStatus = 'received_china'; // default
-                    let lastTrajectory: string | null = null;
-                    if (orderData.data && Array.isArray(orderData.data)) {
-                        const trajectories = orderData.data.map((p: any) => p.trajecotryName || '');
-                        newStatus = mapTrajectoryToStatus(trajectories);
-                        lastTrajectory = trajectories.filter(Boolean).slice(-1)[0] || null;
-                    }
-
-                    // Registrar historial solo si el status cambió
-                    const prevStatusQ = await pool.query(
-                        'SELECT id, status FROM china_receipts WHERE fno = $1 LIMIT 1',
-                        [fno]
-                    );
-                    const prevRow = prevStatusQ.rows[0];
-                    const isTerminal = prevRow && ['delivered','received_cdmx','completed'].includes(prevRow.status);
-                    if (prevRow && !isTerminal && prevRow.status !== newStatus) {
-                        await logChinaStatusChange({
-                            chinaReceiptId: prevRow.id,
-                            fno,
-                            oldStatus: prevRow.status,
-                            newStatus,
-                            trajectoryName: lastTrajectory,
-                            source: 'mojie_sync',
-                            notes: 'Sincronización automática MoJie'
-                        });
-                    }
-
-                    // Actualizar datos de la orden incluyendo status
-                    await pool.query(`
-                        UPDATE china_receipts SET
-                            total_qty = COALESCE($1, total_qty),
-                            total_weight = COALESCE($2, total_weight),
-                            total_cbm = COALESCE($3, total_cbm),
-                            status = CASE 
-                                WHEN status IN ('delivered', 'received_cdmx', 'completed') THEN status 
-                                ELSE $5 
-                            END,
-                            updated_at = NOW(),
-                            last_sync_at = NOW()
-                        WHERE fno = $4
-                    `, [
-                        orderData.totalQty,
-                        orderData.totalWeight,
-                        orderData.totalCbm,
-                        fno,
-                        newStatus
-                    ]);
-
-                    // Actualizar paquetes con ETA/ETD si están disponibles
-                    if (orderData.data && Array.isArray(orderData.data)) {
-                        for (const pkg of orderData.data) {
-                            await pool.query(`
-                                UPDATE packages SET
-                                    international_tracking = COALESCE($1, international_tracking),
-                                    eta = COALESCE($2, eta),
-                                    etd = COALESCE($3, etd),
-                                    trajectory_name = COALESCE($4, trajectory_name),
-                                    updated_at = NOW()
-                                WHERE child_no = $5
-                            `, [
-                                pkg.billNo || null,
-                                pkg.eta || null,
-                                pkg.etd || null,
-                                pkg.trajecotryName || null,
-                                pkg.childNo
-                            ]);
-                        }
-                    }
-
-                    ordersUpdated++;
-                    console.log(`   ✓ ${fno}: status=${newStatus}`);
+                // Trayectoria de la orden: primero con el childNo que ya tenemos en
+                // packages (0 llamadas de resolución); si gzmojie no lo reconoce
+                // (recuperadas o folios manuales), se resuelve el real orden->cajas.
+                let eventos: any[] = [];
+                const localQ = await pool.query(
+                    `SELECT child_no FROM packages
+                      WHERE split_part(child_no,'-',1) = $1 AND child_no LIKE 'AIR%'
+                      ORDER BY child_no LIMIT 1`, [fno]);
+                const localChild: string | null = localQ.rows[0]?.child_no || null;
+                if (localChild) {
+                    try { eventos = await trayectoriaDeCaja(localChild); } catch { eventos = []; }
                 }
+                if (!eventos.length) {
+                    const orden = await buscarOrdenPorFno(fno);
+                    if (orden) {
+                        const cajas = await cajasDeOrden(orden.id);
+                        const real = cajas[0]?.childNo || cajas[0]?.ChildNo;
+                        if (real) { try { eventos = await trayectoriaDeCaja(real); } catch { eventos = []; } }
+                    }
+                }
+
+                const nombres = eventos
+                    .map((e: any) => e.trajectoryName || e.trajecotryName || '')
+                    .filter(Boolean);
+                if (!nombres.length) { ordersProcessed++; await dormir(1100); continue; }
+
+                const newStatus = mapTrajectoryToStatus(nombres);
+                const ordenados = [...eventos].sort((a: any, b: any) =>
+                    String(b.occurTime || '').localeCompare(String(a.occurTime || '')));
+                const lastTrajectory: string | null =
+                    ordenados[0]?.trajectoryName || ordenados[0]?.trajecotryName || null;
+
+                // Registrar historial solo si el status cambió y no es terminal.
+                const prevStatusQ = await pool.query(
+                    'SELECT id, status FROM china_receipts WHERE fno = $1 LIMIT 1', [fno]);
+                const prevRow = prevStatusQ.rows[0];
+                const isTerminal = prevRow && ['delivered', 'received_cdmx', 'completed'].includes(prevRow.status);
+                if (prevRow && !isTerminal && prevRow.status !== newStatus) {
+                    await logChinaStatusChange({
+                        chinaReceiptId: prevRow.id,
+                        fno,
+                        oldStatus: prevRow.status,
+                        newStatus,
+                        trajectoryName: lastTrajectory,
+                        source: 'mojie_sync',
+                        notes: 'Sincronización automática (gzmojie)'
+                    });
+                }
+
+                // Estatus de la recepción (respeta estados terminales).
+                await pool.query(`
+                    UPDATE china_receipts SET
+                        status = CASE
+                            WHEN status IN ('delivered', 'received_cdmx', 'completed') THEN status
+                            ELSE $2 END,
+                        updated_at = NOW(),
+                        last_sync_at = NOW()
+                    WHERE fno = $1
+                `, [fno, newStatus]);
+
+                // Reflejar la última trayectoria en los paquetes de la orden.
+                await pool.query(`
+                    UPDATE packages SET trajectory_name = COALESCE($2, trajectory_name), updated_at = NOW()
+                    WHERE split_part(child_no,'-',1) = $1
+                `, [fno, lastTrajectory]);
+
+                ordersUpdated++;
+                console.log(`   ✓ ${fno}: status=${newStatus}`);
                 ordersProcessed++;
 
-                // Pequeña pausa entre requests para no saturar el API
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Freno para no pasar el tope de 60 llamadas/minuto.
+                await dormir(1100);
 
             } catch (err: any) {
                 errors.push(`${order.fno}: ${err.message}`);
