@@ -2545,6 +2545,14 @@ export default function DashboardAdvisor() {
     setSnackbar({ open: true, message: '✅ Enlace de referido copiado al portapapeles', severity: 'success' });
   };
 
+  // Copiar un número de guía al portapapeles (tarea 1105).
+  const copyGuia = (text?: string | null) => {
+    if (!text) return;
+    navigator.clipboard?.writeText(String(text))
+      .then(() => setSnackbar({ open: true, message: '✅ Guía copiada', severity: 'success' }))
+      .catch(() => {});
+  };
+
   const shareWhatsApp = () => {
     const code = dashboardData?.advisor.referralCode;
     if (!code) return;
@@ -7833,12 +7841,28 @@ export default function DashboardAdvisor() {
                   <Grid container spacing={1.5}>
                     <Grid size={{ xs: 12 }}>
                       <Typography variant="caption" color="text.secondary">Tracking interno</Typography>
-                      <Typography variant="body2" fontWeight={600} fontFamily="monospace">{s.tracking || '—'}</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography variant="body2" fontWeight={600} fontFamily="monospace" sx={{ userSelect: 'text' }}>{s.tracking || '—'}</Typography>
+                        {s.tracking && (
+                          <Tooltip title="Copiar guía">
+                            <IconButton size="small" onClick={() => copyGuia(s.tracking)} sx={{ p: 0.25 }}>
+                              <ContentCopyIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
                     </Grid>
                     {s.internationalTracking && (
                       <Grid size={{ xs: 12 }}>
                         <Typography variant="caption" color="text.secondary">Guía de origen / proveedor</Typography>
-                        <Typography variant="body2" fontWeight={600} fontFamily="monospace" color="primary.main">{s.internationalTracking}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="body2" fontWeight={600} fontFamily="monospace" color="primary.main" sx={{ userSelect: 'text' }}>{s.internationalTracking}</Typography>
+                          <Tooltip title="Copiar guía">
+                            <IconButton size="small" onClick={() => copyGuia(s.internationalTracking)} sx={{ p: 0.25 }}>
+                              <ContentCopyIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </Grid>
                     )}
                     {s.childNo && (
@@ -8028,11 +8052,18 @@ export default function DashboardAdvisor() {
                             {repackChildren.map((child: any) => (
                               <TableRow key={child.id} hover>
                                 <TableCell>
-                                  <Typography variant="body2" fontWeight={600} fontSize="0.8rem" fontFamily="monospace">{child.tracking}</Typography>
+                                  <Tooltip title="Clic para copiar">
+                                    <Typography variant="body2" fontWeight={600} fontSize="0.8rem" fontFamily="monospace"
+                                      sx={{ userSelect: 'text', cursor: 'pointer' }}
+                                      onClick={() => copyGuia(child.tracking)}>{child.tracking}</Typography>
+                                  </Tooltip>
                                   {child.description && <Typography variant="caption" color="text.secondary" display="block">{child.description}</Typography>}
                                 </TableCell>
                                 <TableCell>
-                                  <Typography variant="body2" fontSize="0.8rem" fontFamily="monospace" color={child.internationalTracking ? 'primary.main' : 'text.disabled'}>
+                                  <Typography variant="body2" fontSize="0.8rem" fontFamily="monospace"
+                                    color={child.internationalTracking ? 'primary.main' : 'text.disabled'}
+                                    sx={{ userSelect: 'text', cursor: child.internationalTracking ? 'pointer' : 'default' }}
+                                    onClick={() => child.internationalTracking && copyGuia(child.internationalTracking)}>
                                     {child.internationalTracking || '—'}
                                   </Typography>
                                 </TableCell>
