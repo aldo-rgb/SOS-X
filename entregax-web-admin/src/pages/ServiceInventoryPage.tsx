@@ -230,6 +230,9 @@ export default function ServiceInventoryPage() {
   const [selectedGuias, setSelectedGuias] = useState<Set<string>>(new Set());
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
+  // El admin (dueño) también puede marcar/desmarcar pago e instrucción en el panel.
+  // La edición del precio de venta PO Box sigue siendo solo de super_admin.
+  const canMarkPaid = (() => { try { const r = JSON.parse(localStorage.getItem('user') || '{}').role; return r === 'super_admin' || r === 'admin'; } catch { return false; } })();
 
   // Modo sincronización: Soporte Técnico entra solo a decirle al sistema qué
   // guías viejas ya se pagaron y salieron en el sistema anterior. Ve Marítimo,
@@ -897,22 +900,22 @@ export default function ServiceInventoryPage() {
   const renderPagoInst = (paid: boolean | undefined, hasInst: boolean | undefined, small = false, row?: PackageRow) => (
     <TableCell align="center">
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-        <Tooltip title={isSuperAdmin && row ? (paid ? 'Pago registrado — click para desmarcar' : 'Click para marcar como pagado') : (paid ? 'Pago registrado' : 'Sin pago registrado')}>
+        <Tooltip title={canMarkPaid && row ? (paid ? 'Pago registrado — click para desmarcar' : 'Click para marcar como pagado') : (paid ? 'Pago registrado' : 'Sin pago registrado')}>
           <Box
-            onClick={isSuperAdmin && row ? () => paid ? handleUnmarkPaid(row) : handleMarkPaid(row) : undefined}
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row ? { bgcolor: paid ? '#FFEBEE' : '#E8F5E9' } : {} }}
+            onClick={canMarkPaid && row ? () => paid ? handleUnmarkPaid(row) : handleMarkPaid(row) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: canMarkPaid && row ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': canMarkPaid && row ? { bgcolor: paid ? '#FFEBEE' : '#E8F5E9' } : {} }}
           >
-            {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: isSuperAdmin && row ? '#F05A28' : '#BDBDBD' }} />}
-            <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : isSuperAdmin && row ? '#F05A28' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
+            {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: canMarkPaid && row ? '#F05A28' : '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : canMarkPaid && row ? '#F05A28' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
           </Box>
         </Tooltip>
-        <Tooltip title={hasInst ? 'Con instrucciones de envío' : isSuperAdmin && row && !hasInst ? 'Click para marcar etiqueta impresa' : 'Sin instrucciones'}>
+        <Tooltip title={hasInst ? 'Con instrucciones de envío' : canMarkPaid && row && !hasInst ? 'Click para marcar etiqueta impresa' : 'Sin instrucciones'}>
           <Box
-            onClick={isSuperAdmin && row && !hasInst ? () => handleMarkInstruccion(row) : undefined}
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row && !hasInst ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row && !hasInst ? { bgcolor: '#E3F2FD' } : {} }}
+            onClick={canMarkPaid && row && !hasInst ? () => handleMarkInstruccion(row) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: canMarkPaid && row && !hasInst ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': canMarkPaid && row && !hasInst ? { bgcolor: '#E3F2FD' } : {} }}
           >
-            {hasInst ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: isSuperAdmin && row ? '#1976D2' : '#BDBDBD' }} />}
-            <Typography variant="caption" sx={{ color: hasInst ? '#1565C0' : isSuperAdmin && row ? '#1976D2' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Inst.</Typography>
+            {hasInst ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: canMarkPaid && row ? '#1976D2' : '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: hasInst ? '#1565C0' : canMarkPaid && row ? '#1976D2' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Inst.</Typography>
           </Box>
         </Tooltip>
       </Box>

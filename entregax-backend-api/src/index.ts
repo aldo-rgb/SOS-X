@@ -3283,7 +3283,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                        p.received_at, p.updated_at, p.status,
                        u.box_id AS box_id, u.full_name AS cliente_nombre,
                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
-                       COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                       COALESCE(p.client_paid, p.costing_paid, FALSE) AS costing_paid,
                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions`;
 
       // COUNT = grupos distintos (no paquetes individuales)
@@ -3354,7 +3354,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        COALESCE(p.client_paid, p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
@@ -6738,7 +6738,7 @@ app.post('/api/admin/paquete-express/unlink-packages', authenticateToken, requir
 app.get('/api/admin/relabeling/maritime/:orderId/boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeOrderBoxes);
 // Marcar guía externa como etiqueta impresa (al descargar guia_externa en módulo de etiquetado)
 // Super admin: marcar paquete como pagado manualmente (client_paid + costing_paid)
-app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, requireRole('super_admin', 'admin'), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(req.params.id as string);
     if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
@@ -6762,7 +6762,7 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
 });
 
 // Super admin: desmarcar pago (revertir mark-paid-manual)
-app.patch('/api/admin/packages/:id/unmark-paid-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+app.patch('/api/admin/packages/:id/unmark-paid-manual', authenticateToken, requireRole('super_admin', 'admin'), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(req.params.id as string);
     if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
@@ -6861,7 +6861,7 @@ app.patch('/api/admin/packages/:id/pobox-costo', authenticateToken, requireRole(
 });
 
 // Super admin: marcar instrucción como confirmada (needs_instructions = FALSE + label url)
-app.patch('/api/admin/packages/:id/mark-instructions-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+app.patch('/api/admin/packages/:id/mark-instructions-manual', authenticateToken, requireRole('super_admin', 'admin'), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(req.params.id as string);
     if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
