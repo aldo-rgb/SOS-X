@@ -78,13 +78,25 @@ const num = (v: any): number => {
 
 const redondea = (n: number): number => Math.round(n * 100) / 100;
 
-/** Lo que la operación corrige de una guía: lo que midió CEDIS. */
+/**
+ * Lo que la operación corrige de una guía.
+ *
+ * Primero, lo que midió CEDIS: peso y medidas. Y, a petición de la operación
+ * para el volumen de tickets (tarea 1108), tres capturas a mano que mandan
+ * sobre el cálculo automático: el precio por kilo, el total en dólares y el
+ * tipo de cambio. Quien captura un total o un por kilo decide el cobro; no se
+ * resuelve ninguna tarifa, se escribe lo que puso.
+ */
 export interface MedidaCorregida {
   tracking: string;
   weight?: number | null;
   length?: number | null;
   width?: number | null;
   height?: number | null;
+  /** Capturados a mano. Si vienen, ganan a la tarifa congelada y a los interruptores. */
+  porKg?: number | null;
+  usd?: number | null;
+  tc?: number | null;
 }
 
 /**
@@ -148,6 +160,8 @@ export interface RenglonRecosteo {
     porKg: number;
     tipo: string | null;
     usd: number;
+    /** El tipo de cambio congelado de la guía, 0 si no tiene. */
+    tc: number;
   };
   /** Lo que queda si se aplica. */
   nuevo: {
@@ -160,9 +174,13 @@ export interface RenglonRecosteo {
     porKg: number;
     tipo: string | null;
     usd: number;
+    /** El tipo de cambio con el que queda; igual al actual si no se capturó otro. */
+    tc: number;
     /** De dónde salió el precio por kilo. */
     origenTarifa: string;
   };
+  /** Si el renglón trae algo capturado a mano (por kilo, total o TC). */
+  manual: boolean;
   /**
    * La tarifa que le tocaba el día en que se recibió en China. Se calcula
    * siempre para poder ensenarla; solo se usa si lo piden.
@@ -210,7 +228,7 @@ export async function calcularRecosteo(
     `SELECT p.id, p.tracking_internal, p.child_no, p.user_id, p.box_id,
             p.weight, p.pkg_length, p.pkg_width, p.pkg_height, p.single_volume,
             p.air_route_id, p.air_tariff_type, p.air_price_per_kg, p.air_sale_price,
-            p.air_chargeable_weight, p.air_is_custom_tariff,
+            p.air_chargeable_weight, p.air_is_custom_tariff, p.registered_exchange_rate,
             p.status::text AS estado, p.payment_status::text AS pago,
             COALESCE(p.monto_pagado, 0) AS pagado, COALESCE(p.client_paid, false) AS client_paid,
             u.full_name AS cliente
@@ -361,7 +379,30 @@ export async function calcularRecosteo(
     let origenTarifa = 'tarifa congelada de la guía';
     let usdNuevo = redondea(pesoCobrable * porKg);
 
-    if (aplicarStartUp && seSaleDelStartUp && porKgCongelado > 0) {
+    // El tipo de cambio: el que trae la guía, y el que queda. Solo cambia si se
+    // captura a mano; de lo demás no depende, porque el recosteo mueve dólares.
+    const tcViejo = num(r.registered_exchange_rate);
+    const manPorKg = c.porKg != null && num(c.porKg) > 0 ? num(c.porKg) : null;
+    const manUsd = c.usd != null && num(c.usd) > 0 ? num(c.usd) : null;
+    const manTc = c.tc != null && num(c.tc) > 0 ? num(c.tc) : null;
+    const hayManual = manPorKg != null || manUsd != null || manTc != null;
+    let tcNuevo = manTc != null ? manTc : tcViejo;
+
+    if (manPorKg != null || manUsd != null) {
+      // Captura a mano: lo que la operación escribe manda sobre la tarifa
+      // congelada y sobre los tres interruptores. No se resuelve nada.
+      if (manUsd != null && manPorKg != null) {
+        porKg = manPorKg;
+        usdNuevo = redondea(manUsd);
+      } else if (manUsd != null) {
+        usdNuevo = redondea(manUsd);
+        porKg = pesoCobrable > 0 ? redondea(manUsd / pesoCobrable) : porKgCongelado;
+      } else {
+        porKg = manPorKg as number;
+        usdNuevo = redondea(pesoCobrable * porKg);
+      }
+      origenTarifa = 'capturado a mano';
+    } else if (aplicarStartUp && seSaleDelStartUp && porKgCongelado > 0) {
       // Fuera del Start Up: vuelve a cobrarse por kilo cobrable.
       tipoNuevo = tipoAnterior || 'G';
       porKg = porKgCongelado;
@@ -433,8 +474,8 @@ export async function calcularRecosteo(
     if (num(r.pagado) > 0) bloqueo = 'ya tiene pago aplicado';
     else if (r.client_paid === true) bloqueo = 'marcada como pagada por el cliente';
     else if (String(r.pago || '') === 'paid') bloqueo = 'su estado de pago es pagado';
-    else if (!(porKg > 0)) bloqueo = 'no tiene tarifa con la que recostear';
-    else if (!(peso > 0) && !(volumetrico > 0)) bloqueo = 'no tiene peso ni medidas';
+    else if (!(porKg > 0) && manUsd == null) bloqueo = 'no tiene tarifa con la que recostear';
+    else if (!(peso > 0) && !(volumetrico > 0) && manUsd == null) bloqueo = 'no tiene peso ni medidas';
 
     const abiertas = ordenes.rows
       .filter((o: any) => {
@@ -459,13 +500,16 @@ export async function calcularRecosteo(
         porKg: porKgCongelado,
         tipo,
         usd: usdActual,
+        tc: tcViejo,
       },
       nuevo: {
         peso, largo, ancho, alto,
         volumetrico, pesoCobrable, porKg, tipo: tipoNuevo || tipo,
         usd: usdNuevo,
+        tc: tcNuevo,
         origenTarifa,
       },
+      manual: hayManual,
       tarifaDeSuDia,
       rutaCorregida,
       startUpQueLeToca,
@@ -544,6 +588,8 @@ export const previewRecosteoAereo = async (req: Request, res: Response) => {
       conRutaMala: filas.filter((f) => f.rutaCorregida).length,
       // Cuantas le tocaba Start Up y se coteraron por kilo (tarea 1121).
       conStartUpPendiente: filas.filter((f) => f.startUpQueLeToca).length,
+      // Cuantas traen algo capturado a mano: por kilo, total o TC (tarea 1108).
+      conManual: filas.filter((f) => f.manual).length,
     };
 
     return res.json({ success: true, resumen, filas });
@@ -587,7 +633,8 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
       pool, trackings, body.correcciones || [], body.usarTarifaDeRecepcion === true,
       body.corregirRuta === true, body.aplicarStartUp === true);
     const aplicables = filas.filter((f) =>
-      !f.bloqueo && (Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null || f.tipoNuevo !== null));
+      !f.bloqueo && (Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null || f.tipoNuevo !== null
+        || Math.abs(f.nuevo.tc - f.actual.tc) >= 0.0001));
     if (aplicables.length === 0) {
       return res.json({
         success: true, aplicadas: 0, filas,
@@ -615,6 +662,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
              air_sale_price = $9,
              air_route_id = COALESCE($11, air_route_id),
              air_tariff_type = COALESCE($12, air_tariff_type),
+             registered_exchange_rate = COALESCE($13, registered_exchange_rate),
              air_price_assigned_at = NOW(),
              air_price_assigned_by = $10,
              updated_at = NOW()
@@ -629,6 +677,7 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
             f.nuevo.pesoCobrable, f.nuevo.porKg, f.nuevo.usd, quien,
             f.rutaCorregida ? f.rutaCorregida.a : null,
             f.tipoNuevo,
+            Math.abs(f.nuevo.tc - f.actual.tc) >= 0.0001 ? f.nuevo.tc : null,
           ],
         );
         if (!upd.rowCount) {
@@ -653,6 +702,8 @@ export const aplicarRecosteoAereo = async (req: Request, res: Response) => {
               ? ` Ruta corregida de ${f.rutaCorregida.deCodigo} a ${f.rutaCorregida.aCodigo}.`
               : '')
             + (f.tipoNuevo ? ` Tarifa cambiada de ${f.actual.tipo || 's/tipo'} a ${f.tipoNuevo}.` : '')
+            + (Math.abs(f.nuevo.tc - f.actual.tc) >= 0.0001
+              ? ` Tipo de cambio ${f.actual.tc || 's/tc'} → ${f.nuevo.tc}.` : '')
             + ` ${motivo}`,
             quien,
           ],

@@ -44,6 +44,7 @@ interface Lado {
   porKg: number;
   tipo: string | null;
   usd: number;
+  tc: number;
   origenTarifa?: string;
 }
 
@@ -71,6 +72,7 @@ interface Fila {
   rutaCorregida: { de: number; deCodigo: string; a: number; aCodigo: string } | null;
   startUpQueLeToca: { porKg: number; usd: number } | null;
   tipoNuevo: string | null;
+  manual: boolean;
   difUsd: number;
   manda: 'neto' | 'volumetrico' | 'empate';
   bloqueo: string | null;
@@ -91,10 +93,18 @@ interface Resumen {
   conTarifaDeOtroDia: number;
   conRutaMala: number;
   conStartUpPendiente: number;
+  conManual: number;
 }
 
-/** Lo que el usuario escribió a mano, por guía. */
-type Correccion = { weight?: string; length?: string; width?: string; height?: string };
+/**
+ * Lo que el usuario escribió a mano, por guía. Peso y medidas corrigen lo que
+ * midió CEDIS; por kilo, total y tipo de cambio mandan sobre el cálculo
+ * automático —la operación los captura para el volumen de tickets (tarea 1108)—.
+ */
+type Correccion = {
+  weight?: string; length?: string; width?: string; height?: string;
+  porKg?: string; usd?: string; tc?: string;
+};
 
 interface Props {
   open: boolean;
@@ -139,6 +149,9 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
       length: c.length ? Number(c.length) : null,
       width: c.width ? Number(c.width) : null,
       height: c.height ? Number(c.height) : null,
+      porKg: c.porKg ? Number(c.porKg) : null,
+      usd: c.usd ? Number(c.usd) : null,
+      tc: c.tc ? Number(c.tc) : null,
     }));
     // Un solo texto sin guión de caja se trata como lote: trae todas sus hijas.
     if (partes.length === 1 && !/-\d+$/.test(partes[0]!)) {
@@ -213,17 +226,24 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
     onClose();
   };
 
-  const celdaNum = (tracking: string, campo: keyof Correccion, valorActual: number | null) => (
+  const celdaNum = (
+    tracking: string, campo: keyof Correccion, valorActual: number | null, ancho = 56,
+  ) => (
     <TextField
       size="small" variant="standard" type="number"
       placeholder={valorActual != null ? String(valorActual) : '-'}
       value={correcciones[tracking]?.[campo] ?? ''}
       onChange={(e) => setCorr(tracking, campo, e.target.value)}
-      inputProps={{ style: { fontSize: 12, width: 56, textAlign: 'right' }, min: 0, step: '0.01' }}
+      inputProps={{ style: { fontSize: 12, width: ancho, textAlign: 'right' }, min: 0, step: '0.01' }}
     />
   );
 
-  const hayCambios = (resumen?.cambian || 0) > 0;
+  // Lo que de verdad se va a aplicar, con la misma regla que el backend: cambia
+  // el dólar, cambia la ruta, cambia el tipo, o cambia el tipo de cambio a mano.
+  const filasAAplicar = filas.filter((f) => !f.bloqueo && (
+    Math.abs(f.difUsd) >= 0.01 || f.rutaCorregida !== null || f.tipoNuevo !== null
+    || Math.abs(f.nuevo.tc - f.actual.tc) >= 0.0001));
+  const hayCambios = filasAAplicar.length > 0;
 
   return (
     <Dialog open={open} onClose={cerrar} maxWidth="xl" fullWidth>
@@ -238,7 +258,8 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           El cobro va sobre el peso MAYOR entre el neto y el volumétrico (largo × ancho × alto ÷ 6000).
           Captura lo que midió CEDIS y el precio se vuelve a sacar con la tarifa que la guía ya tiene
-          —no con la del tarifario de hoy—. Lo que dejes vacío se queda como está.
+          —no con la del tarifario de hoy—. Lo que dejes vacío se queda como está. Si capturas a mano el
+          USD/kg, el total o el tipo de cambio, eso manda sobre el cálculo y sobre los interruptores.
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
@@ -330,6 +351,10 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                 <Chip size="small" color="secondary" variant="outlined"
                   label={`${resumen.conStartUpPendiente} con tramo Start Up`} />
               )}
+              {resumen.conManual > 0 && (
+                <Chip size="small" color="primary" variant="outlined"
+                  label={`${resumen.conManual} capturadas a mano`} />
+              )}
               <Box sx={{ flexGrow: 1 }} />
               <Typography variant="body2">
                 {fmtUsd(resumen.usdActual)} → <strong>{fmtUsd(resumen.usdNuevo)}</strong> USD
@@ -397,6 +422,7 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                   <TableCell align="center">Manda</TableCell>
                   <TableCell align="right">USD/kg</TableCell>
                   <TableCell align="right">Su día</TableCell>
+                  <TableCell align="right">T. Cambio</TableCell>
                   <TableCell align="right">Cobra</TableCell>
                   <TableCell align="right">Debe</TableCell>
                   <TableCell align="right">Diferencia</TableCell>
@@ -456,9 +482,16 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                           sx={{ height: 18, fontSize: 10 }} />
                       </TableCell>
                       <TableCell align="right">
+                        {f.bloqueo
+                          ? (
+                            <Typography variant="caption">
+                              ${f.nuevo.porKg}
+                            </Typography>
+                          )
+                          : celdaNum(f.tracking, 'porKg', f.nuevo.porKg)}
                         <Tooltip title={f.nuevo.origenTarifa || ''}>
-                          <Typography variant="caption">
-                            ${f.nuevo.porKg}{f.nuevo.tipo ? ` · ${f.nuevo.tipo}` : ''}
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {f.nuevo.tipo || '—'}
                           </Typography>
                         </Tooltip>
                       </TableCell>
@@ -479,10 +512,29 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
                         )}
                       </TableCell>
                       <TableCell align="right">
+                        {f.bloqueo
+                          ? (
+                            <Typography variant="caption">
+                              {f.actual.tc > 0 ? f.actual.tc.toFixed(2) : '—'}
+                            </Typography>
+                          )
+                          : celdaNum(f.tracking, 'tc', f.nuevo.tc > 0 ? f.nuevo.tc : f.actual.tc)}
+                        {Math.abs(f.nuevo.tc - f.actual.tc) >= 0.0001 && f.actual.tc > 0 && (
+                          <Typography variant="caption" color="text.secondary" display="block"
+                            sx={{ textDecoration: 'line-through' }}>
+                            {f.actual.tc.toFixed(2)}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
                         <Typography variant="caption">{fmtUsd(f.actual.usd)}</Typography>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography variant="caption" fontWeight={700}>{fmtUsd(f.nuevo.usd)}</Typography>
+                        {f.bloqueo
+                          ? (
+                            <Typography variant="caption" fontWeight={700}>{fmtUsd(f.nuevo.usd)}</Typography>
+                          )
+                          : celdaNum(f.tracking, 'usd', f.nuevo.usd, 72)}
                       </TableCell>
                       <TableCell align="right">
                         {cambia ? (
@@ -526,7 +578,7 @@ const RecosteoAereoDialog: React.FC<Props> = ({ open, onClose, inicial = '', onA
           disabled={aplicando || !hayCambios || motivo.trim().length < 5}
           startIcon={aplicando ? <CircularProgress size={18} color="inherit" /> : <ScaleIcon />}
         >
-          {resumen ? `Aplicar a ${resumen.cambian} guía(s)` : 'Aplicar recosteo'}
+          {resumen ? `Aplicar a ${filasAAplicar.length} guía(s)` : 'Aplicar recosteo'}
         </Button>
       </DialogActions>
     </Dialog>
