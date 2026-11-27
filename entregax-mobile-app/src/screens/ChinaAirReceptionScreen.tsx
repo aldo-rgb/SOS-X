@@ -83,8 +83,13 @@ const cleanTracking = (raw: string): string => {
 // siempre received_mty. Se cuenta como recibido cualquier `received_*` que NO sea
 // de China/origen — misma regla que usa el backend para "recibidos" del AWB.
 const CHINA_ORIGIN_STATUSES = ['received_china', 'received_china_air', 'received_china_sea', 'received_origin'];
+// Ya avanzada a ultima milla / entregada tambien cuenta como recibida: si no, una
+// caja despachada (shipped/delivered) se veia como faltante y el AWB caia a PARCIAL.
+const DOWNSTREAM_STATUSES = ['shipped', 'sent', 'delivered', 'dispatched_national', 'out_for_delivery', 'ready_pickup', 'reempacado', 'returned_to_warehouse'];
 const isReceivedAtDestino = (status: string | null | undefined): boolean =>
-  typeof status === 'string' && status.startsWith('received_') && !CHINA_ORIGIN_STATUSES.includes(status);
+  typeof status === 'string' &&
+  ((status.startsWith('received_') && !CHINA_ORIGIN_STATUSES.includes(status)) ||
+    DOWNSTREAM_STATUSES.includes(status));
 
 export default function ChinaAirReceptionScreen({ route, navigation }: any) {
   const { token } = route.params;

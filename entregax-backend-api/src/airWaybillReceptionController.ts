@@ -38,8 +38,16 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
         (
           SELECT COUNT(*) FROM packages p
           WHERE p.international_tracking = ac.awb_number
-            AND p.status::text LIKE 'received_%'
-            AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin')
+            -- Una caja cuenta como RECIBIDA del AWB en cuanto llega a Mexico: ya
+            -- sea recibida en sucursal (received_<suc>) o ya avanzada a ultima
+            -- milla / entregada (shipped, delivered, etc.). Antes solo se contaba
+            -- received_<suc>, asi que al despachar la caja dejaba de contar y el
+            -- AWB caia a PARCIAL pese a estar completo.
+            AND (
+              (p.status::text LIKE 'received_%'
+                AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin'))
+              OR p.status::text IN ('shipped','sent','delivered','dispatched_national','out_for_delivery','ready_pickup','reempacado','returned_to_warehouse')
+            )
         ) AS received_packages,
         (
           SELECT COUNT(*) FROM packages p
@@ -62,9 +70,12 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
            AND EXISTS (
              SELECT 1 FROM packages p
               WHERE p.international_tracking = ac.awb_number
+                -- Solo reabre el AWB una caja que TODAVIA no llega a Mexico. No
+                -- se listan 'shipped'/'sent': esas ya se recibieron y solo
+                -- avanzaron a ultima milla; incluirlas reabria AWBs completos.
                 AND p.status::text IN (
                   'received_china','received_china_air','received_china_sea','received_origin',
-                  'in_transit','customs','customs_mx','at_port','shipped','sent','processing'
+                  'in_transit','customs','customs_mx','at_port','processing'
                 )
            )
          )
@@ -331,6 +342,8 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
 
     const isMxReceived = (s: string | null | undefined) => {
       const st = String(s || '').toLowerCase();
+      // Ya avanzada a ultima milla / entregada tambien cuenta como recibida en MX.
+      if (['shipped','sent','delivered','dispatched_national','out_for_delivery','ready_pickup','reempacado','returned_to_warehouse'].includes(st)) return true;
       if (!st.startsWith('received_')) return false;
       // Excluir status de origen (China)
       if (st === 'received_china' || st === 'received_china_air' || st === 'received_china_sea' || st === 'received_origin') return false;
@@ -484,6 +497,7 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
     const total = pkgs.rows.length;
     const isMxReceivedFinal = (s: string | null | undefined) => {
       const st = String(s || '').toLowerCase();
+      if (['shipped','sent','delivered','dispatched_national','out_for_delivery','ready_pickup','reempacado','returned_to_warehouse'].includes(st)) return true;
       if (!st.startsWith('received_')) return false;
       if (st === 'received_china' || st === 'received_china_air' || st === 'received_china_sea' || st === 'received_origin') return false;
       return true;
