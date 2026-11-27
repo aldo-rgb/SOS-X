@@ -256,8 +256,11 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     return () => clearTimeout(timer);
   }, [currentStep, packageInfo?.requires_carrier_scan, showCarrierGuideCamera, scanMode]);
 
-  // Extrae el prefijo master: US-2609131174-0001 → US-2609131174
-  const getMasterPrefix = (tracking: string) => tracking.replace(/-\d{4}$/, '');
+  // Extrae el prefijo master: US-2609131174-0001 → US-2609131174 (PO Box/marítimo, sufijo 4 díg)
+  // y AIR202611062775-001 → AIR202611062775 (aéreo/TDI/China, sufijo 3 díg). Sin cubrir el sufijo
+  // de 3 díg, las cajas hermanas de una guía aérea parecían de otro embarque y el lote de una sola
+  // firma se bloqueaba: cada caja pedía su propia firma y no se podían hacer entregas múltiples.
+  const getMasterPrefix = (tracking: string) => tracking.replace(/-\d{3,4}$/, '');
 
   const processScanCode = useCallback(async (rawCode: string, source: 'camera' | 'scanner' = 'camera') => {
     const data = normalizeScanCode(rawCode);
