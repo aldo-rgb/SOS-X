@@ -4256,7 +4256,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                   AND (p.is_master = true OR p.master_id IS NULL)
                   AND COALESCE(p.air_source, '') <> 'tdi_express'
                   AND LOWER(COALESCE(p.service_type, '')) <> 'tdi_express'
-                  AND NOT (p.status = 'shipped' AND p.client_paid = true)
+                  -- (1111) Antes se excluian las shipped+pagadas y desaparecian de la
+                  -- app: salian de la lista activa pero el Historial solo acepta
+                  -- 'delivered', asi que no caian en ningun lado. Ahora se devuelven y
+                  -- la app las manda a Historial como "En camino" con su guia nacional.
                 ORDER BY p.id
             ) sub
             ORDER BY created_at DESC
@@ -5019,7 +5022,8 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 WHERE (m.air_source = 'tdi_express' OR LOWER(COALESCE(m.service_type, '')) = 'tdi_express')
                   AND (m.is_master = true OR m.master_id IS NULL)
                   AND (m.user_id = $1 OR ($2::text IS NOT NULL AND UPPER(m.box_id) = UPPER($2::text)))
-                  AND NOT (m.status = 'shipped' AND m.client_paid = true)
+                  -- (1111) Igual que POBOX: las shipped+pagadas se devuelven para que la
+                  -- app las muestre en Historial como "En camino" con su guia nacional.
                 ORDER BY m.created_at DESC
             `, [userId, userBoxId]);
             tdiExpressPackages = tdiRes.rows.map((pkg: any) => ({

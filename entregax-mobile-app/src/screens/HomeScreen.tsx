@@ -665,9 +665,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // � Función para cargar historial de paquetes (entregados y pagados)
   const loadHistoryPackages = useCallback(() => {
-    const delivered = packages.filter(pkg => {
-      // Solo paquetes entregados
-      if (pkg.status !== 'delivered') return false;
+    const items = packages.filter(pkg => {
+      // Entregadas o EN CAMINO (shipped = ya salió a reparto nacional). Así el
+      // cliente ve su guía nacional de envío en lugar de que "desaparezca".
+      if (pkg.status !== 'delivered' && pkg.status !== 'shipped') return false;
       // Solo paquetes realmente pagados: client_paid=true O (saldo<=0 Y assigned_cost>0)
       const assignedCost = parseFloat(String((pkg as any).assigned_cost_mxn ?? '0')) || 0;
       const saldo = parseFloat(String((pkg as any).saldo_pendiente ?? '0'));
@@ -675,7 +676,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                      (assignedCost > 0 && saldo <= 0);
       return isPaid;
     });
-    setHistoryPackages(delivered);
+    // En camino primero (lo más accionable para el cliente), luego entregadas.
+    items.sort((a, b) => (a.status === 'shipped' ? 0 : 1) - (b.status === 'shipped' ? 0 : 1));
+    setHistoryPackages(items);
     setShowHistoryModal(true);
   }, [packages]);
 
@@ -1790,13 +1793,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     );
   }
 
-  // 📜 Filtrar paquetes activos (excluir entregados Y pagados - esos van a Historial)
+  // 📜 Filtrar paquetes activos. Una guía pagada que YA SALIÓ (entregada o en
+  // camino a reparto nacional = 'shipped') va al Historial, no a la lista activa.
   const activePackages = packages.filter(pkg => {
-    const isDelivered = pkg.status === 'delivered';
-    const isPaid = (pkg as any).client_paid === true || 
+    const yaSalio = pkg.status === 'delivered' || pkg.status === 'shipped';
+    const isPaid = (pkg as any).client_paid === true ||
                    ((pkg as any).saldo_pendiente !== undefined && (pkg as any).saldo_pendiente <= 0) ||
                    ((pkg as any).assigned_cost_mxn === 0);
-    return !(isDelivered && isPaid);
+    return !(yaSalio && isPaid);
   });
 
   // Contar paquetes en bodega (seleccionables)
@@ -2065,7 +2069,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 <Ionicons name="time-outline" size={60} color="#ccc" />
                 <Text style={styles.historyEmptyText}>No hay envíos completados</Text>
                 <Text style={styles.historyEmptySubtext}>
-                  Aquí aparecerán tus paquetes entregados y pagados
+                  Aquí aparecerán tus paquetes en camino y entregados
                 </Text>
               </View>
             ) : (
@@ -2111,11 +2115,41 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         </Text>
                         <Ionicons name="copy-outline" size={13} color="#E87722" style={{ marginLeft: 5 }} />
                       </TouchableOpacity>
-                      <View style={styles.historyDeliveredBadge}>
-                        <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                        <Text style={styles.historyDeliveredText}>Entregado</Text>
-                      </View>
+                      {item.status === 'delivered' ? (
+                        <View style={styles.historyDeliveredBadge}>
+                          <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                          <Text style={styles.historyDeliveredText}>Entregado</Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.historyDeliveredBadge, { backgroundColor: '#FFF3E8' }]}>
+                          <Ionicons name="cube-outline" size={14} color="#E87722" />
+                          <Text style={[styles.historyDeliveredText, { color: '#E87722' }]}>En camino</Text>
+                        </View>
+                      )}
                     </View>
+
+                    {(item as any).national_tracking ? (
+                      <TouchableOpacity
+                        style={styles.historyNationalRow}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          const g = String((item as any).national_tracking || '');
+                          if (!g) return;
+                          Clipboard.setString(g);
+                          if (Platform.OS === 'android') {
+                            ToastAndroid.show('Guía nacional copiada', ToastAndroid.SHORT);
+                          } else {
+                            Alert.alert('Copiado', `Guía nacional ${g} copiada al portapapeles`);
+                          }
+                        }}
+                      >
+                        <Ionicons name="cube-outline" size={13} color="#E87722" />
+                        <Text style={styles.historyNationalText} numberOfLines={1}>
+                          {String((item as any).national_carrier || 'Guía nacional').replace(/_/g, ' ').toUpperCase()}: {(item as any).national_tracking}
+                        </Text>
+                        <Ionicons name="copy-outline" size={12} color="#E87722" style={{ marginLeft: 4 }} />
+                      </TouchableOpacity>
+                    ) : null}
 
                     <Text style={styles.historyDescription} numberOfLines={1}>
                       {item.description || 'Sin descripción'}
@@ -3699,6 +3733,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#888',
     fontStyle: 'italic',
+  },
+  historyNationalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E8',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 6,
+  },
+  historyNationalText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#E87722',
+    marginLeft: 5,
   },
   // 🔍 Estilos para botón de Rastreo
   trackingChip: {
